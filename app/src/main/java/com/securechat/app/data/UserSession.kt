@@ -1,0 +1,44 @@
+package com.securechat.app.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class UserSession @Inject constructor(
+    @ApplicationContext context: Context
+) {
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences("user_session", Context.MODE_PRIVATE)
+
+    var userId: String?
+        get() = prefs.getString("user_id", null)
+        set(value) = prefs.edit().putString("user_id", value).apply()
+
+    var displayName: String?
+        get() = prefs.getString("display_name", null)
+        set(value) = prefs.edit().putString("display_name", value).apply()
+
+    var phoneNumber: String?
+        get() = prefs.getString("phone_number", null)
+        set(value) = prefs.edit().putString("phone_number", value).apply()
+
+    var profilePhotoUri: String?
+        get() = prefs.getString("profile_photo_uri", null)
+        set(value) = prefs.edit().putString("profile_photo_uri", value).apply()
+
+    val isLoggedIn: Boolean get() = userId != null
+
+    fun login(name: String, phone: String) {
+        // userId = telefon numarasindan olustur (basit ve benzersiz)
+        userId = phone.replace("+", "").replace(" ", "")
+        displayName = name
+        phoneNumber = phone
+    }
+
+    fun logout() {
+        prefs.edit().clear().apply()
+    }
+}

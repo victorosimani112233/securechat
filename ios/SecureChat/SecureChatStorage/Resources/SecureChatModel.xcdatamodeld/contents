@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="21754" systemVersion="22A400" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Message" representedClassName="Message" syncable="YES" codeGenerationType="class">
+        <attribute name="content" optional="NO" attributeType="String"/>
+        <attribute name="contentType" optional="NO" attributeType="String"/>
+        <attribute name="conversationID" optional="NO" attributeType="String"/>
+        <attribute name="id" optional="NO" attributeType="String"/>
+        <attribute name="isOutgoing" optional="NO" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="replyToID" optional="YES" attributeType="String"/>
+        <attribute name="senderID" optional="NO" attributeType="String"/>
+        <attribute name="status" optional="NO" attributeType="String"/>
+        <attribute name="timestamp" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="conversation" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Conversation" inverseName="messages" inverseEntity="Conversation"/>
+    </entity>
+    <entity name="Conversation" representedClassName="Conversation" syncable="YES" codeGenerationType="class">
+        <attribute name="groupMembers" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="NO" attributeType="String"/>
+        <attribute name="isGroup" optional="NO" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="isMuted" optional="NO" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="isPinned" optional="NO" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="lastMessage" optional="YES" attributeType="String"/>
+        <attribute name="lastMessageTimestamp" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="peerID" optional="NO" attributeType="String"/>
+        <attribute name="peerName" optional="NO" attributeType="String"/>
+        <attribute name="peerPhone" optional="NO" attributeType="String"/>
+        <attribute name="unreadCount" optional="NO" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="messages" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Message" inverseName="conversation" inverseEntity="Message"/>
+    </entity>
+    <entity name="Contact" representedClassName="Contact" syncable="YES" codeGenerationType="class">
+        <attribute name="avatarURI" optional="YES" attributeType="String"/>
+        <attribute name="displayName" optional="NO" attributeType="String"/>
+        <attribute name="id" optional="NO" attributeType="String"/>
+        <attribute name="isRegistered" optional="NO" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="lastSeen" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="phoneHash" optional="NO" attributeType="String"/>
+        <attribute name="phoneNumber" optional="NO" attributeType="String"/>
+    </entity>
+    <entity name="PreKey" representedClassName="PreKey" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="record" optional="NO" attributeType="Binary"/>
+    </entity>
+    <entity name="SignedPreKey" representedClassName="SignedPreKey" syncable="YES" codeGenerationType="class">
+        <attribute name="createdAt" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="id" optional="NO" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="record" optional="NO" attributeType="Binary"/>
+    </entity>
+    <entity name="Session" representedClassName="Session" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="String"/>
+        <attribute name="record" optional="NO" attributeType="Binary"/>
+    </entity>
+    <entity name="Identity" representedClassName="Identity" syncable="YES" codeGenerationType="class">
+        <attribute name="addressName" optional="NO" attributeType="String"/>
+        <attribute name="identityKey" optional="NO" attributeType="Binary"/>
+        <attribute name="trustLevel" optional="NO" attributeType="String"/>
+    </entity>
+    <entity name="KeyValue" representedClassName="KeyValue" syncable="YES" codeGenerationType="class">
+        <attribute name="key" optional="NO" attributeType="String"/>
+        <attribute name="value" optional="NO" attributeType="String"/>
+    </entity>
+    <elements>
+        <element name="Message" positionX="-63" positionY="-18" width="128" height="209"/>
+        <element name="Conversation" positionX="-54" positionY="-9" width="128" height="239"/>
+        <element name="Contact" positionX="-36" positionY="9" width="128" height="164"/>
+        <element name="PreKey" positionX="-18" positionY="27" width="128" height="89"/>
+        <element name="SignedPreKey" positionX="0" positionY="45" width="128" height="104"/>
+        <element name="Session" positionX="18" positionY="63" width="128" height="89"/>
+        <element name="Identity" positionX="36" positionY="81" width="128" height="104"/>
+        <element name="KeyValue" positionX="54" positionY="99" width="128" height="89"/>
+    </elements>
+</model>

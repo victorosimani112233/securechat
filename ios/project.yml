@@ -1,0 +1,92 @@
+name: SecureChatApp
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  PRODUCT_NAME: SecureChatApp
+  PRODUCT_BUNDLE_IDENTIFIER: com.securechat.app
+  MARKETING_VERSION: 1.0
+  CURRENT_PROJECT_VERSION: 1
+  DEVELOPMENT_LANGUAGE: en
+  IPHONEOS_DEPLOYMENT_TARGET: 15.0
+  TARGETED_DEVICE_FAMILY: 1,2
+  SWIFT_VERSION: 5.9
+
+packages:
+  SecureChatLocalPackage:
+    path: .
+  SignalProtocolKit:
+    url: https://github.com/signalapp/SignalProtocolKit
+    from: 1.0.0
+  SQLite:
+    url: https://github.com/stephencelis/SQLite.swift
+    from: 0.15.3
+  Alamofire:
+    url: https://github.com/Alamofire/Alamofire
+    from: 5.8.0
+  Starscream:
+    url: https://github.com/daltoniam/Starscream
+    from: 4.0.4
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    from: 118.0.0
+
+targets:
+  SecureChatApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: SecureChatApp/SecureChatApp
+        excludes:
+          - "**/*.md"
+    resources:
+      - SecureChatApp/SecureChatApp/Assets.xcassets
+      - SecureChatApp/Preview Content
+    info:
+      path: SecureChatApp/SecureChatApp/Info.plist
+    dependencies:
+      - package: SecureChatLocalPackage
+        product: SecureChat
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.securechat.app
+      PRODUCT_NAME: SecureChatApp
+      INFOPLIST_FILE: SecureChatApp/SecureChatApp/Info.plist
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      CODE_SIGNING_ALLOWED: false
+      CODE_SIGN_IDENTITY: ""
+      PROVISIONING_PROFILE_SPECIFIER: ""
+      DEVELOPMENT_TEAM: ""
+    preBuildScripts:
+      - name: "Swift Package Manager"
+        script: |
+          # SPM dependencies will be resolved automatically by Xcode
+          echo "Resolving Swift Package Manager dependencies..."
+    postBuildScripts:
+      - name: "Post Build"
+        script: |
+          echo "Build completed successfully"
+
+schemes:
+  SecureChatApp:
+    build:
+      targets:
+        SecureChatApp: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "-com.apple.CoreData.SQLDebug": 1
+      environmentVariables:
+        OS_ACTIVITY_MODE: disable
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - SecureChatApp
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

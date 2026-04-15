@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ELÇİM</string>
+
+    <!-- Group Info Screen -->
+    <string name="group_info">Grup Bilgileri</string>
+    <string name="group_settings">Grup Ayarları</string>
+    <string name="add_member">Üye Ekle</string>
+    <string name="members_count">Üyeler (%1$d)</string>
+    <string name="loading">Yükleniyor...</string>
+    <string name="admin">Admin</string>
+    <string name="you">Sen</string>
+    <string name="remove_member">Üyeyi Çıkar</string>
+    <string name="remove_from_group">Gruptan Çıkar</string>
+
+    <!-- Dialogs -->
+    <string name="edit_group_name">Grup Adını Düzenle</string>
+    <string name="group_name">Grup Adı</string>
+    <string name="save">Kaydet</string>
+    <string name="cancel">İptal</string>
+    <string name="add_new_member">Yeni Üye Ekle</string>
+    <string name="user_id">Kullanıcı ID</string>
+    <string name="add">Ekle</string>
+    <string name="remove_member_confirm">Üyeyi Çıkar</string>
+    <string name="remove_member_message">%1$s kullanıcısını gruptan çıkarmak istediğinizden emin misiniz?</string>
+    <string name="remove">Çıkar</string>
+
+    <!-- Chat Screen -->
+    <string name="view_info">Bilgileri Gör</string>
+</resources>

@@ -1,0 +1,65 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.apk
+*.aab
+*.dex
+*.class
+*.log
+*.tmp
+*.bak
+*.swp
+gen/
+out/
+.navigation/
+*.hprof
+
+# iOS / Xcode
+ios/build/
+ios/DerivedData/
+ios/Pods/
+ios/dist/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+.build/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+*.app.dSYM
+
+# Android/Gradle — tüm modüllerde
+**/build/
+**/.gradle/
+**/local.properties
+**/*.apk
+**/*.aab
+**/.cxx/
+**/captures/
+
+# Büyük bulk dosyalar
+SecureChat_Offline_*
+build-tools-win.zip
+*.zip
+*.tar.gz
+securechat.db
+
+# iOS/Xcode
+ios/build/
+ios/DerivedData/
+ios/Pods/
+**/*.xcuserstate
+**/xcuserdata/
+
+# Python/Node cache etc
+__pycache__/
+*.pyc
+.venv/
+node_modules/

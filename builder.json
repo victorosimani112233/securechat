@@ -1,0 +1,18 @@
+{
+  "project": "securechat",
+  "platform": "ios",
+  "github": {
+    "owner": "finnragnar7",
+    "repo": "secchat"
+  },
+  "ios": {
+    "path": "ios",
+    "scheme": "SecureChatApp",
+    "project": "SecureChatApp.xcodeproj"
+  },
+  "flutter": {
+    "watch": {}
+  },
+  "reactNative": {},
+  "mobai": {}
+}
