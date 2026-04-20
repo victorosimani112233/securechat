@@ -22,6 +22,9 @@ interface MessageRepository {
     /** Mesaj durumunu guncelle. */
     suspend fun updateMessageStatus(messageId: String, status: MessageStatus)
 
+    /** Belirli bir mesaji ID'sine gore getir. */
+    suspend fun getMessageById(messageId: String): LocalMessage?
+
     /** Konuşmayi okundu olarak isaretle. */
     suspend fun markConversationAsRead(conversationId: String)
 

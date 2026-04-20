@@ -56,8 +56,19 @@ class ContactsViewModel @Inject constructor(
     val manualUserId: StateFlow<String> = _manualUserId.asStateFlow()
 
     private val _phoneContacts = MutableStateFlow<List<DeviceContact>>(emptyList())
-    /** Cihaz rehberinden okunan telefon kisileri. Izin verildikten sonra yuklenir. */
-    val phoneContacts: StateFlow<List<DeviceContact>> = _phoneContacts.asStateFlow()
+    /** Cihaz rehberinden okunan telefon kisileri — arama sorgusuna gore filtrelenir. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val phoneContacts: StateFlow<List<DeviceContact>> = _searchQuery
+        .flatMapLatest { query ->
+            _phoneContacts.map { contacts ->
+                if (query.isBlank()) contacts
+                else contacts.filter {
+                    it.displayName.contains(query, ignoreCase = true) ||
+                        it.phoneNumber.contains(query, ignoreCase = true)
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         // Contacts ekrandayken current chat'i "contacts" olarak set et

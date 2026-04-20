@@ -28,7 +28,7 @@ object NetworkModule {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.SECONDS)   // WebSocket icin timeout yok — ping/pong kontrol eder
             .writeTimeout(15, TimeUnit.SECONDS)
-            .pingInterval(20, TimeUnit.SECONDS)  // 20 saniyede bir ping — kopmayi hizli algila
+            .pingInterval(30, TimeUnit.SECONDS)  // 30 saniyede bir ping — baglanti canliligini kontrol et
             .retryOnConnectionFailure(true)
             .build()
     }

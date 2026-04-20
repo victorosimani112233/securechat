@@ -21,5 +21,11 @@ enum class CallAction {
     HANGUP,
 
     /** Kullanici baska bir aramada mesgul. */
-    BUSY
+    BUSY,
+
+    /** Karsi taraf kamerasini kapatti. */
+    CAMERA_OFF,
+
+    /** Karsi taraf kamerasini acti. */
+    CAMERA_ON
 }

@@ -2,6 +2,7 @@ package com.securechat.app.ui.screen
 
 import android.content.Intent
 import android.media.RingtoneManager
+import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -64,7 +66,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -102,6 +108,7 @@ fun ChatInfoScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val disappearingDuration by viewModel.disappearingDuration.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     var currentTab by remember { mutableStateOf(ChatInfoTab.MAIN) }
     var searchQuery by remember { mutableStateOf("") }
     var showNoteDialog by remember { mutableStateOf(false) }
@@ -224,6 +231,14 @@ fun ChatInfoScreen(
                             }
                         }
                         ringtoneLauncher.launch(intent)
+                    },
+                    onAddContactClick = {
+                        val addContactIntent = Intent(ContactsContract.Intents.Insert.ACTION).apply {
+                            type = ContactsContract.RawContacts.CONTENT_TYPE
+                            putExtra(ContactsContract.Intents.Insert.NAME, conversationName)
+                            putExtra(ContactsContract.Intents.Insert.PHONE, phoneNumber)
+                        }
+                        context.startActivity(addContactIntent)
                     }
                 )
             }
@@ -336,7 +351,8 @@ private fun MainInfoContent(
     onDocumentsClick: () -> Unit,
     onNoteClick: () -> Unit,
     onDisappearingClick: () -> Unit,
-    onNotificationClick: () -> Unit
+    onNotificationClick: () -> Unit,
+    onAddContactClick: () -> Unit = {}
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -441,6 +457,20 @@ private fun MainInfoContent(
             )
         }
 
+        // Rehbere ekle — sadece kişi sohbetlerinde gösterilir
+        if (!isGroup && phoneNumber.isNotBlank()) {
+            item { SectionDivider() }
+            item {
+                InfoMenuItem(
+                    icon = Icons.Default.PersonAdd,
+                    iconTint = Color(0xFF26A69A),
+                    title = "Rehbere Ekle",
+                    subtitle = "Bu kişiyi telefon rehberine ekle",
+                    onClick = onAddContactClick
+                )
+            }
+        }
+
         item { Spacer(modifier = Modifier.height(32.dp)) }
     }
 }
@@ -496,14 +526,31 @@ private fun ProfileHeader(
             textAlign = TextAlign.Center
         )
 
-        // Telefon numarası
+        // Telefon numarası — uzun basarak kopyalanabilir
         if (!isGroup && phoneNumber.isNotBlank()) {
             Spacer(modifier = Modifier.height(4.dp))
+            val clipboardManager = LocalClipboardManager.current
+            val context = LocalContext.current
+            @OptIn(ExperimentalFoundationApi::class)
             Text(
                 text = formatPhoneDisplay(phoneNumber),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.combinedClickable(
+                    onClick = { },
+                    onLongClick = {
+                        clipboardManager.setText(AnnotatedString(phoneNumber))
+                        android.widget.Toast.makeText(context, "Numara kopyalandı", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                )
+            )
+            Text(
+                text = "Kopyalamak için uzun basın",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                textAlign = TextAlign.Center,
+                fontSize = 10.sp
             )
         }
     }

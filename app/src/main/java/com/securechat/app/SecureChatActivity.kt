@@ -27,7 +27,11 @@ import com.securechat.media.CallManager
 import com.securechat.media.model.CallDirection
 import com.securechat.media.model.CallState
 import com.securechat.network.SignalingClient
+import com.securechat.network.model.ConnectionState
 import dagger.hilt.android.AndroidEntryPoint
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -37,6 +41,8 @@ class SecureChatActivity : ComponentActivity() {
     @Inject lateinit var signalingClient: SignalingClient
     @Inject lateinit var callManager: CallManager
     @Inject lateinit var themeManager: com.securechat.app.ui.components.ThemeManager
+
+    private var presenceJob: Job? = null
 
     private val pendingChatPeerId = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     private val pendingCallNavigation = kotlinx.coroutines.flow.MutableStateFlow<Pair<String, String>?>(null)
@@ -211,15 +217,29 @@ class SecureChatActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         IncomingMessageHandler.isAppInForeground = true
-        // Foreground service'e app durumunu bildir
         MessagingService.updateAppState(true)
+        // Uygulama on plana gelince cevrimici bildir
+        // WebSocket bagli degilse, baglaninca gonder
+        val uid = userSession.userId ?: return
+        presenceJob?.cancel()
+        presenceJob = lifecycleScope.launch {
+            signalingClient.connectionState.collect { state ->
+                if (state is ConnectionState.Connected) {
+                    signalingClient.sendPresenceUpdate(uid, true)
+                }
+            }
+        }
     }
 
     override fun onPause() {
         super.onPause()
         IncomingMessageHandler.isAppInForeground = false
-        // Foreground service'e app durumunu bildir
         MessagingService.updateAppState(false)
+        // Presence dinlemeyi iptal et — arka planda reconnect olursa online gonderilmesin
+        presenceJob?.cancel()
+        presenceJob = null
+        // Uygulama arka plana gidince cevrimdisi bildir
+        userSession.userId?.let { signalingClient.sendPresenceUpdate(it, false) }
     }
 
     /**

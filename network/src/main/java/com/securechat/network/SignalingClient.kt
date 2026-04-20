@@ -60,60 +60,69 @@ class SignalingClient @Inject constructor(
 
     private var webSocket: WebSocket? = null
     private var reconnectJob: Job? = null
+    private val reconnectScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var currentUserId: String? = null
     private var currentAuthToken: String? = null
+    /** Yeniden baglanti sirasinda ayni anda birden fazla connect() cagrilmasini onler */
+    private var isConnecting = false
+
+    /** Baglanti kopunca cagirilir — presence state'lerini sifirlamak icin */
+    var onConnectionLostListener: (() -> Unit)? = null
+
+    /** Baglanti (yeniden) kurulunca cagirilir — foreground durumuna gore presence gondermek icin */
+    var onConnectedListener: (() -> Unit)? = null
 
     /**
      * Signaling sunucusuna WebSocket baglantisi kurar.
+     * Mevcut baglanti varsa once kapatir (duplicate baglanti onlemi).
      *
      * @param userId Baglanan kullanicinin ID'si
      * @param authToken Yetkilendirme token'i (Bearer)
      * @param customUrl Opsiyonel custom URL, null ise injected URL kullanılır
      */
+    @Synchronized
     fun connect(userId: String, authToken: String, customUrl: String? = null) {
-        Log.d("SecureChat", "=== SignalingClient.connect() CALLED ===")
-        Log.d("SecureChat", "  - userId: $userId")
-        Log.d("SecureChat", "  - authToken: $authToken")
-        Log.d("SecureChat", "  - customUrl: $customUrl")
-        Log.d("SecureChat", "  - injected signalingUrl: $signalingUrl")
+        // Zaten baglaniyorsak veya bagliyysak tekrar deneme
+        if (isConnecting) {
+            Log.d("SecureChat", "connect() skipped — already connecting")
+            return
+        }
+        if (_connectionState.value is ConnectionState.Connected && webSocket != null) {
+            Log.d("SecureChat", "connect() skipped — already connected")
+            return
+        }
+
+        isConnecting = true
+        Log.d("SecureChat", "=== SignalingClient.connect() ===")
+        Log.d("SecureChat", "  userId=$userId, url=${customUrl ?: signalingUrl}")
 
         val url = customUrl ?: signalingUrl
-        Log.d("SecureChat", "  - final URL (base): $url")
+
+        // Onceki WebSocket'i temizle (duplicate baglanti onlemi)
+        webSocket?.cancel()
+        webSocket = null
 
         currentUserId = userId
         currentAuthToken = authToken
         _connectionState.value = ConnectionState.Connecting
-        Log.d("SecureChat", "Connection state set to: Connecting")
 
         val finalUrl = "$url/ws?userId=$userId"
-        Log.d("SecureChat", "  - finalUrl (with path): $finalUrl")
 
         val request = Request.Builder()
             .url(finalUrl)
             .addHeader("Authorization", "Bearer $authToken")
             .build()
 
-        Log.d("SecureChat", "Creating WebSocket connection to: $finalUrl")
-        Log.d("SecureChat", "Request headers:")
-        for ((name, value) in request.headers) {
-            Log.d("SecureChat", "  - $name: $value")
-        }
-
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("SecureChat", "✅ WebSocket CONNECTED successfully!")
-                Log.d("SecureChat", "  - Response code: ${response.code}")
-                Log.d("SecureChat", "  - Response message: ${response.message}")
-                Log.d("SecureChat", "Response headers:")
-                for ((name, value) in response.headers) {
-                    Log.d("SecureChat", "  - $name: $value")
-                }
+                Log.d("SecureChat", "✅ WebSocket CONNECTED (code=${response.code})")
+                isConnecting = false
                 _connectionState.value = ConnectionState.Connected
                 reconnectJob?.cancel()
+                onConnectedListener?.invoke()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d("SecureChat", "📨 WebSocket message received: ${text.take(100)}...")
                 try {
                     val signal = json.decodeFromString<SignalMessage>(text)
                     _incomingSignals.tryEmit(signal)
@@ -123,28 +132,18 @@ class SignalingClient @Inject constructor(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("SecureChat", "❌ WebSocket CONNECTION FAILED!")
-                Log.e("SecureChat", "  - Error type: ${t.javaClass.simpleName}")
-                Log.e("SecureChat", "  - Error message: ${t.message}")
-                Log.e("SecureChat", "  - Stack trace: ${t.stackTraceToString()}")
-                if (response != null) {
-                    Log.e("SecureChat", "  - Response code: ${response.code}")
-                    Log.e("SecureChat", "  - Response message: ${response.message}")
-                    Log.e("SecureChat", "Response headers:")
-                    for ((name, value) in response.headers) {
-                        Log.e("SecureChat", "  - $name: $value")
-                    }
-                } else {
-                    Log.e("SecureChat", "  - No HTTP response received (connection failed before HTTP handshake)")
-                }
+                Log.e("SecureChat", "❌ WebSocket FAILED: ${t.javaClass.simpleName} — ${t.message}")
+                isConnecting = false
                 _connectionState.value = ConnectionState.Error(t)
+                onConnectionLostListener?.invoke()
                 scheduleReconnect(url)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.w("SecureChat", "❌ WebSocket connection closed")
-                Log.w("SecureChat", "  - Code: $code, Reason: $reason")
+                Log.w("SecureChat", "❌ WebSocket closed (code=$code, reason=$reason)")
+                isConnecting = false
                 _connectionState.value = ConnectionState.Disconnected
+                onConnectionLostListener?.invoke()
                 // Kullanici disconnect() cagirmadiysa yeniden baglan
                 if (currentUserId != null) {
                     scheduleReconnect(url)
@@ -152,8 +151,7 @@ class SignalingClient @Inject constructor(
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.w("SecureChat", "⚠️ WebSocket connection closing...")
-                Log.w("SecureChat", "  - Code: $code, Reason: $reason")
+                Log.w("SecureChat", "⚠️ WebSocket closing (code=$code)")
             }
         })
     }
@@ -170,22 +168,27 @@ class SignalingClient @Inject constructor(
     }
 
     /**
-     * Baglanti koptuğunda exponential backoff ile yeniden baglanti dener.
-     * Baslangic gecikmesi 1 saniye, maksimum 30 saniye.
+     * Baglanti koptuğunda exponential backoff + jitter ile yeniden baglanti dener.
+     * Baslangic gecikmesi 2 saniye, maksimum 30 saniye.
+     * Tek scope kullanir — her cagride onceki job iptal edilir (scope leak onlemi).
      */
     private fun scheduleReconnect(url: String) {
         reconnectJob?.cancel()
         val userId = currentUserId ?: return
         val authToken = currentAuthToken ?: return
-        reconnectJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        reconnectJob = reconnectScope.launch {
             var currentDelay = INITIAL_RECONNECT_DELAY_MS
             while (isActive && _connectionState.value !is ConnectionState.Connected) {
-                delay(currentDelay)
+                // Jitter ekle — ayni anda birden fazla client'in reconnect etmesini onle
+                val jitter = (currentDelay * 0.2 * Math.random()).toLong()
+                delay(currentDelay + jitter)
+                // Baglanti zaten kurulduysa (baska bir yerden) cik
+                if (_connectionState.value is ConnectionState.Connected) break
                 try {
                     connect(userId, authToken, url)
-                } catch (_: Exception) {
-                    // Baglanti denemesi basarisiz — bir sonraki denemede tekrar dene
-                }
+                } catch (_: Exception) { }
+                // Baglanti basariliysa dongu zaten sonlanir (Connected check)
+                // Degilse backoff artir
                 currentDelay = (currentDelay * 2).coerceAtMost(MAX_RECONNECT_DELAY_MS)
             }
         }
@@ -197,9 +200,15 @@ class SignalingClient @Inject constructor(
     fun disconnect() {
         reconnectJob?.cancel()
         reconnectJob = null
+        isConnecting = false
+        // Kapanmadan once offline presence gonder
+        currentUserId?.let { uid ->
+            sendPresenceUpdate(uid, false)
+        }
         webSocket?.close(NORMAL_CLOSURE_CODE, "Client disconnect")
         webSocket = null
         _connectionState.value = ConnectionState.Disconnected
+        onConnectionLostListener?.invoke()
         currentUserId = null
         currentAuthToken = null
     }
@@ -232,8 +241,12 @@ class SignalingClient @Inject constructor(
 
         if (userId != null && authToken != null) {
             Log.w("SecureChat", "🔄 Manual connection retry initiated")
-            disconnect() // Mevcut bağlantıyı temizle
-            connect(userId, authToken, signalingUrl) // Yeniden bağlan
+            reconnectJob?.cancel()
+            isConnecting = false
+            webSocket?.cancel()
+            webSocket = null
+            _connectionState.value = ConnectionState.Disconnected
+            connect(userId, authToken, signalingUrl)
         } else {
             Log.w("SecureChat", "❌ Cannot retry connection: missing credentials")
         }
@@ -272,9 +285,20 @@ class SignalingClient @Inject constructor(
         Log.e("SecureChat", "❌ All connection attempts failed")
     }
 
+    fun sendPresenceUpdate(userId: String, isOnline: Boolean) {
+        val signal = SignalMessage.PresenceUpdate(
+            senderId = userId,
+            recipientId = "broadcast",
+            timestamp = System.currentTimeMillis(),
+            isOnline = isOnline,
+            lastSeen = System.currentTimeMillis()
+        )
+        sendSignal(signal)
+    }
+
     companion object {
         private const val NORMAL_CLOSURE_CODE = 1000
-        private const val INITIAL_RECONNECT_DELAY_MS = 1000L
+        private const val INITIAL_RECONNECT_DELAY_MS = 2000L
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
     }
 }

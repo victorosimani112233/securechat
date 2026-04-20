@@ -25,7 +25,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -266,23 +265,20 @@ class MessagingService : Service() {
 
     /**
      * WebSocket baglantisini izler.
-     * Baglanti koparsa otomatik yeniden baglanir.
+     * SignalingClient kendi reconnect'ini yapar — watchdog sadece uzun sureli
+     * kopukluklarda (60s+) fallback olarak devreye girer.
+     * Bu sayede SignalingClient + watchdog cift baglanti denemesi onlenir.
      */
     private fun startConnectionWatchdog() {
         scope.launch(Dispatchers.IO) {
-            signalingClient.connectionState.collectLatest { state ->
-                if (state is ConnectionState.Disconnected || state is ConnectionState.Error) {
-                    if (userSession.isLoggedIn) {
-                        android.util.Log.d("MessagingService", "Baglanti koptu, yeniden baglaniyor...")
-                        delay(3000)
-                        if (signalingClient.connectionState.value !is ConnectionState.Connected) {
-                            signalingClient.connect(
-                                userId = userSession.userId!!,
-                                authToken = "token_${userSession.userId}",
-                                customUrl = com.securechat.app.BuildConfig.SIGNALING_URL
-                            )
-                        }
-                    }
+            while (true) {
+                delay(60_000) // 60 saniyede bir kontrol
+                val state = signalingClient.connectionState.value
+                if ((state is ConnectionState.Disconnected || state is ConnectionState.Error)
+                    && userSession.isLoggedIn
+                ) {
+                    android.util.Log.d("MessagingService", "Watchdog: baglanti hala kopuk, retryConnection")
+                    signalingClient.retryConnection()
                 }
             }
         }
@@ -325,16 +321,12 @@ class MessagingService : Service() {
             override fun onAvailable(network: Network) {
                 android.util.Log.d("MessagingService", "Network available, checking connection...")
                 scope.launch(Dispatchers.IO) {
-                    delay(1000) // Network stabilize olsun
+                    delay(2000) // Network stabilize olsun
                     if (signalingClient.connectionState.value !is ConnectionState.Connected
                         && userSession.isLoggedIn
                     ) {
                         android.util.Log.d("MessagingService", "Reconnecting after network change...")
-                        signalingClient.connect(
-                            userId = userSession.userId!!,
-                            authToken = "token_${userSession.userId}",
-                            customUrl = com.securechat.app.BuildConfig.SIGNALING_URL
-                        )
+                        signalingClient.retryConnection()
                     }
                 }
             }

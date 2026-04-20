@@ -38,6 +38,14 @@ class SettingsViewModel @Inject constructor(
     val showNotificationContent: StateFlow<Boolean> = themeManager.showNotificationContent
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
+    private val _shareLastSeen = MutableStateFlow(userSession.shareLastSeen)
+    val shareLastSeen: StateFlow<Boolean> = _shareLastSeen.asStateFlow()
+
+    fun setShareLastSeen(share: Boolean) {
+        userSession.shareLastSeen = share
+        _shareLastSeen.value = share
+    }
+
     init {
         IncomingMessageHandler.currentChatId = "settings"
     }

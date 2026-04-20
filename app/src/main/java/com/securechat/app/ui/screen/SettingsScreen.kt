@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -89,6 +91,7 @@ fun SettingsScreen(
     val followSystem by viewModel.followSystemTheme.collectAsStateWithLifecycle()
     val isDark by viewModel.isDarkTheme.collectAsStateWithLifecycle()
     val showNotificationContent by viewModel.showNotificationContent.collectAsStateWithLifecycle()
+    val shareLastSeen by viewModel.shareLastSeen.collectAsStateWithLifecycle()
 
     var showNukeDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -250,6 +253,36 @@ fun SettingsScreen(
 
             SectionDivider()
 
+            // === Gizlilik ===
+            SectionHeader("Gizlilik")
+
+            ListItem(
+                headlineContent = { Text("Son görülme zamanı") },
+                supportingContent = {
+                    Text(
+                        if (shareLastSeen) "Diğer kullanıcılar son görülme zamanınızı görebilir"
+                        else "Son görülme zamanınız gizli"
+                    )
+                },
+                leadingContent = {
+                    Icon(
+                        if (shareLastSeen) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = shareLastSeen,
+                        onCheckedChange = { viewModel.setShareLastSeen(it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary)
+                    )
+                },
+                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background)
+            )
+
+            SectionDivider()
+
             // === Veri Yönetimi ===
             SectionHeader("Veri Yönetimi")
 
@@ -289,18 +322,6 @@ fun SettingsScreen(
             )
 
             SectionDivider()
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Çıkış butonu
-            OutlinedButton(
-                onClick = { /* Çıkış işlemi */ },
-                modifier = Modifier.fillMaxWidth().padding(16.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-                Text("Çıkış Yap", color = MaterialTheme.colorScheme.error)
-            }
 
             Spacer(modifier = Modifier.height(16.dp))
         }

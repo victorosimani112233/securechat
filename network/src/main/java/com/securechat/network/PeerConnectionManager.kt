@@ -239,30 +239,40 @@ class PeerConnectionManager @Inject constructor(
     }
 
     /**
-     * Video yakalamayı sonradan başlatır (sesli arama → görüntülü geçiş).
+     * Video yakalamayi yeniden baslatir.
+     * Eger track hala mevcutsa (disable edilmis), sadece capture baslatip enable eder.
+     * Track yoksa (ilk kez veya tam dispose sonrasi) sifirdan olusturur.
      */
     fun enableVideo() {
+        // Track varsa sadece re-enable et
+        val existingTrack = localVideoTrack
+        if (existingTrack != null) {
+            try {
+                videoCapturer?.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+            } catch (e: Exception) {
+                Log.e(TAG, "Video capture yeniden baslatma hatasi: ${e.message}")
+            }
+            existingTrack.setEnabled(true)
+            _localVideoTrack.value = existingTrack
+            Log.d(TAG, "Video track yeniden etkinlestirildi")
+            return
+        }
+        // Track yoksa sifirdan olustur
         val factory = peerConnectionFactory ?: return
         val pc = peerConnection ?: return
-        if (localVideoTrack != null) return // Zaten aktif
         startLocalVideo(factory, pc)
     }
 
     /**
-     * Video yakalamayı durdurur.
+     * Video yakalamayi durdurur.
+     * Track ve kaynaklar dispose edilmez — sadece capture durdurulur ve track disable edilir.
+     * Bu sayede enableVideo() cagrildiginda hizlica yeniden etkinlestirilebilir.
      */
     fun disableVideo() {
         localVideoTrack?.setEnabled(false)
         try { videoCapturer?.stopCapture() } catch (_: Exception) {}
         _localVideoTrack.value = null
-        localVideoTrack?.dispose()
-        localVideoTrack = null
-        localVideoSource?.dispose()
-        localVideoSource = null
-        videoCapturer?.dispose()
-        videoCapturer = null
-        surfaceTextureHelper?.dispose()
-        surfaceTextureHelper = null
+        Log.d(TAG, "Video capture durduruldu, track disable edildi")
     }
 
     // ---- SDP Yonetimi ----

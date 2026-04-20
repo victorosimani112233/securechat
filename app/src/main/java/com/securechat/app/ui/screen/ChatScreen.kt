@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,6 +13,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
@@ -32,8 +35,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -81,16 +86,24 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -113,6 +126,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -137,12 +151,26 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val conversationInfo by viewModel.conversationInfo.collectAsStateWithLifecycle()
-    var messageText by remember { mutableStateOf("") }
+    var messageText by remember { mutableStateOf(viewModel.getDraft()) }
+    var replyingToMessage by remember { mutableStateOf<LocalMessage?>(null) }
+    // Mesaj iletme (forward) multi-select modu
+    var isForwardSelectMode by remember { mutableStateOf(false) }
+    var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
     val listState = rememberLazyListState()
+
+    // Sohbetten çıkınca taslağı kaydet
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            viewModel.saveDraft(messageText)
+        }
+    }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Yazma göstergesi
     val peerIsTyping by viewModel.peerIsTyping.collectAsStateWithLifecycle()
+
+    // Çevrimiçi durumu
+    val peerPresence by viewModel.peerPresence.collectAsStateWithLifecycle()
 
     // Süreli mesaj state'leri
     val disappearingDuration by viewModel.disappearingDuration.collectAsStateWithLifecycle()
@@ -172,6 +200,15 @@ fun ChatScreen(
     // Yeni mesaj gelince en alta scroll (arama modunda değil)
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty() && !isSearchMode) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    // Klavye açıldığında en alta scroll
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    LaunchedEffect(imeBottom) {
+        if (imeBottom > 0 && messages.isNotEmpty() && !isSearchMode) {
             listState.animateScrollToItem(messages.size - 1)
         }
     }
@@ -221,14 +258,29 @@ fun ChatScreen(
                     }
                 )
             } else {
+                val coroutineScope = rememberCoroutineScope()
                 ChatTopBar(
                     peerName = displayName,
                     isGroup = isGroup,
                     memberCount = conversationInfo?.memberCount ?: 0,
                     peerIsTyping = peerIsTyping,
+                    peerIsOnline = peerPresence?.isOnline ?: false,
+                    peerLastSeen = peerPresence?.lastSeen,
                     onBackClick = onBackClick,
-                    onVoiceCallClick = { onVoiceCallClick(conversationId) },
-                    onVideoCallClick = { onVideoCallClick(conversationId) },
+                    onVoiceCallClick = {
+                        if (isGroup) {
+                            coroutineScope.launch { snackbarHostState.showSnackbar("Grup aramaları henüz desteklenmiyor") }
+                        } else {
+                            onVoiceCallClick(conversationId)
+                        }
+                    },
+                    onVideoCallClick = {
+                        if (isGroup) {
+                            coroutineScope.launch { snackbarHostState.showSnackbar("Grup görüntülü aramaları henüz desteklenmiyor") }
+                        } else {
+                            onVideoCallClick(conversationId)
+                        }
+                    },
                     onSearchClick = { isSearchMode = true },
                     onChatInfoClick = {
                         if (conversationInfo?.isGroup == true) {
@@ -256,6 +308,9 @@ fun ChatScreen(
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.background)
             ) {
+                // WhatsApp tarzı doodle art arka plan deseni
+                DoodleArtBackground()
+
                 if (messages.isEmpty()) {
                     EncryptionInfoBanner(
                         modifier = Modifier
@@ -263,6 +318,10 @@ fun ChatScreen(
                             .padding(32.dp)
                     )
                 }
+
+                // Mesajları tarih gruplarına ve reply map'e memoize et — gereksiz yeniden hesaplamayı önler
+                val groupedMessages = remember(messages) { groupMessagesByDate(messages) }
+                val replyToMap = remember(messages) { messages.associateBy { it.id } }
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -280,33 +339,128 @@ fun ChatScreen(
                         }
                     }
 
-                    val groupedMessages = groupMessagesByDate(messages)
                     groupedMessages.forEach { (dateLabel, dayMessages) ->
                         item(key = "date_$dateLabel") {
                             DateSeparator(dateLabel = dateLabel)
                         }
                         items(dayMessages, key = { it.id }) { message ->
-                            MessageBubble(
-                                message = message,
-                                isGroupChat = isGroup,
-                                memberNames = conversationInfo?.memberNames ?: emptyMap(),
-                                isHighlighted = message.id == highlightedMessageId,
-                                searchQuery = if (isSearchMode) searchQuery else "",
-                                onDeleteMessage = { viewModel.deleteMessage(message.id) },
-                                onDeleteForEveryone = if (message.isOutgoing) {
-                                    { viewModel.deleteMessageForEveryone(message.id) }
-                                } else null,
-                                onToggleStarMessage = { messageId, isStarred ->
-                                    viewModel.toggleMessageStarred(messageId, isStarred)
+                            // Yanıtlanan mesajı O(1) ile bul
+                            val replyToMsg = if (message.replyToId != null) {
+                                replyToMap[message.replyToId]
+                            } else null
+
+                            if (isForwardSelectMode) {
+                                // İletme seçim modu — checkbox ile
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    androidx.compose.material3.Checkbox(
+                                        checked = message.id in selectedMessageIds,
+                                        onCheckedChange = { checked ->
+                                            selectedMessageIds = if (checked) {
+                                                selectedMessageIds + message.id
+                                            } else {
+                                                selectedMessageIds - message.id
+                                            }
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        MessageBubble(
+                                            message = message,
+                                            isGroupChat = isGroup,
+                                            memberNames = conversationInfo?.memberNames ?: emptyMap(),
+                                            replyToMessage = replyToMsg
+                                        )
+                                    }
                                 }
-                            )
+                            } else {
+                                SwipeableMessageBubble(
+                                    onSwipeReply = { replyingToMessage = message }
+                                ) {
+                                    MessageBubble(
+                                        message = message,
+                                        isGroupChat = isGroup,
+                                        memberNames = conversationInfo?.memberNames ?: emptyMap(),
+                                        isHighlighted = message.id == highlightedMessageId,
+                                        searchQuery = if (isSearchMode) searchQuery else "",
+                                        replyToMessage = replyToMsg,
+                                        onDeleteMessage = { viewModel.deleteMessage(message.id) },
+                                        onDeleteForEveryone = if (message.isOutgoing) {
+                                            { viewModel.deleteMessageForEveryone(message.id) }
+                                        } else null,
+                                        onToggleStarMessage = { messageId, isStarred ->
+                                            viewModel.toggleMessageStarred(messageId, isStarred)
+                                        },
+                                        onForwardMessage = {
+                                            isForwardSelectMode = true
+                                            selectedMessageIds = setOf(message.id)
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // Mesaj giriş çubuğu
-            MessageInputBar(
+            if (isForwardSelectMode) {
+                // İletme modu aksiyon çubuğu
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {
+                            isForwardSelectMode = false
+                            selectedMessageIds = emptySet()
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "İptal")
+                        }
+                        Text(
+                            text = "${selectedMessageIds.size} mesaj seçildi",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        IconButton(
+                            onClick = {
+                                // Seçili mesajları ilet — kişi seçim ekranı açılacak
+                                val selectedMsgs = messages.filter { it.id in selectedMessageIds }
+                                val forwardText = selectedMsgs.joinToString("\n") { it.content }
+                                viewModel.sendMessage(forwardText)
+                                isForwardSelectMode = false
+                                selectedMessageIds = emptySet()
+                            },
+                            enabled = selectedMessageIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "İlet",
+                                tint = if (selectedMessageIds.isNotEmpty())
+                                    MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Yanıtlama önizlemesi
+                replyingToMessage?.let { replyMsg ->
+                    ReplyPreview(
+                        message = replyMsg,
+                        onDismiss = { replyingToMessage = null }
+                    )
+                }
+
+                // Mesaj giriş çubuğu
+                MessageInputBar(
                 text = messageText,
                 onTextChange = {
                     messageText = it
@@ -314,8 +468,9 @@ fun ChatScreen(
                 },
                 onSend = {
                     if (messageText.isNotBlank()) {
-                        viewModel.sendMessage(messageText.trim())
+                        viewModel.sendMessage(messageText.trim(), replyingToMessage?.id)
                         messageText = ""
+                        replyingToMessage = null
                         viewModel.updateTypingState(false)
                     }
                 },
@@ -323,8 +478,193 @@ fun ChatScreen(
                     filePickerLauncher.launch(arrayOf("*/*"))
                 }
             )
+            }
         }
     }
+}
+
+/**
+ * WhatsApp tarzı doodle art arka plan deseni.
+ * Sohbet alanında tekrarlanan küçük ikonlar (kilit, mesaj baloncuğu, kalp, yıldız, telefon vb.)
+ * çok düşük opaklıkta çizilerek profesyonel ve zarif bir görünüm sağlar.
+ * Midnight Teal temasına uyumlu mavi tonlu desen kullanır.
+ */
+@Composable
+private fun DoodleArtBackground() {
+    val doodleColor = Color(0xFF4ECDC4).copy(alpha = 0.10f)
+    val doodleColor2 = Color(0xFF2979FF).copy(alpha = 0.08f)
+    val cellSize = 68f
+    // Statik desen — animasyon kaldirildi, performans icin
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val cols = (size.width / cellSize).toInt() + 2
+        val rows = (size.height / cellSize).toInt() + 2
+        for (row in -1..rows) {
+            for (col in -1..cols) {
+                val x = col * cellSize + (if (row % 2 == 1) cellSize / 2 else 0f)
+                val y = row * cellSize
+                val iconIndex = (abs(row) * 7 + abs(col) * 3) % 8
+                val color = if ((row + col) % 2 == 0) doodleColor else doodleColor2
+                translate(left = x, top = y) {
+                    when (iconIndex) {
+                        0 -> drawLockIcon(color)
+                        1 -> drawChatBubbleIcon(color)
+                        2 -> drawHeartIcon(color)
+                        3 -> drawStarIcon(color)
+                        4 -> drawPhoneIcon(color)
+                        5 -> drawShieldIcon(color)
+                        6 -> drawKeyIcon(color)
+                        7 -> drawSmileIcon(color)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- Doodle ikon çizim fonksiyonları ---
+
+/** Kilit ikonu — güvenlik teması */
+private fun DrawScope.drawLockIcon(color: Color) {
+    val s = 18f
+    val stroke = Stroke(width = 1.6f)
+    // Kilit gövdesi
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(-s / 2, -s / 6),
+        size = Size(s, s * 0.65f),
+        cornerRadius = CornerRadius(2f, 2f),
+        style = stroke
+    )
+    // Kilit halkası
+    val arcPath = Path().apply {
+        moveTo(-s * 0.3f, -s / 6)
+        cubicTo(-s * 0.3f, -s * 0.7f, s * 0.3f, -s * 0.7f, s * 0.3f, -s / 6)
+    }
+    drawPath(arcPath, color = color, style = stroke)
+}
+
+/** Mesaj baloncuğu ikonu */
+private fun DrawScope.drawChatBubbleIcon(color: Color) {
+    val s = 18f
+    val stroke = Stroke(width = 1.6f)
+    val path = Path().apply {
+        moveTo(-s / 2, -s / 3)
+        lineTo(s / 2, -s / 3)
+        lineTo(s / 2, s / 5)
+        lineTo(s / 6, s / 5)
+        lineTo(-s / 6, s / 2)
+        lineTo(-s / 6, s / 5)
+        lineTo(-s / 2, s / 5)
+        close()
+    }
+    drawPath(path, color = color, style = stroke)
+}
+
+/** Kalp ikonu */
+private fun DrawScope.drawHeartIcon(color: Color) {
+    val s = 14f
+    val stroke = Stroke(width = 1.6f)
+    val path = Path().apply {
+        moveTo(0f, s * 0.35f)
+        cubicTo(-s * 0.5f, -s * 0.1f, -s * 0.5f, -s * 0.5f, 0f, -s * 0.2f)
+        cubicTo(s * 0.5f, -s * 0.5f, s * 0.5f, -s * 0.1f, 0f, s * 0.35f)
+    }
+    drawPath(path, color = color, style = stroke)
+}
+
+/** Yıldız ikonu — beş köşeli */
+private fun DrawScope.drawStarIcon(color: Color) {
+    val s = 10f
+    val stroke = Stroke(width = 1.6f)
+    val path = Path().apply {
+        val points = 5
+        for (i in 0 until points * 2) {
+            val radius = if (i % 2 == 0) s else s * 0.45f
+            val angle = Math.toRadians((i * 36.0 - 90.0)).toFloat()
+            val px = radius * kotlin.math.cos(angle)
+            val py = radius * kotlin.math.sin(angle)
+            if (i == 0) moveTo(px, py) else lineTo(px, py)
+        }
+        close()
+    }
+    drawPath(path, color = color, style = stroke)
+}
+
+/** Telefon ikonu — basit dikdörtgen + hoparlör */
+private fun DrawScope.drawPhoneIcon(color: Color) {
+    val s = 16f
+    val stroke = Stroke(width = 1.6f)
+    // Telefon gövdesi
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(-s * 0.28f, -s / 2),
+        size = Size(s * 0.56f, s),
+        cornerRadius = CornerRadius(3f, 3f),
+        style = stroke
+    )
+    // Ekran
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(-s * 0.18f, -s * 0.35f),
+        size = Size(s * 0.36f, s * 0.55f),
+        cornerRadius = CornerRadius(1f, 1f),
+        style = stroke
+    )
+    // Home butonu
+    drawCircle(color = color, radius = 1.5f, center = Offset(0f, s * 0.38f), style = stroke)
+}
+
+/** Kalkan ikonu — güvenlik teması */
+private fun DrawScope.drawShieldIcon(color: Color) {
+    val s = 16f
+    val stroke = Stroke(width = 1.6f)
+    val path = Path().apply {
+        moveTo(0f, -s / 2)
+        lineTo(s * 0.4f, -s * 0.3f)
+        lineTo(s * 0.4f, s * 0.05f)
+        cubicTo(s * 0.4f, s * 0.35f, 0f, s / 2, 0f, s / 2)
+        cubicTo(0f, s / 2, -s * 0.4f, s * 0.35f, -s * 0.4f, s * 0.05f)
+        lineTo(-s * 0.4f, -s * 0.3f)
+        close()
+    }
+    drawPath(path, color = color, style = stroke)
+    // İçine küçük onay işareti
+    val check = Path().apply {
+        moveTo(-s * 0.12f, s * 0.02f)
+        lineTo(-s * 0.02f, s * 0.12f)
+        lineTo(s * 0.15f, -s * 0.1f)
+    }
+    drawPath(check, color = color, style = Stroke(width = 1.3f))
+}
+
+/** Anahtar ikonu */
+private fun DrawScope.drawKeyIcon(color: Color) {
+    val s = 16f
+    val stroke = Stroke(width = 1.6f)
+    // Anahtar halkası
+    drawCircle(color = color, radius = s * 0.22f, center = Offset(-s * 0.2f, 0f), style = stroke)
+    // Anahtar gövdesi
+    drawLine(color = color, start = Offset(0f, 0f), end = Offset(s * 0.4f, 0f), strokeWidth = 1.6f)
+    // Anahtar dişleri
+    drawLine(color = color, start = Offset(s * 0.25f, 0f), end = Offset(s * 0.25f, s * 0.12f), strokeWidth = 1.6f)
+    drawLine(color = color, start = Offset(s * 0.35f, 0f), end = Offset(s * 0.35f, s * 0.12f), strokeWidth = 1.6f)
+}
+
+/** Gülen yüz ikonu */
+private fun DrawScope.drawSmileIcon(color: Color) {
+    val s = 16f
+    val stroke = Stroke(width = 1.6f)
+    // Yüz
+    drawCircle(color = color, radius = s * 0.4f, center = Offset(0f, 0f), style = stroke)
+    // Gözler
+    drawCircle(color = color, radius = 1.2f, center = Offset(-s * 0.14f, -s * 0.08f))
+    drawCircle(color = color, radius = 1.2f, center = Offset(s * 0.14f, -s * 0.08f))
+    // Gülümseme
+    val smile = Path().apply {
+        moveTo(-s * 0.16f, s * 0.08f)
+        cubicTo(-s * 0.08f, s * 0.22f, s * 0.08f, s * 0.22f, s * 0.16f, s * 0.08f)
+    }
+    drawPath(smile, color = color, style = Stroke(width = 1.3f))
 }
 
 /**
@@ -602,6 +942,30 @@ private fun isSameWeek(cal1: Calendar, cal2: Calendar): Boolean {
 }
 
 /**
+ * Son görülme zamanını kullanıcı dostu formata çevirir.
+ * "az önce", "bugün HH:mm", "dün HH:mm" veya "d MMM HH:mm" formatında döner.
+ */
+private fun formatLastSeen(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    val cal = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val nowCal = Calendar.getInstance()
+    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+    return when {
+        diff < 60_000 -> "Son görülme: az önce"
+        cal.get(Calendar.DAY_OF_YEAR) == nowCal.get(Calendar.DAY_OF_YEAR)
+            && cal.get(Calendar.YEAR) == nowCal.get(Calendar.YEAR) ->
+            "Son görülme: bugün ${sdf.format(Date(timestamp))}"
+        diff < 86_400_000 * 2 -> "Son görülme: dün ${sdf.format(Date(timestamp))}"
+        else -> {
+            val dateSdf = SimpleDateFormat("d MMM HH:mm", Locale("tr"))
+            "Son görülme: ${dateSdf.format(Date(timestamp))}"
+        }
+    }
+}
+
+/**
  * Sohbet ekranı üst bar'ı — WhatsApp stili.
  * Geri butonu + [avatar + isim] butonu (info'ya gider) + arama/arama ikonları.
  */
@@ -612,6 +976,8 @@ fun ChatTopBar(
     isGroup: Boolean = false,
     memberCount: Int = 0,
     peerIsTyping: Boolean = false,
+    peerIsOnline: Boolean = false,
+    peerLastSeen: Long? = null,
     onBackClick: () -> Unit,
     onVoiceCallClick: () -> Unit,
     onVideoCallClick: () -> Unit,
@@ -701,6 +1067,20 @@ fun ChatTopBar(
                     } else if (isGroup && memberCount > 0) {
                         Text(
                             text = "$memberCount üye",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                    } else if (peerIsOnline) {
+                        Text(
+                            text = "çevrimiçi",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF4CAF50),
+                            fontSize = 11.sp
+                        )
+                    } else if (peerLastSeen != null && peerLastSeen > 0) {
+                        Text(
+                            text = formatLastSeen(peerLastSeen),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp
@@ -877,9 +1257,11 @@ fun MessageBubble(
     memberNames: Map<String, String> = emptyMap(),
     isHighlighted: Boolean = false,
     searchQuery: String = "",
+    replyToMessage: LocalMessage? = null,
     onDeleteMessage: (() -> Unit)? = null,
     onDeleteForEveryone: (() -> Unit)? = null,
-    onToggleStarMessage: ((String, Boolean) -> Unit)? = null
+    onToggleStarMessage: ((String, Boolean) -> Unit)? = null,
+    onForwardMessage: (() -> Unit)? = null
 ) {
     val isOutgoing = message.isOutgoing
     var showPopupMenu by remember { mutableStateOf(false) }
@@ -931,6 +1313,48 @@ fun MessageBubble(
                         bottom = 4.dp
                     )
                 ) {
+                    // Yanıtlanan mesaj önizlemesi
+                    if (replyToMessage != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isOutgoing)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 4.dp)
+                        ) {
+                            Row(modifier = Modifier.padding(6.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(3.dp)
+                                        .height(32.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.primary,
+                                            RoundedCornerShape(2.dp)
+                                        )
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(
+                                        text = if (replyToMessage.isOutgoing) "Sen" else (memberNames[replyToMessage.senderId] ?: replyToMessage.senderId),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = if (replyToMessage.isDeleted) "Bu mesaj silindi" else replyToMessage.content,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Grup konuşmalarında gelen mesajlarda gönderici ismini göster
                     if (isGroupChat && !isOutgoing) {
                         val displayName = memberNames[message.senderId] ?: message.senderId
@@ -1055,6 +1479,24 @@ fun MessageBubble(
                                 if (message.isStarred) Icons.Default.Star else Icons.Default.StarBorder,
                                 contentDescription = null,
                                 tint = if (message.isStarred) Color(0xFFFFD700) else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    )
+                }
+
+                // İlet
+                if (onForwardMessage != null) {
+                    DropdownMenuItem(
+                        text = { Text("İlet") },
+                        onClick = {
+                            showPopupMenu = false
+                            onForwardMessage()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     )
@@ -1423,6 +1865,113 @@ fun MessageInputBar(
                     Icons.AutoMirrored.Filled.Send,
                     contentDescription = "Gönder",
                     modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Sağa sürükle ile yanıtlama jesti.
+ * Mesaj sağa sürüklenince onSwipeReply tetiklenir.
+ */
+@Composable
+private fun SwipeableMessageBubble(
+    onSwipeReply: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    var offsetX by remember { mutableStateOf(0f) }
+    val animatedOffset by animateFloatAsState(
+        targetValue = offsetX,
+        animationSpec = tween(durationMillis = if (offsetX == 0f) 200 else 0),
+        label = "swipeOffset"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .offset(x = (animatedOffset / 3f).dp)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (offsetX > 150f) {
+                            onSwipeReply()
+                        }
+                        offsetX = 0f
+                    },
+                    onDragCancel = { offsetX = 0f },
+                    onHorizontalDrag = { _, dragAmount ->
+                        if (dragAmount > 0) { // Sadece sağa sürükleme
+                            offsetX = (offsetX + dragAmount).coerceIn(0f, 250f)
+                        }
+                    }
+                )
+            }
+    ) {
+        // Yanıtla ikonu (sürükleme sırasında göster)
+        if (animatedOffset > 30f) {
+            Icon(
+                Icons.AutoMirrored.Filled.Send,
+                contentDescription = "Yanıtla",
+                tint = MaterialTheme.colorScheme.primary.copy(
+                    alpha = (animatedOffset / 200f).coerceIn(0f, 1f)
+                ),
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 8.dp)
+                    .size(20.dp)
+            )
+        }
+        content()
+    }
+}
+
+/**
+ * Yanıtlama önizlemesi — metin alanının üstünde gösterilir.
+ */
+@Composable
+private fun ReplyPreview(
+    message: LocalMessage,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(36.dp)
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (message.isOutgoing) "Kendine yanıt" else message.senderId,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "İptal",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

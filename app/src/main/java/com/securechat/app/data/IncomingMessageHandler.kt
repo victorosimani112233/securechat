@@ -66,9 +66,28 @@ class IncomingMessageHandler @Inject constructor(
 
         /** Yazmakta olan kullanicilarin durumu: peerId -> true/false */
         val typingStates = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
+        /** Kullanicilarin cevrimici durumu: peerId -> PresenceInfo */
+        val presenceStates = kotlinx.coroutines.flow.MutableStateFlow<Map<String, PresenceInfo>>(emptyMap())
+
+        /** Karsi tarafin kamera durumu — video arama sirasinda kullanilir */
+        val remoteCameraEnabled = kotlinx.coroutines.flow.MutableStateFlow(true)
     }
 
+    data class PresenceInfo(val isOnline: Boolean, val lastSeen: Long)
+
     fun start() {
+        // Baglanti kopunca tum presence state'lerini sifirla
+        signalingClient.onConnectionLostListener = {
+            presenceStates.value = emptyMap()
+            android.util.Log.d("IncomingHandler", "Baglanti koptu, presence state'leri sifirlandi")
+        }
+
+        // WebSocket (yeniden) baglaninca: ASLA otomatik online gonderme.
+        // Presence sadece Activity.onResume/onPause ile kontrol edilir.
+        // Foreground servis reconnect yaptiginda kullaniciyi online gostermemeli.
+        signalingClient.onConnectedListener = null
+
         scope.launch {
             signalingClient.incomingSignals.collect { signal ->
                 android.util.Log.d("IncomingHandler", "Sinyal geldi: ${signal::class.simpleName} from=${signal.senderId}")
@@ -90,6 +109,7 @@ class IncomingMessageHandler @Inject constructor(
                     is SignalMessage.MessageDelete -> handleMessageDelete(signal)
                     is SignalMessage.DisappearingTimer -> handleDisappearingTimer(signal)
                     is SignalMessage.TypingIndicator -> handleTypingIndicator(signal)
+                    is SignalMessage.PresenceUpdate -> handlePresenceUpdate(signal)
                     is SignalMessage.AudioData -> { }
                     is SignalMessage.VideoData -> { /* WebRTC P2P — artik kullanilmiyor */ }
                     else -> { }
@@ -207,8 +227,11 @@ class IncomingMessageHandler @Inject constructor(
             return
         }
 
-        // MSGID prefix'ini ayristir
-        val (originalMessageId, actualContent) = parseMessageId(content)
+        // MSGID ve REPLY prefix'lerini ayristir
+        val parsedGroup = parseMessageEnvelope(content)
+        val originalMessageId = parsedGroup.messageId
+        val actualContent = parsedGroup.content
+        val groupReplyToId = parsedGroup.replyToId
 
         val groupConv = conversationDao.getById(groupId)
         if (groupConv == null) {
@@ -256,6 +279,7 @@ class IncomingMessageHandler @Inject constructor(
             contentType = MessageContentType.TEXT,
             timestamp = now,
             status = MessageStatus.DELIVERED,
+            replyToId = groupReplyToId,
             isOutgoing = false,
             expiresAt = groupExpiresAt
         )
@@ -280,8 +304,11 @@ class IncomingMessageHandler @Inject constructor(
      * MSGID prefix'i varsa ayristirilir ve DELIVERED receipt gonderilir.
      */
     private suspend fun handleDirectMessage(senderId: String, content: String) {
-        // MSGID prefix'ini ayristir — geriye uyumluluk icin prefix yoksa da calisir
-        val (originalMessageId, actualContent) = parseMessageId(content)
+        // MSGID ve REPLY prefix'lerini ayristir — geriye uyumluluk icin prefix yoksa da calisir
+        val parsed = parseMessageEnvelope(content)
+        val originalMessageId = parsed.messageId
+        val actualContent = parsed.content
+        val replyToId = parsed.replyToId
 
         // Konusma yoksa olustur
         val existingConv = conversationDao.getByPeerId(senderId)
@@ -317,6 +344,7 @@ class IncomingMessageHandler @Inject constructor(
             contentType = MessageContentType.TEXT,
             timestamp = now,
             status = MessageStatus.DELIVERED,
+            replyToId = replyToId,
             isOutgoing = false,
             expiresAt = expiresAt
         )
@@ -421,6 +449,14 @@ class IncomingMessageHandler @Inject constructor(
                 session?.callId?.let { missedCallTracker.cancelMissedCallTimer(it) }
             }
             CallAction.RINGING -> { /* Karsi taraf calıyor — bilgi amacli */ }
+            CallAction.CAMERA_OFF -> {
+                remoteCameraEnabled.value = false
+                android.util.Log.d("IncomingHandler", "Karsi taraf kamerayi kapatti")
+            }
+            CallAction.CAMERA_ON -> {
+                remoteCameraEnabled.value = true
+                android.util.Log.d("IncomingHandler", "Karsi taraf kamerayi acti")
+            }
         }
     }
 
@@ -444,17 +480,45 @@ class IncomingMessageHandler @Inject constructor(
      *
      * @return Pair(originalMessageId, actualContent) — messageId null olabilir
      */
+    /**
+     * Mesaj envelope'unu parse eder.
+     * Format: "MSGID:uuid:REPLY:replyId:actualContent" veya "MSGID:uuid:actualContent"
+     *
+     * @return Triple(originalMessageId, replyToId, actualContent)
+     */
+    data class ParsedMessage(val messageId: String?, val replyToId: String?, val content: String)
+
     private fun parseMessageId(content: String): Pair<String?, String> {
-        if (content.startsWith("MSGID:")) {
-            val firstColon = content.indexOf(':') // "MSGID" sonrasi
-            val secondColon = content.indexOf(':', firstColon + 1)
+        val parsed = parseMessageEnvelope(content)
+        return Pair(parsed.messageId, parsed.content)
+    }
+
+    private fun parseMessageEnvelope(content: String): ParsedMessage {
+        var remaining = content
+        var messageId: String? = null
+        var replyToId: String? = null
+
+        // MSGID prefix
+        if (remaining.startsWith("MSGID:")) {
+            val firstColon = remaining.indexOf(':')
+            val secondColon = remaining.indexOf(':', firstColon + 1)
             if (secondColon > firstColon) {
-                val messageId = content.substring(firstColon + 1, secondColon)
-                val actualContent = content.substring(secondColon + 1)
-                return Pair(messageId, actualContent)
+                messageId = remaining.substring(firstColon + 1, secondColon)
+                remaining = remaining.substring(secondColon + 1)
             }
         }
-        return Pair(null, content)
+
+        // REPLY prefix
+        if (remaining.startsWith("REPLY:")) {
+            val firstColon = remaining.indexOf(':')
+            val secondColon = remaining.indexOf(':', firstColon + 1)
+            if (secondColon > firstColon) {
+                replyToId = remaining.substring(firstColon + 1, secondColon)
+                remaining = remaining.substring(secondColon + 1)
+            }
+        }
+
+        return ParsedMessage(messageId, replyToId, remaining)
     }
 
     /**
@@ -486,7 +550,29 @@ class IncomingMessageHandler @Inject constructor(
             "READ" -> MessageStatus.READ
             else -> return
         }
-        messageRepository.updateMessageStatus(receipt.messageId, newStatus)
+        // Durum yalnizca ileri yonde guncellenir — geri alinmaz
+        // SENDING < SENT < DELIVERED < READ siralamasi korunur
+        val statusOrder = mapOf(
+            MessageStatus.SENDING to 0,
+            MessageStatus.SENT to 1,
+            MessageStatus.DELIVERED to 2,
+            MessageStatus.READ to 3,
+            MessageStatus.FAILED to -1
+        )
+        val currentMessages = messageRepository.getMessageById(receipt.messageId)
+        if (currentMessages != null) {
+            val currentOrder = statusOrder[currentMessages.status] ?: -1
+            val newOrder = statusOrder[newStatus] ?: -1
+            if (newOrder > currentOrder) {
+                messageRepository.updateMessageStatus(receipt.messageId, newStatus)
+                android.util.Log.d("IncomingHandler", "Receipt: ${currentMessages.status} -> $newStatus")
+            } else {
+                android.util.Log.d("IncomingHandler", "Receipt ignored: ${currentMessages.status} >= $newStatus")
+            }
+        } else {
+            // Mesaj bulunamadiysa yine de guncelle (race condition durumunda)
+            messageRepository.updateMessageStatus(receipt.messageId, newStatus)
+        }
     }
 
     /** Typing timeout job'lari — her kullanici icin ayri. */
@@ -517,6 +603,15 @@ class IncomingMessageHandler @Inject constructor(
         }
     }
 
+    private fun handlePresenceUpdate(signal: SignalMessage.PresenceUpdate) {
+        val current = presenceStates.value.toMutableMap()
+        current[signal.senderId] = PresenceInfo(
+            isOnline = signal.isOnline,
+            lastSeen = signal.lastSeen
+        )
+        presenceStates.value = current
+    }
+
     /**
      * Karsi taraftan gelen sureli mesaj zamanlayici ayarini isler.
      * Konusmadaki disappearingDuration degerini gunceller.
@@ -538,11 +633,19 @@ class IncomingMessageHandler @Inject constructor(
         try {
             messageRepository.updateMessageContent(
                 messageId = signal.messageId,
-                content = "\u00AD Bu mesaj silindi",
+                content = "Bu mesaj silindi",
                 contentType = "DELETED"
             )
+            android.util.Log.d("IncomingHandler", "Mesaj basariyla silindi: ${signal.messageId}")
+
+            // Konuşma listesinde son mesaj bu ise güncelle
+            val conversationId = signal.senderId
+            val conv = conversationDao.getById(conversationId)
+            if (conv != null) {
+                conversationDao.updateLastMessage(conversationId, "Bu mesaj silindi", conv.lastMessageTimestamp ?: System.currentTimeMillis())
+            }
         } catch (e: Exception) {
-            android.util.Log.e("IncomingHandler", "Mesaj silinirken hata", e)
+            android.util.Log.e("IncomingHandler", "Mesaj silinirken hata: ${e.message}", e)
         }
     }
 

@@ -81,6 +81,10 @@ class MessageRepositoryImpl @Inject constructor(
         messageDao.updateStatus(messageId, status)
     }
 
+    override suspend fun getMessageById(messageId: String): LocalMessage? {
+        return messageDao.getById(messageId)?.toDomain()
+    }
+
     override suspend fun markConversationAsRead(conversationId: String) {
         conversationDao.markAsRead(conversationId)
     }

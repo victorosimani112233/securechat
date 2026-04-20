@@ -43,6 +43,9 @@ class CallViewModel @Inject constructor(
     /** EGL context — SurfaceViewRenderer.init() icin gerekli. */
     val eglBaseContext: EglBase.Context? get() = callManager.eglBaseContext
 
+    /** Karsi tarafin kamera durumu — false ise overlay gosterilir. */
+    val remoteCameraEnabled: StateFlow<Boolean> = IncomingMessageHandler.remoteCameraEnabled
+
     init {
         // Call ekrandayken current chat'i call peer olarak set et
         // Arama sırasında o kişiden gelen mesajlar bildirim almasın
@@ -90,6 +93,8 @@ class CallViewModel @Inject constructor(
         super.onCleared()
         // Call ekrani kapatildiginda current chat'i temizle
         IncomingMessageHandler.currentChatId = null
+        // Remote kamera durumunu sifirla
+        IncomingMessageHandler.remoteCameraEnabled.value = true
         android.util.Log.d("CallViewModel", "Current chat cleared from call")
     }
 }

@@ -129,15 +129,22 @@ class CallManager @Inject constructor(
 
         // Race condition önlemi: null yapmak yerine direkt yeni session set et
         localUserId = userId
+        val isVideo = callType == CallType.VIDEO
         val session = CallSession(
             callId = UUID.randomUUID().toString(),
             peerId = peerId,
             callType = callType,
             direction = CallDirection.OUTGOING,
             state = CallState.INITIATING,
-            startTime = null
+            startTime = null,
+            isSpeakerOn = isVideo // Video aramada hoparlor varsayilan acik
         )
         _callSession.value = session
+
+        // Video aramada hoparloru hemen ac
+        if (isVideo) {
+            audioManager.setSpeakerOn(true)
+        }
 
         // PeerConnection olustur ve SDP Offer uret
         scope.launch(Dispatchers.Main) {
@@ -593,6 +600,16 @@ class CallManager @Inject constructor(
             peerConnectionManager.disableVideo()
         }
         _callSession.value = session.copy(isCameraEnabled = newEnabled)
+
+        // Karsi tarafa kamera durumunu bildir
+        signalingClient.sendSignal(
+            SignalMessage.CallControl(
+                senderId = localUserId,
+                recipientId = session.peerId,
+                timestamp = System.currentTimeMillis(),
+                action = if (newEnabled) CallAction.CAMERA_ON else CallAction.CAMERA_OFF
+            )
+        )
     }
 
     /**

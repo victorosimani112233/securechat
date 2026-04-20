@@ -1,10 +1,13 @@
 package com.securechat.app.ui.screen
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -15,9 +18,13 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,8 +57,10 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,6 +76,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -84,6 +94,7 @@ import com.securechat.network.model.CallType
 import kotlinx.coroutines.delay
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoTrack
 import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.random.Random
@@ -142,10 +153,23 @@ fun CallScreen(
         }
     }
 
-    // Arama sonlaninca geri don
+    // Arama sonlaninca geri don — her iki taraf icin de calisir
     LaunchedEffect(callSession?.state) {
-        if (callSession?.state == CallState.ENDED) {
-            delay(1000)
+        val state = callSession?.state
+        if (state == CallState.ENDED || state == CallState.FAILED) {
+            delay(1500)
+            onCallEnded()
+        }
+    }
+
+    // Session null olursa da ekrani kapat (cleanupCall sonrasi)
+    var callWasActive by remember { mutableStateOf(false) }
+    LaunchedEffect(callSession?.state) {
+        if (callSession != null) callWasActive = true
+    }
+    LaunchedEffect(callSession) {
+        if (callSession == null && callWasActive) {
+            delay(300)
             onCallEnded()
         }
     }
@@ -162,9 +186,62 @@ fun CallScreen(
     val localVideoTrack by viewModel.localVideoTrack.collectAsStateWithLifecycle()
     val eglBaseContext = viewModel.eglBaseContext
     val isVideoActive = callType == CallType.VIDEO && callSession?.state == CallState.ACTIVE
+    val remoteCameraEnabled by viewModel.remoteCameraEnabled.collectAsStateWithLifecycle()
+
+    // --- [1] Ekrani uyku moduna gecirmesini engelle (video arama aktifken) ---
+    if (isVideoActive) {
+        val activity = context as? Activity
+        DisposableEffect(Unit) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            onDispose {
+                activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
+    // --- [2] Video aktifken kontrolleri otomatik gizle (3 saniye sonra) ---
+    var controlsVisible by remember { mutableStateOf(true) }
+    // Sayac her dokunusta arttirilir, LaunchedEffect yeniden tetiklenir
+    var controlsResetCounter by remember { mutableIntStateOf(0) }
+
+    // Video aktifken 3 saniye sonra kontrolleri gizle
+    LaunchedEffect(controlsResetCounter, isVideoActive) {
+        if (isVideoActive && controlsVisible) {
+            delay(3000)
+            controlsVisible = false
+        }
+    }
+
+    // Video aktif degilken kontroller her zaman gorunur
+    LaunchedEffect(isVideoActive) {
+        if (!isVideoActive) {
+            controlsVisible = true
+        }
+    }
+
+    // --- [5] PIP dokunarak video gorunumlerini degistir ---
+    var isVideoSwapped by remember { mutableStateOf(false) }
+
+    // Buyuk gorunumde gosterilecek track (normal: remote, swap: local)
+    val mainVideoTrack = if (isVideoSwapped) localVideoTrack else remoteVideoTrack
+    // PIP gorunumde gosterilecek track (normal: local, swap: remote)
+    val pipVideoTrack = if (isVideoSwapped) remoteVideoTrack else localVideoTrack
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                if (isVideoActive) {
+                    Modifier.pointerInput(Unit) {
+                        detectTapGestures {
+                            controlsVisible = true
+                            controlsResetCounter++
+                        }
+                    }
+                } else {
+                    Modifier
+                }
+            )
     ) {
         // --- Animasyonlu gradient arka plan ---
         AnimatedGradientBackground(
@@ -175,189 +252,276 @@ fun CallScreen(
         // --- Yuzen parcacik efekti ---
         FloatingParticles()
 
-        // Video arama aktifse: remote video track tam ekran SurfaceViewRenderer
-        if (isVideoActive && remoteVideoTrack != null && eglBaseContext != null) {
-            AndroidView(
-                factory = { ctx ->
-                    SurfaceViewRenderer(ctx).apply {
-                        init(eglBaseContext, null)
-                        setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
-                        setEnableHardwareScaler(true)
-                        setMirror(false)
-                    }
-                },
-                update = { renderer ->
-                    remoteVideoTrack?.addSink(renderer)
-                },
-                onRelease = { renderer ->
-                    remoteVideoTrack?.removeSink(renderer)
-                    renderer.release()
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        // Video arama aktifse: ana video track tam ekran SurfaceViewRenderer
+        if (isVideoActive && eglBaseContext != null) {
+            // Sink yonetimi: onceki track'i hatirla, sadece degistiginde swap yap
+            val currentMainTrack = remember { mutableStateOf<VideoTrack?>(null) }
+            val currentMainMirror = remember { mutableStateOf(false) }
 
-        // Arama bilgisi ve kontroller
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Ust kisim: sifreleme gostergesi ve avatar — yalnizca video aktif DEGILSE goster
-            if (!isVideoActive) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(top = 48.dp)
-                ) {
-                    // Sifreleme gostergesi
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = Color(0xFF2979FF).copy(alpha = 0.6f)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Uctan uca sifreli",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF2979FF).copy(alpha = 0.6f),
-                            fontSize = 11.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(40.dp))
-
-                    // Avatar — premium animasyonlu
-                    CallAvatar(
-                        name = peerId,
-                        isRinging = isRinging,
-                        isConnecting = isConnecting,
-                        isActive = isActive
-                    )
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Peer ismi
-                    Text(
-                        text = peerId,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Arama tipi ikonu ve durum
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = if (callType == CallType.VIDEO) Icons.Default.Videocam else Icons.Default.Phone,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = Color.White.copy(alpha = 0.6f)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-
-                        if (isRinging || callSession?.state == CallState.INITIATING) {
-                            AnimatedCallStateText(
-                                text = getCallStateText(callSession?.state, callDuration)
-                            )
-                        } else if (isActive) {
-                            // Aktif arama suresi — yumusak fade-in
-                            AnimatedDurationText(
-                                text = getCallStateText(callSession?.state, callDuration)
-                            )
-                        } else {
-                            Text(
-                                text = getCallStateText(callSession?.state, callDuration),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = Color.White.copy(alpha = 0.7f)
-                            )
+            if (mainVideoTrack != null) {
+                AndroidView(
+                    factory = { ctx ->
+                        SurfaceViewRenderer(ctx).apply {
+                            init(eglBaseContext, null)
+                            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                            setEnableHardwareScaler(true)
+                            setMirror(isVideoSwapped)
+                            currentMainMirror.value = isVideoSwapped
                         }
-                    }
-                }
-            } else {
-                // Video aktifken sadece sure goster (ust kosede)
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = getCallStateText(callSession?.state, callDuration),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.8f),
-                    modifier = Modifier
-                        .background(
-                            Color.Black.copy(alpha = 0.4f),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                    },
+                    update = { renderer ->
+                        // Mirror durumu degistiyse guncelle
+                        if (currentMainMirror.value != isVideoSwapped) {
+                            renderer.setMirror(isVideoSwapped)
+                            currentMainMirror.value = isVideoSwapped
+                        }
+                        // Sadece track degistiyse sink'i guncelle
+                        val prevTrack = currentMainTrack.value
+                        val newTrack = mainVideoTrack
+                        if (prevTrack != newTrack) {
+                            prevTrack?.removeSink(renderer)
+                            newTrack?.addSink(renderer)
+                            currentMainTrack.value = newTrack
+                        }
+                    },
+                    onRelease = { renderer ->
+                        currentMainTrack.value?.removeSink(renderer)
+                        currentMainTrack.value = null
+                        renderer.release()
+                    },
+                    modifier = Modifier.fillMaxSize()
                 )
             }
+        }
 
-            // Alt kisim: kontrol butonlari
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(bottom = 40.dp)
+        // --- Karsi taraf kamerasini kapattiysa overlay ---
+        if (isVideoActive && !remoteCameraEnabled) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xDD3A3A3A)),
+                contentAlignment = Alignment.Center
             ) {
-                if (isIncomingRinging) {
-                    // Gelen arama: Kabul / Reddet butonlari
-                    IncomingCallControls(
-                        onAccept = { viewModel.acceptCall() },
-                        onReject = { viewModel.endCall() }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.VideocamOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = Color.White.copy(alpha = 0.6f)
                     )
-                } else {
-                    CallControls(
-                        isMuted = callSession?.isMuted ?: false,
-                        isSpeakerOn = callSession?.isSpeakerOn ?: false,
-                        isCameraEnabled = callSession?.isCameraEnabled ?: true,
-                        isVideoCall = callType == CallType.VIDEO,
-                        onToggleMute = { viewModel.toggleMute() },
-                        onToggleSpeaker = { viewModel.toggleSpeaker() },
-                        onToggleCamera = { viewModel.toggleCamera() },
-                        onSwitchCamera = { viewModel.switchCamera() },
-                        onEndCall = { viewModel.endCall() }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Karsi kullanici kamerasini duraklatti",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center
                     )
                 }
             }
         }
 
-        // Yerel kamera PIP (sag ust kose) — SurfaceViewRenderer
-        if (isVideoActive && localVideoTrack != null && eglBaseContext != null) {
-            AndroidView(
-                factory = { ctx ->
-                    SurfaceViewRenderer(ctx).apply {
-                        init(eglBaseContext, null)
-                        setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
-                        setEnableHardwareScaler(true)
-                        setMirror(true) // On kamera icin ayna
-                        setZOrderMediaOverlay(true) // PIP icin overlay
-                    }
-                },
-                update = { renderer ->
-                    localVideoTrack?.addSink(renderer)
-                },
-                onRelease = { renderer ->
-                    localVideoTrack?.removeSink(renderer)
-                    renderer.release()
-                },
+        // --- [3] Video aktifken sure pill badge (sol ust kose) — her zaman gorunur ---
+        if (isVideoActive) {
+            Text(
+                text = getCallStateText(callSession?.state, callDuration),
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.9f),
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 48.dp, end = 16.dp)
-                    .size(width = 100.dp, height = 140.dp)
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                    .border(
-                        width = 2.dp,
-                        color = Color(0xFF2979FF).copy(alpha = 0.6f),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                    .align(Alignment.TopStart)
+                    .padding(start = 16.dp, top = 16.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.5f),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                     )
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
             )
+        }
+
+        // Arama bilgisi ve kontroller — video aktifken AnimatedVisibility ile gizlenebilir
+        AnimatedVisibility(
+            visible = if (isVideoActive) controlsVisible else true,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Ust kisim: sifreleme gostergesi ve avatar — yalnizca video aktif DEGILSE goster
+                if (!isVideoActive) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(top = 48.dp)
+                    ) {
+                        // Sifreleme gostergesi
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = Color(0xFF2979FF).copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Uctan uca sifreli",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF2979FF).copy(alpha = 0.6f),
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(40.dp))
+
+                        // Avatar — premium animasyonlu
+                        CallAvatar(
+                            name = peerId,
+                            isRinging = isRinging,
+                            isConnecting = isConnecting,
+                            isActive = isActive
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Peer ismi
+                        Text(
+                            text = peerId,
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Arama tipi ikonu ve durum
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = if (callType == CallType.VIDEO) Icons.Default.Videocam else Icons.Default.Phone,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White.copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            if (isRinging || callSession?.state == CallState.INITIATING) {
+                                AnimatedCallStateText(
+                                    text = getCallStateText(callSession?.state, callDuration)
+                                )
+                            } else if (isActive) {
+                                // Aktif arama suresi — yumusak fade-in
+                                AnimatedDurationText(
+                                    text = getCallStateText(callSession?.state, callDuration)
+                                )
+                            } else {
+                                Text(
+                                    text = getCallStateText(callSession?.state, callDuration),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Video aktifken ust kisimda bosluk birak (sure pill ayri gosteriliyor)
+                    Spacer(modifier = Modifier.height(48.dp))
+                }
+
+                // Alt kisim: kontrol butonlari
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(bottom = 40.dp)
+                ) {
+                    if (isIncomingRinging) {
+                        // Gelen arama: Kabul / Reddet butonlari
+                        IncomingCallControls(
+                            onAccept = { viewModel.acceptCall() },
+                            onReject = { viewModel.endCall() }
+                        )
+                    } else {
+                        CallControls(
+                            isMuted = callSession?.isMuted ?: false,
+                            isSpeakerOn = callSession?.isSpeakerOn ?: false,
+                            isCameraEnabled = callSession?.isCameraEnabled ?: true,
+                            isVideoCall = callType == CallType.VIDEO,
+                            onToggleMute = { viewModel.toggleMute() },
+                            onToggleSpeaker = { viewModel.toggleSpeaker() },
+                            onToggleCamera = { viewModel.toggleCamera() },
+                            onSwitchCamera = { viewModel.switchCamera() },
+                            onEndCall = { viewModel.endCall() }
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- [5] PIP gorunumu — dokunarak swap ---
+        if (isVideoActive && eglBaseContext != null) {
+            val currentPipTrack = remember { mutableStateOf<VideoTrack?>(null) }
+            val currentPipMirror = remember { mutableStateOf(true) }
+
+            if (pipVideoTrack != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 48.dp, end = 16.dp)
+                        .size(width = 100.dp, height = 140.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                        .border(
+                            width = 2.dp,
+                            color = Color(0xFF2979FF).copy(alpha = 0.6f),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                        )
+                        .pointerInput(Unit) {
+                            detectTapGestures {
+                                isVideoSwapped = !isVideoSwapped
+                            }
+                        }
+                ) {
+                    AndroidView(
+                        factory = { ctx ->
+                            SurfaceViewRenderer(ctx).apply {
+                                init(eglBaseContext, null)
+                                setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                                setEnableHardwareScaler(true)
+                                setMirror(!isVideoSwapped)
+                                currentPipMirror.value = !isVideoSwapped
+                                setZOrderMediaOverlay(true)
+                            }
+                        },
+                        update = { renderer ->
+                            // Mirror durumu degistiyse guncelle
+                            val newMirror = !isVideoSwapped
+                            if (currentPipMirror.value != newMirror) {
+                                renderer.setMirror(newMirror)
+                                currentPipMirror.value = newMirror
+                            }
+                            // Sadece track degistiyse sink'i guncelle
+                            val prevTrack = currentPipTrack.value
+                            val newTrack = pipVideoTrack
+                            if (prevTrack != newTrack) {
+                                prevTrack?.removeSink(renderer)
+                                newTrack?.addSink(renderer)
+                                currentPipTrack.value = newTrack
+                            }
+                        },
+                        onRelease = { renderer ->
+                            currentPipTrack.value?.removeSink(renderer)
+                            currentPipTrack.value = null
+                            renderer.release()
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
         }
     }
 }

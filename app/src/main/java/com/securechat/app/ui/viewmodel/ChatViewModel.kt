@@ -97,6 +97,19 @@ class ChatViewModel @Inject constructor(
             result
         }
 
+    /** Karsi taraf cevrimici mi. */
+    val peerPresence: StateFlow<IncomingMessageHandler.PresenceInfo?> = IncomingMessageHandler.presenceStates
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+        .let { flow ->
+            val result = MutableStateFlow<IncomingMessageHandler.PresenceInfo?>(null)
+            viewModelScope.launch {
+                flow.collect { map ->
+                    result.value = map[conversationId]
+                }
+            }
+            result
+        }
+
     private var isCurrentlyTyping = false
 
     /** Scroll hedefi — belirli bir mesaja scroll tetikler. */
@@ -105,7 +118,7 @@ class ChatViewModel @Inject constructor(
 
     init {
         // Ekran acildiginda konusmayi okundu olarak isaretle ve bilgilerini yukle
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             markAsReadUseCase(conversationId)
             loadConversationInfo()
             sendReadReceipts()
@@ -124,6 +137,23 @@ class ChatViewModel @Inject constructor(
         // Chat screen kapatildiginda current chat'i temizle
         IncomingMessageHandler.currentChatId = null
         android.util.Log.d("ChatViewModel", "Current chat cleared")
+    }
+
+    /** Taslak mesaji kaydeder — kullanici sohbetten cikarken cagrilir. */
+    fun saveDraft(text: String) {
+        if (text.isBlank()) {
+            draftMessages.remove(conversationId)
+        } else {
+            draftMessages[conversationId] = text
+        }
+    }
+
+    /** Kayitli taslak mesaji getirir. */
+    fun getDraft(): String = draftMessages[conversationId] ?: ""
+
+    companion object {
+        /** Oturum boyunca sohbet taslaklarini tutar. */
+        private val draftMessages = mutableMapOf<String, String>()
     }
 
     /**
@@ -189,9 +219,9 @@ class ChatViewModel @Inject constructor(
      *
      * @param content Mesaj icerigi
      */
-    fun sendMessage(content: String) {
+    fun sendMessage(content: String, replyToId: String? = null) {
         viewModelScope.launch {
-            sendMessageUseCase(conversationId, content)
+            sendMessageUseCase(conversationId, content, replyToId)
         }
     }
 

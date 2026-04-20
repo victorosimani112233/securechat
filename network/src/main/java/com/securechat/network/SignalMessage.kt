@@ -205,4 +205,15 @@ sealed class SignalMessage {
         val duration: Long, // milisaniye, 0 = kapali
         val conversationId: String = "" // bos ise senderId kullanilir (geriye uyumluluk)
     ) : SignalMessage()
+
+    /** Cevrimici durum bildirimi. Kullanici baglanti kurduğunda/kopardığında gonderilir. */
+    @Serializable
+    @SerialName("presence_update")
+    data class PresenceUpdate(
+        override val senderId: String,
+        override val recipientId: String,
+        override val timestamp: Long,
+        val isOnline: Boolean,
+        val lastSeen: Long
+    ) : SignalMessage()
 }

@@ -17,7 +17,7 @@ class SendMessageUseCase @Inject constructor(
     private val userSession: UserSession,
     private val conversationDao: ConversationDao
 ) {
-    suspend operator fun invoke(conversationId: String, content: String) {
+    suspend operator fun invoke(conversationId: String, content: String, replyToId: String? = null) {
         val senderId = userSession.userId ?: "unknown"
         val timestamp = System.currentTimeMillis()
 
@@ -39,12 +39,15 @@ class SendMessageUseCase @Inject constructor(
             timestamp = timestamp,
             status = MessageStatus.SENDING,
             isOutgoing = true,
+            replyToId = replyToId,
             expiresAt = expiresAt
         )
         messageRepository.saveMessage(message)
 
         // Mesaj icerigi MSGID prefix'i ile gonderilir — alici taraf delivery receipt gonderebilsin
-        val envelopeContent = "MSGID:${message.id}:$content"
+        // REPLY prefix eklenir — alici taraf reply mesajini gorebilsin
+        val replyPrefix = if (replyToId != null) "REPLY:$replyToId:" else ""
+        val envelopeContent = "MSGID:${message.id}:${replyPrefix}$content"
 
         val sent = if (isGroup) {
             // Grup mesaji: tum uyelere gonder, GROUP:groupId:groupName:content formatinda

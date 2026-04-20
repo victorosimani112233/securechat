@@ -29,6 +29,10 @@ class UserSession @Inject constructor(
         get() = prefs.getString("profile_photo_uri", null)
         set(value) = prefs.edit().putString("profile_photo_uri", value).apply()
 
+    var shareLastSeen: Boolean
+        get() = prefs.getBoolean("share_last_seen", true)
+        set(value) = prefs.edit().putBoolean("share_last_seen", value).apply()
+
     val isLoggedIn: Boolean get() = userId != null
 
     fun login(name: String, phone: String) {
