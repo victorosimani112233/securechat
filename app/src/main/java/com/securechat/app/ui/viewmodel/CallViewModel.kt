@@ -8,7 +8,9 @@ import com.securechat.app.data.UserSession
 import com.securechat.media.CallManager
 import com.securechat.media.model.CallSession
 import com.securechat.network.model.CallType
+import com.securechat.storage.dao.ConversationDao
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +25,8 @@ import javax.inject.Inject
 class CallViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val callManager: CallManager,
-    private val userSession: UserSession
+    private val userSession: UserSession,
+    private val conversationDao: ConversationDao
 ) : ViewModel() {
 
     private val peerId: String = savedStateHandle.get<String>("peerId") ?: ""
@@ -34,8 +37,11 @@ class CallViewModel @Inject constructor(
     private val _callDuration = MutableStateFlow(0L)
     val callDuration: StateFlow<Long> = _callDuration.asStateFlow()
 
-    /** Karsi tarafin video track'i — SurfaceViewRenderer'a baglanir. */
+    /** Karsi tarafin video track'i — SurfaceViewRenderer'a baglanir (1-to-1). */
     val remoteVideoTrack: StateFlow<VideoTrack?> = callManager.remoteVideoTrackFlow
+
+    /** Grup aramasi remote video track'leri — peerId -> VideoTrack. */
+    val remoteVideoTracks: StateFlow<Map<String, VideoTrack>> = callManager.remoteVideoTracksFlow
 
     /** Yerel kamera video track'i — PIP SurfaceViewRenderer icin. */
     val localVideoTrack: StateFlow<VideoTrack?> = callManager.localVideoTrackFlow
@@ -47,31 +53,45 @@ class CallViewModel @Inject constructor(
     val remoteCameraEnabled: StateFlow<Boolean> = IncomingMessageHandler.remoteCameraEnabled
 
     init {
-        // Call ekrandayken current chat'i call peer olarak set et
-        // Arama sırasında o kişiden gelen mesajlar bildirim almasın
         IncomingMessageHandler.currentChatId = "call_$peerId"
         android.util.Log.d("CallViewModel", "Current chat set to: call_$peerId")
 
-        // Arama ekrani acildiginda: gelen arama zaten var mi kontrol et
-        // Yoksa giden arama baslat
         val current = callManager.currentSession
         android.util.Log.d("CallVM", "init: peerId=$peerId callType=$callTypeStr currentSession=${current?.state} userId=${userSession.userId}")
-        // SMART FIX: Sadece incoming/active call varken otomatik call engelle
-        // Manuel user-initiated call'lar çalışmaya devam etsin
+
         val hasIncomingOrActiveCall = current != null && (
             (current.direction == com.securechat.media.model.CallDirection.INCOMING && current.state == com.securechat.media.model.CallState.RINGING) ||
             current.state == com.securechat.media.model.CallState.ACTIVE
         )
 
         if (hasIncomingOrActiveCall) {
-            android.util.Log.d("CallVM", "SMART FIX: incoming/active call var, otomatik initiateCall engellendi - duplicate call prevention")
+            android.util.Log.d("CallVM", "SMART FIX: incoming/active call var, otomatik call engellendi")
         } else if (peerId.isNotBlank()) {
-            // Normal manual call - çalışsın
             val callType = try { CallType.valueOf(callTypeStr) } catch (_: Exception) { CallType.VOICE }
-            android.util.Log.d("CallVM", "SMART FIX: manuel call başlatılıyor: $peerId $callType")
-            callManager.initiateCall(peerId, callType, userSession.userId ?: "unknown")
+
+            // Grup konusmasi mi kontrol et
+            if (peerId.startsWith("group_")) {
+                // Grup aramasi — uyeleri DB'den cek ve grup aramasi baslat
+                viewModelScope.launch(Dispatchers.IO) {
+                    val conv = conversationDao.getById(peerId)
+                    val members = conv?.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                    val userId = userSession.userId ?: "unknown"
+                    // Kendisini cikar
+                    val otherMembers = members.filter { it != userId }
+                    if (otherMembers.isNotEmpty()) {
+                        android.util.Log.d("CallVM", "Grup aramasi baslatiliyor: $peerId, ${otherMembers.size} uye")
+                        callManager.initiateGroupCall(peerId, otherMembers, callType, userId)
+                    } else {
+                        android.util.Log.e("CallVM", "Grup uyesi bulunamadi: $peerId")
+                    }
+                }
+            } else {
+                // Normal 1-to-1 arama
+                android.util.Log.d("CallVM", "Manuel call baslatiliyor: $peerId $callType")
+                callManager.initiateCall(peerId, callType, userSession.userId ?: "unknown")
+            }
         } else {
-            android.util.Log.d("CallVM", "SMART FIX: peerId boş, call başlatılmıyor")
+            android.util.Log.d("CallVM", "peerId bos, call baslatilmiyor")
         }
 
         viewModelScope.launch {
@@ -91,9 +111,7 @@ class CallViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // Call ekrani kapatildiginda current chat'i temizle
         IncomingMessageHandler.currentChatId = null
-        // Remote kamera durumunu sifirla
         IncomingMessageHandler.remoteCameraEnabled.value = true
         android.util.Log.d("CallViewModel", "Current chat cleared from call")
     }

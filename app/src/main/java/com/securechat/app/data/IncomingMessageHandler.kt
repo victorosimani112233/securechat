@@ -99,9 +99,28 @@ class IncomingMessageHandler @Inject constructor(
                 when (signal) {
                     is SignalMessage.EncryptedMessage -> handleEncryptedMessage(signal)
                     is SignalMessage.FileTransfer -> handleFileTransfer(signal)
-                    is SignalMessage.SdpOffer -> handleIncomingCall(signal)
-                    is SignalMessage.SdpAnswer -> callManager.handleSdpAnswer(signal)
-                    is SignalMessage.IceCandidate -> callManager.handleIceCandidate(signal)
+                    is SignalMessage.SdpOffer -> {
+                        // Grup aramasi aktifse grup SDP Offer olarak isle
+                        if (callManager.isCurrentCallGroup) {
+                            callManager.handleGroupSdpOffer(signal)
+                        } else {
+                            handleIncomingCall(signal)
+                        }
+                    }
+                    is SignalMessage.SdpAnswer -> {
+                        if (callManager.isCurrentCallGroup) {
+                            callManager.handleGroupSdpAnswer(signal)
+                        } else {
+                            callManager.handleSdpAnswer(signal)
+                        }
+                    }
+                    is SignalMessage.IceCandidate -> {
+                        if (callManager.isCurrentCallGroup) {
+                            callManager.handleGroupIceCandidate(signal)
+                        } else {
+                            callManager.handleIceCandidate(signal)
+                        }
+                    }
                     is SignalMessage.CallControl -> {
                         android.util.Log.d("IncomingHandler", "CallControl: ${signal.action}")
                         handleCallControl(signal)
@@ -115,6 +134,8 @@ class IncomingMessageHandler @Inject constructor(
                     is SignalMessage.DisappearingTimer -> handleDisappearingTimer(signal)
                     is SignalMessage.TypingIndicator -> handleTypingIndicator(signal)
                     is SignalMessage.PresenceUpdate -> handlePresenceUpdate(signal)
+                    is SignalMessage.GroupCallInvite -> handleGroupCallInvite(signal)
+                    is SignalMessage.GroupCallMemberJoined -> callManager.handleGroupCallMemberJoined(signal)
                     is SignalMessage.PresenceSubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.PresenceUnsubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.AudioData -> { }
@@ -157,25 +178,12 @@ class IncomingMessageHandler @Inject constructor(
      */
     private suspend fun handleFileTransfer(signal: SignalMessage.FileTransfer) {
         val senderId = signal.senderId
-        val senderName = resolvePeerName(senderId)
+        val localUserId = userSession.userId ?: "unknown"
 
-        // Konusma yoksa olustur
-        val existingConv = conversationDao.getByPeerId(senderId)
-        if (existingConv == null) {
-            val senderPhone = resolvePeerPhone(senderId)
-            conversationDao.insert(
-                ConversationEntity(
-                    id = senderId,
-                    peerId = senderId,
-                    peerName = senderName,
-                    peerPhone = senderPhone,
-                    lastMessage = null,
-                    lastMessageTimestamp = null,
-                    unreadCount = 0,
-                    isMuted = false,
-                    isPinned = false
-                )
-            )
+        // Kendi gonderdigimiz grup dosyasini ignore et (zaten lokal olarak kaydedildi)
+        if (senderId == localUserId) {
+            android.util.Log.d("IncomingHandler", "Kendi dosya mesaji ignore edildi - duplicate prevention")
+            return
         }
 
         // Dosyayi yerel depolamaya kaydet
@@ -196,29 +204,115 @@ class IncomingMessageHandler @Inject constructor(
             filePath = filePath
         )
 
-        // Sureli mesaj kontrolu — konusmada sureli mesaj aktifse expiresAt hesapla
-        val fileNow = System.currentTimeMillis()
-        val fileDisappDuration = existingConv?.disappearingDuration ?: 0
-        val fileExpiresAt = if (fileDisappDuration > 0) fileNow + fileDisappDuration else null
+        val isGroupFile = !signal.groupId.isNullOrBlank()
 
-        // Dosya gondericisinin sohbeti aciksa direkt READ
-        val isFileChatOpen = currentChatId == senderId
+        if (isGroupFile) {
+            // --- Grup dosya mesaji ---
+            val groupId = signal.groupId!!
+            val groupName = signal.groupName
 
-        val message = LocalMessage(
-            id = UUID.randomUUID().toString(),
-            conversationId = senderId,
-            senderId = senderId,
-            peerId = senderId,
-            content = fileContent,
-            contentType = contentType,
-            timestamp = fileNow,
-            status = if (isFileChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
-            isOutgoing = false,
-            expiresAt = fileExpiresAt
-        )
-        messageRepository.saveMessage(message)
+            val groupConv = conversationDao.getById(groupId)
+            if (groupConv == null) {
+                // Grup henuz yerel veritabaninda yok — otomatik olustur
+                val resolvedGroupName = if (!groupName.isNullOrBlank()) groupName else "Grup"
+                android.util.Log.d("IncomingHandler", "Dosya icin grup olusturuluyor: $groupId, isim: $resolvedGroupName")
+                conversationDao.insert(
+                    ConversationEntity(
+                        id = groupId,
+                        peerId = groupId,
+                        peerName = resolvedGroupName,
+                        peerPhone = "",
+                        lastMessage = null,
+                        lastMessageTimestamp = null,
+                        unreadCount = 0,
+                        isMuted = false,
+                        isPinned = false,
+                        isGroup = true,
+                        groupMembers = senderId
+                    )
+                )
+            } else {
+                // Mevcut grupta senderId yoksa ekle
+                val currentMembers = groupConv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                if (senderId !in currentMembers) {
+                    val updatedMembers = (currentMembers + senderId).joinToString(",")
+                    conversationDao.updateGroupMembers(groupId, updatedMembers)
+                }
+            }
 
-        android.util.Log.d("IncomingHandler", "Dosya alindi: ${signal.fileName} (${signal.fileSize} byte)")
+            val fileNow = System.currentTimeMillis()
+            val groupDisappDuration = (groupConv ?: conversationDao.getById(groupId))?.disappearingDuration ?: 0
+            val groupFileExpiresAt = if (groupDisappDuration > 0) fileNow + groupDisappDuration else null
+            val isGroupChatOpen = currentChatId == groupId
+
+            val message = LocalMessage(
+                id = UUID.randomUUID().toString(),
+                conversationId = groupId,
+                senderId = senderId,
+                peerId = senderId,
+                content = fileContent,
+                contentType = contentType,
+                timestamp = fileNow,
+                status = if (isGroupChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
+                isOutgoing = false,
+                expiresAt = groupFileExpiresAt
+            )
+            messageRepository.saveMessage(message)
+
+            android.util.Log.d("IncomingHandler", "Grup dosya alindi: ${signal.fileName} -> $groupId")
+
+            // Grup sohbeti acik degilse bildirim goster
+            if (!isGroupChatOpen) {
+                val senderName = resolvePeerName(senderId)
+                val convForNotif = conversationDao.getById(groupId)
+                if (convForNotif?.isMuted != true) {
+                    val displayGroupName = convForNotif?.peerName ?: "Grup"
+                    showMessageNotification("$senderName ($displayGroupName)", "Dosya: ${signal.fileName}", groupId)
+                }
+            }
+        } else {
+            // --- Birebir dosya mesaji ---
+            val senderName = resolvePeerName(senderId)
+
+            val existingConv = conversationDao.getByPeerId(senderId)
+            if (existingConv == null) {
+                val senderPhone = resolvePeerPhone(senderId)
+                conversationDao.insert(
+                    ConversationEntity(
+                        id = senderId,
+                        peerId = senderId,
+                        peerName = senderName,
+                        peerPhone = senderPhone,
+                        lastMessage = null,
+                        lastMessageTimestamp = null,
+                        unreadCount = 0,
+                        isMuted = false,
+                        isPinned = false
+                    )
+                )
+            }
+
+            val fileNow = System.currentTimeMillis()
+            val fileDisappDuration = existingConv?.disappearingDuration ?: 0
+            val fileExpiresAt = if (fileDisappDuration > 0) fileNow + fileDisappDuration else null
+            val isFileChatOpen = currentChatId == senderId
+
+            val message = LocalMessage(
+                id = UUID.randomUUID().toString(),
+                conversationId = senderId,
+                senderId = senderId,
+                peerId = senderId,
+                content = fileContent,
+                contentType = contentType,
+                timestamp = fileNow,
+                status = if (isFileChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
+                isOutgoing = false,
+                expiresAt = fileExpiresAt
+            )
+            messageRepository.saveMessage(message)
+
+            android.util.Log.d("IncomingHandler", "Dosya alindi: ${signal.fileName} (${signal.fileSize} byte)")
+        }
     }
 
     /**
@@ -424,10 +518,71 @@ class IncomingMessageHandler @Inject constructor(
     }
 
     /**
+     * Gelen grup arama davetiyesini isler.
+     * CallManager'a iletir ve gelen arama bildirimini gosterir.
+     */
+    private suspend fun handleGroupCallInvite(signal: SignalMessage.GroupCallInvite) {
+        val localUserId = userSession.userId ?: "unknown"
+        callManager.handleGroupCallInvite(signal, localUserId)
+
+        val peerName = resolvePeerName(signal.senderId)
+        val session = callManager.currentSession
+
+        if (session != null) {
+            android.util.Log.d("IncomingHandler", "GELEN GRUP ARAMASI: ${signal.groupId} from $peerName")
+
+            // Gelen arama bildirimini goster
+            incomingCallHandler.showIncomingCall(
+                session = session,
+                peerName = "Grup: $peerName",
+                fullScreenActivityClass = IncomingCallActivity::class.java
+            )
+
+            try {
+                val intent = android.content.Intent(context, IncomingCallActivity::class.java).apply {
+                    putExtra("peer_id", signal.senderId)
+                    putExtra("peer_name", "Grup Arama: $peerName")
+                    putExtra("call_type", signal.callType.name)
+                    putExtra("is_group_call", true)
+                    putExtra("group_id", signal.groupId)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                android.util.Log.e("IncomingHandler", "Grup arama Activity baslatılamadı: ${e.message}")
+            }
+
+            missedCallTracker.startMissedCallTimer(session, "Grup: $peerName")
+        }
+    }
+
+    /**
      * Arama kontrol mesajlarini isler.
      */
     private fun handleCallControl(signal: SignalMessage.CallControl) {
         val session = callManager.currentSession
+
+        // Grup aramasi aktifse grup-ozel islem
+        if (session?.isGroupCall == true) {
+            when (signal.action) {
+                CallAction.ACCEPT -> {
+                    // Koordinator olarak: uye kabul etti
+                    callManager.onGroupMemberAccepted(signal.senderId)
+                    session.callId.let { missedCallTracker.cancelMissedCallTimer(it) }
+                }
+                CallAction.HANGUP -> {
+                    callManager.onGroupMemberHangup(signal.senderId)
+                }
+                CallAction.REJECT -> {
+                    android.util.Log.d("IncomingHandler", "Grup uyesi reddetti: ${signal.senderId}")
+                }
+                else -> {}
+            }
+            return
+        }
 
         when (signal.action) {
             CallAction.ACCEPT -> {

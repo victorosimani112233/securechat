@@ -131,7 +131,9 @@ sealed class SignalMessage {
         val fileName: String,
         val mimeType: String,
         val fileSize: Long,
-        val data: String // Base64 encoded dosya icerigi
+        val data: String, // Base64 encoded dosya icerigi
+        val groupId: String? = null, // Grup mesaji ise grup ID'si
+        val groupName: String? = null // Grup mesaji ise grup adi
     ) : SignalMessage()
 
     /**
@@ -214,7 +216,8 @@ sealed class SignalMessage {
         override val recipientId: String,
         override val timestamp: Long,
         val isOnline: Boolean,
-        val lastSeen: Long
+        val lastSeen: Long,
+        val hideLastSeen: Boolean = false
     ) : SignalMessage()
 
     /** Belirli bir kullanicinin presence durumuna abone olma istegi. Sunucu tarafindan islenir. */
@@ -233,5 +236,37 @@ sealed class SignalMessage {
         override val senderId: String,
         override val recipientId: String, // abonelik iptal edilecek kullanici
         override val timestamp: Long
+    ) : SignalMessage()
+
+    /**
+     * Grup arama davetiyesi. Arayan tum grup uyelerine gonderir.
+     * Her uye icin ayri mesaj gonderilir (recipientId = uye ID'si).
+     * Mesh WebRTC: Her katilimci birbiriyle dogrudan PeerConnection kurar.
+     */
+    @Serializable
+    @SerialName("group_call_invite")
+    data class GroupCallInvite(
+        override val senderId: String,
+        override val recipientId: String,
+        override val timestamp: Long,
+        val groupId: String,
+        val callType: CallType,
+        val callId: String,
+        val participants: List<String> // Tum davet edilen katilimcilar (arayan dahil)
+    ) : SignalMessage()
+
+    /**
+     * Grup aramasina yeni uye katildi bildirimi.
+     * Arayan (koordinator) mevcut katilimcilara gonderir.
+     * Mevcut katilimcilar yeni uyeye PeerConnection kurar.
+     */
+    @Serializable
+    @SerialName("group_call_member_joined")
+    data class GroupCallMemberJoined(
+        override val senderId: String,
+        override val recipientId: String,
+        override val timestamp: Long,
+        val groupCallId: String,
+        val joinedMemberId: String
     ) : SignalMessage()
 }

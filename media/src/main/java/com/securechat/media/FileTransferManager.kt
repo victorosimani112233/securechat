@@ -51,7 +51,8 @@ class FileTransferManager @Inject constructor(
         recipientId: String,
         uri: Uri,
         isGroup: Boolean = false,
-        groupMembers: List<String> = emptyList()
+        groupMembers: List<String> = emptyList(),
+        groupName: String? = null
     ): FileTransferResult {
         val contentResolver = context.contentResolver
         val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
@@ -74,7 +75,9 @@ class FileTransferManager @Inject constructor(
             fileName = fileName,
             mimeType = mimeType,
             fileSize = bytes.size.toLong(),
-            data = encoded
+            data = encoded,
+            groupId = if (isGroup) recipientId else null,
+            groupName = if (isGroup) groupName else null
         )
 
         val sent = if (isGroup && groupMembers.isNotEmpty()) {

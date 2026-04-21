@@ -55,7 +55,8 @@ private suspend fun handleMessage(
             "presence_update" -> {
                 // Istemci foreground/background bildiriyor — sunucu state'i guncelle
                 val isOnline = element["isOnline"]?.jsonPrimitive?.booleanOrNull ?: return
-                connectionManager.handlePresenceUpdate(senderId, isOnline)
+                val hideLastSeen = element["hideLastSeen"]?.jsonPrimitive?.booleanOrNull ?: false
+                connectionManager.handlePresenceUpdate(senderId, isOnline, hideLastSeen)
                 return
             }
             "presence_subscribe" -> {

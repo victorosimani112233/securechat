@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Elçim — Azure</title>
+<meta name="viewport" content="width=1400">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; }
+  * { box-sizing: border-box; }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+
+<script>
+  window.__TWEAKS__ = /*EDITMODE-BEGIN*/{
+    "theme": "dark"
+  }/*EDITMODE-END*/;
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="android-frame.jsx"></script>
+<script type="text/babel" src="azure-brand.jsx"></script>
+<script type="text/babel" src="azure-screens.jsx"></script>
+
+<script type="text/babel">
+/* global DesignCanvas, DCSection, DCArtboard */
+/* global IOSDevice, AndroidDevice */
+/* global AzHome, AzChat, AzContactInfo, AzGroupInfo, AzContacts, AzRegister */
+/* global AZ_SANS, AZ_MONO */
+
+const IOS_W = 390, IOS_H = 844;
+const AND_W = 412, AND_H = 892;
+
+function Phone({ platform, dark, children }) {
+  if (platform === 'ios') {
+    return (
+      <IOSDevice width={IOS_W} height={IOS_H} dark={dark}>
+        <div style={{ paddingTop: 54, height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {children}
+          </div>
+        </div>
+      </IOSDevice>
+    );
+  }
+  return (
+    <AndroidDevice width={AND_W} height={AND_H} dark={dark}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {children}
+        </div>
+      </div>
+    </AndroidDevice>
+  );
+}
+
+function TweaksPanel({ dark, setDark }) {
+  const [visible, setVisible] = React.useState(false);
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === '__activate_edit_mode') setVisible(true);
+      if (e.data?.type === '__deactivate_edit_mode') setVisible(false);
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', handler);
+  }, []);
+  if (!visible) return null;
+  return (
+    <div style={{
+      position: 'fixed', bottom: 20, right: 20, zIndex: 1000,
+      background: '#0A1628', color: '#E6F0FA', padding: 14,
+      border: '1px solid #1E3A5F', fontFamily: AZ_SANS, minWidth: 220,
+      boxShadow: '0 20px 60px rgba(0,0,0,0.3)', borderRadius: 16,
+    }}>
+      <div style={{ fontFamily: AZ_MONO, fontSize: 10, color: '#7AA5D2', letterSpacing: 1.5, marginBottom: 10 }}>
+        TWEAKS
+      </div>
+      <div style={{ fontSize: 12, marginBottom: 6, color: '#7AA5D2' }}>Tema</div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {[
+          { k: 'light', l: 'Açık' },
+          { k: 'dark', l: 'Koyu' },
+        ].map(t => {
+          const active = (dark && t.k === 'dark') || (!dark && t.k === 'light');
+          return (
+            <button key={t.k} onClick={() => {
+              setDark(t.k === 'dark');
+              window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { theme: t.k } }, '*');
+            }} style={{
+              flex: 1, padding: '8px 10px', cursor: 'pointer',
+              background: active ? '#4FB3F9' : 'transparent',
+              color: active ? '#0A1628' : '#E6F0FA',
+              border: `1px solid ${active ? '#4FB3F9' : '#1E3A5F'}`,
+              fontFamily: AZ_SANS, fontWeight: 600, fontSize: 12, borderRadius: 10,
+            }}>{t.l}</button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [dark, setDark] = React.useState(window.__TWEAKS__?.theme === 'dark');
+
+  return (
+    <>
+      <TweaksPanel dark={dark} setDark={setDark}/>
+      <DesignCanvas>
+
+        <DCSection id="azure-home" title="Azure · Ana Ekran" subtitle="mavi tonlar + glassmorphism">
+          <DCArtboard id="az-home-ios" label="iOS" width={IOS_W} height={IOS_H}>
+            <Phone platform="ios" dark={dark}><AzHome dark={dark} platform="ios"/></Phone>
+          </DCArtboard>
+          <DCArtboard id="az-home-and" label="Android" width={AND_W} height={AND_H}>
+            <Phone platform="android" dark={dark}><AzHome dark={dark} platform="android"/></Phone>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="azure-chat" title="Azure · Sohbet" subtitle="gradient balonlar · frosted header">
+          <DCArtboard id="az-chat-ios" label="iOS" width={IOS_W} height={IOS_H}>
+            <Phone platform="ios" dark={dark}><AzChat dark={dark} platform="ios"/></Phone>
+          </DCArtboard>
+          <DCArtboard id="az-chat-and" label="Android" width={AND_W} height={AND_H}>
+            <Phone platform="android" dark={dark}><AzChat dark={dark} platform="android"/></Phone>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="azure-info" title="Azure · Bilgi Ekranları" subtitle="kişi · grup · rehber · kayıt">
+          <DCArtboard id="az-contact-ios" label="Kişi · iOS" width={IOS_W} height={IOS_H}>
+            <Phone platform="ios" dark={dark}><AzContactInfo dark={dark}/></Phone>
+          </DCArtboard>
+          <DCArtboard id="az-group-ios" label="Grup · iOS" width={IOS_W} height={IOS_H}>
+            <Phone platform="ios" dark={dark}><AzGroupInfo dark={dark}/></Phone>
+          </DCArtboard>
+          <DCArtboard id="az-contacts-ios" label="Rehber · iOS" width={IOS_W} height={IOS_H}>
+            <Phone platform="ios" dark={dark}><AzContacts dark={dark} platform="ios"/></Phone>
+          </DCArtboard>
+          <DCArtboard id="az-register-ios" label="Kayıt · iOS" width={IOS_W} height={IOS_H}>
+            <Phone platform="ios" dark={dark}><AzRegister dark={dark}/></Phone>
+          </DCArtboard>
+          <DCArtboard id="az-contact-and" label="Kişi · Android" width={AND_W} height={AND_H}>
+            <Phone platform="android" dark={dark}><AzContactInfo dark={dark}/></Phone>
+          </DCArtboard>
+          <DCArtboard id="az-group-and" label="Grup · Android" width={AND_W} height={AND_H}>
+            <Phone platform="android" dark={dark}><AzGroupInfo dark={dark}/></Phone>
+          </DCArtboard>
+          <DCArtboard id="az-contacts-and" label="Rehber · Android" width={AND_W} height={AND_H}>
+            <Phone platform="android" dark={dark}><AzContacts dark={dark} platform="android"/></Phone>
+          </DCArtboard>
+          <DCArtboard id="az-register-and" label="Kayıt · Android" width={AND_W} height={AND_H}>
+            <Phone platform="android" dark={dark}><AzRegister dark={dark}/></Phone>
+          </DCArtboard>
+        </DCSection>
+
+      </DesignCanvas>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

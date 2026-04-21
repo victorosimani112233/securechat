@@ -41,6 +41,9 @@ class ConnectionManager(
     // targetUserId -> bu kullanicinin durumunu izleyen subscriber'lar
     private val presenceSubscribers = ConcurrentHashMap<String, MutableSet<String>>()
 
+    // Son gorulmesini gizleyen kullanicilar
+    private val hideLastSeenUsers = ConcurrentHashMap.newKeySet<String>()
+
     suspend fun addConnection(userId: String, session: WebSocketSession) {
         mutex.withLock {
             // Eski baglanti varsa kapat
@@ -64,8 +67,10 @@ class ConnectionManager(
         val now = System.currentTimeMillis()
         lastSeenMap[userId] = now
 
-        // Subscriber'lara offline bildir
-        notifyPresenceChange(userId, isOnline = false, lastSeen = now)
+        // Gizlilik aktifse subscriber'lara bildirim GONDERME
+        if (!hideLastSeenUsers.contains(userId)) {
+            notifyPresenceChange(userId, isOnline = false, lastSeen = now)
+        }
 
         // Bu kullanicinin subscribe'larini temizle
         cleanupSubscriptions(userId)
@@ -96,13 +101,23 @@ class ConnectionManager(
      * Istemciden gelen presence_update mesajini isler.
      * Broadcast YAPMAZ — sadece sunucu state'ini gunceller ve subscriber'lara bildirir.
      */
-    suspend fun handlePresenceUpdate(userId: String, isOnline: Boolean) {
+    suspend fun handlePresenceUpdate(userId: String, isOnline: Boolean, hideLastSeen: Boolean = false) {
+        // Gizlilik tercihini kaydet
+        if (hideLastSeen) hideLastSeenUsers.add(userId) else hideLastSeenUsers.remove(userId)
+
         if (isOnline) {
             foregroundUsers.add(userId)
         } else {
             foregroundUsers.remove(userId)
             lastSeenMap[userId] = System.currentTimeMillis()
         }
+
+        // Gizlilik aktifse subscriber'lara bildirim GONDERME
+        if (hideLastSeen) {
+            println("[P] Presence guncellendi: $userId online=$isOnline (GIZLI — subscriber bildirilmedi)")
+            return
+        }
+
         val lastSeen = if (isOnline) System.currentTimeMillis() else (lastSeenMap[userId] ?: System.currentTimeMillis())
         notifyPresenceChange(userId, isOnline, lastSeen)
         println("[P] Presence guncellendi: $userId online=$isOnline (subscriber: ${presenceSubscribers[userId]?.size ?: 0})")
@@ -113,6 +128,12 @@ class ConnectionManager(
      */
     private suspend fun sendPresenceResponse(requesterId: String, targetUserId: String) {
         val session = connections[requesterId] ?: return
+        // Hedef kullanici gizlilik aktifse bos presence gonder
+        if (hideLastSeenUsers.contains(targetUserId)) {
+            val json = buildPresenceJson(targetUserId, requesterId, isOnline = false, lastSeen = 0)
+            try { session.send(Frame.Text(json)) } catch (_: Exception) { }
+            return
+        }
         val isOnline = foregroundUsers.contains(targetUserId)
         val lastSeen = if (isOnline) System.currentTimeMillis() else (lastSeenMap[targetUserId] ?: 0)
         val json = buildPresenceJson(targetUserId, requesterId, isOnline, lastSeen)

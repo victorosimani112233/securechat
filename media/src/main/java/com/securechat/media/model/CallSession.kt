@@ -28,5 +28,12 @@ data class CallSession(
     val isMuted: Boolean = false,
     val isSpeakerOn: Boolean = false,
     val isCameraEnabled: Boolean = true,
-    val isUsingFrontCamera: Boolean = true
+    val isUsingFrontCamera: Boolean = true,
+    // Grup arama alanlari
+    val isGroupCall: Boolean = false,
+    val groupId: String? = null,
+    /** Tum grup uyeleri (kendisi haric). */
+    val peerIds: List<String> = emptyList(),
+    /** Su an baglanmis olan grup uyeleri. */
+    val connectedPeerIds: List<String> = emptyList()
 )

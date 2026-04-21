@@ -98,6 +98,14 @@ class CallManager @Inject constructor(
      */
     private val pendingRemoteIceCandidates = mutableListOf<SignalMessage.IceCandidate>()
 
+    // --- Grup arama state ---
+    /** Arayan (koordinator) mi? Yeni uye bildirimlerini bu kisi gonderir. */
+    private var isGroupCallCoordinator = false
+    /** Su an baglanmis grup uyeleri (mesh peers). */
+    private val groupConnectedPeers = mutableSetOf<String>()
+    /** Grup aramasi SDP Offer bekleyen peerler (ringing sirasinda). */
+    private val pendingGroupSdpOffers = mutableMapOf<String, String>()
+
     // ---- Giden arama ----
 
     /**
@@ -270,6 +278,12 @@ class CallManager @Inject constructor(
     fun acceptCall(userId: String) {
         val session = _callSession.value ?: return
         if (session.state != CallState.RINGING || session.direction != CallDirection.INCOMING) return
+
+        // Grup aramasi ise farkli flow kullan
+        if (session.isGroupCall) {
+            acceptGroupCall(userId)
+            return
+        }
 
         val remoteSdp = pendingRemoteSdpOffer
         if (remoteSdp == null) {
@@ -520,6 +534,525 @@ class CallManager @Inject constructor(
         _callSession.value = _callSession.value?.copy(state = CallState.BUSY)
     }
 
+    // ---- Grup Arama ----
+
+    /**
+     * Grup aramasi baslatir. Tum uyelere GroupCallInvite gonderir.
+     * Arayan kisi koordinator olur — yeni uye katildiginda mevcut uyeleri bilgilendirir.
+     *
+     * Mesh WebRTC modeli:
+     * - Her katilimci birbiriyle dogrudan PeerConnection kurar
+     * - Arayan koordinator olarak gorev yapar (katilim sinyallerini yonetir)
+     * - N katilimci icin her birine N-1 PeerConnection gerekir
+     *
+     * @param groupId Grup konusma ID'si
+     * @param peerIds Grup uyeleri (arayan haric)
+     * @param callType Arama tipi (VOICE veya VIDEO)
+     * @param userId Arayan kullanicinin ID'si
+     */
+    fun initiateGroupCall(groupId: String, peerIds: List<String>, callType: CallType, userId: String) {
+        val currentSession = _callSession.value
+        if (currentSession != null && (
+            currentSession.state == CallState.RINGING ||
+            currentSession.state == CallState.ACTIVE ||
+            currentSession.state == CallState.INITIATING
+        )) {
+            android.util.Log.w("CallManager", "initiateGroupCall IGNORE — zaten aktif call var")
+            return
+        }
+
+        localUserId = userId
+        isGroupCallCoordinator = true
+        groupConnectedPeers.clear()
+
+        val isVideo = callType == CallType.VIDEO
+        val callId = UUID.randomUUID().toString()
+        val session = CallSession(
+            callId = callId,
+            peerId = groupId,
+            callType = callType,
+            direction = CallDirection.OUTGOING,
+            state = CallState.ACTIVE,
+            startTime = System.currentTimeMillis(),
+            isSpeakerOn = true, // Grup aramalarda hoparlor varsayilan acik
+            isGroupCall = true,
+            groupId = groupId,
+            peerIds = peerIds,
+            connectedPeerIds = emptyList()
+        )
+        _callSession.value = session
+
+        audioManager.setSpeakerOn(true)
+        audioManager.setCallMode()
+
+        // PeerConnectionManager'i baslat ve ICE callback'ini ayarla
+        scope.launch(Dispatchers.Main) {
+            try {
+                peerConnectionManager.initialize()
+
+                peerConnectionManager.onGroupIceCandidateGenerated = { peerId, candidate ->
+                    signalingClient.sendSignal(
+                        SignalMessage.IceCandidate(
+                            senderId = userId,
+                            recipientId = peerId,
+                            timestamp = System.currentTimeMillis(),
+                            candidate = candidate.sdp,
+                            sdpMid = candidate.sdpMid,
+                            sdpMLineIndex = candidate.sdpMLineIndex
+                        )
+                    )
+                }
+
+                peerConnectionManager.onGroupConnectionStateChanged = { peerId, state ->
+                    if (state == org.webrtc.PeerConnection.IceConnectionState.CONNECTED ||
+                        state == org.webrtc.PeerConnection.IceConnectionState.COMPLETED) {
+                        synchronized(groupConnectedPeers) {
+                            groupConnectedPeers.add(peerId)
+                        }
+                        updateGroupConnectedPeers()
+                        android.util.Log.d("CallManager", "Grup peer baglandi: $peerId (toplam: ${groupConnectedPeers.size})")
+                    } else if (state == org.webrtc.PeerConnection.IceConnectionState.DISCONNECTED ||
+                        state == org.webrtc.PeerConnection.IceConnectionState.FAILED) {
+                        synchronized(groupConnectedPeers) {
+                            groupConnectedPeers.remove(peerId)
+                        }
+                        updateGroupConnectedPeers()
+                    }
+                }
+
+                // Tum uyelere davet gonder
+                val allParticipants = peerIds + userId
+                for (peerId in peerIds) {
+                    signalingClient.sendSignal(
+                        SignalMessage.GroupCallInvite(
+                            senderId = userId,
+                            recipientId = peerId,
+                            timestamp = System.currentTimeMillis(),
+                            groupId = groupId,
+                            callType = callType,
+                            callId = callId,
+                            participants = allParticipants
+                        )
+                    )
+                }
+
+                android.util.Log.d("CallManager", "Grup aramasi baslatildi: $groupId, ${peerIds.size} uye davet edildi")
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "initiateGroupCall hatasi: ${e.message}")
+                onCallFailed()
+            }
+        }
+    }
+
+    /**
+     * Gelen grup arama davetiyesini isler.
+     * CallSession olusturulur ve RINGING durumuna gecirilir.
+     */
+    fun handleGroupCallInvite(signal: SignalMessage.GroupCallInvite, localUserId: String) {
+        val existingSession = _callSession.value
+        if (existingSession != null && (
+            existingSession.state == CallState.ACTIVE ||
+            existingSession.state == CallState.RINGING ||
+            existingSession.state == CallState.INITIATING
+        )) {
+            android.util.Log.w("CallManager", "handleGroupCallInvite IGNORE — mevcut call var")
+            return
+        }
+
+        this.localUserId = localUserId
+        isGroupCallCoordinator = false
+        groupConnectedPeers.clear()
+
+        // Diger katilimcilar (kendisi ve arayan haric)
+        val otherPeers = signal.participants.filter { it != localUserId }
+
+        val session = CallSession(
+            callId = signal.callId,
+            peerId = signal.senderId, // Arayanin ID'si (goruntuleme icin)
+            callType = signal.callType,
+            direction = CallDirection.INCOMING,
+            state = CallState.RINGING,
+            startTime = null,
+            isGroupCall = true,
+            groupId = signal.groupId,
+            peerIds = otherPeers,
+            connectedPeerIds = emptyList()
+        )
+        _callSession.value = session
+
+        ringtonePlayer.startRinging()
+        android.util.Log.d("CallManager", "Gelen grup aramasi: ${signal.groupId} from ${signal.senderId}")
+    }
+
+    /**
+     * Grup aramasini kabul eder.
+     * Arayan (koordinator) a ACCEPT sinyali gonderir.
+     * Koordinator daha sonra mevcut uyelere GroupCallMemberJoined gonderir,
+     * ve mevcut uyeler yeni uyeye SDP Offer gonderir.
+     */
+    fun acceptGroupCall(userId: String) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall || session.state != CallState.RINGING || session.direction != CallDirection.INCOMING) return
+
+        localUserId = userId
+
+        incomingCallHandler.dismissIncomingCall()
+        ringtonePlayer.stopRinging()
+
+        // Arayan (koordinator) a ACCEPT gonder
+        signalingClient.sendSignal(
+            SignalMessage.CallControl(
+                senderId = userId,
+                recipientId = session.peerId, // Arayan (koordinator)
+                timestamp = System.currentTimeMillis(),
+                action = CallAction.ACCEPT
+            )
+        )
+
+        audioManager.setSpeakerOn(true)
+        audioManager.setCallMode()
+
+        // PeerConnectionManager'i baslat ve ICE callback'ini ayarla
+        scope.launch(Dispatchers.Main) {
+            try {
+                peerConnectionManager.initialize()
+
+                peerConnectionManager.onGroupIceCandidateGenerated = { peerId, candidate ->
+                    signalingClient.sendSignal(
+                        SignalMessage.IceCandidate(
+                            senderId = userId,
+                            recipientId = peerId,
+                            timestamp = System.currentTimeMillis(),
+                            candidate = candidate.sdp,
+                            sdpMid = candidate.sdpMid,
+                            sdpMLineIndex = candidate.sdpMLineIndex
+                        )
+                    )
+                }
+
+                peerConnectionManager.onGroupConnectionStateChanged = { peerId, state ->
+                    if (state == org.webrtc.PeerConnection.IceConnectionState.CONNECTED ||
+                        state == org.webrtc.PeerConnection.IceConnectionState.COMPLETED) {
+                        synchronized(groupConnectedPeers) {
+                            groupConnectedPeers.add(peerId)
+                        }
+                        updateGroupConnectedPeers()
+                        android.util.Log.d("CallManager", "Grup peer baglandi: $peerId")
+                    } else if (state == org.webrtc.PeerConnection.IceConnectionState.DISCONNECTED ||
+                        state == org.webrtc.PeerConnection.IceConnectionState.FAILED) {
+                        synchronized(groupConnectedPeers) {
+                            groupConnectedPeers.remove(peerId)
+                        }
+                        updateGroupConnectedPeers()
+                    }
+                }
+
+                // Bekleyen SDP Offer'leri isle (ringing sirasinda gelen)
+                val pendingOffers = synchronized(pendingGroupSdpOffers) {
+                    pendingGroupSdpOffers.toMap().also { pendingGroupSdpOffers.clear() }
+                }
+                for ((peerId, sdp) in pendingOffers) {
+                    connectToGroupPeer(peerId, sdp, session.callType)
+                }
+
+                android.util.Log.d("CallManager", "Grup aramasi kabul edildi, ${pendingOffers.size} bekleyen offer islendi")
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "acceptGroupCall hatasi: ${e.message}")
+                onCallFailed()
+            }
+        }
+
+        ringtonePlayer.playConnectedTone()
+        _callSession.value = session.copy(
+            state = CallState.ACTIVE,
+            startTime = System.currentTimeMillis()
+        )
+    }
+
+    /**
+     * Grup aramasinda bir uyeye PeerConnection kurar ve SDP Answer gonderir.
+     * Mevcut uye SDP Offer gonderdiginde cagirilir.
+     */
+    private fun connectToGroupPeer(peerId: String, remoteSdp: String, callType: CallType) {
+        scope.launch(Dispatchers.Main) {
+            try {
+                val enableVideo = callType == CallType.VIDEO
+                val pc = peerConnectionManager.createGroupPeerConnection(peerId, enableVideo)
+                if (pc == null) {
+                    android.util.Log.e("CallManager", "Group PeerConnection olusturulamadi: $peerId")
+                    return@launch
+                }
+
+                val remoteDescription = SessionDescription(SessionDescription.Type.OFFER, remoteSdp)
+                peerConnectionManager.setRemoteDescriptionForPeer(peerId, remoteDescription)
+
+                val answer = peerConnectionManager.createAnswerForPeer(peerId)
+                signalingClient.sendSignal(
+                    SignalMessage.SdpAnswer(
+                        senderId = localUserId,
+                        recipientId = peerId,
+                        timestamp = System.currentTimeMillis(),
+                        sdp = answer.description
+                    )
+                )
+
+                android.util.Log.d("CallManager", "Grup peer'e baglandi (answer): $peerId")
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "connectToGroupPeer hatasi ($peerId): ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Grup aramasinda koordinator: Bir uye ACCEPT gonderdiginde cagirilir.
+     * Yeni uyeye PeerConnection kurar ve mevcut uyelere bildirir.
+     */
+    fun onGroupMemberAccepted(memberId: String) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall || !isGroupCallCoordinator) return
+
+        android.util.Log.d("CallManager", "Grup uyesi kabul etti: $memberId")
+
+        // Mevcut bagli uyelere yeni uye bildir — onlar da PeerConnection kuracak
+        synchronized(groupConnectedPeers) {
+            for (existingPeerId in groupConnectedPeers) {
+                signalingClient.sendSignal(
+                    SignalMessage.GroupCallMemberJoined(
+                        senderId = localUserId,
+                        recipientId = existingPeerId,
+                        timestamp = System.currentTimeMillis(),
+                        groupCallId = session.callId,
+                        joinedMemberId = memberId
+                    )
+                )
+            }
+        }
+
+        // Koordinator olarak yeni uyeye PeerConnection kur ve SDP Offer gonder
+        scope.launch(Dispatchers.Main) {
+            try {
+                val enableVideo = session.callType == CallType.VIDEO
+                val pc = peerConnectionManager.createGroupPeerConnection(memberId, enableVideo)
+                if (pc == null) {
+                    android.util.Log.e("CallManager", "Group PeerConnection olusturulamadi: $memberId")
+                    return@launch
+                }
+
+                val offer = peerConnectionManager.createOfferForPeer(memberId)
+                signalingClient.sendSignal(
+                    SignalMessage.SdpOffer(
+                        senderId = localUserId,
+                        recipientId = memberId,
+                        timestamp = System.currentTimeMillis(),
+                        sdp = offer.description,
+                        callType = session.callType
+                    )
+                )
+
+                android.util.Log.d("CallManager", "Koordinator -> yeni uye SDP Offer gonderildi: $memberId")
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "onGroupMemberAccepted PeerConnection hatasi ($memberId): ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Grup aramasinda: Yeni bir uye katildi bildirimi alindi.
+     * Yeni uyeye PeerConnection kurar ve SDP Offer gonderir.
+     */
+    fun handleGroupCallMemberJoined(signal: SignalMessage.GroupCallMemberJoined) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall || session.state != CallState.ACTIVE) return
+
+        val newMemberId = signal.joinedMemberId
+        android.util.Log.d("CallManager", "Grup uyesi katildi bildirimi: $newMemberId")
+
+        scope.launch(Dispatchers.Main) {
+            try {
+                val enableVideo = session.callType == CallType.VIDEO
+                val pc = peerConnectionManager.createGroupPeerConnection(newMemberId, enableVideo)
+                if (pc == null) {
+                    android.util.Log.e("CallManager", "Group PeerConnection olusturulamadi: $newMemberId")
+                    return@launch
+                }
+
+                val offer = peerConnectionManager.createOfferForPeer(newMemberId)
+                signalingClient.sendSignal(
+                    SignalMessage.SdpOffer(
+                        senderId = localUserId,
+                        recipientId = newMemberId,
+                        timestamp = System.currentTimeMillis(),
+                        sdp = offer.description,
+                        callType = session.callType
+                    )
+                )
+
+                android.util.Log.d("CallManager", "Mevcut uye -> yeni uye SDP Offer gonderildi: $newMemberId")
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "handleGroupCallMemberJoined PeerConnection hatasi: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Grup aramasinda SDP Offer alindi.
+     * Eger grup aramasi ringing durumundaysa tamponlar,
+     * aktifse direkt PeerConnection kurar.
+     */
+    fun handleGroupSdpOffer(signal: SignalMessage.SdpOffer) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+
+        if (session.state == CallState.RINGING) {
+            // Ringing — henuz kabul edilmedi, tamponla
+            synchronized(pendingGroupSdpOffers) {
+                pendingGroupSdpOffers[signal.senderId] = signal.sdp
+            }
+            android.util.Log.d("CallManager", "Grup SDP Offer tamponlandi (ringing): ${signal.senderId}")
+        } else if (session.state == CallState.ACTIVE) {
+            connectToGroupPeer(signal.senderId, signal.sdp, signal.callType)
+        }
+    }
+
+    /**
+     * Grup aramasinda SDP Answer alindi.
+     * Ilgili PeerConnection'a remote description olarak ayarlar.
+     */
+    fun handleGroupSdpAnswer(signal: SignalMessage.SdpAnswer) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+
+        scope.launch(Dispatchers.Main) {
+            try {
+                val remoteDescription = SessionDescription(SessionDescription.Type.ANSWER, signal.sdp)
+                peerConnectionManager.setRemoteDescriptionForPeer(signal.senderId, remoteDescription)
+                android.util.Log.d("CallManager", "Grup SDP Answer islendi: ${signal.senderId}")
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "handleGroupSdpAnswer hatasi (${signal.senderId}): ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Grup aramasinda ICE Candidate alindi.
+     * Ilgili PeerConnection'a eklenir.
+     */
+    fun handleGroupIceCandidate(signal: SignalMessage.IceCandidate) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+
+        scope.launch(Dispatchers.Main) {
+            try {
+                val candidate = org.webrtc.IceCandidate(
+                    signal.sdpMid,
+                    signal.sdpMLineIndex,
+                    signal.candidate
+                )
+                peerConnectionManager.addIceCandidateForPeer(signal.senderId, candidate)
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "handleGroupIceCandidate hatasi: ${e.message}")
+            }
+        }
+    }
+
+    /** connectedPeerIds listesini gunceller. */
+    private fun updateGroupConnectedPeers() {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+        val connected = synchronized(groupConnectedPeers) { groupConnectedPeers.toList() }
+        _callSession.value = session.copy(connectedPeerIds = connected)
+    }
+
+    /**
+     * Grup aramasini sonlandirir.
+     * Tum peer'lere HANGUP gonderir ve tum PeerConnection'lari temizler.
+     */
+    fun endGroupCall(userId: String) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+
+        // Tum peer'lere HANGUP gonder
+        for (peerId in session.peerIds) {
+            signalingClient.sendSignal(
+                SignalMessage.CallControl(
+                    senderId = userId,
+                    recipientId = peerId,
+                    timestamp = System.currentTimeMillis(),
+                    action = CallAction.HANGUP
+                )
+            )
+        }
+
+        cleanupGroupCall()
+    }
+
+    /**
+     * Grup aramasinda bir uye ayrildi.
+     * Ilgili PeerConnection'i temizler.
+     */
+    fun onGroupMemberHangup(memberId: String) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+
+        peerConnectionManager.disposeGroupPeerConnection(memberId)
+        synchronized(groupConnectedPeers) {
+            groupConnectedPeers.remove(memberId)
+        }
+        updateGroupConnectedPeers()
+        android.util.Log.d("CallManager", "Grup uyesi ayrildi: $memberId")
+
+        // Kimse kalmadiysa aramayi sonlandir
+        if (groupConnectedPeers.isEmpty()) {
+            android.util.Log.d("CallManager", "Grup aramasinda kimse kalmadi, sonlandiriliyor")
+            cleanupGroupCall()
+        }
+    }
+
+    /** Grup aramasi kaynaklarini temizler. */
+    private fun cleanupGroupCall() {
+        if (!isCleaningUp.compareAndSet(false, true)) return
+
+        try {
+            val session = _callSession.value ?: return
+            val duration = session.startTime?.let { System.currentTimeMillis() - it }
+
+            saveCallLog(session, duration)
+
+            incomingCallHandler.dismissIncomingCall()
+            ringtonePlayer.stopRinging()
+            ringtonePlayer.stopRingbackTone()
+
+            peerConnectionManager.disposeAllGroupPeerConnections()
+            audioManager.resetAudioMode()
+
+            isGroupCallCoordinator = false
+            groupConnectedPeers.clear()
+            synchronized(pendingGroupSdpOffers) { pendingGroupSdpOffers.clear() }
+
+            _callSession.value = session.copy(
+                state = CallState.ENDED,
+                duration = duration
+            )
+
+            scope.launch {
+                kotlinx.coroutines.delay(2000)
+                if (_callSession.value?.state == CallState.ENDED) {
+                    _callSession.value = null
+                }
+                isCleaningUp.set(false)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CallManager", "cleanupGroupCall hatasi: ${e.message}")
+            isCleaningUp.set(false)
+        }
+    }
+
+    /** Remote video track'leri (grup arama icin). */
+    val remoteVideoTracksFlow get() = peerConnectionManager.remoteVideoTracksFlow
+
+    /** Aktif oturumun grup aramasi olup olmadigini kontrol eder. */
+    val isCurrentCallGroup: Boolean get() = _callSession.value?.isGroupCall == true
+
     // ---- Arama sonlandirma ----
 
     /**
@@ -532,17 +1065,30 @@ class CallManager @Inject constructor(
 
         android.util.Log.d("CallManager", "Arama reddedildi: ${session.callId}")
 
-        // Zil sesi ve titresimi durdur
         ringtonePlayer.stopRinging()
-        signalingClient.sendSignal(
-            SignalMessage.CallControl(
-                senderId = userId,
-                recipientId = session.peerId,
-                timestamp = System.currentTimeMillis(),
-                action = CallAction.REJECT
+
+        if (session.isGroupCall) {
+            // Grup aramasinda sadece arayan (peerId) a REJECT gonder
+            signalingClient.sendSignal(
+                SignalMessage.CallControl(
+                    senderId = userId,
+                    recipientId = session.peerId,
+                    timestamp = System.currentTimeMillis(),
+                    action = CallAction.REJECT
+                )
             )
-        )
-        cleanupCall()
+            cleanupGroupCall()
+        } else {
+            signalingClient.sendSignal(
+                SignalMessage.CallControl(
+                    senderId = userId,
+                    recipientId = session.peerId,
+                    timestamp = System.currentTimeMillis(),
+                    action = CallAction.REJECT
+                )
+            )
+            cleanupCall()
+        }
         _callSession.value = _callSession.value?.copy(state = CallState.REJECTED)
     }
 
@@ -553,6 +1099,10 @@ class CallManager @Inject constructor(
      */
     fun endCall(userId: String) {
         val session = _callSession.value ?: return
+        if (session.isGroupCall) {
+            endGroupCall(userId)
+            return
+        }
         signalingClient.sendSignal(
             SignalMessage.CallControl(
                 senderId = userId,

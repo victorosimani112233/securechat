@@ -66,6 +66,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -89,7 +90,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -129,7 +129,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -280,7 +279,6 @@ fun ChatScreen(
                     }
                 )
             } else {
-                val coroutineScope = rememberCoroutineScope()
                 ChatTopBar(
                     peerName = displayName,
                     isGroup = isGroup,
@@ -288,22 +286,16 @@ fun ChatScreen(
                     peerIsTyping = peerIsTyping,
                     peerIsOnline = peerPresence?.isOnline ?: false,
                     peerLastSeen = peerPresence?.lastSeen,
+                    disappearingDuration = disappearingDuration,
                     onBackClick = onBackClick,
                     onVoiceCallClick = {
-                        if (isGroup) {
-                            coroutineScope.launch { snackbarHostState.showSnackbar("Grup aramaları henüz desteklenmiyor") }
-                        } else {
-                            onVoiceCallClick(conversationId)
-                        }
+                        onVoiceCallClick(conversationId)
                     },
                     onVideoCallClick = {
-                        if (isGroup) {
-                            coroutineScope.launch { snackbarHostState.showSnackbar("Grup görüntülü aramaları henüz desteklenmiyor") }
-                        } else {
-                            onVideoCallClick(conversationId)
-                        }
+                        onVideoCallClick(conversationId)
                     },
                     onSearchClick = { isSearchMode = true },
+                    onDisappearingClick = { showDisappearingDialog = true },
                     onChatInfoClick = {
                         if (conversationInfo?.isGroup == true) {
                             onGroupInfoClick(conversationId)
@@ -1009,12 +1001,15 @@ fun ChatTopBar(
     peerIsTyping: Boolean = false,
     peerIsOnline: Boolean = false,
     peerLastSeen: Long? = null,
+    disappearingDuration: Long = 0,
     onBackClick: () -> Unit,
     onVoiceCallClick: () -> Unit,
     onVideoCallClick: () -> Unit,
     onSearchClick: (() -> Unit)? = null,
+    onDisappearingClick: (() -> Unit)? = null,
     onChatInfoClick: (() -> Unit)? = null
 ) {
+    var showMenu by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.background,
         modifier = Modifier.drawBehind {
@@ -1133,6 +1128,41 @@ fun ChatTopBar(
                     contentDescription = "Görüntülü Arama",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            // Daha fazla menü (süreli mesaj vb.)
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Daha Fazla",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (disappearingDuration > 0) "Süreli Mesajlar (Açık)" else "Süreli Mesajlar"
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDisappearingClick?.invoke()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = if (disappearingDuration > 0) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    )
+                }
             }
         }
     }

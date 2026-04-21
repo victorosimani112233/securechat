@@ -134,6 +134,17 @@ class ChatViewModel @Inject constructor(
             markIncomingMessagesAsRead()
         }
 
+        // Sureli mesajlari periyodik olarak temizle (30 saniyede bir, sohbet acikken)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                val deleted = messageRepository.deleteExpiredMessages()
+                if (deleted > 0) {
+                    android.util.Log.d("ChatViewModel", "Sureli mesaj temizlendi: $deleted")
+                }
+            }
+        }
+
         // Presence subscribe: Bu kisi icin cevrimici durumunu sunucudan iste
         // Grup sohbetlerinde presence subscribe YAPILMAZ — group_uuid gercek bir kullanici degil
         if (!conversationId.startsWith("group_")) {
@@ -383,7 +394,8 @@ class ChatViewModel @Inject constructor(
                 recipientId = conversationId,
                 uri = uri,
                 isGroup = isGroup,
-                groupMembers = members
+                groupMembers = members,
+                groupName = if (isGroup) conversation?.peerName else null
             )
 
             android.util.Log.d("ChatVM", "sendFile sonucu: $result")

@@ -93,6 +93,7 @@ import com.securechat.media.model.CallDirection
 import com.securechat.media.model.CallState
 import com.securechat.network.model.CallType
 import kotlinx.coroutines.delay
+import org.webrtc.EglBase
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
@@ -185,7 +186,9 @@ fun CallScreen(
     // Video track'leri — SurfaceViewRenderer'a baglanir
     val remoteVideoTrack by viewModel.remoteVideoTrack.collectAsStateWithLifecycle()
     val localVideoTrack by viewModel.localVideoTrack.collectAsStateWithLifecycle()
+    val remoteVideoTracks by viewModel.remoteVideoTracks.collectAsStateWithLifecycle()
     val eglBaseContext = viewModel.eglBaseContext
+    val isGroupCall = callSession?.isGroupCall == true
     val isVideoActive = callType == CallType.VIDEO && callSession?.state == CallState.ACTIVE
     val remoteCameraEnabled by viewModel.remoteCameraEnabled.collectAsStateWithLifecycle()
 
@@ -253,45 +256,52 @@ fun CallScreen(
         // --- Yuzen parcacik efekti ---
         FloatingParticles()
 
-        // Video arama aktifse: ana video track tam ekran SurfaceViewRenderer
+        // Video arama aktifse: grup video grid VEYA 1-to-1 tam ekran video
         if (isVideoActive && eglBaseContext != null) {
-            // Sink yonetimi: onceki track'i hatirla, sadece degistiginde swap yap
-            val currentMainTrack = remember { mutableStateOf<VideoTrack?>(null) }
-            val currentMainMirror = remember { mutableStateOf(false) }
-
-            if (mainVideoTrack != null) {
-                AndroidView(
-                    factory = { ctx ->
-                        SurfaceViewRenderer(ctx).apply {
-                            init(eglBaseContext, null)
-                            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
-                            setEnableHardwareScaler(true)
-                            setMirror(isVideoSwapped)
-                            currentMainMirror.value = isVideoSwapped
-                        }
-                    },
-                    update = { renderer ->
-                        // Mirror durumu degistiyse guncelle
-                        if (currentMainMirror.value != isVideoSwapped) {
-                            renderer.setMirror(isVideoSwapped)
-                            currentMainMirror.value = isVideoSwapped
-                        }
-                        // Sadece track degistiyse sink'i guncelle
-                        val prevTrack = currentMainTrack.value
-                        val newTrack = mainVideoTrack
-                        if (prevTrack != newTrack) {
-                            prevTrack?.removeSink(renderer)
-                            newTrack?.addSink(renderer)
-                            currentMainTrack.value = newTrack
-                        }
-                    },
-                    onRelease = { renderer ->
-                        currentMainTrack.value?.removeSink(renderer)
-                        currentMainTrack.value = null
-                        renderer.release()
-                    },
-                    modifier = Modifier.fillMaxSize()
+            if (isGroupCall && remoteVideoTracks.isNotEmpty()) {
+                // Grup video: Grid layout
+                GroupVideoGrid(
+                    remoteVideoTracks = remoteVideoTracks,
+                    localVideoTrack = localVideoTrack,
+                    eglBaseContext = eglBaseContext!!
                 )
+            } else if (!isGroupCall) {
+                // 1-to-1 video: Tam ekran
+                val currentMainTrack = remember { mutableStateOf<VideoTrack?>(null) }
+                val currentMainMirror = remember { mutableStateOf(false) }
+
+                if (mainVideoTrack != null) {
+                    AndroidView(
+                        factory = { ctx ->
+                            SurfaceViewRenderer(ctx).apply {
+                                init(eglBaseContext, null)
+                                setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                                setEnableHardwareScaler(true)
+                                setMirror(isVideoSwapped)
+                                currentMainMirror.value = isVideoSwapped
+                            }
+                        },
+                        update = { renderer ->
+                            if (currentMainMirror.value != isVideoSwapped) {
+                                renderer.setMirror(isVideoSwapped)
+                                currentMainMirror.value = isVideoSwapped
+                            }
+                            val prevTrack = currentMainTrack.value
+                            val newTrack = mainVideoTrack
+                            if (prevTrack != newTrack) {
+                                prevTrack?.removeSink(renderer)
+                                newTrack?.addSink(renderer)
+                                currentMainTrack.value = newTrack
+                            }
+                        },
+                        onRelease = { renderer ->
+                            currentMainTrack.value?.removeSink(renderer)
+                            currentMainTrack.value = null
+                            renderer.release()
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
 
@@ -389,14 +399,32 @@ fun CallScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // Peer ismi
-                        Text(
-                            text = peerId,
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center
-                        )
+                        // Peer ismi veya grup bilgisi
+                        if (isGroupCall) {
+                            Text(
+                                text = "Grup Arama",
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center
+                            )
+                            val connectedCount = callSession?.connectedPeerIds?.size ?: 0
+                            val totalCount = callSession?.peerIds?.size ?: 0
+                            Text(
+                                text = "$connectedCount / $totalCount katilimci",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF2979FF).copy(alpha = 0.8f),
+                                textAlign = TextAlign.Center
+                            )
+                        } else {
+                            Text(
+                                text = peerId,
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -418,7 +446,6 @@ fun CallScreen(
                                     text = getCallStateText(callSession?.state, callDuration)
                                 )
                             } else if (isActive) {
-                                // Aktif arama suresi — yumusak fade-in
                                 AnimatedDurationText(
                                     text = getCallStateText(callSession?.state, callDuration)
                                 )
@@ -464,8 +491,8 @@ fun CallScreen(
             }
         }
 
-        // --- [5] PIP gorunumu — dokunarak swap ---
-        if (isVideoActive && eglBaseContext != null) {
+        // --- [5] PIP gorunumu — dokunarak swap (sadece 1-to-1 video) ---
+        if (isVideoActive && !isGroupCall && eglBaseContext != null) {
             val currentPipTrack = remember { mutableStateOf<VideoTrack?>(null) }
             val currentPipMirror = remember { mutableStateOf(true) }
 
@@ -524,6 +551,158 @@ fun CallScreen(
                 }
             }
         }
+    }
+}
+
+// =====================================================================
+// Grup Video Grid
+// =====================================================================
+
+/**
+ * Grup aramasinda birden fazla remote video track'i grid olarak gosterir.
+ * 2 kisi: yan yana, 3-4: 2x2, 5-6: 3x2, 7+: 4x2.
+ * Yerel video her zaman sag alt kosede kucuk PIP olarak gosterilir.
+ */
+@Composable
+private fun GroupVideoGrid(
+    remoteVideoTracks: Map<String, VideoTrack>,
+    localVideoTrack: VideoTrack?,
+    eglBaseContext: EglBase.Context
+) {
+    val trackList = remoteVideoTracks.entries.toList()
+    val columns = when {
+        trackList.size <= 2 -> 1
+        trackList.size <= 4 -> 2
+        else -> 2
+    }
+    val rows = (trackList.size + columns - 1) / columns
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            for (row in 0 until rows) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    for (col in 0 until columns) {
+                        val index = row * columns + col
+                        if (index < trackList.size) {
+                            val (peerId, track) = trackList[index]
+                            GroupVideoCell(
+                                peerId = peerId,
+                                videoTrack = track,
+                                eglBaseContext = eglBaseContext,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(1.dp)
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+
+        // Yerel video PIP — sag alt kose
+        if (localVideoTrack != null) {
+            val currentLocalTrack = remember { mutableStateOf<VideoTrack?>(null) }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 100.dp, end = 12.dp)
+                    .size(width = 90.dp, height = 120.dp)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                    .border(
+                        width = 2.dp,
+                        color = Color(0xFF2979FF).copy(alpha = 0.6f),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                    )
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        SurfaceViewRenderer(ctx).apply {
+                            init(eglBaseContext, null)
+                            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                            setEnableHardwareScaler(true)
+                            setMirror(true)
+                            setZOrderMediaOverlay(true)
+                        }
+                    },
+                    update = { renderer ->
+                        val prev = currentLocalTrack.value
+                        val next = localVideoTrack
+                        if (prev != next) {
+                            prev?.removeSink(renderer)
+                            next?.addSink(renderer)
+                            currentLocalTrack.value = next
+                        }
+                    },
+                    onRelease = { renderer ->
+                        currentLocalTrack.value?.removeSink(renderer)
+                        currentLocalTrack.value = null
+                        renderer.release()
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Tek bir grup video hucresini render eder.
+ */
+@Composable
+private fun GroupVideoCell(
+    peerId: String,
+    videoTrack: VideoTrack,
+    eglBaseContext: EglBase.Context,
+    modifier: Modifier = Modifier
+) {
+    val currentTrack = remember { mutableStateOf<VideoTrack?>(null) }
+
+    Box(modifier = modifier) {
+        AndroidView(
+            factory = { ctx ->
+                SurfaceViewRenderer(ctx).apply {
+                    init(eglBaseContext, null)
+                    setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                    setEnableHardwareScaler(true)
+                    setMirror(false)
+                }
+            },
+            update = { renderer ->
+                val prev = currentTrack.value
+                if (prev != videoTrack) {
+                    prev?.removeSink(renderer)
+                    videoTrack.addSink(renderer)
+                    currentTrack.value = videoTrack
+                }
+            },
+            onRelease = { renderer ->
+                currentTrack.value?.removeSink(renderer)
+                currentTrack.value = null
+                renderer.release()
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Peer ID etiketi (sol alt kose)
+        Text(
+            text = peerId.take(8),
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(4.dp)
+                .background(
+                    Color.Black.copy(alpha = 0.5f),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        )
     }
 }
 

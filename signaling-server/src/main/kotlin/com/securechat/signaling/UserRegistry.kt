@@ -1,5 +1,9 @@
 package com.securechat.signaling
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -11,6 +15,14 @@ data class RegisteredUser(
     val registeredAt: Long = System.currentTimeMillis()
 )
 
+@Serializable
+private data class PersistedUser(
+    val userId: String,
+    val phoneHash: String,
+    val encryptedPhone: String? = null,
+    val registeredAt: Long = 0
+)
+
 class UserRegistry {
 
     // phoneHash -> RegisteredUser
@@ -19,19 +31,45 @@ class UserRegistry {
     // userId -> RegisteredUser (hizli UUID lookup icin)
     private val usersByUserId = ConcurrentHashMap<String, RegisteredUser>()
 
-    // Demo seed kaldirildi — sunucu temiz baslar
+    private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
+    private val persistFile = File("user_registry.json")
+
+    init {
+        loadFromDisk()
+    }
 
     /**
      * Kullaniciyi phoneHash ile kaydeder.
      * encryptedPhone: istemcide AES-GCM ile sifreli telefon numarasi (sunucu cozemez).
      * Sunucu plaintext telefon numarasini ASLA almaz.
      */
-    fun registerUserByHash(userId: String, phoneHash: String, encryptedPhone: String? = null): RegisteredUser {
+    /**
+     * Mevcut phoneHash icin kayit varsa, mevcut kullaniciyi dondurur (yeni UUID olusturmaz).
+     * Yoksa yeni kayit olusturur. isNew flag'i ile ayirt edilir.
+     */
+    fun registerUserByHash(userId: String, phoneHash: String, encryptedPhone: String? = null): Pair<RegisteredUser, Boolean> {
+        // Ayni phoneHash ile kayitli kullanici varsa mevcut kaydi dondur
+        val existing = users[phoneHash]
+        if (existing != null) {
+            println("[R] Mevcut kullanici bulundu: ${existing.userId.take(8)}... (yeni UUID: ${userId.take(8)}... KULLANILMADI)")
+            // encryptedPhone guncellemesi yapilabilir (cihaz degisimi durumunda)
+            if (encryptedPhone != null && existing.encryptedPhone != encryptedPhone) {
+                val updated = existing.copy(encryptedPhone = encryptedPhone)
+                users[phoneHash] = updated
+                usersByUserId[existing.userId] = updated
+                saveToDisk()
+                return Pair(updated, false)
+            }
+            return Pair(existing, false)
+        }
+
+        // Yeni kayit
         val user = RegisteredUser(userId = userId, phoneHash = phoneHash, encryptedPhone = encryptedPhone)
         users[phoneHash] = user
         usersByUserId[userId] = user
-        println("[R] Kullanici kaydedildi: ${userId.take(8)}... encPhone=${encryptedPhone != null}")
-        return user
+        println("[R] Yeni kullanici kaydedildi: ${userId.take(8)}... encPhone=${encryptedPhone != null}")
+        saveToDisk()
+        return Pair(user, true)
     }
 
     /**
@@ -47,20 +85,38 @@ class UserRegistry {
 
     fun getUserCount(): Int = users.size
 
-    private fun seedDemoUsers() {
-        // Demo kullanicilar — UUID ve normalize edilmis numaralarin hash'leri
-        val demoUsers = listOf(
-            Triple(UUID.randomUUID().toString(), "ahmet", "905551234567"),
-            Triple(UUID.randomUUID().toString(), "ayse", "905559876543"),
-            Triple(UUID.randomUUID().toString(), "mehmet", "905553456789"),
-            Triple(UUID.randomUUID().toString(), "fatma", "905557654321"),
-        )
-
-        demoUsers.forEach { (uuid, name, phone) ->
-            val hash = hashPhone(phone)
-            registerUserByHash(uuid, hash)
+    /**
+     * Kayitli kullanicilari diske JSON olarak yazar.
+     * Sunucu yeniden basladiginda veriler korunur.
+     */
+    private fun saveToDisk() {
+        try {
+            val list = users.values.map { u ->
+                PersistedUser(u.userId, u.phoneHash, u.encryptedPhone, u.registeredAt)
+            }
+            persistFile.writeText(json.encodeToString(list))
+        } catch (e: Exception) {
+            println("[!] UserRegistry diske yazılamadı: ${e.message}")
         }
-        println("[S] ${demoUsers.size} demo kullanici yuklendi")
+    }
+
+    /**
+     * Diskten kayitli kullanicilari yukler (sunucu restart sonrasi).
+     */
+    private fun loadFromDisk() {
+        if (!persistFile.exists()) return
+        try {
+            val text = persistFile.readText()
+            val list = json.decodeFromString<List<PersistedUser>>(text)
+            list.forEach { p ->
+                val user = RegisteredUser(p.userId, p.phoneHash, p.encryptedPhone, p.registeredAt)
+                users[p.phoneHash] = user
+                usersByUserId[p.userId] = user
+            }
+            println("[R] Diskten ${list.size} kullanici yuklendi")
+        } catch (e: Exception) {
+            println("[!] UserRegistry diskten okunamadı: ${e.message}")
+        }
     }
 
     companion object {

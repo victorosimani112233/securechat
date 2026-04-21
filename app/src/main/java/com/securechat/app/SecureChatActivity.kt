@@ -136,16 +136,18 @@ class SecureChatActivity : ComponentActivity() {
 
                         userSession.login(name, phone)
 
-                        // WebSocket baglantisi
-                        signalingClient.connect(
-                            userId = userSession.userId!!,
-                            authToken = "token_${userSession.userId}",
-                            customUrl = BuildConfig.SIGNALING_URL
-                        )
-
-                        // Sunucuya UUID + phoneHash kaydi ve FCM token
+                        // Sunucuya UUID + phoneHash kaydi
+                        // Sunucu ayni telefon icin mevcut userId dondururse onu kullan
                         lifecycleScope.launch {
                             registerUserOnServer(userSession.userId!!, phone)
+
+                            // WebSocket baglantisi (sunucu kaydindan sonra — userId degismis olabilir)
+                            signalingClient.connect(
+                                userId = userSession.userId!!,
+                                authToken = "token_${userSession.userId}",
+                                customUrl = BuildConfig.SIGNALING_URL
+                            )
+
                             fcmTokenManager.registerTokenOnServer()
                         }
                     }
@@ -165,6 +167,11 @@ class SecureChatActivity : ComponentActivity() {
      * Sunucuya UUID + phoneHash + sifreli telefon numarasi kaydeder.
      * Plaintext numara GONDERILMEZ — AES-GCM ile sifrelenir, sunucu cozemez.
      */
+    /**
+     * Sunucuya UUID + phoneHash + sifreli telefon numarasi kaydeder.
+     * Sunucu ayni phoneHash icin kayit bulursa mevcut userId'yi dondurur.
+     * Bu durumda yerel userId guncellenir — boylece ayni numara her zaman ayni UUID'yi kullanir.
+     */
     private suspend fun registerUserOnServer(userId: String, phone: String) {
         try {
             val phoneDigits = phone.replace(Regex("[^0-9]"), "")
@@ -183,7 +190,20 @@ class SecureChatActivity : ComponentActivity() {
                 .build()
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 okhttp3.OkHttpClient().newCall(request).execute().use { response ->
-                    Log.d("SecureChat", "Sunucu kaydi: ${response.code}")
+                    val responseBody = response.body?.string()
+                    Log.d("SecureChat", "Sunucu kaydi: ${response.code}, body=$responseBody")
+
+                    if (response.isSuccessful && responseBody != null) {
+                        val responseJson = org.json.JSONObject(responseBody)
+                        val serverUserId = responseJson.optString("userId", "")
+                        val isNew = responseJson.optBoolean("isNew", true)
+
+                        if (!isNew && serverUserId.isNotBlank() && serverUserId != userId) {
+                            // Sunucu mevcut kullaniciyi dondurdu — yerel userId'yi guncelle
+                            Log.d("SecureChat", "Mevcut kullanici bulundu, userId guncelleniyor: $userId -> $serverUserId")
+                            userSession.userId = serverUserId
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -227,10 +247,11 @@ class SecureChatActivity : ComponentActivity() {
         // Uygulama on plana gelince cevrimici bildir
         val uid = userSession.userId ?: return
         presenceJob?.cancel()
+        val hide = !userSession.shareLastSeen
         presenceJob = lifecycleScope.launch {
             signalingClient.connectionState.collect { state ->
                 if (state is ConnectionState.Connected) {
-                    signalingClient.sendPresenceUpdate(uid, true)
+                    signalingClient.sendPresenceUpdate(uid, true, hideLastSeen = hide)
                 }
             }
         }
@@ -241,7 +262,8 @@ class SecureChatActivity : ComponentActivity() {
         IncomingMessageHandler.isAppInForeground = false
         presenceJob?.cancel()
         presenceJob = null
-        userSession.userId?.let { signalingClient.sendPresenceUpdate(it, false) }
+        val hide = !userSession.shareLastSeen
+        userSession.userId?.let { signalingClient.sendPresenceUpdate(it, false, hideLastSeen = hide) }
     }
 
     private fun requestRecordAudioPermissionIfNeeded() {

@@ -242,6 +242,7 @@ fun GroupInfoScreen(
                             MemberItem(
                                 member = member,
                                 displayName = info.memberNames[member.userId] ?: member.userId,
+                                phoneNumber = info.memberPhones[member.userId],
                                 isCurrentUser = member.isCurrentUser,
                                 isAdmin = member.isAdmin,
                                 canRemove = isAdmin && !member.isCurrentUser,
@@ -544,6 +545,7 @@ private fun GroupHeader(
 private fun MemberItem(
     member: GroupMember,
     displayName: String,
+    phoneNumber: String? = null,
     isCurrentUser: Boolean,
     isAdmin: Boolean,
     canRemove: Boolean,
@@ -604,7 +606,7 @@ private fun MemberItem(
         },
         supportingContent = {
             Text(
-                text = member.userId,
+                text = phoneNumber ?: member.userId,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

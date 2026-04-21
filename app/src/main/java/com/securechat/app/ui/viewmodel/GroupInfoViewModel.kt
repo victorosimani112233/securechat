@@ -31,6 +31,7 @@ import javax.inject.Inject
 class GroupInfoViewModel @Inject constructor(
     private val conversationDao: ConversationDao,
     private val messageDao: MessageDao,
+    private val contactDao: com.securechat.storage.dao.ContactDao,
     private val userSession: UserSession,
     private val signalingClient: SignalingClient,
     private val addGroupMemberUseCase: AddGroupMemberUseCase,
@@ -95,12 +96,50 @@ class GroupInfoViewModel @Inject constructor(
                     )
                 }
 
-                // Uye isimlerini konusmalardan bul
+                // Uye isimlerini cozumle: 1) mevcut kullanici, 2) conversation, 3) rehber (ContactDao)
                 val memberNames = mutableMapOf<String, String>()
                 for (memberId in memberIds) {
+                    // Mevcut kullanici icin kayitli ismi kullan
+                    if (memberId == currentUserId) {
+                        val displayName = userSession.displayName
+                        if (!displayName.isNullOrBlank()) {
+                            memberNames[memberId] = displayName
+                        }
+                        continue
+                    }
+                    // Birebir sohbetten isim bul
                     val memberConv = conversationDao.getByPeerId(memberId)
                     if (memberConv != null && memberConv.peerName.isNotBlank() && memberConv.peerName != memberId) {
                         memberNames[memberId] = memberConv.peerName
+                        continue
+                    }
+                    // Rehberden (ContactDao) isim bul
+                    val contact = contactDao.getById(memberId)
+                    if (contact != null && contact.displayName.isNotBlank() && contact.displayName != memberId) {
+                        memberNames[memberId] = contact.displayName
+                        continue
+                    }
+                }
+
+                // Uye telefon numaralarini cozumle: conversation veya rehberden
+                val memberPhones = mutableMapOf<String, String>()
+                for (memberId in memberIds) {
+                    if (memberId == currentUserId) {
+                        val phone = userSession.phoneNumber
+                        if (!phone.isNullOrBlank()) {
+                            memberPhones[memberId] = phone
+                        }
+                        continue
+                    }
+                    val memberConv = conversationDao.getByPeerId(memberId)
+                    if (memberConv != null && !memberConv.peerPhone.isNullOrBlank()) {
+                        memberPhones[memberId] = memberConv.peerPhone!!
+                        continue
+                    }
+                    val contact = contactDao.getById(memberId)
+                    if (contact != null && contact.phoneNumber.isNotBlank()) {
+                        memberPhones[memberId] = contact.phoneNumber
+                        continue
                     }
                 }
 
@@ -108,7 +147,8 @@ class GroupInfoViewModel @Inject constructor(
                     id = groupId,
                     name = conversation.peerName,
                     members = members,
-                    memberNames = memberNames
+                    memberNames = memberNames,
+                    memberPhones = memberPhones
                 )
                 _isAdmin.value = isCurrentUserAdmin
                 _disappearingDuration.value = conversation.disappearingDuration
@@ -264,5 +304,6 @@ data class GroupInfo(
     val id: String,
     val name: String,
     val members: List<GroupMember>,
-    val memberNames: Map<String, String> = emptyMap()
+    val memberNames: Map<String, String> = emptyMap(),
+    val memberPhones: Map<String, String> = emptyMap()
 )

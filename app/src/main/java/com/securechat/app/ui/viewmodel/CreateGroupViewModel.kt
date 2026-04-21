@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.securechat.app.data.IncomingMessageHandler
 import com.securechat.app.data.UserSession
 import com.securechat.contacts.ContactSearchManager
+import com.securechat.contacts.UserDiscoveryService
 import com.securechat.contacts.model.RegisteredContact
 import com.securechat.network.SignalingClient
 import com.securechat.network.SignalMessage
@@ -45,14 +46,31 @@ class CreateGroupViewModel @Inject constructor(
     private val conversationDao: ConversationDao,
     private val userSession: UserSession,
     private val signalingClient: SignalingClient,
-    private val contactSearchManager: ContactSearchManager
+    private val contactSearchManager: ContactSearchManager,
+    private val userDiscoveryService: UserDiscoveryService
 ) : ViewModel() {
 
     private val _groupName = MutableStateFlow("")
     val groupName: StateFlow<String> = _groupName.asStateFlow()
 
     private val _contacts = MutableStateFlow<List<SelectableContact>>(emptyList())
-    val contacts: StateFlow<List<SelectableContact>> = _contacts.asStateFlow()
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    /** Arama sorgusuna gore filtrelenmis kisi listesi */
+    val contacts: StateFlow<List<SelectableContact>> = kotlinx.coroutines.flow.combine(
+        _contacts, _searchQuery
+    ) { allContacts, query ->
+        if (query.isBlank()) allContacts
+        else {
+            val lower = query.lowercase()
+            allContacts.filter {
+                it.displayName.lowercase().contains(lower) ||
+                it.phoneNumber.contains(query)
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
 
     private val _isLoadingContacts = MutableStateFlow(false)
     val isLoadingContacts: StateFlow<Boolean> = _isLoadingContacts.asStateFlow()
@@ -70,16 +88,34 @@ class CreateGroupViewModel @Inject constructor(
 
     init {
         IncomingMessageHandler.currentChatId = "create_group"
-        loadContacts()
+        discoverAndLoadContacts()
     }
 
     /**
-     * Kayitli (SecureChat kullanan) kisileri yukler.
+     * Once sunucudan kayitli kisileri kesfeder, sonra DB'den yukler.
+     * Discovery basarisiz olsa bile DB'deki mevcut kisiler gosterilir.
+     */
+    private fun discoverAndLoadContacts() {
+        viewModelScope.launch {
+            _isLoadingContacts.value = true
+            // Sunucudan kisi kesfini calistir — DB'yi gunceller
+            try {
+                userDiscoveryService.discoverRegisteredUsers()
+                android.util.Log.d("CreateGroupVM", "Kisi kesfi tamamlandi")
+            } catch (e: Exception) {
+                android.util.Log.e("CreateGroupVM", "Kisi kesfi hatasi (devam ediliyor): ${e.message}")
+            }
+            // DB'deki kayitli kisileri reactive olarak dinle
+            loadContacts()
+        }
+    }
+
+    /**
+     * Kayitli (SecureChat kullanan) kisileri DB'den yukler.
      * Sadece userId'si bilinen kisiler grup uyesi olabilir.
      */
     private fun loadContacts() {
         viewModelScope.launch {
-            _isLoadingContacts.value = true
             try {
                 contactSearchManager.getRegisteredContacts().collect { registered ->
                     val selectableContacts = registered.map { contact ->
@@ -109,6 +145,10 @@ class CreateGroupViewModel @Inject constructor(
 
     fun onGroupNameChanged(name: String) {
         _groupName.value = name
+    }
+
+    fun onSearchQueryChanged(query: String) {
+        _searchQuery.value = query
     }
 
     /**

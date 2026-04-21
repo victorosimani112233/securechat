@@ -2,6 +2,8 @@ package com.securechat.app.ui.screen
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
+import android.telephony.TelephonyManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -37,6 +39,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,25 +72,91 @@ fun PhoneVerificationScreen(
 
     // Permission handling
     val context = LocalContext.current
+
+    // Telefon numarasi izni — SDK 33+ icin READ_PHONE_NUMBERS, onceki icin READ_PHONE_STATE
+    val phonePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_PHONE_NUMBERS
+    } else {
+        Manifest.permission.READ_PHONE_STATE
+    }
+
     val requiredPermissions = arrayOf(
         Manifest.permission.READ_CONTACTS,
         Manifest.permission.RECORD_AUDIO,
         Manifest.permission.CAMERA,
-        Manifest.permission.POST_NOTIFICATIONS
+        Manifest.permission.POST_NOTIFICATIONS,
+        phonePermission
     )
+
+    /**
+     * SIM karttan telefon numarasini okur.
+     * Numara +90 ile basliyorsa ulke kodunu ayirir ve sadece yerel kismi dondurur.
+     * Operator numarayi SIM'de saklamiyorsa bos doner.
+     */
+    fun readPhoneNumber(): String {
+        try {
+            val hasPermission = ContextCompat.checkSelfPermission(context, phonePermission) == PackageManager.PERMISSION_GRANTED
+            if (!hasPermission) return ""
+
+            val tm = context.getSystemService(android.content.Context.TELEPHONY_SERVICE) as? TelephonyManager
+            @Suppress("DEPRECATION")
+            val line = tm?.line1Number
+            if (line.isNullOrBlank()) return ""
+
+            // Numarayi temizle: +, bosluk, tire kaldir
+            val digits = line.replace(Regex("[^0-9]"), "")
+
+            // Turkiye formati: 90XXXXXXXXXX (12 hane) → yerel kisim: 5XXXXXXXXX
+            if (digits.startsWith("90") && digits.length == 12) {
+                return digits.substring(2) // "5551234567"
+            }
+            // 05XXXXXXXXX (11 hane) → yerel kisim
+            if (digits.startsWith("0") && digits.length == 11) {
+                return digits.substring(1)
+            }
+            // 5XXXXXXXXX (10 hane) → oldugu gibi
+            if (digits.length == 10) {
+                return digits
+            }
+            // Diger ulke formatlari: tum rakamlari dondur
+            return digits
+        } catch (e: Exception) {
+            android.util.Log.e("PhoneVerification", "Numara okunamadi: ${e.message}")
+            return ""
+        }
+    }
+
+    // Ekran acildiginda izin varsa numarayi oku
+    LaunchedEffect(Unit) {
+        val number = readPhoneNumber()
+        if (number.isNotBlank() && phoneNumber.isBlank()) {
+            phoneNumber = number
+            android.util.Log.d("PhoneVerification", "SIM numara otomatik dolduruldu: ${number.take(4)}...")
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        if (allGranted) {
-            // Tüm izinler verildi, kayıt işlemine devam et
+        // Telefon izni verildiyse ve numara bossa, SIM'den oku
+        val phoneGranted = permissions[phonePermission] == true
+        if (phoneGranted && phoneNumber.isBlank()) {
+            val number = readPhoneNumber()
+            if (number.isNotBlank()) {
+                phoneNumber = number
+                android.util.Log.d("PhoneVerification", "Izin sonrasi numara dolduruldu: ${number.take(4)}...")
+                // Numara yeni doldurulduysa kullaniciya gosterelim, hemen devam etmeyelim
+                return@rememberLauncherForActivityResult
+            }
+        }
+
+        // Kritik izinler (contacts, audio, camera) verilmediyse devam etme
+        val criticalGranted = permissions[Manifest.permission.READ_CONTACTS] != false &&
+            permissions[Manifest.permission.RECORD_AUDIO] != false
+        if (criticalGranted && phoneNumber.length >= 10) {
             val rawPhone = "$countryCode$phoneNumber".replace(" ", "")
             val normalizedDigits = PhoneNumberNormalizer.normalizeDigits(rawPhone)
             onVerified(displayName.trim(), "+$normalizedDigits")
-        } else {
-            // İzinler reddedildi - kullanıcıya bilgi verilebilir
-            // TODO: İsteğe bağlı - kullanıcıya neden izin gerektiğini açıklayan dialog göster
         }
     }
 

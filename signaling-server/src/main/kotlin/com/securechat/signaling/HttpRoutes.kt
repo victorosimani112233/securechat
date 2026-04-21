@@ -20,6 +20,9 @@ data class ServerUser(val userId: String, val phoneHash: String)
 data class RegisterRequest(val userId: String, val phoneHash: String, val encryptedPhone: String? = null)
 
 @Serializable
+data class RegisterResponse(val userId: String, val phoneHash: String, val isNew: Boolean)
+
+@Serializable
 data class PhoneLookupResponse(val userId: String, val encryptedPhone: String?)
 
 @Serializable
@@ -69,10 +72,11 @@ fun Application.configureRoutes(
 
         // Kullanici kaydi — UUID, phoneHash ve sifreli telefon numarasi alir
         // encryptedPhone istemcide AES-GCM ile sifreli, sunucu cozemez
+        // Ayni phoneHash icin kayit varsa mevcut userId dondurulur (yeni UUID olusturulmaz)
         post("/api/v1/users/register") {
             val request = call.receive<RegisterRequest>()
-            val user = userRegistry.registerUserByHash(request.userId, request.phoneHash, request.encryptedPhone)
-            call.respond(ServerUser(user.userId, user.phoneHash))
+            val (user, isNew) = userRegistry.registerUserByHash(request.userId, request.phoneHash, request.encryptedPhone)
+            call.respond(RegisterResponse(user.userId, user.phoneHash, isNew))
         }
 
         // Kullanici sifreli telefon numarasi sorgulama — bilinmeyen kisi icin

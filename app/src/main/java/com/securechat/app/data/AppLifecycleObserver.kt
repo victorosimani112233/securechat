@@ -58,7 +58,7 @@ class AppLifecycleObserver @Inject constructor(
         if (userSession.isLoggedIn) {
             // Offline presence gonder ve WebSocket'i kapat
             userSession.userId?.let { userId ->
-                signalingClient.sendPresenceUpdate(userId, false)
+                signalingClient.sendPresenceUpdate(userId, false, hideLastSeen = !userSession.shareLastSeen)
             }
             signalingClient.disconnect()
         }

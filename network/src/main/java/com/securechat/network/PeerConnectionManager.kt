@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -78,6 +79,19 @@ class PeerConnectionManager @Inject constructor(
 
     // Callback for ICE connection state changes
     var onConnectionStateChanged: ((PeerConnection.IceConnectionState) -> Unit)? = null
+
+    // --- Grup arama (mesh WebRTC) ---
+    private val groupPeerConnections = ConcurrentHashMap<String, PeerConnection>()
+    private val groupRemoteDescSet = ConcurrentHashMap<String, Boolean>()
+    private val groupPendingIce = ConcurrentHashMap<String, ConcurrentLinkedQueue<IceCandidate>>()
+    private val _remoteVideoTracks = MutableStateFlow<Map<String, VideoTrack>>(emptyMap())
+    val remoteVideoTracksFlow: StateFlow<Map<String, VideoTrack>> = _remoteVideoTracks.asStateFlow()
+
+    /** Grup aramasi ICE candidate callback — peerId ile birlikte uretilir. */
+    var onGroupIceCandidateGenerated: ((String, IceCandidate) -> Unit)? = null
+
+    /** Grup aramasi ICE baglanti durumu callback — peerId ile birlikte bildirilir. */
+    var onGroupConnectionStateChanged: ((String, PeerConnection.IceConnectionState) -> Unit)? = null
 
     /** ICE sunucu listesi — STUN + TURN */
     private val iceServers = listOf(
@@ -411,6 +425,260 @@ class PeerConnectionManager @Inject constructor(
                 Log.e(TAG, "Kamera degistirme hatasi: $error")
             }
         })
+    }
+
+    // ---- Grup Arama PeerConnection Yonetimi ----
+
+    /**
+     * Yerel medya kaynaklarinin (audio/video) olusturulmasini saglar.
+     * Grup aramalarda paylasimli medya icin: bir kez olustur, tum PC'lere ekle.
+     */
+    private fun ensureLocalMedia(factory: PeerConnectionFactory, enableVideo: Boolean) {
+        if (localAudioTrack == null) {
+            localAudioSource = factory.createAudioSource(MediaConstraints())
+            localAudioTrack = factory.createAudioTrack("audio0", localAudioSource)
+            localAudioTrack?.setEnabled(true)
+        }
+        if (enableVideo && localVideoTrack == null) {
+            startLocalVideoInternal(factory)
+        }
+    }
+
+    /**
+     * Video capturer ve track olusturur (ama PC'ye eklemez — bunu arayan yapar).
+     */
+    private fun startLocalVideoInternal(factory: PeerConnectionFactory) {
+        val enumerator = Camera2Enumerator(context)
+        val cameraName = getCameraName(enumerator) ?: run {
+            Log.e(TAG, "Kamera bulunamadi (group)")
+            return
+        }
+        videoCapturer = enumerator.createCapturer(cameraName, null)
+        surfaceTextureHelper = SurfaceTextureHelper.create("GroupCaptureThread", eglBase!!.eglBaseContext)
+        localVideoSource = factory.createVideoSource(videoCapturer!!.isScreencast)
+        videoCapturer!!.initialize(surfaceTextureHelper, context, localVideoSource!!.capturerObserver)
+        videoCapturer!!.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+        localVideoTrack = factory.createVideoTrack("video0", localVideoSource)
+        localVideoTrack?.setEnabled(true)
+        _localVideoTrack.value = localVideoTrack
+        Log.d(TAG, "Paylasimli yerel video baslatildi: ${VIDEO_WIDTH}x${VIDEO_HEIGHT} @ ${VIDEO_FPS}fps")
+    }
+
+    /**
+     * Grup aramasi icin yeni PeerConnection olusturur.
+     * Mevcut baglantilari KAPATMAZ — mesh'e yeni peer ekler.
+     * Paylasimli yerel audio/video track'leri otomatik eklenir.
+     */
+    fun createGroupPeerConnection(peerId: String, enableVideo: Boolean): PeerConnection? {
+        if (!initialized) initialize()
+        val factory = peerConnectionFactory ?: return null
+
+        ensureLocalMedia(factory, enableVideo)
+
+        groupRemoteDescSet[peerId] = false
+        groupPendingIce[peerId] = ConcurrentLinkedQueue()
+
+        val config = PeerConnection.RTCConfiguration(iceServers).apply {
+            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+            iceTransportsType = PeerConnection.IceTransportsType.ALL
+        }
+
+        val observer = object : PeerConnection.Observer {
+            override fun onIceCandidate(candidate: IceCandidate) {
+                Log.d(TAG, "Group ICE candidate: $peerId - ${candidate.sdpMid}")
+                onGroupIceCandidateGenerated?.invoke(peerId, candidate)
+            }
+            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+                Log.d(TAG, "Group ICE state: $peerId -> $state")
+                val peerState = when (state) {
+                    PeerConnection.IceConnectionState.CONNECTED,
+                    PeerConnection.IceConnectionState.COMPLETED -> PeerState.CONNECTED_P2P
+                    PeerConnection.IceConnectionState.DISCONNECTED -> PeerState.RECONNECTING
+                    PeerConnection.IceConnectionState.FAILED -> PeerState.DISCONNECTED
+                    else -> PeerState.CONNECTING
+                }
+                updatePeerState(peerId, peerState)
+                onGroupConnectionStateChanged?.invoke(peerId, state)
+            }
+            override fun onAddTrack(receiver: RtpReceiver, streams: Array<out MediaStream>) {
+                val track = receiver.track()
+                when (track) {
+                    is VideoTrack -> {
+                        track.setEnabled(true)
+                        _remoteVideoTracks.value = _remoteVideoTracks.value + (peerId to track)
+                        Log.d(TAG, "Group remote video track: $peerId")
+                    }
+                    is AudioTrack -> {
+                        track.setEnabled(true)
+                        Log.d(TAG, "Group remote audio track: $peerId")
+                    }
+                }
+            }
+            override fun onSignalingChange(state: PeerConnection.SignalingState) {}
+            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
+            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
+            override fun onAddStream(stream: MediaStream) {}
+            override fun onRemoveStream(stream: MediaStream) {}
+            override fun onDataChannel(channel: DataChannel) {}
+            override fun onRenegotiationNeeded() {}
+        }
+
+        val pc = factory.createPeerConnection(config, observer) ?: return null
+
+        localAudioTrack?.let { pc.addTrack(it, listOf("stream0")) }
+        if (enableVideo) {
+            localVideoTrack?.let { pc.addTrack(it, listOf("stream0")) }
+        }
+
+        groupPeerConnections[peerId] = pc
+        Log.d(TAG, "Group PeerConnection olusturuldu: peerId=$peerId, video=$enableVideo (toplam: ${groupPeerConnections.size})")
+        return pc
+    }
+
+    /** Belirli bir grup peer'i icin SDP Offer olusturur. */
+    suspend fun createOfferForPeer(peerId: String): SessionDescription = suspendCoroutine { cont ->
+        val pc = groupPeerConnections[peerId]
+            ?: throw IllegalStateException("Group PeerConnection bulunamadi: $peerId")
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+        }
+        pc.createOffer(object : SdpObserver {
+            override fun onCreateSuccess(sdp: SessionDescription) {
+                pc.setLocalDescription(object : SdpObserver {
+                    override fun onSetSuccess() {
+                        Log.d(TAG, "Group SDP Offer olusturuldu: $peerId")
+                        cont.resume(sdp)
+                    }
+                    override fun onSetFailure(error: String) {
+                        cont.resumeWithException(RuntimeException("setLocalDescription failed: $error"))
+                    }
+                    override fun onCreateSuccess(s: SessionDescription) {}
+                    override fun onCreateFailure(e: String) {}
+                }, sdp)
+            }
+            override fun onCreateFailure(error: String) {
+                cont.resumeWithException(RuntimeException(error))
+            }
+            override fun onSetSuccess() {}
+            override fun onSetFailure(error: String) {}
+        }, constraints)
+    }
+
+    /** Belirli bir grup peer'i icin SDP Answer olusturur. */
+    suspend fun createAnswerForPeer(peerId: String): SessionDescription = suspendCoroutine { cont ->
+        val pc = groupPeerConnections[peerId]
+            ?: throw IllegalStateException("Group PeerConnection bulunamadi: $peerId")
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+        }
+        pc.createAnswer(object : SdpObserver {
+            override fun onCreateSuccess(sdp: SessionDescription) {
+                pc.setLocalDescription(object : SdpObserver {
+                    override fun onSetSuccess() {
+                        Log.d(TAG, "Group SDP Answer olusturuldu: $peerId")
+                        cont.resume(sdp)
+                    }
+                    override fun onSetFailure(error: String) {
+                        cont.resumeWithException(RuntimeException("setLocalDescription failed: $error"))
+                    }
+                    override fun onCreateSuccess(s: SessionDescription) {}
+                    override fun onCreateFailure(e: String) {}
+                }, sdp)
+            }
+            override fun onCreateFailure(error: String) {
+                cont.resumeWithException(RuntimeException(error))
+            }
+            override fun onSetSuccess() {}
+            override fun onSetFailure(error: String) {}
+        }, constraints)
+    }
+
+    /** Belirli bir grup peer'i icin remote description ayarlar. */
+    suspend fun setRemoteDescriptionForPeer(peerId: String, sdp: SessionDescription) = suspendCoroutine<Unit> { cont ->
+        val pc = groupPeerConnections[peerId]
+        if (pc == null) {
+            cont.resumeWithException(IllegalStateException("Group PeerConnection bulunamadi: $peerId"))
+            return@suspendCoroutine
+        }
+        pc.setRemoteDescription(object : SdpObserver {
+            override fun onSetSuccess() {
+                Log.d(TAG, "Group remote description set: $peerId (${sdp.type})")
+                groupRemoteDescSet[peerId] = true
+                drainGroupPendingIce(peerId)
+                cont.resume(Unit)
+            }
+            override fun onSetFailure(error: String) {
+                cont.resumeWithException(RuntimeException("setRemoteDescription failed: $error"))
+            }
+            override fun onCreateSuccess(sdp: SessionDescription) {}
+            override fun onCreateFailure(error: String) {}
+        }, sdp)
+    }
+
+    /** Belirli bir grup peer'i icin ICE candidate ekler. */
+    fun addIceCandidateForPeer(peerId: String, candidate: IceCandidate) {
+        if (groupRemoteDescSet[peerId] == true) {
+            groupPeerConnections[peerId]?.addIceCandidate(candidate)
+        } else {
+            groupPendingIce.getOrPut(peerId) { ConcurrentLinkedQueue() }.add(candidate)
+            Log.d(TAG, "Group ICE candidate buffer: $peerId (${groupPendingIce[peerId]?.size} bekliyor)")
+        }
+    }
+
+    private fun drainGroupPendingIce(peerId: String) {
+        val pc = groupPeerConnections[peerId] ?: return
+        val queue = groupPendingIce[peerId] ?: return
+        var count = 0
+        while (true) {
+            val candidate = queue.poll() ?: break
+            pc.addIceCandidate(candidate)
+            count++
+        }
+        if (count > 0) Log.d(TAG, "Group $count bekleyen ICE candidate eklendi: $peerId")
+    }
+
+    /** Belirli bir grup peer'inin PeerConnection'ini kapatir. */
+    fun disposeGroupPeerConnection(peerId: String) {
+        groupPeerConnections.remove(peerId)?.close()
+        groupRemoteDescSet.remove(peerId)
+        groupPendingIce.remove(peerId)
+        _remoteVideoTracks.value = _remoteVideoTracks.value - peerId
+        Log.d(TAG, "Group PeerConnection dispose: $peerId")
+    }
+
+    /** Tum grup PeerConnection'larini kapatir ve yerel medyayi temizler. */
+    fun disposeAllGroupPeerConnections() {
+        groupPeerConnections.forEach { (peerId, pc) ->
+            try { pc.close() } catch (_: Exception) {}
+        }
+        groupPeerConnections.clear()
+        groupRemoteDescSet.clear()
+        groupPendingIce.clear()
+        _remoteVideoTracks.value = emptyMap()
+
+        // Paylasimli yerel medyayi temizle
+        try { videoCapturer?.stopCapture() } catch (_: Exception) {}
+        videoCapturer?.dispose()
+        videoCapturer = null
+        surfaceTextureHelper?.dispose()
+        surfaceTextureHelper = null
+        localVideoTrack?.dispose()
+        localVideoTrack = null
+        localVideoSource?.dispose()
+        localVideoSource = null
+        localAudioTrack?.dispose()
+        localAudioTrack = null
+        localAudioSource?.dispose()
+        localAudioSource = null
+
+        _localVideoTrack.value = null
+        onGroupIceCandidateGenerated = null
+        onGroupConnectionStateChanged = null
+        Log.d(TAG, "Tum grup PeerConnection'lari temizlendi")
     }
 
     // ---- Temizlik ----

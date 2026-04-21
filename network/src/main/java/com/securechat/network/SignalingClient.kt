@@ -285,13 +285,14 @@ class SignalingClient @Inject constructor(
         Log.e("SecureChat", "❌ All connection attempts failed")
     }
 
-    fun sendPresenceUpdate(userId: String, isOnline: Boolean) {
+    fun sendPresenceUpdate(userId: String, isOnline: Boolean, hideLastSeen: Boolean = false) {
         val signal = SignalMessage.PresenceUpdate(
             senderId = userId,
             recipientId = "server",
             timestamp = System.currentTimeMillis(),
             isOnline = isOnline,
-            lastSeen = System.currentTimeMillis()
+            lastSeen = System.currentTimeMillis(),
+            hideLastSeen = hideLastSeen
         )
         sendSignal(signal)
     }
