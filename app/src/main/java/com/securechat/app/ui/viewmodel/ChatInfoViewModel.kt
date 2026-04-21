@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.securechat.app.data.UserSession
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
+import com.securechat.storage.dao.ContactDao
 import com.securechat.storage.dao.ConversationDao
 import com.securechat.storage.dao.MessageDao
 import com.securechat.storage.entity.ConversationEntity
@@ -30,6 +31,7 @@ import javax.inject.Inject
 class ChatInfoViewModel @Inject constructor(
     private val messageDao: MessageDao,
     private val conversationDao: ConversationDao,
+    private val contactDao: ContactDao,
     private val contactNameResolver: ContactNameResolver,
     private val signalingClient: SignalingClient,
     private val userSession: UserSession
@@ -92,14 +94,12 @@ class ChatInfoViewModel @Inject constructor(
             try {
                 val conversation = conversationDao.getById(conversationId)
                 if (conversation != null) {
-                    // İsim hala telefon numarası gibi görünüyorsa çözümle
+                    // Isim hala UUID gibi gorunuyorsa cozumle
                     var displayName = conversation.peerName
-                    if (displayName == conversation.peerId ||
-                        displayName == conversation.peerPhone ||
-                        displayName.startsWith("+")) {
+                    if (displayName == conversation.peerId || displayName.isBlank()) {
                         try {
                             val resolved = contactNameResolver.resolveDisplayName(conversation.peerId)
-                            if (resolved != displayName && !resolved.startsWith("+")) {
+                            if (resolved != conversation.peerId) {
                                 displayName = resolved
                                 conversationDao.updatePeerName(conversationId, resolved)
                             }
@@ -107,7 +107,27 @@ class ChatInfoViewModel @Inject constructor(
                     }
 
                     _conversationName.value = displayName
-                    _phoneNumber.value = conversation.peerPhone
+                    // peerPhone bozuk olabilir: UUID veya isim kaydedilmis olabilir
+                    var phoneNumber = conversation.peerPhone
+                    val isBroken = phoneNumber == conversation.peerId // UUID atanmis
+                        || (phoneNumber == conversation.peerName && !phoneNumber.startsWith("+")) // isim atanmis
+                        || phoneNumber.isBlank()
+                    if (isBroken) {
+                        phoneNumber = ""
+                        // Contacts DB'den gercek numarayi coz
+                        try {
+                            val contact = contactDao.getById(conversation.peerId)
+                            if (contact != null && contact.phoneNumber.isNotBlank()) {
+                                phoneNumber = contact.phoneNumber
+                                conversationDao.update(conversation.copy(peerPhone = phoneNumber))
+                            }
+                        } catch (_: Exception) { }
+                        // Hala bossa ve isim numara formatindaysa onu goster
+                        if (phoneNumber.isBlank() && displayName.startsWith("+")) {
+                            phoneNumber = displayName
+                        }
+                    }
+                    _phoneNumber.value = phoneNumber
                     _contactNote.value = conversation.contactNote
                     _customNotificationUri.value = conversation.customNotificationUri
                     _isGroup.value = conversation.isGroup
@@ -211,18 +231,35 @@ class ChatInfoViewModel @Inject constructor(
                 conversationDao.updateDisappearingDuration(conversationId, duration)
                 _disappearingDuration.value = duration
 
-                // Karsi tarafa bildir
                 val userId = userSession.userId ?: return@launch
                 val conv = conversationDao.getById(conversationId) ?: return@launch
-                signalingClient.sendSignal(
-                    SignalMessage.DisappearingTimer(
-                        senderId = userId,
-                        recipientId = conv.peerId,
-                        timestamp = System.currentTimeMillis(),
-                        duration = duration,
-                        conversationId = conversationId
+
+                if (conv.isGroup) {
+                    // Grup: tum uyelere ayri ayri gonder
+                    val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                    for (memberId in members) {
+                        if (memberId == userId) continue
+                        signalingClient.sendSignal(
+                            SignalMessage.DisappearingTimer(
+                                senderId = userId,
+                                recipientId = memberId,
+                                timestamp = System.currentTimeMillis(),
+                                duration = duration,
+                                conversationId = conversationId
+                            )
+                        )
+                    }
+                } else {
+                    signalingClient.sendSignal(
+                        SignalMessage.DisappearingTimer(
+                            senderId = userId,
+                            recipientId = conv.peerId,
+                            timestamp = System.currentTimeMillis(),
+                            duration = duration,
+                            conversationId = conversationId
+                        )
                     )
-                )
+                }
             } catch (e: Exception) {
                 android.util.Log.e("ChatInfoVM", "Sureli mesaj guncelleme hatasi", e)
             }

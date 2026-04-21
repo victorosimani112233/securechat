@@ -83,7 +83,7 @@ fun PhoneVerificationScreen(
         if (allGranted) {
             // Tüm izinler verildi, kayıt işlemine devam et
             val rawPhone = "$countryCode$phoneNumber".replace(" ", "")
-            val normalizedDigits = PhoneNumberNormalizer.normalizeToUserId(rawPhone)
+            val normalizedDigits = PhoneNumberNormalizer.normalizeDigits(rawPhone)
             onVerified(displayName.trim(), "+$normalizedDigits")
         } else {
             // İzinler reddedildi - kullanıcıya bilgi verilebilir
@@ -106,7 +106,7 @@ fun PhoneVerificationScreen(
             // Tüm izinler zaten var, direkt devam et
             android.util.Log.d("PermissionCheck", "Tüm izinler zaten var, devam ediliyor")
             val rawPhone = "$countryCode$phoneNumber".replace(" ", "")
-            val normalizedDigits = PhoneNumberNormalizer.normalizeToUserId(rawPhone)
+            val normalizedDigits = PhoneNumberNormalizer.normalizeDigits(rawPhone)
             onVerified(displayName.trim(), "+$normalizedDigits")
         } else {
             // İzinleri talep et

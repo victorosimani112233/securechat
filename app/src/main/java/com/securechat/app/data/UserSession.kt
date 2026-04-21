@@ -3,6 +3,7 @@ package com.securechat.app.data
 import android.content.Context
 import android.content.SharedPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,11 +34,16 @@ class UserSession @Inject constructor(
         get() = prefs.getBoolean("share_last_seen", true)
         set(value) = prefs.edit().putBoolean("share_last_seen", value).apply()
 
+    var fcmToken: String?
+        get() = prefs.getString("fcm_token", null)
+        set(value) = prefs.edit().putString("fcm_token", value).apply()
+
     val isLoggedIn: Boolean get() = userId != null
 
     fun login(name: String, phone: String) {
-        // userId = telefon numarasindan olustur (basit ve benzersiz)
-        userId = phone.replace("+", "").replace(" ", "")
+        // userId = rastgele UUID — telefon numarasiyla hicbir iliskisi yok
+        // Sunucu sadece UUID gorur, gercek numara cihazda kalir
+        userId = UUID.randomUUID().toString()
         displayName = name
         phoneNumber = phone
     }

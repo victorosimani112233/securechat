@@ -17,6 +17,9 @@ interface ContactDao {
     @Query("SELECT * FROM contacts ORDER BY display_name ASC")
     fun getAll(): Flow<List<ContactEntity>>
 
+    @Query("SELECT * FROM contacts ORDER BY display_name ASC")
+    suspend fun getAllOnce(): List<ContactEntity>
+
     @Query("SELECT * FROM contacts WHERE is_registered = 1 ORDER BY display_name ASC")
     fun getRegistered(): Flow<List<ContactEntity>>
 

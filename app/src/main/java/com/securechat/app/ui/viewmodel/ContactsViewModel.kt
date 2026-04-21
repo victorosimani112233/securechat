@@ -7,6 +7,9 @@ import com.securechat.contacts.ContactPermissionManager
 import com.securechat.contacts.ContactSearchManager
 import com.securechat.contacts.ContactsProvider
 import com.securechat.contacts.UserDiscoveryService
+import com.securechat.contacts.DiscoveryApiService
+import com.securechat.contacts.PhoneNumberNormalizer
+import com.securechat.contacts.model.CheckUsersRequest
 import com.securechat.contacts.model.DeviceContact
 import com.securechat.contacts.model.RegisteredContact
 import com.securechat.storage.domain.Conversation
@@ -36,7 +39,8 @@ class ContactsViewModel @Inject constructor(
     private val contactPermissionManager: ContactPermissionManager,
     private val userDiscoveryService: UserDiscoveryService,
     private val contactsProvider: ContactsProvider,
-    private val messageRepository: MessageRepository
+    private val messageRepository: MessageRepository,
+    private val discoveryApiService: DiscoveryApiService
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -54,6 +58,10 @@ class ContactsViewModel @Inject constructor(
     private val _manualUserId = MutableStateFlow("")
     /** Manuel olarak girilen kullanici ID'si. */
     val manualUserId: StateFlow<String> = _manualUserId.asStateFlow()
+
+    // Manuel giristen cozumlenen UUID — bir kez tuketildikten sonra null'a doner
+    private val _resolvedUserId = MutableStateFlow<String?>(null)
+    val resolvedUserId: StateFlow<String?> = _resolvedUserId.asStateFlow()
 
     private val _phoneContacts = MutableStateFlow<List<DeviceContact>>(emptyList())
     /** Cihaz rehberinden okunan telefon kisileri — arama sorgusuna gore filtrelenir. */
@@ -147,6 +155,38 @@ class ContactsViewModel @Inject constructor(
      */
     fun onPermissionDenied() {
         _permissionGranted.value = false
+    }
+
+    /**
+     * Telefon numarasini sunucuda UUID'ye cozumler.
+     * Hash gonderir, eslesen kullanici varsa UUID'yi resolvedUserId'ye yazar.
+     */
+    fun resolvePhoneToUuid(phoneInput: String) {
+        viewModelScope.launch {
+            try {
+                val digits = PhoneNumberNormalizer.normalizeDigits(phoneInput)
+                val hash = UserDiscoveryService.hashPhoneNumber(digits)
+                val response = discoveryApiService.checkRegisteredUsers(
+                    CheckUsersRequest(hashes = listOf(hash))
+                )
+                val match = response.users.firstOrNull()
+                if (match != null) {
+                    _resolvedUserId.value = match.userId
+                } else {
+                    // Kullanici bulunamadi — hash'i direkt ID olarak kullanma
+                    android.util.Log.w("ContactsVM", "Numara icin kullanici bulunamadi: $digits")
+                    _resolvedUserId.value = null
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ContactsVM", "UUID cozumleme hatasi", e)
+                _resolvedUserId.value = null
+            }
+        }
+    }
+
+    /** Cozumlenen UUID tuketildikten sonra temizler. */
+    fun consumeResolvedUserId() {
+        _resolvedUserId.value = null
     }
 
     /**

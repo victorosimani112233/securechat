@@ -12,4 +12,10 @@ interface ContactNameResolver {
      * @return Kişi adı veya formatted telefon numarası
      */
     suspend fun resolveDisplayName(phoneNumber: String): String
+
+    /**
+     * userId'den telefon numarasini cozer.
+     * Contacts DB → sunucudan sifreli numara → fallback bos string
+     */
+    suspend fun resolvePhoneNumber(userId: String): String
 }

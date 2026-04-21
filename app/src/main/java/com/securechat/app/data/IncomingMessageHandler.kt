@@ -12,6 +12,7 @@ import com.securechat.media.IncomingCallHandler
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
 import com.securechat.network.model.CallAction
+import com.securechat.network.model.ConnectionState
 import com.securechat.storage.dao.ConversationDao
 import com.securechat.storage.domain.LocalMessage
 import com.securechat.storage.entity.ConversationEntity
@@ -46,6 +47,7 @@ class IncomingMessageHandler @Inject constructor(
     private val signalingClient: SignalingClient,
     private val messageRepository: MessageRepository,
     private val conversationDao: ConversationDao,
+    private val contactDao: com.securechat.storage.dao.ContactDao,
     private val callManager: CallManager,
     private val fileTransferManager: FileTransferManager,
     private val userSession: UserSession,
@@ -77,10 +79,13 @@ class IncomingMessageHandler @Inject constructor(
     data class PresenceInfo(val isOnline: Boolean, val lastSeen: Long)
 
     fun start() {
-        // Baglanti kopunca tum presence state'lerini sifirla
+        // Baglanti kopunca peerleri offline isaretle ama lastSeen bilgisini koru
         signalingClient.onConnectionLostListener = {
-            presenceStates.value = emptyMap()
-            android.util.Log.d("IncomingHandler", "Baglanti koptu, presence state'leri sifirlandi")
+            val updated = presenceStates.value.mapValues { (_, info) ->
+                info.copy(isOnline = false)
+            }
+            presenceStates.value = updated
+            android.util.Log.d("IncomingHandler", "Baglanti koptu, peerler offline isaretlendi (lastSeen korundu)")
         }
 
         // WebSocket (yeniden) baglaninca: ASLA otomatik online gonderme.
@@ -110,6 +115,8 @@ class IncomingMessageHandler @Inject constructor(
                     is SignalMessage.DisappearingTimer -> handleDisappearingTimer(signal)
                     is SignalMessage.TypingIndicator -> handleTypingIndicator(signal)
                     is SignalMessage.PresenceUpdate -> handlePresenceUpdate(signal)
+                    is SignalMessage.PresenceSubscribe -> { /* Sunucu tarafinda islenir */ }
+                    is SignalMessage.PresenceUnsubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.AudioData -> { }
                     is SignalMessage.VideoData -> { /* WebRTC P2P — artik kullanilmiyor */ }
                     else -> { }
@@ -150,16 +157,18 @@ class IncomingMessageHandler @Inject constructor(
      */
     private suspend fun handleFileTransfer(signal: SignalMessage.FileTransfer) {
         val senderId = signal.senderId
+        val senderName = resolvePeerName(senderId)
 
         // Konusma yoksa olustur
         val existingConv = conversationDao.getByPeerId(senderId)
         if (existingConv == null) {
+            val senderPhone = resolvePeerPhone(senderId)
             conversationDao.insert(
                 ConversationEntity(
                     id = senderId,
                     peerId = senderId,
-                    peerName = resolvePeerName(senderId),
-                    peerPhone = "",
+                    peerName = senderName,
+                    peerPhone = senderPhone,
                     lastMessage = null,
                     lastMessageTimestamp = null,
                     unreadCount = 0,
@@ -192,6 +201,9 @@ class IncomingMessageHandler @Inject constructor(
         val fileDisappDuration = existingConv?.disappearingDuration ?: 0
         val fileExpiresAt = if (fileDisappDuration > 0) fileNow + fileDisappDuration else null
 
+        // Dosya gondericisinin sohbeti aciksa direkt READ
+        val isFileChatOpen = currentChatId == senderId
+
         val message = LocalMessage(
             id = UUID.randomUUID().toString(),
             conversationId = senderId,
@@ -200,14 +212,11 @@ class IncomingMessageHandler @Inject constructor(
             content = fileContent,
             contentType = contentType,
             timestamp = fileNow,
-            status = MessageStatus.DELIVERED,
+            status = if (isFileChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
             isOutgoing = false,
             expiresAt = fileExpiresAt
         )
         messageRepository.saveMessage(message)
-
-        // Foreground service'e dosya alındığını bildir
-        MessagingService.updateForNewMessage(1)
 
         android.util.Log.d("IncomingHandler", "Dosya alindi: ${signal.fileName} (${signal.fileSize} byte)")
     }
@@ -269,6 +278,9 @@ class IncomingMessageHandler @Inject constructor(
         val groupDisappDuration = (groupConv ?: conversationDao.getById(groupId))?.disappearingDuration ?: 0
         val groupExpiresAt = if (groupDisappDuration > 0) now + groupDisappDuration else null
 
+        // Grup sohbeti aciksa mesaj direkt READ, degilse DELIVERED
+        val isGroupChatOpen = currentChatId == groupId
+
         // CRITICAL: Gondericinin orijinal mesaj ID'sini kullan — "herkesten sil" icin gerekli
         val message = LocalMessage(
             id = originalMessageId ?: UUID.randomUUID().toString(),
@@ -278,24 +290,21 @@ class IncomingMessageHandler @Inject constructor(
             content = actualContent,
             contentType = MessageContentType.TEXT,
             timestamp = now,
-            status = MessageStatus.DELIVERED,
+            status = if (isGroupChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
             replyToId = groupReplyToId,
             isOutgoing = false,
             expiresAt = groupExpiresAt
         )
         messageRepository.saveMessage(message)
 
-        // Foreground service'e mesaj geldiğini bildir
-        MessagingService.updateForNewMessage(1)
-
         // Bildirim goster
         val senderName = resolvePeerName(senderId)
         val displayGroupName = groupConv?.peerName ?: groupName ?: "Grup"
         showMessageNotification("$senderName ($displayGroupName)", actualContent, groupId)
 
-        // DELIVERED receipt gonder
+        // Receipt gonder — sohbet aciksa READ, degilse DELIVERED
         if (originalMessageId != null) {
-            sendDeliveryReceipt(senderId, originalMessageId, "DELIVERED")
+            sendDeliveryReceipt(senderId, originalMessageId, if (isGroupChatOpen) "READ" else "DELIVERED")
         }
     }
 
@@ -310,15 +319,19 @@ class IncomingMessageHandler @Inject constructor(
         val actualContent = parsed.content
         val replyToId = parsed.replyToId
 
+        // Isim cozumle (sunucudan sifreli numara dahil) — bir kez cagir, tekrar kullan
+        val senderName = resolvePeerName(senderId)
+
         // Konusma yoksa olustur
         val existingConv = conversationDao.getByPeerId(senderId)
         if (existingConv == null) {
+            val senderPhone = resolvePeerPhone(senderId)
             conversationDao.insert(
                 ConversationEntity(
                     id = senderId,
                     peerId = senderId,
-                    peerName = resolvePeerName(senderId),
-                    peerPhone = "",
+                    peerName = senderName,
+                    peerPhone = senderPhone,
                     lastMessage = null,
                     lastMessageTimestamp = null,
                     unreadCount = 0,
@@ -334,6 +347,9 @@ class IncomingMessageHandler @Inject constructor(
         val expiresAt = if (disappDuration > 0) now + disappDuration else null
 
         // Yerel saat kullan — cihaz saati farklari mesaj sirasini bozmasin
+        // Sohbet aciksa mesaj direkt READ, degilse DELIVERED olarak kaydedilir
+        val isChatOpen = currentChatId == senderId
+
         // CRITICAL: Gondericinin orijinal mesaj ID'sini kullan — "herkesten sil" icin gerekli
         val message = LocalMessage(
             id = originalMessageId ?: UUID.randomUUID().toString(),
@@ -343,23 +359,19 @@ class IncomingMessageHandler @Inject constructor(
             content = actualContent,
             contentType = MessageContentType.TEXT,
             timestamp = now,
-            status = MessageStatus.DELIVERED,
+            status = if (isChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
             replyToId = replyToId,
             isOutgoing = false,
             expiresAt = expiresAt
         )
         messageRepository.saveMessage(message)
 
-        // Foreground service'e mesaj geldiğini bildir
-        MessagingService.updateForNewMessage(1)
-
         // Bildirim goster
-        val senderName = resolvePeerName(senderId)
         showMessageNotification(senderName, actualContent, senderId)
 
-        // DELIVERED receipt gonder — gonderici mesajin ulastigini gorur
+        // Receipt gonder — sohbet aciksa READ (mavi cift tik), degilse DELIVERED (gri cift tik)
         if (originalMessageId != null) {
-            sendDeliveryReceipt(senderId, originalMessageId, "DELIVERED")
+            sendDeliveryReceipt(senderId, originalMessageId, if (isChatOpen) "READ" else "DELIVERED")
         }
     }
 
@@ -405,9 +417,6 @@ class IncomingMessageHandler @Inject constructor(
                 android.util.Log.e("IncomingHandler", "IncomingCallActivity başlatılamadı: ${e.message}")
                 // Fallback: En azından bildirim çalışıyor
             }
-
-            // MessagingService'e incoming call bildir
-            MessagingService.updateForNewMessage(0) // Call notification olduğu için counter artırma
 
             // Missed call timer'ı başlat
             missedCallTracker.startMissedCallTimer(session, peerName)
@@ -462,16 +471,109 @@ class IncomingMessageHandler @Inject constructor(
 
     /**
      * Kullanici kimliginden goruntuleme adini cozer.
-     * Oncelikle mevcut konusmalardan isim aranir, bulunamazsa userId doner.
+     * Oncelikle mevcut konusmalardan isim aranir, bulunamazsa sunucudan
+     * sifreli telefon numarasi cekilip cozumlenir.
      */
     private suspend fun resolvePeerName(userId: String): String {
-        // Mevcut konusmada kayitli isim varsa onu kullan
+        // 1. Mevcut konusmada kayitli isim varsa onu kullan
         val existingConv = conversationDao.getByPeerId(userId)
         if (existingConv != null && existingConv.peerName != userId && existingConv.peerName.isNotBlank()) {
             return existingConv.peerName
         }
-        // Fallback: userId'yi dondur (telefon numarasi veya kullanici kimligini gosterir)
+        // 2. UUID ile contacts DB'de ara (discovery sonrasi kaydedilmis)
+        try {
+            val contact = contactDao.getById(userId)
+            if (contact != null && contact.displayName.isNotBlank()) {
+                return contact.displayName
+            }
+        } catch (_: Exception) { }
+        // 3. Sunucudan sifreli telefon numarasini cek ve coz
+        try {
+            val phone = fetchAndDecryptPhone(userId)
+            if (phone != null) {
+                // Cozumlenen numarayi conversation'a kaydet — bir daha sunucuya sorma
+                if (existingConv != null) {
+                    conversationDao.update(existingConv.copy(peerName = phone, peerPhone = phone))
+                }
+                return phone
+            }
+        } catch (_: Exception) { }
+        // 4. Fallback: UUID doner
         return userId
+    }
+
+    /**
+     * Kullanici kimliginden telefon numarasini cozer.
+     * Oncelikle mevcut konusmadan, bulunamazsa contacts DB'den,
+     * en son sunucudan cekilir.
+     */
+    private suspend fun resolvePeerPhone(userId: String): String {
+        // 1. Mevcut konusmada kayitli numara varsa onu kullan
+        try {
+            val existingConv = conversationDao.getByPeerId(userId)
+            if (existingConv != null && existingConv.peerPhone.isNotBlank()
+                && existingConv.peerPhone != existingConv.peerName) {
+                return existingConv.peerPhone
+            }
+        } catch (_: Exception) { }
+        // 2. Contacts DB'de telefon numarasi varsa onu kullan
+        try {
+            val contact = contactDao.getById(userId)
+            if (contact != null && contact.phoneNumber.isNotBlank()) {
+                return contact.phoneNumber
+            }
+        } catch (_: Exception) { }
+        // 3. Sunucudan sifreli telefon numarasini cek
+        try {
+            val phone = fetchAndDecryptPhone(userId)
+            if (phone != null) return phone
+        } catch (_: Exception) { }
+        // 4. Fallback: bos string
+        return ""
+    }
+
+    /**
+     * Sunucudan kullanicinin sifreli telefon numarasini ceker ve istemcide cozer.
+     * Sunucu sifreli veriyi saklar ama cozme anahtarina sahip degildir.
+     */
+    private suspend fun fetchAndDecryptPhone(userId: String): String? {
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            try {
+                val url = "${com.securechat.app.BuildConfig.API_BASE_URL}/api/v1/users/$userId/phone"
+                val request = okhttp3.Request.Builder().url(url).get().build()
+                okhttp3.OkHttpClient().newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: return@use null
+                        val json = org.json.JSONObject(body)
+                        val encryptedPhone = json.optString("encryptedPhone", "")
+                        if (encryptedPhone.isNotBlank()) {
+                            val decrypted = com.securechat.contacts.PhoneEncryptor.decrypt(encryptedPhone)
+                            if (decrypted != null) {
+                                // Numarayi formatla: 905551234567 -> +90 555 123 4567
+                                formatPhoneNumber(decrypted)
+                            } else null
+                        } else null
+                    } else null
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("IncomingHandler", "Telefon cozumleme basarisiz: ${e.message}")
+                null
+            }
+        }
+    }
+
+    /**
+     * Ham rakamlari okunabilir telefon numarasina cevirir.
+     * Ornek: "905551234567" -> "+90 555 123 4567"
+     */
+    private fun formatPhoneNumber(digits: String): String {
+        if (digits.length < 7) return "+$digits"
+        // Turkiye formati: 90 + 10 hane
+        if (digits.startsWith("90") && digits.length == 12) {
+            return "+90 ${digits.substring(2, 5)} ${digits.substring(5, 8)} ${digits.substring(8)}"
+        }
+        // Genel format: +ulke kodu + numara
+        return "+$digits"
     }
 
     /**
@@ -527,15 +629,26 @@ class IncomingMessageHandler @Inject constructor(
      */
     private fun sendDeliveryReceipt(recipientId: String, messageId: String, status: String) {
         val localUserId = userSession.userId ?: return
-        signalingClient.sendSignal(
-            SignalMessage.DeliveryReceipt(
-                senderId = localUserId,
-                recipientId = recipientId,
-                timestamp = System.currentTimeMillis(),
-                messageId = messageId,
-                status = status
-            )
+        val receipt = SignalMessage.DeliveryReceipt(
+            senderId = localUserId,
+            recipientId = recipientId,
+            timestamp = System.currentTimeMillis(),
+            messageId = messageId,
+            status = status
         )
+        val sent = signalingClient.sendSignal(receipt)
+        if (!sent) {
+            // WebSocket bagli degil — baglanti gelince tekrar dene
+            scope.launch {
+                try {
+                    signalingClient.connectionState.first { it is ConnectionState.Connected }
+                    signalingClient.sendSignal(receipt)
+                    android.util.Log.d("IncomingHandler", "Receipt retry basarili: $messageId ($status)")
+                } catch (e: Exception) {
+                    android.util.Log.w("IncomingHandler", "Receipt retry basarisiz: $messageId ($status): ${e.message}")
+                }
+            }
+        }
     }
 
     /**
@@ -610,6 +723,7 @@ class IncomingMessageHandler @Inject constructor(
             lastSeen = signal.lastSeen
         )
         presenceStates.value = current
+        android.util.Log.d("IncomingHandler", "Presence guncellendi: ${signal.senderId} online=${signal.isOnline} lastSeen=${signal.lastSeen} (toplam: ${current.size})")
     }
 
     /**

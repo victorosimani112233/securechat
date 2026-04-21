@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -633,22 +634,12 @@ fun ConversationItem(
                 .background(avatarGradientForName(conversation.peerName)),
             contentAlignment = Alignment.Center
         ) {
-            if (conversation.isGroup) {
-                Icon(
-                    imageVector = Icons.Default.Group,
-                    contentDescription = "Grup",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp)
-                )
-            } else {
-                Text(
-                    text = conversation.peerName.firstOrNull()?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
-            }
+            Icon(
+                imageVector = if (conversation.isGroup) Icons.Default.Group else Icons.Default.Person,
+                contentDescription = if (conversation.isGroup) "Grup" else "Kişi",
+                tint = Color.White,
+                modifier = Modifier.size(28.dp)
+            )
         }
 
         Spacer(modifier = Modifier.width(16.dp))

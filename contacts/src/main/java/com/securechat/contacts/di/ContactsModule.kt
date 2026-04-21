@@ -11,6 +11,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -31,9 +32,11 @@ abstract class ContactsModule {
 
         @Provides
         @Singleton
-        fun provideDiscoveryApiService(): DiscoveryApiService {
+        fun provideDiscoveryApiService(
+            @Named("apiBaseUrl") baseUrl: String
+        ): DiscoveryApiService {
             return Retrofit.Builder()
-                .baseUrl("https://api.securechat.app/")
+                .baseUrl(baseUrl.trimEnd('/') + "/")
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()
                 .create(DiscoveryApiService::class.java)

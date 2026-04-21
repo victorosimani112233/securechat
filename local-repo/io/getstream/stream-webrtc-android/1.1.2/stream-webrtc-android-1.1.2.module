@@ -1,0 +1,103 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "io.getstream",
+    "module": "stream-webrtc-android",
+    "version": "1.1.2",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "1.9.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "stream-webrtc-android-1.1.2.aar",
+          "url": "stream-webrtc-android-1.1.2.aar",
+          "size": 19342870,
+          "sha512": "e2606d8462424f07782ac4c4d51c8602c355dc1ef62b8dcb83e18422b5f31e070fb6e8433c1f079175fe118ce08c47775dbb515b9aa26daf8812fabdda595472",
+          "sha256": "dee916c312368a2707f161bc4dfa1016277bc1186a22fe42c4cb8ae93cdcc152",
+          "sha1": "a4cf5e584f5dc0deccb268e2c06d8141462db954",
+          "md5": "39bd5e10e6dc70a147f4edb9b05ef3d6"
+        }
+      ]
+    },
+    {
+      "name": "releaseRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "dependencies": [
+        {
+          "group": "androidx.annotation",
+          "module": "annotation",
+          "version": {
+            "requires": "1.7.1"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "1.9.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "stream-webrtc-android-1.1.2.aar",
+          "url": "stream-webrtc-android-1.1.2.aar",
+          "size": 19342870,
+          "sha512": "e2606d8462424f07782ac4c4d51c8602c355dc1ef62b8dcb83e18422b5f31e070fb6e8433c1f079175fe118ce08c47775dbb515b9aa26daf8812fabdda595472",
+          "sha256": "dee916c312368a2707f161bc4dfa1016277bc1186a22fe42c4cb8ae93cdcc152",
+          "sha1": "a4cf5e584f5dc0deccb268e2c06d8141462db954",
+          "md5": "39bd5e10e6dc70a147f4edb9b05ef3d6"
+        }
+      ]
+    },
+    {
+      "name": "releaseSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "files": [
+        {
+          "name": "stream-webrtc-android-1.1.2-sources.jar",
+          "url": "stream-webrtc-android-1.1.2-sources.jar",
+          "size": 606153,
+          "sha512": "ae3c460637482c6b5a6bf44676338a3a2caadfb6509684f1496c838073db65535bb81fa5a19de0400fee4be4904c4034b3001fc50b2b90cc57efd3dca6c339d0",
+          "sha256": "0972d0f3c006179c6bafe581cb85dc21967f18caa04e359bc1293ab1242f6a8b",
+          "sha1": "6508a02d1fbdcacaaeac17284f845254b5ce1263",
+          "md5": "f27d390305efe48b8ca2e014f33c66a8"
+        }
+      ]
+    }
+  ]
+}

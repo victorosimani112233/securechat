@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -21,8 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AssistChip
@@ -38,7 +35,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -171,11 +167,11 @@ fun CreateGroupScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    selectedMembers.forEach { phoneNumber ->
-                        // Telefon numarasından kişi adını bul
-                        val contactName = contacts.find { it.contact.phoneNumber == phoneNumber }?.contact?.displayName ?: phoneNumber
+                    selectedMembers.forEach { userId ->
+                        // userId'den kişi adını bul
+                        val contactName = contacts.find { it.userId == userId }?.displayName ?: userId
                         AssistChip(
-                            onClick = { viewModel.toggleContactSelection(phoneNumber) },
+                            onClick = { viewModel.toggleContactSelection(userId) },
                             label = {
                                 Text(
                                     contactName,
@@ -206,7 +202,7 @@ fun CreateGroupScreen(
 
             // Rehber listesi
             Text(
-                text = "Rehberden Seç",
+                text = "Kayıtlı Kişiler",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -232,7 +228,7 @@ fun CreateGroupScreen(
                     items(contacts) { selectableContact ->
                         ContactSelectionItem(
                             selectableContact = selectableContact,
-                            onSelectionChanged = { viewModel.toggleContactSelection(selectableContact.contact.phoneNumber) }
+                            onSelectionChanged = { viewModel.toggleContactSelection(selectableContact.userId) }
                         )
                     }
                 }
@@ -302,55 +298,15 @@ private fun ContactSelectionItem(
             // Contact info
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = selectableContact.contact.displayName,
+                    text = selectableContact.displayName,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = selectableContact.contact.phoneNumber,
+                    text = selectableContact.phoneNumber,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-
-            // ELÇİM app status and selection
-            if (selectableContact.hasElcimApp) {
-                AssistChip(
-                    onClick = { },
-                    label = {
-                        Text(
-                            "ELÇİM",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                        labelColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-            } else {
-                OutlinedButton(
-                    onClick = { /* TODO: Davet et - şimdilik pasif */ },
-                    enabled = false, // Şimdilik pasif
-                    modifier = Modifier.padding(end = 8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        horizontal = 12.dp,
-                        vertical = 4.dp
-                    )
-                ) {
-                    Text(
-                        "Davet Et",
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
             }
 
             // Selection checkbox

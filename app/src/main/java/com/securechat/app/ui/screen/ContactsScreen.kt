@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContactPhone
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -87,6 +88,16 @@ fun ContactsScreen(
     val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
     val manualUserId by viewModel.manualUserId.collectAsStateWithLifecycle()
     val recentConversations by viewModel.recentConversations.collectAsStateWithLifecycle()
+    val resolvedUserId by viewModel.resolvedUserId.collectAsStateWithLifecycle()
+
+    // Sunucudan UUID cozumlendiginde sohbete git
+    LaunchedEffect(resolvedUserId) {
+        val uid = resolvedUserId
+        if (uid != null) {
+            viewModel.consumeResolvedUserId()
+            onContactClick(uid)
+        }
+    }
 
     // Compose-uyumlu izin isteği launcher'ı
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -152,8 +163,21 @@ fun ContactsScreen(
                     manualUserId = manualUserId,
                     onManualUserIdChanged = { viewModel.onManualUserIdChanged(it) },
                     onStartChat = {
-                        val normalized = PhoneNumberNormalizer.normalizeToUserId(manualUserId.trim())
-                        onContactClick(normalized)
+                        val input = manualUserId.trim()
+                        // Kayitli kullanicilar arasinda telefon numarasiyla esleseni bul
+                        val normalizedInput = PhoneNumberNormalizer.normalizeDigits(input)
+                        val match = contacts.firstOrNull { reg ->
+                            PhoneNumberNormalizer.normalizeDigits(reg.phoneNumber) == normalizedInput
+                        }
+                        if (match != null) {
+                            onContactClick(match.userId)
+                        } else if (input.length == 36 && input.contains("-")) {
+                            // UUID direkt girildiyse
+                            onContactClick(input)
+                        } else {
+                            // Telefon numarasi girildiyse sunucudan UUID cozumle
+                            viewModel.resolvePhoneToUuid(input)
+                        }
                     }
                 )
 
@@ -322,11 +346,14 @@ fun ContactsScreen(
                     PhoneContactItem(
                         contact = contact,
                         onClick = {
-                            // E.164 formatındaki numarayı userId formatına dönüştür
-                            val normalized = PhoneNumberNormalizer.normalizeToUserId(
-                                contact.phoneNumber.replace("+", "")
-                            )
-                            onContactClick(normalized)
+                            // Kayitli kullanicilar arasinda telefon numarasiyla esleseni bul
+                            val match = contacts.firstOrNull { reg ->
+                                reg.phoneNumber == contact.phoneNumber
+                            }
+                            if (match != null) {
+                                onContactClick(match.userId)
+                            }
+                            // Kayitli degilse tiklamada bir sey yapilmaz
                         }
                     )
                     HorizontalDivider(
@@ -568,12 +595,11 @@ fun ContactItem(
                     .background(contactAvatarGradient(contact.displayName)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = contact.displayName.firstOrNull()?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = "Kişi",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         },
@@ -618,12 +644,11 @@ fun PhoneContactItem(
                     .background(contactAvatarGradient(contact.displayName)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = contact.displayName.firstOrNull()?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = "Kişi",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         },
@@ -669,12 +694,11 @@ private fun RecentConversationItem(
                     .background(contactAvatarGradient(displayName)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = displayName.firstOrNull()?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = "Kişi",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         },

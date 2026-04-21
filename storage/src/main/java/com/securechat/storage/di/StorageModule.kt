@@ -39,11 +39,17 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object StorageModule {
 
+    // SQLCipher native kutuphane tek seferlik yukleme — lazy ilk erisimde yapilir
+    private val sqlCipherLoaded by lazy {
+        System.loadLibrary("sqlcipher")
+        true
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): SecureChatDatabase {
         // Gelistirme asamasinda sabit passphrase, production'da KeyStoreManager'dan alinacak
-        System.loadLibrary("sqlcipher")
+        sqlCipherLoaded // native lib'i yukle (lazy, sadece ilk cagride)
         val passphrase = "securechat_dev_passphrase".toByteArray()
         val factory = SupportOpenHelperFactory(passphrase)
 

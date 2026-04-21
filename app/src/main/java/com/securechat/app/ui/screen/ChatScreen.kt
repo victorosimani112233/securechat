@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +57,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
@@ -67,6 +69,7 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -156,6 +159,9 @@ fun ChatScreen(
     // Mesaj iletme (forward) multi-select modu
     var isForwardSelectMode by remember { mutableStateOf(false) }
     var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
+    // Iletme hedef secimi dialog'u
+    var showForwardPicker by remember { mutableStateOf(false) }
+    var forwardContent by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
     // Sohbetten çıkınca taslağı kaydet
@@ -239,6 +245,22 @@ fun ChatScreen(
                 showDisappearingDialog = false
             },
             onDismiss = { showDisappearingDialog = false }
+        )
+    }
+
+    // İletme hedef seçim dialog'u
+    if (showForwardPicker) {
+        val forwardConversations by viewModel.getConversationsFlow()
+            .collectAsStateWithLifecycle(initialValue = emptyList())
+        ForwardPickerDialog(
+            conversations = forwardConversations,
+            onConversationSelected = { targetId ->
+                viewModel.forwardMessage(targetId, forwardContent)
+                showForwardPicker = false
+                isForwardSelectMode = false
+                selectedMessageIds = emptySet()
+            },
+            onDismiss = { showForwardPicker = false }
         )
     }
 
@@ -371,7 +393,10 @@ fun ChatScreen(
                                             message = message,
                                             isGroupChat = isGroup,
                                             memberNames = conversationInfo?.memberNames ?: emptyMap(),
-                                            replyToMessage = replyToMsg
+                                            replyToMessage = replyToMsg,
+                                            onReplyClick = { replyId ->
+                                                viewModel.navigateToMessage(replyId)
+                                            }
                                         )
                                     }
                                 }
@@ -396,6 +421,9 @@ fun ChatScreen(
                                         onForwardMessage = {
                                             isForwardSelectMode = true
                                             selectedMessageIds = setOf(message.id)
+                                        },
+                                        onReplyClick = { replyId ->
+                                            viewModel.navigateToMessage(replyId)
                                         }
                                     )
                                 }
@@ -431,12 +459,12 @@ fun ChatScreen(
                         )
                         IconButton(
                             onClick = {
-                                // Seçili mesajları ilet — kişi seçim ekranı açılacak
                                 val selectedMsgs = messages.filter { it.id in selectedMessageIds }
-                                val forwardText = selectedMsgs.joinToString("\n") { it.content }
-                                viewModel.sendMessage(forwardText)
-                                isForwardSelectMode = false
-                                selectedMessageIds = emptySet()
+                                forwardContent = selectedMsgs.joinToString("\n") { msg ->
+                                    if (msg.isFileMessage) "[Dosya: ${msg.content.split("|").firstOrNull() ?: "dosya"}]"
+                                    else msg.content
+                                }
+                                showForwardPicker = true
                             },
                             enabled = selectedMessageIds.isNotEmpty()
                         ) {
@@ -455,6 +483,9 @@ fun ChatScreen(
                 replyingToMessage?.let { replyMsg ->
                     ReplyPreview(
                         message = replyMsg,
+                        senderName = if (replyMsg.isOutgoing) null
+                            else conversationInfo?.memberNames?.get(replyMsg.senderId)
+                                ?: conversationInfo?.name,
                         onDismiss = { replyingToMessage = null }
                     )
                 }
@@ -1031,22 +1062,12 @@ fun ChatTopBar(
                         .background(chatAvatarGradient(peerName)),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isGroup) {
-                        Icon(
-                            imageVector = Icons.Default.Group,
-                            contentDescription = "Grup",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    } else {
-                        Text(
-                            text = peerName.firstOrNull()?.uppercase() ?: "?",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        )
-                    }
+                    Icon(
+                        imageVector = if (isGroup) Icons.Default.Group else Icons.Default.Person,
+                        contentDescription = if (isGroup) "Grup" else "Kişi",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
@@ -1261,7 +1282,8 @@ fun MessageBubble(
     onDeleteMessage: (() -> Unit)? = null,
     onDeleteForEveryone: (() -> Unit)? = null,
     onToggleStarMessage: ((String, Boolean) -> Unit)? = null,
-    onForwardMessage: (() -> Unit)? = null
+    onForwardMessage: (() -> Unit)? = null,
+    onReplyClick: ((String) -> Unit)? = null
 ) {
     val isOutgoing = message.isOutgoing
     var showPopupMenu by remember { mutableStateOf(false) }
@@ -1313,7 +1335,7 @@ fun MessageBubble(
                         bottom = 4.dp
                     )
                 ) {
-                    // Yanıtlanan mesaj önizlemesi
+                    // Yanıtlanan mesaj önizlemesi — tıklayınca orijinal mesaja git
                     if (replyToMessage != null) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -1323,6 +1345,9 @@ fun MessageBubble(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 4.dp)
+                                .clickable {
+                                    onReplyClick?.invoke(replyToMessage.id)
+                                }
                         ) {
                             Row(modifier = Modifier.padding(6.dp)) {
                                 Box(
@@ -1932,6 +1957,7 @@ private fun SwipeableMessageBubble(
 @Composable
 private fun ReplyPreview(
     message: LocalMessage,
+    senderName: String? = null,
     onDismiss: () -> Unit
 ) {
     Surface(
@@ -1953,7 +1979,7 @@ private fun ReplyPreview(
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (message.isOutgoing) "Kendine yanıt" else message.senderId,
+                    text = if (message.isOutgoing) "Kendine yanıt" else (senderName ?: message.senderId),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
@@ -1976,6 +2002,120 @@ private fun ReplyPreview(
             }
         }
     }
+}
+
+/**
+ * Mesaj iletme hedef secimi dialog'u.
+ * Mevcut konusmalari ve arama ozelligini icerir.
+ */
+@Composable
+fun ForwardPickerDialog(
+    conversations: List<com.securechat.storage.domain.Conversation>,
+    onConversationSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val filtered = remember(conversations, searchQuery) {
+        if (searchQuery.isBlank()) conversations
+        else conversations.filter {
+            it.peerName.contains(searchQuery, ignoreCase = true) ||
+                it.peerId.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Mesajı İlet", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Arama
+                androidx.compose.material3.OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Kişi veya grup ara...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null)
+                    }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                // Konusma listesi
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(300.dp)
+                ) {
+                    items(filtered, key = { it.id }) { conv ->
+                        val displayName = conv.peerName.ifBlank { conv.peerId }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onConversationSelected(conv.peerId) }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Avatar
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = "Kişi",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = displayName,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (conv.lastMessage != null) {
+                                    Text(
+                                        text = conv.lastMessage!!,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp
+                        )
+                    }
+                    if (filtered.isEmpty()) {
+                        item {
+                            Text(
+                                text = "Konuşma bulunamadı",
+                                modifier = Modifier.padding(16.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text("İptal")
+            }
+        }
+    )
 }
 
 /**

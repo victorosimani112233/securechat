@@ -65,6 +65,10 @@ class ContactRepositoryImpl @Inject constructor(
         return formatPhoneNumber(phoneNumber)
     }
 
+    override fun invalidateCache() {
+        cachedDeviceContacts = null
+    }
+
     private fun formatPhoneNumber(phoneNumber: String): String {
         // Basit formatting: +90 533 123 45 67 formatında göster
         if (phoneNumber.startsWith("+90") && phoneNumber.length == 13) {

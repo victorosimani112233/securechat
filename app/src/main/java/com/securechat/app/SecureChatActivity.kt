@@ -3,10 +3,7 @@ package com.securechat.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -18,8 +15,8 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
+import com.securechat.app.data.FcmTokenManager
 import com.securechat.app.data.IncomingMessageHandler
-import com.securechat.app.data.MessagingService
 import com.securechat.app.data.UserSession
 import com.securechat.app.navigation.SecureChatNavHost
 import com.securechat.app.ui.theme.SecureChatTheme
@@ -32,6 +29,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -41,24 +40,18 @@ class SecureChatActivity : ComponentActivity() {
     @Inject lateinit var signalingClient: SignalingClient
     @Inject lateinit var callManager: CallManager
     @Inject lateinit var themeManager: com.securechat.app.ui.components.ThemeManager
+    @Inject lateinit var fcmTokenManager: FcmTokenManager
 
     private var presenceJob: Job? = null
 
     private val pendingChatPeerId = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     private val pendingCallNavigation = kotlinx.coroutines.flow.MutableStateFlow<Pair<String, String>?>(null)
 
-    /**
-     * RECORD_AUDIO izni sonucu.
-     * Uygulama baslatildiginda bu izin istenir, boylece arama basladiginda
-     * izin zaten verilmis olur.
-     */
     private val requestRecordAudioPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
             Log.d("SecureChatActivity", "RECORD_AUDIO izni verildi")
-        } else {
-            Log.w("SecureChatActivity", "RECORD_AUDIO izni reddedildi")
         }
     }
 
@@ -81,12 +74,20 @@ class SecureChatActivity : ComponentActivity() {
         // Missed call'dan geri arama intent'i
         handleCallbackIntent(intent)
 
+        // FCM sistem bildirimlerini temizle — uygulama acildiginda tekrar gosterilmesin
+        val nm = getSystemService(android.app.NotificationManager::class.java)
+        nm.cancelAll()
+
         // Izinleri iste
         requestRecordAudioPermissionIfNeeded()
         requestNotificationPermissionIfNeeded()
-        requestBatteryOptimizationExemption()
 
         val startDest = if (userSession.isLoggedIn) "conversations" else "auth/phone"
+        // Bildirimden veya intent'ten geliyorsa splash'i atla
+        val hasIncomingIntent = intent.hasExtra("chat_peer") ||
+                intent.hasExtra("navigate_to_call") ||
+                intent.getStringExtra("action") == "call_back"
+        val skipSplash = hasIncomingIntent || (userSession.isLoggedIn && savedInstanceState != null)
 
         setContent {
             SecureChatTheme(themeManager = themeManager) {
@@ -113,10 +114,7 @@ class SecureChatActivity : ComponentActivity() {
                     }
                 }
 
-                // Uygulama on plandayken gelen arama — dogrudan arama ekranina git
-                // (Arka planda IncomingCallActivity full-screen intent ile gosterilir)
-                // pendingCall null degilse IncomingCallActivity'den zaten navigasyon yapilacak,
-                // tekrar navigate etme (double navigation bug)
+                // Uygulama on plandayken gelen arama
                 LaunchedEffect(callSession) {
                     val session = callSession
                     if (session != null
@@ -132,36 +130,24 @@ class SecureChatActivity : ComponentActivity() {
                 SecureChatNavHost(
                     navController = navController,
                     startDestination = startDest,
+                    skipSplash = skipSplash,
                     onUserRegistered = { name, phone ->
-                        Log.d("SecureChat", "=== onUserRegistered CALLBACK CALLED ===")
-                        Log.d("SecureChat", "  - name: $name")
-                        Log.d("SecureChat", "  - phone: $phone")
+                        Log.d("SecureChat", "onUserRegistered")
 
                         userSession.login(name, phone)
 
-                        Log.d("SecureChat", "Calling SignalingClient.connect() from onUserRegistered")
-                        Log.d("SecureChat", "Connection params:")
-                        Log.d("SecureChat", "  - userId: ${userSession.userId}")
-                        Log.d("SecureChat", "  - authToken: token_${userSession.userId}")
-                        Log.d("SecureChat", "  - customUrl: ${BuildConfig.SIGNALING_URL}")
-
-                        // WebSocket debugging - remove this after fixing connectivity
-                        Log.w("SecureChat", "🔍 STARTING WEBSOCKET DEBUG SESSION")
-                        signalingClient.debugWebSocketConnection(
-                            userId = userSession.userId!!,
-                            authToken = "token_${userSession.userId}",
-                            customUrl = BuildConfig.SIGNALING_URL
-                        )
-
-                        // Gerçek bağlantı denemesi
+                        // WebSocket baglantisi
                         signalingClient.connect(
                             userId = userSession.userId!!,
                             authToken = "token_${userSession.userId}",
                             customUrl = BuildConfig.SIGNALING_URL
                         )
 
-                        MessagingService.start(this@SecureChatActivity)
-                        Log.d("SecureChat", "=== onUserRegistered COMPLETED ===")
+                        // Sunucuya UUID + phoneHash kaydi ve FCM token
+                        lifecycleScope.launch {
+                            registerUserOnServer(userSession.userId!!, phone)
+                            fcmTokenManager.registerTokenOnServer()
+                        }
                     }
                 )
             }
@@ -176,9 +162,35 @@ class SecureChatActivity : ComponentActivity() {
     }
 
     /**
-     * IncomingCallActivity'den gelen arama kabul intent'ini isler.
-     * Kabul edilen aramanin arama ekranina yonlendirilmesini saglar.
+     * Sunucuya UUID + phoneHash + sifreli telefon numarasi kaydeder.
+     * Plaintext numara GONDERILMEZ — AES-GCM ile sifrelenir, sunucu cozemez.
      */
+    private suspend fun registerUserOnServer(userId: String, phone: String) {
+        try {
+            val phoneDigits = phone.replace(Regex("[^0-9]"), "")
+            val phoneHash = com.securechat.contacts.UserDiscoveryService.hashPhoneNumber(phoneDigits)
+            val encryptedPhone = com.securechat.contacts.PhoneEncryptor.encrypt(phoneDigits)
+            val json = org.json.JSONObject().apply {
+                put("userId", userId)
+                put("phoneHash", phoneHash)
+                put("encryptedPhone", encryptedPhone)
+            }
+            val body = json.toString()
+                .toRequestBody("application/json".toMediaType())
+            val request = okhttp3.Request.Builder()
+                .url("${BuildConfig.API_BASE_URL}/api/v1/users/register")
+                .post(body)
+                .build()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                okhttp3.OkHttpClient().newCall(request).execute().use { response ->
+                    Log.d("SecureChat", "Sunucu kaydi: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("SecureChat", "Sunucu kaydi basarisiz: ${e.message}")
+        }
+    }
+
     private fun handleCallNavigationIntent(intent: android.content.Intent) {
         val callPeerId = intent.getStringExtra("navigate_to_call")
         val callType = intent.getStringExtra("call_type") ?: "VOICE"
@@ -187,19 +199,14 @@ class SecureChatActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Missed call bildiriminden gelen "Geri Ara" intent'ini işler.
-     * Otomatik olarak giden arama başlatır.
-     */
     private fun handleCallbackIntent(intent: android.content.Intent) {
         val action = intent.getStringExtra("action")
         val peerId = intent.getStringExtra("peer_id")
         val callType = intent.getStringExtra("call_type") ?: "VOICE"
 
         if (action == "call_back" && !peerId.isNullOrBlank() && userSession.isLoggedIn) {
-            Log.d("SecureChatActivity", "Callback intent işleniyor: $peerId, tip: $callType")
+            Log.d("SecureChatActivity", "Callback intent: $peerId, $callType")
 
-            // Hemen giden arama başlat
             val userId = userSession.userId!!
             val callTypeEnum = if (callType == "VIDEO") {
                 com.securechat.network.model.CallType.VIDEO
@@ -208,8 +215,6 @@ class SecureChatActivity : ComponentActivity() {
             }
 
             callManager.initiateCall(peerId, callTypeEnum, userId)
-
-            // Arama ekranına git
             pendingCallNavigation.value = Pair(peerId, callType)
         }
     }
@@ -217,9 +222,9 @@ class SecureChatActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         IncomingMessageHandler.isAppInForeground = true
-        MessagingService.updateAppState(true)
+        // FCM sistem bildirimlerini temizle — uygulama acikken tekrar gosterilmesin
+        getSystemService(android.app.NotificationManager::class.java).cancelAll()
         // Uygulama on plana gelince cevrimici bildir
-        // WebSocket bagli degilse, baglaninca gonder
         val uid = userSession.userId ?: return
         presenceJob?.cancel()
         presenceJob = lifecycleScope.launch {
@@ -234,27 +239,16 @@ class SecureChatActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         IncomingMessageHandler.isAppInForeground = false
-        MessagingService.updateAppState(false)
-        // Presence dinlemeyi iptal et — arka planda reconnect olursa online gonderilmesin
         presenceJob?.cancel()
         presenceJob = null
-        // Uygulama arka plana gidince cevrimdisi bildir
         userSession.userId?.let { signalingClient.sendPresenceUpdate(it, false) }
     }
 
-    /**
-     * RECORD_AUDIO izni verilmemisse runtime izin istegi baslatir.
-     * Bu metod onCreate'de cagirilir, boylece kullanici arama baslatmadan
-     * once izin verilmis olur.
-     */
     private fun requestRecordAudioPermissionIfNeeded() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            Log.d("SecureChatActivity", "RECORD_AUDIO izni isteniyor...")
             requestRecordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
-        } else {
-            Log.d("SecureChatActivity", "RECORD_AUDIO izni zaten mevcut")
         }
     }
 
@@ -268,21 +262,6 @@ class SecureChatActivity : ComponentActivity() {
             != PackageManager.PERMISSION_GRANTED
         ) {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
-    /**
-     * Pil optimizasyonu muafiyeti ister.
-     * Kullaniciya sistem diyalogu gosterir — tek dokunusla "Evet" diyerek
-     * uygulamanin arka planda calismaya devam etmesini saglar.
-     */
-    private fun requestBatteryOptimizationExemption() {
-        val pm = getSystemService(PowerManager::class.java)
-        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:$packageName")
-            }
-            startActivity(intent)
         }
     }
 }

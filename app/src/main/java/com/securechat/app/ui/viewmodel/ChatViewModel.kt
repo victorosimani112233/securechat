@@ -116,15 +116,34 @@ class ChatViewModel @Inject constructor(
     private val _scrollToMessageId = MutableSharedFlow<String>()
     val scrollToMessageId: SharedFlow<String> = _scrollToMessageId.asSharedFlow()
 
+    /** READ receipt gonderdigi mesaj ID'leri — duplicate onleme. */
+    private val readReceiptSentIds = mutableSetOf<String>()
+
     init {
         // Ekran acildiginda konusmayi okundu olarak isaretle ve bilgilerini yukle
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             markAsReadUseCase(conversationId)
             loadConversationInfo()
-            sendReadReceipts()
             // Sureli mesaj ayarini yukle
             val conv = conversationDao.getById(conversationId)
             _disappearingDuration.value = conv?.disappearingDuration ?: 0
+        }
+
+        // Sohbet acikken gelen mesajlari surekli izle ve READ receipt gonder
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            markIncomingMessagesAsRead()
+        }
+
+        // Presence subscribe: Bu kisi icin cevrimici durumunu sunucudan iste
+        // Grup sohbetlerinde presence subscribe YAPILMAZ — group_uuid gercek bir kullanici degil
+        if (!conversationId.startsWith("group_")) {
+            viewModelScope.launch {
+                signalingClient.connectionState.collect { state ->
+                    if (state is com.securechat.network.model.ConnectionState.Connected) {
+                        signalingClient.subscribePresence(conversationId)
+                    }
+                }
+            }
         }
 
         // Current chat tracking: Bu sohbet acildiginda bildirim sistemine bildir
@@ -134,6 +153,10 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        // Presence unsubscribe (gruplarda subscribe yapilmadigi icin unsubscribe de yapilmaz)
+        if (!conversationId.startsWith("group_")) {
+            signalingClient.unsubscribePresence(conversationId)
+        }
         // Chat screen kapatildiginda current chat'i temizle
         IncomingMessageHandler.currentChatId = null
         android.util.Log.d("ChatViewModel", "Current chat cleared")
@@ -157,24 +180,33 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Sohbet ekrani acildiginda, gelen (okunmamis) mesajlar icin READ receipt gonderir.
-     * Karsi taraf mesajin okundugunu gorur (mavi cift tik).
+     * Sohbet acikken gelen (okunmamis) mesajlari surekli izler.
+     * Her yeni incoming mesaj icin:
+     * 1. Veritabaninda READ olarak isaretler
+     * 2. Karsi tarafa READ receipt gonderir (mavi cift tik)
+     *
+     * Room Flow uzerinden calisir — ilk emisyon mevcut mesajlari,
+     * sonraki emisyonlar yeni gelen mesajlari icerir.
      */
-    private suspend fun sendReadReceipts() {
+    private suspend fun markIncomingMessagesAsRead() {
         val localUserId = userSession.userId ?: return
-        // Mevcut mesajlari bir kez oku ve gelen mesajlar icin READ receipt gonder
-        val currentMessages = messages.value
-        val incomingMessages = currentMessages.filter { !it.isOutgoing }
-        for (msg in incomingMessages) {
-            signalingClient.sendSignal(
-                SignalMessage.DeliveryReceipt(
-                    senderId = localUserId,
-                    recipientId = msg.senderId,
-                    timestamp = System.currentTimeMillis(),
-                    messageId = msg.id,
-                    status = "READ"
+        observeMessagesUseCase(conversationId).collect { messageList ->
+            val unreadIncoming = messageList.filter {
+                !it.isOutgoing && it.status != MessageStatus.READ && it.id !in readReceiptSentIds
+            }
+            for (msg in unreadIncoming) {
+                readReceiptSentIds.add(msg.id)
+                messageRepository.updateMessageStatus(msg.id, MessageStatus.READ)
+                signalingClient.sendSignal(
+                    SignalMessage.DeliveryReceipt(
+                        senderId = localUserId,
+                        recipientId = msg.senderId,
+                        timestamp = System.currentTimeMillis(),
+                        messageId = msg.id,
+                        status = "READ"
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -188,29 +220,80 @@ class ChatViewModel @Inject constructor(
                 val memberConv = conversationDao.getByPeerId(memberId)
                 if (memberConv != null && memberConv.peerName.isNotBlank() && memberConv.peerName != memberId) {
                     memberNames[memberId] = memberConv.peerName
+                } else {
+                    // Konusmada bulunamazsa contactNameResolver ile coz
+                    try {
+                        val resolved = contactNameResolver.resolveDisplayName(memberId)
+                        if (resolved != memberId) memberNames[memberId] = resolved
+                    } catch (_: Exception) { }
                 }
             }
 
-            // Eger isim hala telefon numarasi gibi gorunuyorsa, rehberden cozumlemeyi dene
+            // Eger isim hala UUID gibi gorunuyorsa, cozumlemeyi dene
             var displayName = entity.peerName
-            if (displayName == entity.peerId || displayName == entity.peerPhone || displayName.startsWith("+")) {
+            if (displayName == entity.peerId || displayName.isBlank()) {
                 try {
                     val resolved = contactNameResolver.resolveDisplayName(entity.peerId)
-                    if (resolved != displayName && !resolved.startsWith("+")) {
+                    if (resolved != entity.peerId) {
                         displayName = resolved
                         conversationDao.updatePeerName(conversationId, resolved)
                     }
                 } catch (_: Exception) { }
             }
 
+            // Birebir sohbette peer'i de memberNames'e ekle — reply bubble UUID yerine isim gostersin
+            if (!entity.isGroup) {
+                memberNames[entity.peerId] = displayName
+            }
+
+            // peerPhone bozuk olabilir: UUID veya isim kaydedilmis olabilir
+            var phoneNumber = entity.peerPhone
+            val isBroken = phoneNumber == entity.peerId
+                || (phoneNumber == entity.peerName && !phoneNumber.startsWith("+"))
+                || phoneNumber.isBlank()
+            if (isBroken) {
+                // contactNameResolver ile gercek numarayi coz
+                val resolved = contactNameResolver.resolvePhoneNumber(entity.peerId)
+                phoneNumber = resolved.ifBlank {
+                    if (displayName.startsWith("+")) displayName else ""
+                }
+                if (phoneNumber != entity.peerPhone) {
+                    conversationDao.update(entity.copy(peerPhone = phoneNumber))
+                }
+            }
+
             _conversationInfo.value = ConversationInfo(
                 name = displayName,
-                phoneNumber = entity.peerPhone,
+                phoneNumber = phoneNumber,
                 isGroup = entity.isGroup,
                 memberCount = members.size,
                 members = members,
                 memberNames = memberNames
             )
+        } else {
+            // Konusma DB'de yok — rehberden yeni acilan sohbet.
+            // ContactNameResolver ile ismi coz ve goster.
+            try {
+                val resolved = contactNameResolver.resolveDisplayName(conversationId)
+                val displayName = if (resolved != conversationId) resolved else conversationId
+                _conversationInfo.value = ConversationInfo(
+                    name = displayName,
+                    phoneNumber = if (displayName.startsWith("+")) displayName else "",
+                    isGroup = false,
+                    memberCount = 0,
+                    members = emptyList(),
+                    memberNames = mapOf(conversationId to displayName)
+                )
+            } catch (_: Exception) {
+                _conversationInfo.value = ConversationInfo(
+                    name = conversationId,
+                    phoneNumber = "",
+                    isGroup = false,
+                    memberCount = 0,
+                    members = emptyList(),
+                    memberNames = emptyMap()
+                )
+            }
         }
     }
 
@@ -336,16 +419,33 @@ class ChatViewModel @Inject constructor(
      */
     fun deleteMessageForEveryone(messageId: String) {
         viewModelScope.launch {
-            // Karsi tarafa silme bildirimi gonder
             val userId = userSession.userId ?: return@launch
-            val peerId = conversationDao.getById(conversationId)?.peerId ?: return@launch
-            val deleteSignal = SignalMessage.MessageDelete(
-                senderId = userId,
-                recipientId = peerId,
-                timestamp = System.currentTimeMillis(),
-                messageId = messageId
-            )
-            signalingClient.sendSignal(deleteSignal)
+            val conv = conversationDao.getById(conversationId) ?: return@launch
+
+            if (conv.isGroup) {
+                // Grup: tum uyelere ayri ayri silme bildirimi gonder
+                val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                for (memberId in members) {
+                    if (memberId == userId) continue
+                    signalingClient.sendSignal(
+                        SignalMessage.MessageDelete(
+                            senderId = userId,
+                            recipientId = memberId,
+                            timestamp = System.currentTimeMillis(),
+                            messageId = messageId
+                        )
+                    )
+                }
+            } else {
+                signalingClient.sendSignal(
+                    SignalMessage.MessageDelete(
+                        senderId = userId,
+                        recipientId = conv.peerId,
+                        timestamp = System.currentTimeMillis(),
+                        messageId = messageId
+                    )
+                )
+            }
             // Yerel olarak da "silindi" olarak isaretle (tamamen silme yerine)
             messageRepository.updateMessageContent(messageId, "Bu mesaj silindi", "DELETED")
         }
@@ -377,13 +477,27 @@ class ChatViewModel @Inject constructor(
         isCurrentlyTyping = hasText
         val userId = userSession.userId ?: return
         viewModelScope.launch {
-            val peerId = conversationDao.getById(conversationId)?.peerId ?: return@launch
-            signalingClient.sendSignal(
-                SignalMessage.TypingIndicator(
-                    senderId = userId, recipientId = peerId,
-                    timestamp = System.currentTimeMillis(), isTyping = hasText
+            val conv = conversationDao.getById(conversationId) ?: return@launch
+            if (conv.isGroup) {
+                // Grup: tum uyelere ayri ayri gonder
+                val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                for (memberId in members) {
+                    if (memberId == userId) continue
+                    signalingClient.sendSignal(
+                        SignalMessage.TypingIndicator(
+                            senderId = userId, recipientId = memberId,
+                            timestamp = System.currentTimeMillis(), isTyping = hasText
+                        )
+                    )
+                }
+            } else {
+                signalingClient.sendSignal(
+                    SignalMessage.TypingIndicator(
+                        senderId = userId, recipientId = conv.peerId,
+                        timestamp = System.currentTimeMillis(), isTyping = hasText
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -498,6 +612,36 @@ class ChatViewModel @Inject constructor(
         _searchResultIds.value = emptyList()
         _currentSearchIndex.value = -1
         _highlightedMessageId.value = null
+    }
+
+    /**
+     * Mesaji baska bir konusmaya iletir.
+     */
+    fun forwardMessage(targetConversationId: String, content: String) {
+        viewModelScope.launch {
+            sendMessageUseCase(targetConversationId, content)
+        }
+    }
+
+    /**
+     * Tum konusmalari getirir — iletme hedef secimi icin.
+     */
+    fun getConversationsFlow() = messageRepository.getConversations()
+
+    /**
+     * Belirtilen mesaja scroll eder ve kisa sure highlight eder.
+     * Reply bubble tiklandiginda kullanilir.
+     */
+    fun navigateToMessage(messageId: String) {
+        _highlightedMessageId.value = messageId
+        viewModelScope.launch {
+            _scrollToMessageId.emit(messageId)
+            // 2 saniye sonra highlight'i kaldir
+            kotlinx.coroutines.delay(2000)
+            if (_highlightedMessageId.value == messageId) {
+                _highlightedMessageId.value = null
+            }
+        }
     }
 }
 

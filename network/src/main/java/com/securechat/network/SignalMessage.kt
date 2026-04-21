@@ -206,7 +206,7 @@ sealed class SignalMessage {
         val conversationId: String = "" // bos ise senderId kullanilir (geriye uyumluluk)
     ) : SignalMessage()
 
-    /** Cevrimici durum bildirimi. Kullanici baglanti kurduğunda/kopardığında gonderilir. */
+    /** Cevrimici durum bildirimi. Sunucu tarafindan subscribe olan istemcilere gonderilir. */
     @Serializable
     @SerialName("presence_update")
     data class PresenceUpdate(
@@ -215,5 +215,23 @@ sealed class SignalMessage {
         override val timestamp: Long,
         val isOnline: Boolean,
         val lastSeen: Long
+    ) : SignalMessage()
+
+    /** Belirli bir kullanicinin presence durumuna abone olma istegi. Sunucu tarafindan islenir. */
+    @Serializable
+    @SerialName("presence_subscribe")
+    data class PresenceSubscribe(
+        override val senderId: String,
+        override val recipientId: String, // izlenmek istenen kullanici
+        override val timestamp: Long
+    ) : SignalMessage()
+
+    /** Presence aboneligini iptal etme istegi. Sunucu tarafindan islenir. */
+    @Serializable
+    @SerialName("presence_unsubscribe")
+    data class PresenceUnsubscribe(
+        override val senderId: String,
+        override val recipientId: String, // abonelik iptal edilecek kullanici
+        override val timestamp: Long
     ) : SignalMessage()
 }

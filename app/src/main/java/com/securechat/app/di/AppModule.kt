@@ -37,5 +37,8 @@ abstract class AppModule {
     ): ContactNameResolver
 
     companion object {
+        @Provides
+        @Named("apiBaseUrl")
+        fun provideApiBaseUrl(): String = BuildConfig.API_BASE_URL
     }
 }

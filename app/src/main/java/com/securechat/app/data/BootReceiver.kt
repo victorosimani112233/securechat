@@ -4,33 +4,38 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Cihaz açılışında veya uygulamanın güncellenmesinde otomatik olarak
- * background service'leri başlatan receiver.
+ * Cihaz acilisinda veya uygulama guncellendiginde FCM token'ini
+ * sunucuya kaydeden receiver.
  *
- * Bu receiver, kullanıcı uygulamayı manuel olarak açmadan da
- * gelen arama sinyallerini yakalayabilmesini sağlar.
+ * Foreground service kaldirildi — artik sadece FCM token guncelleme yapar.
  */
 @AndroidEntryPoint
 class BootReceiver : BroadcastReceiver() {
 
     @Inject lateinit var userSession: UserSession
+    @Inject lateinit var fcmTokenManager: FcmTokenManager
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onReceive(context: Context, intent: Intent) {
-        android.util.Log.d("BootReceiver", "Boot broadcast alındı: ${intent.action}")
+        android.util.Log.d("BootReceiver", "Boot broadcast alindi: ${intent.action}")
 
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
             Intent.ACTION_PACKAGE_REPLACED -> {
-                // Kullanıcı giriş yapmışsa service'i başlat
                 if (userSession.isLoggedIn) {
-                    android.util.Log.d("BootReceiver", "Kullanıcı giriş yapmış, MessagingService başlatılıyor")
-                    MessagingService.start(context)
-                } else {
-                    android.util.Log.d("BootReceiver", "Kullanıcı giriş yapmamış, service başlatılmadı")
+                    android.util.Log.d("BootReceiver", "FCM token sunucuya kaydediliyor")
+                    scope.launch {
+                        fcmTokenManager.registerTokenOnServer()
+                    }
                 }
             }
         }

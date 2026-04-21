@@ -31,15 +31,16 @@ class MessageRepositoryImpl @Inject constructor(
 
         // Konusma yoksa once olustur (FK kisitlamasi icin mesajdan once olmali)
         if (conv == null) {
-            // Kişi adını resolve et
+            // Kisi adini ve telefon numarasini resolve et
             val displayName = contactNameResolver.resolveDisplayName(message.peerId)
+            val phoneNumber = contactNameResolver.resolvePhoneNumber(message.peerId)
 
             conversationDao.insert(
                 ConversationEntity(
                     id = message.conversationId.ifBlank { message.peerId },
                     peerId = message.peerId,
                     peerName = displayName,
-                    peerPhone = message.peerId,
+                    peerPhone = phoneNumber,
                     lastMessage = message.content,
                     lastMessageTimestamp = message.timestamp,
                     unreadCount = if (!message.isOutgoing) 1 else 0,

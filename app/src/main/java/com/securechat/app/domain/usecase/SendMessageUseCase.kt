@@ -53,9 +53,9 @@ class SendMessageUseCase @Inject constructor(
             // Grup mesaji: tum uyelere gonder, GROUP:groupId:groupName:content formatinda
             val groupName = conversation?.peerName ?: ""
             val members = conversation?.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+            android.util.Log.d("SendMessage", "GRUP mesaj: conversationId=$conversationId, isGroup=true, members=$members")
             var allSent = true
             for (memberId in members) {
-                // CRITICAL FIX: Gönderici de mesajı almalı (grup senkronizasyonu için)
                 val memberSent = signalingClient.sendSignal(
                     SignalMessage.EncryptedMessage(
                         senderId = senderId,
@@ -69,6 +69,7 @@ class SendMessageUseCase @Inject constructor(
             allSent
         } else {
             // Birebir mesaj: dogrudan aliciya gonder
+            android.util.Log.d("SendMessage", "BIREBIR mesaj: recipientId=$conversationId, isGroup=false, conv=${conversation != null}")
             signalingClient.sendSignal(
                 SignalMessage.EncryptedMessage(
                     senderId = senderId,

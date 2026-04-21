@@ -288,12 +288,37 @@ class SignalingClient @Inject constructor(
     fun sendPresenceUpdate(userId: String, isOnline: Boolean) {
         val signal = SignalMessage.PresenceUpdate(
             senderId = userId,
-            recipientId = "broadcast",
+            recipientId = "server",
             timestamp = System.currentTimeMillis(),
             isOnline = isOnline,
             lastSeen = System.currentTimeMillis()
         )
         sendSignal(signal)
+    }
+
+    /**
+     * Belirli bir kullanicinin presence durumuna abone olur.
+     * Sunucu aninda mevcut durumu doner ve degisiklikleri push eder.
+     */
+    fun subscribePresence(targetUserId: String) {
+        val uid = currentUserId ?: return
+        sendSignal(SignalMessage.PresenceSubscribe(
+            senderId = uid,
+            recipientId = targetUserId,
+            timestamp = System.currentTimeMillis()
+        ))
+    }
+
+    /**
+     * Presence aboneligini iptal eder.
+     */
+    fun unsubscribePresence(targetUserId: String) {
+        val uid = currentUserId ?: return
+        sendSignal(SignalMessage.PresenceUnsubscribe(
+            senderId = uid,
+            recipientId = targetUserId,
+            timestamp = System.currentTimeMillis()
+        ))
     }
 
     companion object {

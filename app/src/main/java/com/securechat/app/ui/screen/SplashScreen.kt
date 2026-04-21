@@ -71,13 +71,13 @@ fun SplashScreen(
     )
 
     LaunchedEffect(Unit) {
-        // Logo animasyonu
-        logoAlpha.animateTo(1f, animationSpec = tween(400))
-        logoScale.animateTo(1f, animationSpec = tween(500, easing = FastOutSlowInEasing))
+        // Logo animasyonu — hızlandırıldı
+        logoAlpha.animateTo(1f, animationSpec = tween(200))
+        logoScale.animateTo(1f, animationSpec = tween(250, easing = FastOutSlowInEasing))
         // Metin animasyonu
-        textAlpha.animateTo(1f, animationSpec = tween(400))
-        // Bekleme
-        delay(1200)
+        textAlpha.animateTo(1f, animationSpec = tween(200))
+        // Kısa bekleme
+        delay(350)
         onSplashFinished()
     }
 

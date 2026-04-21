@@ -45,10 +45,11 @@ private fun defaultPopExit(): ExitTransition =
 fun SecureChatNavHost(
     navController: NavHostController = rememberNavController(),
     startDestination: String = "conversations",
+    skipSplash: Boolean = false,
     onUserRegistered: (name: String, phone: String) -> Unit = { _, _ -> }
 ) {
-    // Splash her zaman ilk gosterilir, sonra gercek hedef ekrana gider
-    val actualStartDestination = "splash"
+    // Bildirimden veya arka plandan geliyorsa splash'i atla
+    val actualStartDestination = if (skipSplash) startDestination else "splash"
 
     NavHost(
         navController = navController,

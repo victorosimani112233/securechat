@@ -47,14 +47,48 @@ private suspend fun handleMessage(
         val json = Json { ignoreUnknownKeys = true }
         val element = json.parseToJsonElement(messageJson).jsonObject
 
+        val type = element["type"]?.jsonPrimitive?.contentOrNull
         val recipientId = element["recipientId"]?.jsonPrimitive?.contentOrNull
+
+        // Sunucu tarafinda islenen mesaj tipleri — peer'e YONLENDIRILMEZ
+        when (type) {
+            "presence_update" -> {
+                // Istemci foreground/background bildiriyor — sunucu state'i guncelle
+                val isOnline = element["isOnline"]?.jsonPrimitive?.booleanOrNull ?: return
+                connectionManager.handlePresenceUpdate(senderId, isOnline)
+                return
+            }
+            "presence_subscribe" -> {
+                // Istemci bir kisi icin presence subscribe istiyor
+                if (!recipientId.isNullOrBlank()) {
+                    connectionManager.subscribePresence(senderId, recipientId)
+                }
+                return
+            }
+            "presence_unsubscribe" -> {
+                // Istemci presence unsubscribe istiyor
+                if (!recipientId.isNullOrBlank()) {
+                    connectionManager.unsubscribePresence(senderId, recipientId)
+                }
+                return
+            }
+        }
+
         if (recipientId.isNullOrBlank()) {
             println("[!] recipientId eksik, mesaj yoksayildi: $senderId")
             return
         }
 
-        // Mesaji oldugu gibi hedefe yonlendir
-        connectionManager.routeMessage(senderId, recipientId, messageJson)
+        // Broadcast mesajlar (typing) tum online kullanicilara iletilir
+        if (recipientId == "broadcast") {
+            connectionManager.broadcastMessage(senderId, messageJson)
+        } else {
+            // Grup ID'sine gonderim tespit et — bu bir bug belirtisi
+            if (recipientId.startsWith("group_")) {
+                println("[!] UYARI: recipientId grup ID'si! type=$type, sender=$senderId, recipient=$recipientId")
+            }
+            connectionManager.routeMessage(senderId, recipientId, messageJson)
+        }
 
     } catch (e: Exception) {
         println("[!] Mesaj parse hatasi ($senderId): ${e.message}")

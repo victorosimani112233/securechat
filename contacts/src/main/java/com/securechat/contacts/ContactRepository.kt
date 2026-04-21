@@ -32,4 +32,9 @@ interface ContactRepository {
      * Önce rehberde arar, bulamazsa formatted numarayı döner.
      */
     suspend fun getDisplayNameForPhoneNumber(phoneNumber: String): String
+
+    /**
+     * Cihaz rehber onbellegini temizler. Sonraki getAllDeviceContacts() rehberi yeniden okur.
+     */
+    fun invalidateCache()
 }

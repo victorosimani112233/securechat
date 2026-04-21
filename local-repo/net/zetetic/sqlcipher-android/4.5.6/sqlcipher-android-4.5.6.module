@@ -1,0 +1,67 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "net.zetetic",
+    "module": "sqlcipher-android",
+    "version": "4.5.6",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "7.6"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseVariantReleaseApiPublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "sqlcipher-android-4.5.6.aar",
+          "url": "sqlcipher-android-4.5.6.aar",
+          "size": 9711659,
+          "sha512": "359c33cc4d36248dc48242125cb1530e2d8769e30740fbb3c926d4454eac995e39b3f6b0c5a2e34d3bddcad18fe549eb5b58e531b7a1f00cf7086ab6bf7ca2fa",
+          "sha256": "94d4d1d48a4a928e77ce6d4dc04808c754fecffd7455431f8a15b87c9d0c9e7b",
+          "sha1": "2c59d43773562ce9e1c84169b358bf9c374cf319",
+          "md5": "5bde8565c8c9479838dd712d2a01bfbf"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseRuntimePublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "androidx.sqlite",
+          "module": "sqlite",
+          "version": {
+            "requires": "2.2.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "sqlcipher-android-4.5.6.aar",
+          "url": "sqlcipher-android-4.5.6.aar",
+          "size": 9711659,
+          "sha512": "359c33cc4d36248dc48242125cb1530e2d8769e30740fbb3c926d4454eac995e39b3f6b0c5a2e34d3bddcad18fe549eb5b58e531b7a1f00cf7086ab6bf7ca2fa",
+          "sha256": "94d4d1d48a4a928e77ce6d4dc04808c754fecffd7455431f8a15b87c9d0c9e7b",
+          "sha1": "2c59d43773562ce9e1c84169b358bf9c374cf319",
+          "md5": "5bde8565c8c9479838dd712d2a01bfbf"
+        }
+      ]
+    }
+  ]
+}

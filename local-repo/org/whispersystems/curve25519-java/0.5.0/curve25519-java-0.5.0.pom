@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.whispersystems</groupId>
+  <artifactId>curve25519-java</artifactId>
+  <version>0.5.0</version>
+  <name>curve25519-java</name>
+  <description>Curve25519 library for Java</description>
+  <url>https://github.com/WhisperSystems/curve25519-java</url>
+  <licenses>
+    <license>
+      <name>GPLv3</name>
+      <url>https://www.gnu.org/licenses/gpl-3.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <name>Moxie Marlinspike</name>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git@github.com:WhisperSystems/curve25519-java.git</connection>
+    <developerConnection>scm:git@github.com:WhisperSystems/curve25519-java.git</developerConnection>
+    <url>scm:git@github.com:WhisperSystems/curve25519-java.git</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>curve25519-java</groupId>
+      <artifactId>tests</artifactId>
+      <version>unspecified</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

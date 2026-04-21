@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Schedule
@@ -497,22 +498,12 @@ private fun ProfileHeader(
                 .background(infoAvatarGradient(peerName)),
             contentAlignment = Alignment.Center
         ) {
-            if (isGroup) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = Color.White
-                )
-            } else {
-                Text(
-                    text = peerName.firstOrNull()?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 36.sp
-                )
-            }
+            Icon(
+                imageVector = if (isGroup) Icons.Default.Group else Icons.Default.Person,
+                contentDescription = if (isGroup) "Grup" else "Kişi",
+                modifier = Modifier.size(48.dp),
+                tint = Color.White
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))

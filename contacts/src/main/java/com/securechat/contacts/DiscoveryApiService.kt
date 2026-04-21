@@ -2,6 +2,8 @@ package com.securechat.contacts
 
 import com.securechat.contacts.model.CheckUsersRequest
 import com.securechat.contacts.model.CheckUsersResponse
+import com.securechat.contacts.model.RegisterUserRequest
+import com.securechat.contacts.model.RegisterUserResponse
 import retrofit2.http.Body
 import retrofit2.http.POST
 
@@ -15,4 +17,9 @@ interface DiscoveryApiService {
     suspend fun checkRegisteredUsers(
         @Body request: CheckUsersRequest
     ): CheckUsersResponse
+
+    @POST("api/v1/users/register")
+    suspend fun registerUser(
+        @Body request: RegisterUserRequest
+    ): RegisterUserResponse
 }

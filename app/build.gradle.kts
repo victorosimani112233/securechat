@@ -43,10 +43,12 @@ android {
         create("dev") {
             dimension = "environment"
             buildConfigField("String", "SIGNALING_URL", "\"ws://185.48.182.124:9090\"")
+            buildConfigField("String", "API_BASE_URL", "\"http://185.48.182.124:9090\"")
         }
         create("prod") {
             dimension = "environment"
             buildConfigField("String", "SIGNALING_URL", "\"wss://signal.securechat.app\"")
+            buildConfigField("String", "API_BASE_URL", "\"https://signal.securechat.app\"")
         }
     }
 
@@ -125,6 +127,18 @@ dependencies {
 
     // Coil — gorsel yukleme
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Firebase — FCM push notification
+    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
+
+    // WorkManager — arka plan gorevleri (FCM drain, sureli mesaj temizligi)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.hilt:hilt-work:1.1.0")
+    ksp("androidx.hilt:hilt-compiler:1.1.0")
+
+    // Lifecycle Process — app on plan/arka plan tespiti
+    implementation("androidx.lifecycle:lifecycle-process:2.7.0")
 
     // Testing
     testImplementation(libs.junit)

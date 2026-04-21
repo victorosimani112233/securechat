@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
@@ -932,11 +933,11 @@ private fun CallAvatar(
                 .background(avatarGradient),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = name.firstOrNull()?.uppercase() ?: "?",
-                fontSize = 50.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = "Kişi",
+                tint = Color.White,
+                modifier = Modifier.size(64.dp)
             )
         }
     }

@@ -30,10 +30,12 @@ fun main() {
             masking = false
         }
 
-        val connectionManager = ConnectionManager()
+        val fcmTokenStore = FcmTokenStore()
+        val fcmPushSender = FcmPushSender(fcmTokenStore)
+        val connectionManager = ConnectionManager(fcmPushSender)
         val userRegistry = UserRegistry()
 
         configureWebSocket(connectionManager)
-        configureRoutes(connectionManager, userRegistry)
+        configureRoutes(connectionManager, userRegistry, fcmTokenStore)
     }.start(wait = true)
 }

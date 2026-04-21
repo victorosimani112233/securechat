@@ -63,6 +63,15 @@ class UserDiscoveryService @Inject constructor(
             )
         }
 
+        // Rehberden silinmis kisileri DB'den kaldir
+        val devicePhoneHashes = hashMap.keys
+        val existingContacts = contactDao.getAllOnce()
+        existingContacts.forEach { existing ->
+            if (existing.phoneHash !in devicePhoneHashes) {
+                contactDao.delete(existing.id)
+            }
+        }
+
         return registered
     }
 
@@ -72,8 +81,10 @@ class UserDiscoveryService @Inject constructor(
          * Sonuc 64 karakterlik hex string olarak doner.
          */
         fun hashPhoneNumber(phoneNumber: String): String {
+            // Sadece rakamlari al — kayit ve kesif ayni formati kullanmali
+            val digitsOnly = phoneNumber.replace(Regex("[^0-9]"), "")
             val digest = MessageDigest.getInstance("SHA-256")
-            val hash = digest.digest(phoneNumber.toByteArray(Charsets.UTF_8))
+            val hash = digest.digest(digitsOnly.toByteArray(Charsets.UTF_8))
             return hash.joinToString("") { "%02x".format(it) }
         }
     }
