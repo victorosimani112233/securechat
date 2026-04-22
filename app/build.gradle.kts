@@ -98,6 +98,7 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.appcompat)
     implementation(libs.activity.compose)
+    implementation(files("libs/core-splashscreen-1.0.1.aar"))
 
     // Compose
     implementation(platform(libs.compose.bom))

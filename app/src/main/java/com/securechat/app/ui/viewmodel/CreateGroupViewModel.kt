@@ -5,7 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.securechat.app.data.IncomingMessageHandler
 import com.securechat.app.data.UserSession
 import com.securechat.contacts.ContactSearchManager
+import com.securechat.contacts.DiscoveryApiService
+import com.securechat.contacts.PhoneNumberNormalizer
 import com.securechat.contacts.UserDiscoveryService
+import com.securechat.contacts.model.CheckUsersRequest
 import com.securechat.contacts.model.RegisteredContact
 import com.securechat.network.SignalingClient
 import com.securechat.network.SignalMessage
@@ -47,7 +50,8 @@ class CreateGroupViewModel @Inject constructor(
     private val userSession: UserSession,
     private val signalingClient: SignalingClient,
     private val contactSearchManager: ContactSearchManager,
-    private val userDiscoveryService: UserDiscoveryService
+    private val userDiscoveryService: UserDiscoveryService,
+    private val discoveryApiService: DiscoveryApiService
 ) : ViewModel() {
 
     private val _groupName = MutableStateFlow("")
@@ -80,6 +84,15 @@ class CreateGroupViewModel @Inject constructor(
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+
+    private val _phoneInput = MutableStateFlow("")
+    val phoneInput: StateFlow<String> = _phoneInput.asStateFlow()
+
+    private val _isResolvingPhone = MutableStateFlow(false)
+    val isResolvingPhone: StateFlow<Boolean> = _isResolvingPhone.asStateFlow()
+
+    private val _phoneNotFound = MutableStateFlow<String?>(null)
+    val phoneNotFound: StateFlow<String?> = _phoneNotFound.asStateFlow()
 
     // Secili uyelerin userId'leri (UUID)
     val selectedMembers: StateFlow<List<String>> = _contacts.map { contacts ->
@@ -238,5 +251,64 @@ class CreateGroupViewModel @Inject constructor(
 
     fun clearError() {
         _error.value = null
+    }
+
+    fun onPhoneInputChanged(phone: String) {
+        _phoneInput.value = phone
+    }
+
+    fun consumePhoneNotFound() {
+        _phoneNotFound.value = null
+    }
+
+    /**
+     * Telefon numarasindan kullanici UUID'si cozumler ve secili uyelere ekler.
+     */
+    fun addMemberByPhone() {
+        val phone = _phoneInput.value.trim()
+        if (phone.isBlank()) return
+
+        viewModelScope.launch {
+            _isResolvingPhone.value = true
+            try {
+                val digits = PhoneNumberNormalizer.normalizeDigits(phone)
+                val hash = UserDiscoveryService.hashPhoneNumber(digits)
+                val response = discoveryApiService.checkRegisteredUsers(
+                    CheckUsersRequest(hashes = listOf(hash))
+                )
+                val match = response.users.firstOrNull()
+                if (match != null) {
+                    val userId = match.userId
+                    // Zaten secili mi kontrol et
+                    val alreadySelected = _contacts.value.any { it.userId == userId && it.isSelected }
+                    if (alreadySelected) {
+                        _error.value = "Bu kişi zaten ekli"
+                    } else {
+                        // Mevcut listede varsa sec, yoksa yeni ekle
+                        val existsInList = _contacts.value.any { it.userId == userId }
+                        if (existsInList) {
+                            _contacts.value = _contacts.value.map {
+                                if (it.userId == userId) it.copy(isSelected = true) else it
+                            }
+                        } else {
+                            _contacts.value = _contacts.value + SelectableContact(
+                                userId = userId,
+                                displayName = digits,
+                                phoneNumber = digits,
+                                isSelected = true
+                            )
+                        }
+                        _phoneInput.value = ""
+                    }
+                } else {
+                    _phoneNotFound.value = phone
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("CreateGroupVM", "Telefon cozumleme hatasi", e)
+                _phoneNotFound.value = phone
+            } finally {
+                _isResolvingPhone.value = false
+            }
+        }
     }
 }

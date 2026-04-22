@@ -106,7 +106,7 @@ import kotlin.random.Random
  * Premium animasyonlarla zenginlestirilmis: animasyonlu gradient arka plan,
  * yuzen parcacik efekti, gelistirilmis avatar animasyonlari, yumusak buton gecisleri.
  *
- * Midnight Teal tasarim: koyu lacivert-siyah gradient, cyan vurgular.
+ * Azure glassmorphism tasarim: koyu lacivert-siyah gradient, cyan vurgular.
  *
  * Arama ekrani acildiginda RECORD_AUDIO izni kontrol edilir ve gerekirse istenir.
  * Hem arayan hem de aranan tarafin bu izne ihtiyaci vardir.
@@ -1220,7 +1220,7 @@ private fun getCallStateText(state: CallState?, durationMs: Long): String {
 
 /**
  * Arama kontrol butonlari.
- * Koyu surface arka plan, cyan/kirmizi vurgular — Midnight Teal stili.
+ * Koyu surface arka plan, cyan/kirmizi vurgular — Azure glassmorphism stili.
  * Toggle butonlarinda animasyonlu renk gecisi.
  */
 @Composable
@@ -1537,7 +1537,7 @@ fun IncomingCallControls(
                             .scale(acceptScale)
                             .drawBehind {
                                 drawCircle(
-                                    color = Color(0xFF4ECDC4).copy(alpha = acceptGlow),
+                                    color = Color(0xFF22C55E).copy(alpha = acceptGlow),
                                     radius = size.minDimension / 2
                                 )
                             }
@@ -1546,8 +1546,8 @@ fun IncomingCallControls(
                         onClick = onAccept,
                         modifier = Modifier.size(64.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = Color(0xFF4ECDC4),
-                            contentColor = Color(0xFF0D1117)
+                            containerColor = Color(0xFF22C55E),
+                            contentColor = Color.White
                         )
                     ) {
                         Icon(
@@ -1575,7 +1575,7 @@ fun IncomingCallControls(
             Text(
                 text = "\u2191", // Yukari ok
                 fontSize = 18.sp,
-                color = Color(0xFF4ECDC4).copy(alpha = 0.6f),
+                color = Color(0xFF22C55E).copy(alpha = 0.6f),
                 modifier = Modifier.offset(y = (-arrowOffset).dp)
             )
             Text(

@@ -67,4 +67,7 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET group_admins = :admins WHERE id = :conversationId")
     suspend fun updateGroupAdmins(conversationId: String, admins: String)
+
+    @Query("UPDATE conversations SET is_favorite = :isFavorite WHERE id = :conversationId")
+    suspend fun updateFavorite(conversationId: String, isFavorite: Boolean)
 }

@@ -7,8 +7,12 @@ import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,6 +60,7 @@ class SecureChatActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         window.setFlags(
@@ -64,6 +69,12 @@ class SecureChatActivity : ComponentActivity() {
         )
 
         enableEdgeToEdge()
+
+        // Sistem navigasyon barini gizle (immersive mode)
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+        insetsController.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         // Intent'ten chat_peer varsa kaydet
         intent.getStringExtra("chat_peer")?.let { pendingChatPeerId.value = it }
@@ -77,6 +88,7 @@ class SecureChatActivity : ComponentActivity() {
         // FCM sistem bildirimlerini temizle — uygulama acildiginda tekrar gosterilmesin
         val nm = getSystemService(android.app.NotificationManager::class.java)
         nm.cancelAll()
+        IncomingMessageHandler.clearNotificationCounts()
 
         // Izinleri iste
         requestRecordAudioPermissionIfNeeded()
@@ -244,6 +256,7 @@ class SecureChatActivity : ComponentActivity() {
         IncomingMessageHandler.isAppInForeground = true
         // FCM sistem bildirimlerini temizle — uygulama acikken tekrar gosterilmesin
         getSystemService(android.app.NotificationManager::class.java).cancelAll()
+        IncomingMessageHandler.clearNotificationCounts()
         // Uygulama on plana gelince cevrimici bildir
         val uid = userSession.userId ?: return
         presenceJob?.cancel()

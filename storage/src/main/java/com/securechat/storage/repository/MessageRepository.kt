@@ -54,4 +54,7 @@ interface MessageRepository {
 
     /** Süresi dolmuş mesajları sil. Silinen mesaj sayısını döner. */
     suspend fun deleteExpiredMessages(): Int
+
+    /** Konuşmanın favori durumunu güncelle. */
+    suspend fun updateConversationFavorite(conversationId: String, isFavorite: Boolean)
 }

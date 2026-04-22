@@ -5,11 +5,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
@@ -32,12 +31,10 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,7 +42,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
@@ -63,8 +59,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -75,11 +69,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.securechat.app.ui.components.GeneratedAvatar
+import com.securechat.app.ui.theme.AzureDoodleBackdrop
+import com.securechat.app.ui.theme.DisplayFamily
+import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.glass
 import com.securechat.app.ui.viewmodel.SettingsViewModel
 
 /**
  * Ayarlar ekranı.
  * Profil fotoğrafı, tema seçimi, güvenlik, veri yönetimi ve hakkında bölümleri.
+ * Azure glassmorphism tasarım ile.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,6 +87,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     onBackClick: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
     val profilePhotoUri by viewModel.profilePhotoUri.collectAsStateWithLifecycle()
     val followSystem by viewModel.followSystemTheme.collectAsStateWithLifecycle()
     val isDark by viewModel.isDarkTheme.collectAsStateWithLifecycle()
@@ -157,173 +158,239 @@ fun SettingsScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Ayarlar", color = MaterialTheme.colorScheme.onSurface) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri", tint = MaterialTheme.colorScheme.onSurface)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                ),
-                modifier = Modifier.drawBehind {
-                    drawLine(Color(0xFF30363D), Offset(0f, size.height), Offset(size.width, size.height), 1f)
+    Box(Modifier.fillMaxSize()) {
+        AzureDoodleBackdrop(dark = dark)
+
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Ayarlar", color = MaterialTheme.colorScheme.onSurface) },
+                    navigationIcon = {
+                        IconButton(onClick = onBackClick) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri", tint = MaterialTheme.colorScheme.onSurface)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent
+                    ),
+                    windowInsets = WindowInsets(0)
+                )
+            },
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0)
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // === Profil Bölümü ===
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .glass(dark = dark, strong = true, shape = RoundedCornerShape(16.dp))
+                ) {
+                    ProfileSection(
+                        displayName = viewModel.userSession.displayName ?: "",
+                        phoneNumber = viewModel.userSession.phoneNumber ?: "",
+                        profilePhotoUri = profilePhotoUri,
+                        onPhotoClick = { photoPickerLauncher.launch("image/*") },
+                        onRemovePhoto = { viewModel.updateProfilePhoto(null) }
+                    )
                 }
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        ) {
-            // === Profil Bölümü ===
-            ProfileSection(
-                displayName = viewModel.userSession.displayName ?: "",
-                phoneNumber = viewModel.userSession.phoneNumber ?: "",
-                profilePhotoUri = profilePhotoUri,
-                onPhotoClick = { photoPickerLauncher.launch("image/*") },
-                onRemovePhoto = { viewModel.updateProfilePhoto(null) }
-            )
 
-            SectionDivider()
+                Spacer(modifier = Modifier.height(8.dp))
 
-            // === Tema Bölümü ===
-            SectionHeader("Görünüm")
+                // === Tema Bölümü ===
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .glass(dark = dark, shape = RoundedCornerShape(16.dp))
+                ) {
+                    Column {
+                        SectionHeader("Görünüm")
 
-            val themeLabel = when {
-                followSystem -> "Sistemi Takip Et"
-                isDark -> "Koyu Tema"
-                else -> "Açık Tema"
+                        val themeLabel = when {
+                            followSystem -> "Sistemi Takip Et"
+                            isDark -> "Koyu Tema"
+                            else -> "Açık Tema"
+                        }
+                        ListItem(
+                            headlineContent = { Text("Sohbet Teması") },
+                            supportingContent = { Text(themeLabel) },
+                            leadingContent = {
+                                Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable { showThemeDialog = true }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // === Bildirimler ===
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .glass(dark = dark, shape = RoundedCornerShape(16.dp))
+                ) {
+                    Column {
+                        SectionHeader("Bildirimler")
+
+                        ListItem(
+                            headlineContent = { Text("Mesaj içeriğini göster") },
+                            supportingContent = {
+                                Text(
+                                    if (showNotificationContent) "Gönderici adı ve mesaj içeriği gösterilir"
+                                    else "Sadece 'Yeni mesaj' gösterilir"
+                                )
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = showNotificationContent,
+                                    onCheckedChange = { viewModel.setShowNotificationContent(it) },
+                                    colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary)
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // === Güvenlik ===
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .glass(dark = dark, shape = RoundedCornerShape(16.dp))
+                ) {
+                    Column {
+                        SectionHeader("Güvenlik")
+
+                        ListItem(
+                            headlineContent = { Text("Uçtan uca şifreleme") },
+                            supportingContent = { Text("Mesajlarınız Signal Protocol ile şifrelenir") },
+                            leadingContent = {
+                                Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // === Gizlilik ===
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .glass(dark = dark, shape = RoundedCornerShape(16.dp))
+                ) {
+                    Column {
+                        SectionHeader("Gizlilik")
+
+                        ListItem(
+                            headlineContent = { Text("Son görülme zamanı") },
+                            supportingContent = {
+                                Text(
+                                    if (shareLastSeen) "Diğer kullanıcılar son görülme zamanınızı görebilir"
+                                    else "Son görülme zamanınız gizli"
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    if (shareLastSeen) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = shareLastSeen,
+                                    onCheckedChange = { viewModel.setShareLastSeen(it) },
+                                    colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary)
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // === Veri Yönetimi ===
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .glass(dark = dark, shape = RoundedCornerShape(16.dp))
+                ) {
+                    Column {
+                        SectionHeader("Veri Yönetimi")
+
+                        ListItem(
+                            headlineContent = { Text("Mesaj saklama süresi") },
+                            supportingContent = { Text("Mesajlar yalnızca bu cihazda saklanır") },
+                            leadingContent = {
+                                Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        ListItem(
+                            headlineContent = { Text("Tüm Sohbetleri Sil", color = MaterialTheme.colorScheme.error) },
+                            supportingContent = { Text("Tüm mesajlar ve sohbetler kalıcı olarak silinir", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) },
+                            leadingContent = {
+                                Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable { showNukeDialog = true }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // === Hakkında ===
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .glass(dark = dark, shape = RoundedCornerShape(16.dp))
+                ) {
+                    Column {
+                        SectionHeader("Hakkında")
+
+                        ListItem(
+                            headlineContent = { Text("Uygulama Versiyonu") },
+                            supportingContent = { Text("1.0.0") },
+                            leadingContent = {
+                                Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
             }
-            ListItem(
-                headlineContent = { Text("Sohbet Teması") },
-                supportingContent = { Text(themeLabel) },
-                leadingContent = {
-                    Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                },
-                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-                modifier = Modifier.clickable { showThemeDialog = true }
-            )
-
-            SectionDivider()
-
-            // === Bildirimler ===
-            SectionHeader("Bildirimler")
-
-            ListItem(
-                headlineContent = { Text("Mesaj içeriğini göster") },
-                supportingContent = {
-                    Text(
-                        if (showNotificationContent) "Gönderici adı ve mesaj içeriği gösterilir"
-                        else "Sadece 'Yeni mesaj' gösterilir"
-                    )
-                },
-                leadingContent = {
-                    Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                },
-                trailingContent = {
-                    Switch(
-                        checked = showNotificationContent,
-                        onCheckedChange = { viewModel.setShowNotificationContent(it) },
-                        colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary)
-                    )
-                },
-                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background)
-            )
-
-            SectionDivider()
-
-            // === Güvenlik ===
-            SectionHeader("Güvenlik")
-
-            ListItem(
-                headlineContent = { Text("Uçtan uca şifreleme") },
-                supportingContent = { Text("Mesajlarınız Signal Protocol ile şifrelenir") },
-                leadingContent = {
-                    Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                },
-                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background)
-            )
-
-            SectionDivider()
-
-            // === Gizlilik ===
-            SectionHeader("Gizlilik")
-
-            ListItem(
-                headlineContent = { Text("Son görülme zamanı") },
-                supportingContent = {
-                    Text(
-                        if (shareLastSeen) "Diğer kullanıcılar son görülme zamanınızı görebilir"
-                        else "Son görülme zamanınız gizli"
-                    )
-                },
-                leadingContent = {
-                    Icon(
-                        if (shareLastSeen) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                },
-                trailingContent = {
-                    Switch(
-                        checked = shareLastSeen,
-                        onCheckedChange = { viewModel.setShareLastSeen(it) },
-                        colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary)
-                    )
-                },
-                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background)
-            )
-
-            SectionDivider()
-
-            // === Veri Yönetimi ===
-            SectionHeader("Veri Yönetimi")
-
-            ListItem(
-                headlineContent = { Text("Mesaj saklama süresi") },
-                supportingContent = { Text("Mesajlar yalnızca bu cihazda saklanır") },
-                leadingContent = {
-                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                },
-                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background)
-            )
-
-            SectionDivider()
-
-            ListItem(
-                headlineContent = { Text("Tüm Sohbetleri Sil", color = MaterialTheme.colorScheme.error) },
-                supportingContent = { Text("Tüm mesajlar ve sohbetler kalıcı olarak silinir", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) },
-                leadingContent = {
-                    Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                },
-                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-                modifier = Modifier.clickable { showNukeDialog = true }
-            )
-
-            SectionDivider()
-
-            // === Hakkında ===
-            SectionHeader("Hakkında")
-
-            ListItem(
-                headlineContent = { Text("Uygulama Versiyonu") },
-                supportingContent = { Text("1.0.0") },
-                leadingContent = {
-                    Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                },
-                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background)
-            )
-
-            SectionDivider()
-
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -363,21 +430,11 @@ private fun ProfileSection(
                         .clickable { onPhotoClick() }
                 )
             } else {
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .clickable { onPhotoClick() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = displayName.firstOrNull()?.uppercase() ?: "?",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
+                GeneratedAvatar(
+                    name = displayName,
+                    size = 72.dp,
+                    modifier = Modifier.clickable { onPhotoClick() }
+                )
             }
 
             // Kamera ikonu
@@ -517,13 +574,5 @@ private fun SectionHeader(title: String) {
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-    )
-}
-
-@Composable
-private fun SectionDivider() {
-    HorizontalDivider(
-        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-        thickness = 0.5.dp
     )
 }

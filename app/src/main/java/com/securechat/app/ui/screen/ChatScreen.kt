@@ -13,8 +13,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +34,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.ui.platform.LocalDensity
@@ -64,6 +66,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.MoreVert
@@ -95,18 +98,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -118,6 +118,11 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
+import com.securechat.app.ui.components.GeneratedAvatar
+import com.securechat.app.ui.theme.AzureDoodleBackdrop
+import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.MonoFamily
+import com.securechat.app.ui.theme.glass
 import com.securechat.app.ui.viewmodel.ChatViewModel
 import com.securechat.app.ui.viewmodel.ConversationInfo
 import com.securechat.app.util.FileOpenHelper
@@ -138,7 +143,7 @@ import kotlin.math.abs
  * Arka plan temiz koyu (#0D1117), gelişmiş mesaj baloncukları, yazma göstergesi placeholder'ı
  * ve uzun basma ile mesaj silme desteği içerir.
  *
- * Midnight Teal tasarım: koyu arka plan, teal giden balonlar, koyu gri gelen balonlar.
+ * Azure glassmorphism tasarım: koyu arka plan, teal giden balonlar, koyu gri gelen balonlar.
  */
 @Composable
 fun ChatScreen(
@@ -161,7 +166,19 @@ fun ChatScreen(
     // Iletme hedef secimi dialog'u
     var showForwardPicker by remember { mutableStateOf(false) }
     var forwardContent by remember { mutableStateOf("") }
+    // Mesaj bilgi popup'ı (grup sohbetlerinde iletildi/okundu durumu)
+    var messageInfoTarget by remember { mutableStateOf<LocalMessage?>(null) }
     val listState = rememberLazyListState()
+    var initialScrollDone by remember { mutableStateOf(false) }
+
+    // Sohbet açıldığında en alta scroll (animasyonsuz, anlık)
+    LaunchedEffect(messages) {
+        if (!initialScrollDone && messages.isNotEmpty()) {
+            val totalItems = buildFlatItemList(messages).size
+            listState.scrollToItem(maxOf(0, totalItems - 1))
+            initialScrollDone = true
+        }
+    }
 
     // Sohbetten çıkınca taslağı kaydet
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -263,7 +280,21 @@ fun ChatScreen(
         )
     }
 
+    // Mesaj bilgi popup'ı (grup sohbetlerinde iletildi/okundu durumu)
+    messageInfoTarget?.let { msg ->
+        val convInfo = conversationInfo
+        if (convInfo != null) {
+            MessageInfoPopup(
+                message = msg,
+                memberNames = convInfo.memberNames,
+                groupMembers = convInfo.members,
+                onDismiss = { messageInfoTarget = null }
+            )
+        }
+    }
+
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (isSearchMode) {
                 ChatSearchBar(
@@ -307,23 +338,24 @@ fun ChatScreen(
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = Color.Transparent
     ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.ime)
+                .imePadding()
         ) {
             // Mesaj listesi
+            val dark = LocalDarkTheme.current
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background)
             ) {
-                // WhatsApp tarzı doodle art arka plan deseni
-                DoodleArtBackground()
+                // Azure glassmorphism arka plan deseni
+                AzureDoodleBackdrop(dark = dark)
 
                 if (messages.isEmpty()) {
                     EncryptionInfoBanner(
@@ -345,11 +377,14 @@ fun ChatScreen(
                 ) {
                     if (messages.isNotEmpty()) {
                         item(key = "encryption_info") {
-                            EncryptionInfoBanner(
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 32.dp, vertical = 8.dp)
-                            )
+                                    .padding(horizontal = 32.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                EncryptionInfoBanner()
+                            }
                         }
                     }
 
@@ -416,7 +451,11 @@ fun ChatScreen(
                                         },
                                         onReplyClick = { replyId ->
                                             viewModel.navigateToMessage(replyId)
-                                        }
+                                        },
+                                        onInfoClick = if (conversationInfo?.isGroup == true && message.isOutgoing) {
+                                            { messageInfoTarget = message }
+                                        } else null,
+                                        onReplyToMessage = { replyingToMessage = message }
                                     )
                                 }
                             }
@@ -507,190 +546,6 @@ fun ChatScreen(
 }
 
 /**
- * WhatsApp tarzı doodle art arka plan deseni.
- * Sohbet alanında tekrarlanan küçük ikonlar (kilit, mesaj baloncuğu, kalp, yıldız, telefon vb.)
- * çok düşük opaklıkta çizilerek profesyonel ve zarif bir görünüm sağlar.
- * Midnight Teal temasına uyumlu mavi tonlu desen kullanır.
- */
-@Composable
-private fun DoodleArtBackground() {
-    val doodleColor = Color(0xFF4ECDC4).copy(alpha = 0.10f)
-    val doodleColor2 = Color(0xFF2979FF).copy(alpha = 0.08f)
-    val cellSize = 68f
-    // Statik desen — animasyon kaldirildi, performans icin
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val cols = (size.width / cellSize).toInt() + 2
-        val rows = (size.height / cellSize).toInt() + 2
-        for (row in -1..rows) {
-            for (col in -1..cols) {
-                val x = col * cellSize + (if (row % 2 == 1) cellSize / 2 else 0f)
-                val y = row * cellSize
-                val iconIndex = (abs(row) * 7 + abs(col) * 3) % 8
-                val color = if ((row + col) % 2 == 0) doodleColor else doodleColor2
-                translate(left = x, top = y) {
-                    when (iconIndex) {
-                        0 -> drawLockIcon(color)
-                        1 -> drawChatBubbleIcon(color)
-                        2 -> drawHeartIcon(color)
-                        3 -> drawStarIcon(color)
-                        4 -> drawPhoneIcon(color)
-                        5 -> drawShieldIcon(color)
-                        6 -> drawKeyIcon(color)
-                        7 -> drawSmileIcon(color)
-                    }
-                }
-            }
-        }
-    }
-}
-
-// --- Doodle ikon çizim fonksiyonları ---
-
-/** Kilit ikonu — güvenlik teması */
-private fun DrawScope.drawLockIcon(color: Color) {
-    val s = 18f
-    val stroke = Stroke(width = 1.6f)
-    // Kilit gövdesi
-    drawRoundRect(
-        color = color,
-        topLeft = Offset(-s / 2, -s / 6),
-        size = Size(s, s * 0.65f),
-        cornerRadius = CornerRadius(2f, 2f),
-        style = stroke
-    )
-    // Kilit halkası
-    val arcPath = Path().apply {
-        moveTo(-s * 0.3f, -s / 6)
-        cubicTo(-s * 0.3f, -s * 0.7f, s * 0.3f, -s * 0.7f, s * 0.3f, -s / 6)
-    }
-    drawPath(arcPath, color = color, style = stroke)
-}
-
-/** Mesaj baloncuğu ikonu */
-private fun DrawScope.drawChatBubbleIcon(color: Color) {
-    val s = 18f
-    val stroke = Stroke(width = 1.6f)
-    val path = Path().apply {
-        moveTo(-s / 2, -s / 3)
-        lineTo(s / 2, -s / 3)
-        lineTo(s / 2, s / 5)
-        lineTo(s / 6, s / 5)
-        lineTo(-s / 6, s / 2)
-        lineTo(-s / 6, s / 5)
-        lineTo(-s / 2, s / 5)
-        close()
-    }
-    drawPath(path, color = color, style = stroke)
-}
-
-/** Kalp ikonu */
-private fun DrawScope.drawHeartIcon(color: Color) {
-    val s = 14f
-    val stroke = Stroke(width = 1.6f)
-    val path = Path().apply {
-        moveTo(0f, s * 0.35f)
-        cubicTo(-s * 0.5f, -s * 0.1f, -s * 0.5f, -s * 0.5f, 0f, -s * 0.2f)
-        cubicTo(s * 0.5f, -s * 0.5f, s * 0.5f, -s * 0.1f, 0f, s * 0.35f)
-    }
-    drawPath(path, color = color, style = stroke)
-}
-
-/** Yıldız ikonu — beş köşeli */
-private fun DrawScope.drawStarIcon(color: Color) {
-    val s = 10f
-    val stroke = Stroke(width = 1.6f)
-    val path = Path().apply {
-        val points = 5
-        for (i in 0 until points * 2) {
-            val radius = if (i % 2 == 0) s else s * 0.45f
-            val angle = Math.toRadians((i * 36.0 - 90.0)).toFloat()
-            val px = radius * kotlin.math.cos(angle)
-            val py = radius * kotlin.math.sin(angle)
-            if (i == 0) moveTo(px, py) else lineTo(px, py)
-        }
-        close()
-    }
-    drawPath(path, color = color, style = stroke)
-}
-
-/** Telefon ikonu — basit dikdörtgen + hoparlör */
-private fun DrawScope.drawPhoneIcon(color: Color) {
-    val s = 16f
-    val stroke = Stroke(width = 1.6f)
-    // Telefon gövdesi
-    drawRoundRect(
-        color = color,
-        topLeft = Offset(-s * 0.28f, -s / 2),
-        size = Size(s * 0.56f, s),
-        cornerRadius = CornerRadius(3f, 3f),
-        style = stroke
-    )
-    // Ekran
-    drawRoundRect(
-        color = color,
-        topLeft = Offset(-s * 0.18f, -s * 0.35f),
-        size = Size(s * 0.36f, s * 0.55f),
-        cornerRadius = CornerRadius(1f, 1f),
-        style = stroke
-    )
-    // Home butonu
-    drawCircle(color = color, radius = 1.5f, center = Offset(0f, s * 0.38f), style = stroke)
-}
-
-/** Kalkan ikonu — güvenlik teması */
-private fun DrawScope.drawShieldIcon(color: Color) {
-    val s = 16f
-    val stroke = Stroke(width = 1.6f)
-    val path = Path().apply {
-        moveTo(0f, -s / 2)
-        lineTo(s * 0.4f, -s * 0.3f)
-        lineTo(s * 0.4f, s * 0.05f)
-        cubicTo(s * 0.4f, s * 0.35f, 0f, s / 2, 0f, s / 2)
-        cubicTo(0f, s / 2, -s * 0.4f, s * 0.35f, -s * 0.4f, s * 0.05f)
-        lineTo(-s * 0.4f, -s * 0.3f)
-        close()
-    }
-    drawPath(path, color = color, style = stroke)
-    // İçine küçük onay işareti
-    val check = Path().apply {
-        moveTo(-s * 0.12f, s * 0.02f)
-        lineTo(-s * 0.02f, s * 0.12f)
-        lineTo(s * 0.15f, -s * 0.1f)
-    }
-    drawPath(check, color = color, style = Stroke(width = 1.3f))
-}
-
-/** Anahtar ikonu */
-private fun DrawScope.drawKeyIcon(color: Color) {
-    val s = 16f
-    val stroke = Stroke(width = 1.6f)
-    // Anahtar halkası
-    drawCircle(color = color, radius = s * 0.22f, center = Offset(-s * 0.2f, 0f), style = stroke)
-    // Anahtar gövdesi
-    drawLine(color = color, start = Offset(0f, 0f), end = Offset(s * 0.4f, 0f), strokeWidth = 1.6f)
-    // Anahtar dişleri
-    drawLine(color = color, start = Offset(s * 0.25f, 0f), end = Offset(s * 0.25f, s * 0.12f), strokeWidth = 1.6f)
-    drawLine(color = color, start = Offset(s * 0.35f, 0f), end = Offset(s * 0.35f, s * 0.12f), strokeWidth = 1.6f)
-}
-
-/** Gülen yüz ikonu */
-private fun DrawScope.drawSmileIcon(color: Color) {
-    val s = 16f
-    val stroke = Stroke(width = 1.6f)
-    // Yüz
-    drawCircle(color = color, radius = s * 0.4f, center = Offset(0f, 0f), style = stroke)
-    // Gözler
-    drawCircle(color = color, radius = 1.2f, center = Offset(-s * 0.14f, -s * 0.08f))
-    drawCircle(color = color, radius = 1.2f, center = Offset(s * 0.14f, -s * 0.08f))
-    // Gülümseme
-    val smile = Path().apply {
-        moveTo(-s * 0.16f, s * 0.08f)
-        cubicTo(-s * 0.08f, s * 0.22f, s * 0.08f, s * 0.22f, s * 0.16f, s * 0.08f)
-    }
-    drawPath(smile, color = color, style = Stroke(width = 1.3f))
-}
-
-/**
  * Flat item listesi oluşturur — scroll index hesabı için.
  * encryption_info + (tarih_ayırıcı + mesajlar) sırasında.
  */
@@ -731,17 +586,7 @@ fun ChatSearchBar(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.background,
-        modifier = Modifier
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .drawBehind {
-                drawLine(
-                    color = Color(0xFF30363D),
-                    start = Offset(0f, size.height),
-                    end = Offset(size.width, size.height),
-                    strokeWidth = 1f
-                )
-            }
+        color = Color.Transparent
     ) {
         Column {
             Row(
@@ -873,10 +718,10 @@ fun ChatSearchBar(
  */
 @Composable
 private fun EncryptionInfoBanner(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+    val dark = LocalDarkTheme.current
+    Box(
+        modifier = modifier
+            .glass(dark = dark, shape = RoundedCornerShape(100.dp))
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -893,7 +738,8 @@ private fun EncryptionInfoBanner(modifier: Modifier = Modifier) {
             Text(
                 text = "Mesajlar uçtan uca şifrelenmiştir.",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                color = if (dark) Color(0xFFECEEF2).copy(alpha = 0.7f)
+                        else Color(0xFF13161B).copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
                 fontSize = 11.sp
             )
@@ -907,22 +753,22 @@ private fun EncryptionInfoBanner(modifier: Modifier = Modifier) {
  */
 @Composable
 private fun DateSeparator(dateLabel: String) {
+    val dark = LocalDarkTheme.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
-            shadowElevation = 1.dp
+        Box(
+            modifier = Modifier
+                .glass(dark = dark, shape = RoundedCornerShape(100.dp))
         ) {
             Text(
                 text = dateLabel,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (dark) Color(0xFFECEEF2) else Color(0xFF13161B),
                 fontWeight = FontWeight.Medium,
                 fontSize = 12.sp
             )
@@ -1009,22 +855,14 @@ fun ChatTopBar(
     onDisappearingClick: (() -> Unit)? = null,
     onChatInfoClick: (() -> Unit)? = null
 ) {
+    val dark = LocalDarkTheme.current
     var showMenu by remember { mutableStateOf(false) }
     Surface(
-        color = MaterialTheme.colorScheme.background,
-        modifier = Modifier.drawBehind {
-            drawLine(
-                color = Color(0xFF30363D),
-                start = Offset(0f, size.height),
-                end = Offset(size.width, size.height),
-                strokeWidth = 1f
-            )
-        }
+        color = Color.Transparent
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1050,20 +888,11 @@ fun ChatTopBar(
                     )
                     .padding(vertical = 8.dp, horizontal = 4.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(chatAvatarGradient(peerName)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isGroup) Icons.Default.Group else Icons.Default.Person,
-                        contentDescription = if (isGroup) "Grup" else "Kişi",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                GeneratedAvatar(
+                    name = peerName,
+                    isGroup = isGroup,
+                    size = 40.dp
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
@@ -1077,6 +906,7 @@ fun ChatTopBar(
                         Text(
                             text = "yazıyor...",
                             style = MaterialTheme.typography.labelSmall,
+                            fontFamily = MonoFamily,
                             color = MaterialTheme.colorScheme.primary,
                             fontSize = 11.sp
                         )
@@ -1084,21 +914,24 @@ fun ChatTopBar(
                         Text(
                             text = "$memberCount üye",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontFamily = MonoFamily,
+                            color = if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570),
                             fontSize = 11.sp
                         )
                     } else if (peerIsOnline) {
                         Text(
                             text = "çevrimiçi",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF4CAF50),
+                            fontFamily = MonoFamily,
+                            color = Color(0xFF22C55E),
                             fontSize = 11.sp
                         )
                     } else if (peerLastSeen != null && peerLastSeen > 0) {
                         Text(
                             text = formatLastSeen(peerLastSeen),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontFamily = MonoFamily,
+                            color = if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570),
                             fontSize = 11.sp
                         )
                     }
@@ -1260,29 +1093,30 @@ fun DisappearingTimerDialog(
 /**
  * Chat top bar avatar için gradient — daha koyu, canlı tonlar.
  */
-private fun chatAvatarGradient(name: String): Brush {
+private fun chatAvatarColor(name: String): Color {
     val colors = listOf(
-        Color(0xFF00897B) to Color(0xFF004D40),
-        Color(0xFF00ACC1) to Color(0xFF006064),
-        Color(0xFF5C6BC0) to Color(0xFF283593),
-        Color(0xFF7E57C2) to Color(0xFF4527A0),
-        Color(0xFFEF5350) to Color(0xFFB71C1C),
-        Color(0xFFFF7043) to Color(0xFFBF360C),
-        Color(0xFF42A5F5) to Color(0xFF1565C0)
+        Color(0xFF3E7BFA), // azure
+        Color(0xFF6B737D), // slate
+        Color(0xFF8A929C), // silver
+        Color(0xFF5D6570), // graphite
+        Color(0xFF4A535E), // charcoal
+        Color(0xFF9BA3AE), // mist
+        Color(0xFF7B8491), // pebble
+        Color(0xFF556070), // steel
     )
-    val index = abs(name.hashCode()) % colors.size
-    val (start, end) = colors[index]
-    return Brush.linearGradient(listOf(start, end))
+    var h = 0
+    for (c in name) h = (h * 31 + c.code) and 0x7FFFFFFF
+    return colors[h % colors.size]
 }
 
 /**
  * Gönderen isim rengi — her isim için tutarlı renk üretir.
- * Midnight Teal ile uyumlu parlak tonlar.
+ * Azure tema ile uyumlu nötr + mavi tonlar.
  */
 private fun senderNameColor(senderId: String): Color {
     val senderColors = listOf(
-        Color(0xFF4ECDC4),
-        Color(0xFF2979FF),
+        Color(0xFF3E7BFA),
+        Color(0xFF5EA3FF),
         Color(0xFF7C4DFF),
         Color(0xFFFF7043),
         Color(0xFFEC407A),
@@ -1298,7 +1132,7 @@ private fun senderNameColor(senderId: String): Color {
  * TEXT mesajları metin olarak, IMAGE mesajları küçük resim simgesi ile,
  * FILE mesajları dosya adı ve boyutuyla gösterilir.
  * Giden mesajlar teal (#003D47), gelen mesajlar koyu gri (#21262D) ile gösterilir.
- * Midnight Teal stili.
+ * Azure glassmorphism stili.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1313,14 +1147,37 @@ fun MessageBubble(
     onDeleteForEveryone: (() -> Unit)? = null,
     onToggleStarMessage: ((String, Boolean) -> Unit)? = null,
     onForwardMessage: (() -> Unit)? = null,
-    onReplyClick: ((String) -> Unit)? = null
+    onReplyClick: ((String) -> Unit)? = null,
+    onInfoClick: (() -> Unit)? = null,
+    onReplyToMessage: (() -> Unit)? = null
 ) {
     val isOutgoing = message.isOutgoing
+    val dark = LocalDarkTheme.current
     var showPopupMenu by remember { mutableStateOf(false) }
+
+    // Azure tema balon renkleri
+    val bubbleBg = if (isOutgoing) {
+        if (dark) Color(0xFF3E7BFA).copy(alpha = 0.28f)
+        else Color(0xFF3E7BFA).copy(alpha = 0.18f)
+    } else {
+        if (dark) Color(0xFF0F141C).copy(alpha = 0.55f)
+        else Color(0xFF13161B).copy(alpha = 0.06f)
+    }
+    val bubbleBorder = if (isOutgoing) {
+        if (dark) Color(0xFF5EA3FF).copy(alpha = 0.35f)
+        else Color(0xFF3E7BFA).copy(alpha = 0.35f)
+    } else {
+        if (dark) Color.White.copy(alpha = 0.08f)
+        else Color(0xFF13161B).copy(alpha = 0.09f)
+    }
+    val bubbleShape = if (isOutgoing)
+        RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)
+    else
+        RoundedCornerShape(20.dp, 20.dp, 20.dp, 4.dp)
 
     // Highlight animasyonu
     val highlightColor by animateColorAsState(
-        targetValue = if (isHighlighted) Color(0xFF4ECDC4).copy(alpha = 0.25f)
+        targetValue = if (isHighlighted) Color(0xFF3E7BFA).copy(alpha = 0.25f)
         else Color.Transparent,
         animationSpec = tween(durationMillis = 400),
         label = "highlight"
@@ -1339,19 +1196,12 @@ fun MessageBubble(
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
         Box {
-            Surface(
-                shape = RoundedCornerShape(
-                    topStart = if (isOutgoing) 12.dp else 4.dp,
-                    topEnd = if (isOutgoing) 4.dp else 12.dp,
-                    bottomStart = 12.dp,
-                    bottomEnd = 12.dp
-                ),
-                color = if (isOutgoing)
-                    MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant,
-                shadowElevation = 1.dp,
+            Box(
                 modifier = Modifier
                     .widthIn(min = 80.dp, max = 300.dp)
+                    .background(bubbleBg, bubbleShape)
+                    .border(1.dp, bubbleBorder, bubbleShape)
+                    .clip(bubbleShape)
                     .combinedClickable(
                         onClick = { },
                         onLongClick = { if (!message.isDeleted) showPopupMenu = true }
@@ -1498,9 +1348,11 @@ fun MessageBubble(
                         Text(
                             text = formatTime(message.timestamp),
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isOutgoing)
-                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            color = if (isOutgoing) {
+                                if (dark) Color.White.copy(alpha = 0.55f) else Color(0xFF1E52D9).copy(alpha = 0.55f)
+                            } else {
+                                if (dark) Color(0xFF9BA3AE).copy(alpha = 0.6f) else Color(0xFF5D6570).copy(alpha = 0.6f)
+                            },
                             fontSize = 11.sp
                         )
                         if (isOutgoing) {
@@ -1512,10 +1364,66 @@ fun MessageBubble(
             }
 
             // Uzun basma popup menüsü — mesaj silme ve yıldızlama seçenekleri
-            DropdownMenu(
+            com.securechat.app.ui.components.GlassDropdownMenu(
                 expanded = showPopupMenu,
                 onDismissRequest = { showPopupMenu = false }
             ) {
+                // Yanitla
+                if (onReplyToMessage != null) {
+                    DropdownMenuItem(
+                        text = { Text("Yanıtla") },
+                        onClick = {
+                            showPopupMenu = false
+                            onReplyToMessage()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.graphicsLayer(rotationZ = 180f)
+                            )
+                        }
+                    )
+                }
+
+                // Kopyala (dosya mesaji degilse)
+                if (!message.isFileMessage && !message.isDeleted) {
+                    val clipboardManager = LocalClipboardManager.current
+                    DropdownMenuItem(
+                        text = { Text("Kopyala") },
+                        onClick = {
+                            showPopupMenu = false
+                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(message.content))
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    )
+                }
+
+                // Bilgi seçeneği (sadece grup giden mesajlarında)
+                if (onInfoClick != null) {
+                    DropdownMenuItem(
+                        text = { Text("Bilgi") },
+                        onClick = {
+                            showPopupMenu = false
+                            onInfoClick()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    )
+                }
+
                 // Yıldızlama seçeneği
                 onToggleStarMessage?.let { toggleStar ->
                     DropdownMenuItem(
@@ -1640,9 +1548,12 @@ private fun TextMessageContent(
     isOutgoing: Boolean,
     searchQuery: String = ""
 ) {
-    val textColor = if (isOutgoing)
-        MaterialTheme.colorScheme.onPrimaryContainer
-    else MaterialTheme.colorScheme.onSurface
+    val dark = LocalDarkTheme.current
+    val textColor = if (isOutgoing) {
+        if (dark) Color.White else Color(0xFF1E52D9)
+    } else {
+        if (dark) Color(0xFFECEEF2) else Color(0xFF13161B)
+    }
 
     if (searchQuery.isNotBlank() && message.content.contains(searchQuery, ignoreCase = true)) {
         val annotated = buildHighlightedText(message.content, searchQuery, textColor)
@@ -1693,7 +1604,7 @@ private fun buildHighlightedText(
         // Eşleşen metin — sarı highlight
         withStyle(
             SpanStyle(
-                color = Color(0xFF0D1117),
+                color = Color(0xFF13161B),
                 background = Color(0xFFFFEB3B)
             )
         ) {
@@ -1718,13 +1629,18 @@ private fun FileMessageContent(
     onFileClick: () -> Unit = {},
     onShareClick: () -> Unit = {}
 ) {
-    val textColor = if (isOutgoing)
-        MaterialTheme.colorScheme.onPrimaryContainer
-    else MaterialTheme.colorScheme.onSurface
+    val dark = LocalDarkTheme.current
+    val textColor = if (isOutgoing) {
+        if (dark) Color.White else Color(0xFF1E52D9)
+    } else {
+        if (dark) Color(0xFFECEEF2) else Color(0xFF13161B)
+    }
 
-    val subtextColor = if (isOutgoing)
-        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-    else MaterialTheme.colorScheme.onSurfaceVariant
+    val subtextColor = if (isOutgoing) {
+        if (dark) Color.White.copy(alpha = 0.7f) else Color(0xFF1E52D9).copy(alpha = 0.7f)
+    } else {
+        if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570)
+    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1745,7 +1661,7 @@ private fun FileMessageContent(
         val iconTint = message.fileMimeType?.let { mimeType ->
             FileOpenHelper.getMimeTypeColor(mimeType)
         } ?: if (message.isImageFile) {
-            Color(0xFF4ECDC4)
+            Color(0xFF3E7BFA)
         } else {
             Color(0xFF42A5F5)
         }
@@ -1812,7 +1728,7 @@ fun MessageStatusIcon(status: MessageStatus) {
         MessageStatus.SENDING -> Icons.Default.Schedule to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.4f)
         MessageStatus.SENT -> Icons.Default.Check to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
         MessageStatus.DELIVERED -> Icons.Default.DoneAll to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
-        MessageStatus.READ -> Icons.Default.DoneAll to Color(0xFF4ECDC4)
+        MessageStatus.READ -> Icons.Default.DoneAll to Color(0xFF3E7BFA)
         MessageStatus.FAILED -> Icons.Default.Error to MaterialTheme.colorScheme.error
     }
     Icon(
@@ -1838,90 +1754,69 @@ fun MessageInputBar(
     onSend: () -> Unit,
     onAttachClick: () -> Unit
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.drawBehind {
-            // Üst kenarda ince border
-            drawLine(
-                color = Color(0xFF30363D),
-                start = Offset(0f, 0f),
-                end = Offset(size.width, 0f),
-                strokeWidth = 1f
+    val dark = LocalDarkTheme.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .glass(dark = dark, shape = RoundedCornerShape(28.dp))
+            .padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        // Atasman butonu
+        IconButton(
+            onClick = onAttachClick,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                Icons.Default.AttachFile,
+                contentDescription = "Dosya ekle",
+                tint = if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570),
+                modifier = Modifier.size(22.dp)
             )
         }
-    ) {
-        Row(
+
+        // Metin alani — BasicTextField ile minimal padding
+        androidx.compose.foundation.text.BasicTextField(
+            value = text,
+            onValueChange = onTextChange,
             modifier = Modifier
-                .padding(horizontal = 6.dp, vertical = 6.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.Bottom
+                .weight(1f)
+                .padding(vertical = 10.dp),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                color = if (dark) Color(0xFFECEEF2) else Color(0xFF13161B)
+            ),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFF3E7BFA)),
+            maxLines = 4,
+            decorationBox = { innerTextField ->
+                if (text.isEmpty()) {
+                    Text(
+                        "Mesaj yazın...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (dark) Color(0xFF6B737D) else Color(0xFF8A929C)
+                    )
+                }
+                innerTextField()
+            }
+        )
+
+        Spacer(modifier = Modifier.width(6.dp))
+
+        // Gonder butonu — azure daire
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(if (text.isNotBlank()) Color(0xFF3E7BFA) else Color(0xFF3E7BFA).copy(alpha = 0.5f))
+                .clickable { if (text.isNotBlank()) onSend() },
+            contentAlignment = Alignment.Center
         ) {
-            // Ataşman (dosya ekleme) butonu
-            IconButton(
-                onClick = onAttachClick,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(
-                    Icons.Default.AttachFile,
-                    contentDescription = "Dosya ekle",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            // Metin alanı — koyu surfaceVariant arka plan, ince border
-            Surface(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                border = androidx.compose.foundation.BorderStroke(
-                    0.5.dp,
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                )
-            ) {
-                TextField(
-                    value = text,
-                    onValueChange = onTextChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text(
-                            "Mesaj yazın...",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
-                    },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                        cursorColor = MaterialTheme.colorScheme.primary
-                    ),
-                    maxLines = 4
-                )
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            // Gönder butonu — canlı cyan, metin varsa gönderir
-            IconButton(
-                onClick = {
-                    if (text.isNotBlank()) onSend()
-                },
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-                colors = IconButtonDefaults.iconButtonColors(
-                    contentColor = Color(0xFF0D1117)
-                )
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Gönder",
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+            Icon(
+                Icons.AutoMirrored.Filled.Send,
+                contentDescription = "Gönder",
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
@@ -2088,20 +1983,11 @@ fun ForwardPickerDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Avatar
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = "Kişi",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
+                            GeneratedAvatar(
+                                name = displayName,
+                                isGroup = conv.isGroup,
+                                size = 40.dp
+                            )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
@@ -2153,4 +2039,136 @@ fun ForwardPickerDialog(
  */
 private fun formatTime(timestamp: Long): String {
     return TimeFormatter.formatTime(timestamp)
+}
+
+/**
+ * Mesaj bilgi popup'ı -- grup mesajlarinin iletildi/okundu durumunu gosterir.
+ */
+@Composable
+private fun MessageInfoPopup(
+    message: LocalMessage,
+    memberNames: Map<String, String>,
+    groupMembers: List<String>,
+    onDismiss: () -> Unit
+) {
+    val dark = LocalDarkTheme.current
+
+    com.securechat.app.ui.components.GlassDialog(
+        onDismissRequest = onDismiss
+    ) {
+        Text(
+            text = "Mesaj Bilgisi",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Okundu bolumu
+        Text(
+            text = "Okundu",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color(0xFF3E7BFA),
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (message.status == com.securechat.storage.model.MessageStatus.READ) {
+            groupMembers.filter { it != message.senderId }.forEach { memberId ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GeneratedAvatar(
+                        name = memberNames[memberId] ?: memberId,
+                        size = 32.dp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = memberNames[memberId] ?: memberId,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "\u2014",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Iletildi bolumu
+        Text(
+            text = "\u0130letildi",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (message.status == com.securechat.storage.model.MessageStatus.DELIVERED) {
+            groupMembers.filter { it != message.senderId }.forEach { memberId ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GeneratedAvatar(
+                        name = memberNames[memberId] ?: memberId,
+                        size = 32.dp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = memberNames[memberId] ?: memberId,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        } else if (message.status == com.securechat.storage.model.MessageStatus.SENT) {
+            groupMembers.filter { it != message.senderId }.forEach { memberId ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GeneratedAvatar(
+                        name = memberNames[memberId] ?: memberId,
+                        size = 32.dp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = memberNames[memberId] ?: memberId,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "\u2014",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Kapat butonu
+        androidx.compose.material3.TextButton(
+            onClick = onDismiss,
+            modifier = Modifier.align(Alignment.End)
+        ) {
+            Text("Kapat", color = MaterialTheme.colorScheme.primary)
+        }
+    }
 }

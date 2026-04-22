@@ -5,4 +5,10 @@
         <item name="android:navigationBarColor">@color/window_background</item>
         <item name="android:statusBarColor">@color/window_background</item>
     </style>
+
+    <style name="Theme.SecureChat.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@color/window_background</item>
+        <item name="postSplashScreenTheme">@style/Theme.SecureChat</item>
+    </style>
 </resources>

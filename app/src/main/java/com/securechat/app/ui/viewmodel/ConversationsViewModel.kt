@@ -84,6 +84,15 @@ class ConversationsViewModel @Inject constructor(
     }
 
     /**
+     * Konuşmayı favorilere ekler/çıkarır.
+     */
+    fun toggleFavorite(conversationId: String, isFavorite: Boolean) {
+        viewModelScope.launch {
+            messageRepository.updateConversationFavorite(conversationId, isFavorite)
+        }
+    }
+
+    /**
      * Tüm konuşmaların kişi isimlerini ContactNameResolver ile günceller.
      * Bu fonksiyon uygulama başladığında veya rehber değiştiğinde çağrılmalıdır.
      */

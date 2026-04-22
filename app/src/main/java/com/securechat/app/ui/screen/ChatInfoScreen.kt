@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -62,9 +63,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -79,9 +77,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.securechat.app.ui.components.GeneratedAvatar
 import com.securechat.app.ui.viewmodel.ChatInfoViewModel
 import com.securechat.storage.entity.MessageEntity
+import com.securechat.app.ui.theme.AzureDoodleBackdrop
+import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.glass
+import com.securechat.app.ui.theme.MonoFamily
+import com.securechat.app.ui.theme.DisplayFamily
 import kotlin.math.abs
+
+private val AZ_AVATAR_COLORS = listOf(
+    Color(0xFF3E7BFA), Color(0xFF6B737D), Color(0xFF8A929C),
+    Color(0xFF5D6570), Color(0xFF4A535E), Color(0xFF9BA3AE),
+)
 
 /**
  * WhatsApp benzeri sohbet bilgileri ekranı.
@@ -127,6 +136,8 @@ fun ChatInfoScreen(
     // ViewModel'i initialize et
     viewModel.initialize(conversationId)
 
+    val dark = LocalDarkTheme.current
+
     // Not ekleme dialogu
     if (showNoteDialog) {
         NoteDialog(
@@ -150,6 +161,9 @@ fun ChatInfoScreen(
             onDismiss = { showDisappearingDialog = false }
         )
     }
+
+    Box(Modifier.fillMaxSize()) {
+        AzureDoodleBackdrop(dark = dark)
 
     Scaffold(
         topBar = {
@@ -184,20 +198,14 @@ fun ChatInfoScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
-                modifier = Modifier.drawBehind {
-                    drawLine(
-                        color = Color(0xFF30363D),
-                        start = Offset(0f, size.height),
-                        end = Offset(size.width, size.height),
-                        strokeWidth = 1f
-                    )
-                }
+                windowInsets = WindowInsets(0)
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0)
     ) { padding ->
         when (currentTab) {
             ChatInfoTab.MAIN -> {
@@ -282,6 +290,7 @@ fun ChatInfoScreen(
             }
         }
     }
+    } // Box
 }
 
 enum class ChatInfoTab {
@@ -484,34 +493,27 @@ private fun ProfileHeader(
     phoneNumber: String,
     isGroup: Boolean
 ) {
+    val dark = LocalDarkTheme.current
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 32.dp, horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Gradient avatar (ChatScreen ile tutarlı)
-        Box(
-            modifier = Modifier
-                .size(96.dp)
-                .clip(CircleShape)
-                .background(infoAvatarGradient(peerName)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = if (isGroup) Icons.Default.Group else Icons.Default.Person,
-                contentDescription = if (isGroup) "Grup" else "Kişi",
-                modifier = Modifier.size(48.dp),
-                tint = Color.White
-            )
-        }
+        // 104dp avatar — insan silueti (WhatsApp tarzi)
+        GeneratedAvatar(
+            name = peerName,
+            isGroup = isGroup,
+            size = 104.dp
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // İsim
+        // İsim — headlineMedium
         Text(
             text = peerName,
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center
@@ -525,8 +527,9 @@ private fun ProfileHeader(
             @OptIn(ExperimentalFoundationApi::class)
             Text(
                 text = formatPhoneDisplay(phoneNumber),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+                fontFamily = MonoFamily,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.combinedClickable(
                     onClick = { },
@@ -557,9 +560,12 @@ private fun InfoMenuItem(
     iconTint: Color = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .glass(dark)
             .clickable { onClick() }
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -604,7 +610,7 @@ private fun SectionDivider() {
     HorizontalDivider(
         modifier = Modifier.padding(vertical = 8.dp),
         thickness = 0.5.dp,
-        color = Color(0xFF30363D)
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
     )
 }
 
@@ -857,14 +863,12 @@ private fun MessageResultItem(
     showStar: Boolean = false,
     onClick: () -> Unit
 ) {
-    Card(
+    val dark = LocalDarkTheme.current
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
-        ),
-        shape = RoundedCornerShape(12.dp)
+            .glass(dark)
+            .clickable { onClick() }
     ) {
         Row(
             modifier = Modifier
@@ -918,21 +922,6 @@ private fun EmptyStateMessage(text: String) {
 }
 
 // --- Yardımcı fonksiyonlar ---
-
-private fun infoAvatarGradient(name: String): Brush {
-    val colors = listOf(
-        Color(0xFF00897B) to Color(0xFF004D40),
-        Color(0xFF00ACC1) to Color(0xFF006064),
-        Color(0xFF5C6BC0) to Color(0xFF283593),
-        Color(0xFF7E57C2) to Color(0xFF4527A0),
-        Color(0xFFEF5350) to Color(0xFFB71C1C),
-        Color(0xFFFF7043) to Color(0xFFBF360C),
-        Color(0xFF42A5F5) to Color(0xFF1565C0)
-    )
-    val index = abs(name.hashCode()) % colors.size
-    val (start, end) = colors[index]
-    return Brush.linearGradient(listOf(start, end))
-}
 
 /**
  * Süreli mesaj süresini okunabilir etikete çevirir.

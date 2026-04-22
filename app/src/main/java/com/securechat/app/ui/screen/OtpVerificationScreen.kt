@@ -55,12 +55,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.securechat.app.R
+import com.securechat.app.ui.theme.AzureDoodleBackdrop
+import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.glass
+import com.securechat.app.ui.theme.MonoFamily
+import com.securechat.app.ui.theme.DisplayFamily
 import kotlinx.coroutines.delay
 
 /**
  * OTP doğrulama ekranı.
  * 6 haneli doğrulama kodu girişi, otomatik odaklanma, geri sayım ve tekrar gönderme.
- * Midnight Teal tasarım: koyu arka plan, cyan vurgular.
+ * Azure glassmorphism tasarım.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,6 +89,11 @@ fun OtpVerificationScreen(
         canResend = true
     }
 
+    val dark = LocalDarkTheme.current
+
+    Box(Modifier.fillMaxSize()) {
+        AzureDoodleBackdrop(dark = dark)
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -98,12 +108,12 @@ fun OtpVerificationScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = Color.Transparent
     ) { padding ->
         Column(
             modifier = Modifier
@@ -125,8 +135,8 @@ fun OtpVerificationScreen(
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)
+                                Color(0xFF3E7BFA).copy(alpha = 0.2f),
+                                Color(0xFF3E7BFA).copy(alpha = 0.05f)
                             )
                         )
                     ),
@@ -136,7 +146,7 @@ fun OtpVerificationScreen(
                     imageVector = Icons.Default.Shield,
                     contentDescription = null,
                     modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = Color(0xFF3E7BFA)
                 )
             }
 
@@ -198,7 +208,7 @@ fun OtpVerificationScreen(
             // Loading indicator
             if (isLoading) {
                 CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = Color(0xFF3E7BFA),
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -219,7 +229,7 @@ fun OtpVerificationScreen(
                 ) {
                     Text(
                         "Kodu Tekrar Gönder",
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color(0xFF3E7BFA),
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -233,7 +243,7 @@ fun OtpVerificationScreen(
 
             Spacer(modifier = Modifier.height(64.dp))
 
-            // Manuel doğrula butonu
+            // Manuel doğrula butonu — azure pill
             Button(
                 onClick = {
                     if (otpCode.length == 6) {
@@ -250,10 +260,10 @@ fun OtpVerificationScreen(
                     .height(56.dp),
                 enabled = otpCode.length == 6 && !isLoading,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = Color(0xFF3E7BFA),
+                    contentColor = Color.White
                 ),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(100.dp)
             ) {
                 Text(
                     "Doğrula",
@@ -265,6 +275,7 @@ fun OtpVerificationScreen(
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
+    } // Box
 }
 
 /**
@@ -277,6 +288,7 @@ private fun OtpInputField(
     onValueChange: (String) -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
+    val dark = LocalDarkTheme.current
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -302,16 +314,13 @@ private fun OtpInputField(
                         Box(
                             modifier = Modifier
                                 .size(56.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (isFocused) MaterialTheme.colorScheme.primaryContainer
-                                    else MaterialTheme.colorScheme.surfaceVariant
-                                )
-                                .border(
-                                    width = if (isFocused) 2.dp else 1.dp,
-                                    color = if (isFocused) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.outline,
-                                    shape = RoundedCornerShape(12.dp)
+                                .glass(dark, shape = RoundedCornerShape(12.dp))
+                                .then(
+                                    if (isFocused) Modifier.border(
+                                        width = 2.dp,
+                                        color = Color(0xFF3E7BFA),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) else Modifier
                                 ),
                             contentAlignment = Alignment.Center
                         ) {

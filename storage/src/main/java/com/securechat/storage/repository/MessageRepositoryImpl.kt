@@ -144,6 +144,10 @@ class MessageRepositoryImpl @Inject constructor(
     override suspend fun deleteExpiredMessages(): Int {
         return messageDao.deleteExpiredMessages(System.currentTimeMillis())
     }
+
+    override suspend fun updateConversationFavorite(conversationId: String, isFavorite: Boolean) {
+        conversationDao.updateFavorite(conversationId, isFavorite)
+    }
 }
 
 // --- Extension fonksiyonlari: Entity <-> Domain donusumleri ---
@@ -200,5 +204,6 @@ internal fun ConversationEntity.toDomain(): Conversation = Conversation(
     contactNote = contactNote,
     customNotificationUri = customNotificationUri,
     isArchived = isArchived,
-    disappearingDuration = disappearingDuration
+    disappearingDuration = disappearingDuration,
+    isFavorite = isFavorite
 )

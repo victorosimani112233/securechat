@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,8 +42,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import com.securechat.app.ui.components.GlassDropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -70,9 +71,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -82,15 +80,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.securechat.app.ui.components.GeneratedAvatar
 import com.securechat.app.ui.viewmodel.GroupInfoViewModel
 import com.securechat.storage.entity.MessageEntity
+import com.securechat.app.ui.theme.AzureDoodleBackdrop
+import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.glass
+import com.securechat.app.ui.theme.MonoFamily
+import com.securechat.app.ui.theme.DisplayFamily
 import kotlin.math.abs
+
+private val AZ_AVATAR_COLORS_GROUP = listOf(
+    Color(0xFF3E7BFA), Color(0xFF6B737D), Color(0xFF8A929C),
+    Color(0xFF5D6570), Color(0xFF4A535E), Color(0xFF9BA3AE),
+)
 
 /**
  * Grup bilgileri ekranı.
  * Grup adını, üyelerini gösterir ve admin yetkisi varsa üye ekleme/çıkartma,
  * grup adı değiştirme gibi işlemleri yapabilir.
- * Midnight Teal tasarım: koyu arka plan, cyan vurgular.
+ * Azure glassmorphism tasarım.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,6 +108,7 @@ fun GroupInfoScreen(
     viewModel: GroupInfoViewModel = hiltViewModel(),
     onBackClick: () -> Unit,
     onAddMember: () -> Unit = {},
+    onMemberClick: (String) -> Unit = {},
     onMessageClick: (String) -> Unit = {},
     onMediaClick: (MessageEntity) -> Unit = {}
 ) {
@@ -120,6 +130,7 @@ fun GroupInfoScreen(
     var newMemberInput by remember { mutableStateOf("") }
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val dark = LocalDarkTheme.current
 
     // Grup bilgilerini yükle
     LaunchedEffect(groupId) {
@@ -140,6 +151,9 @@ fun GroupInfoScreen(
             editedGroupName = groupInfo?.name ?: ""
         }
     }
+
+    Box(Modifier.fillMaxSize()) {
+        AzureDoodleBackdrop(dark = dark)
 
     Scaffold(
         topBar = {
@@ -182,17 +196,10 @@ fun GroupInfoScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
-                modifier = Modifier.drawBehind {
-                    drawLine(
-                        color = Color(0xFF30363D),
-                        start = Offset(0f, size.height),
-                        end = Offset(size.width, size.height),
-                        strokeWidth = 1f
-                    )
-                }
+                windowInsets = WindowInsets(0)
             )
         },
         floatingActionButton = {
@@ -200,14 +207,16 @@ fun GroupInfoScreen(
                 FloatingActionButton(
                     onClick = { showAddMemberDialog = true },
                     containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color(0xFF0D1117)
+                    contentColor = Color.White,
+                    shape = CircleShape
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Üye Ekle")
                 }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0)
     ) { padding ->
         when (currentTab) {
             GroupInfoTab.MAIN -> {
@@ -248,7 +257,8 @@ fun GroupInfoScreen(
                                 canRemove = isAdmin && !member.isCurrentUser,
                                 canPromote = isAdmin && !member.isAdmin && !member.isCurrentUser,
                                 onRemoveClick = { showRemoveMemberDialog = member.userId },
-                                onPromoteClick = { viewModel.promoteToAdmin(groupId, member.userId) }
+                                onPromoteClick = { viewModel.promoteToAdmin(groupId, member.userId) },
+                                onViewProfile = { onMemberClick(member.userId) }
                             )
                         }
                     }
@@ -340,6 +350,7 @@ fun GroupInfoScreen(
             }
         }
     }
+    } // Box
 
     // Grup adı düzenleme dialog'u
     if (showEditGroupDialog) {
@@ -370,7 +381,7 @@ fun GroupInfoScreen(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color(0xFF0D1117)
+                        contentColor = Color.White
                     )
                 ) {
                     Text("Kaydet")
@@ -416,7 +427,7 @@ fun GroupInfoScreen(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color(0xFF0D1117)
+                        contentColor = Color.White
                     )
                 ) {
                     Text("Ekle")
@@ -484,14 +495,13 @@ private fun GroupHeader(
     memberCount: Int,
     isLoading: Boolean
 ) {
-    Card(
+    val dark = LocalDarkTheme.current
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .padding(16.dp)
+            .glass(dark),
     ) {
         Row(
             modifier = Modifier
@@ -499,28 +509,19 @@ private fun GroupHeader(
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Grup avatarı
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(groupAvatarGradient(groupName)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Group,
-                    contentDescription = "Grup",
-                    tint = Color.White,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
+            // Grup avatarı — insan silueti
+            GeneratedAvatar(
+                name = groupName,
+                isGroup = true,
+                size = 64.dp
+            )
 
             Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (isLoading) "Yükleniyor..." else groupName,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
@@ -551,27 +552,18 @@ private fun MemberItem(
     canRemove: Boolean,
     canPromote: Boolean = false,
     onRemoveClick: () -> Unit,
-    onPromoteClick: () -> Unit = {}
+    onPromoteClick: () -> Unit = {},
+    onViewProfile: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val dark = LocalDarkTheme.current
 
     ListItem(
         leadingContent = {
-            // Üye avatarı
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(memberAvatarGradient(member.userId)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = "Kişi",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+            GeneratedAvatar(
+                name = displayName,
+                size = 40.dp
+            )
         },
         headlineContent = {
             Row(
@@ -607,57 +599,73 @@ private fun MemberItem(
         supportingContent = {
             Text(
                 text = phoneNumber ?: member.userId,
-                style = MaterialTheme.typography.bodySmall,
+                fontFamily = MonoFamily,
+                fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         },
         trailingContent = {
-            if (canRemove || canPromote) {
-                Box {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(
-                            Icons.Default.Settings,
-                            contentDescription = "Üye İşlemleri",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "Üye İşlemleri",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                GlassDropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Profili Görüntüle") },
+                        onClick = {
+                            showMenu = false
+                            onViewProfile()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    )
+                    if (canPromote || canRemove) {
+                        HorizontalDivider()
+                    }
+                    if (canPromote) {
+                        DropdownMenuItem(
+                            text = { Text("Yönetici Yap", color = MaterialTheme.colorScheme.primary) },
+                            onClick = {
+                                showMenu = false
+                                onPromoteClick()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         )
                     }
-
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        if (canPromote) {
-                            DropdownMenuItem(
-                                text = { Text("Yönetici Yap", color = MaterialTheme.colorScheme.primary) },
-                                onClick = {
-                                    showMenu = false
-                                    onPromoteClick()
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.Security,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            )
-                        }
-                        if (canRemove) {
-                            DropdownMenuItem(
-                                text = { Text("Gruptan Çıkar", color = MaterialTheme.colorScheme.error) },
-                                onClick = {
-                                    showMenu = false
-                                    onRemoveClick()
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            )
-                        }
+                    if (canRemove) {
+                        DropdownMenuItem(
+                            text = { Text("Gruptan Çıkar", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                showMenu = false
+                                onRemoveClick()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        )
                     }
                 }
             }
@@ -665,40 +673,10 @@ private fun MemberItem(
         colors = ListItemDefaults.colors(
             containerColor = Color.Transparent
         ),
-        modifier = Modifier.padding(horizontal = 8.dp)
+        modifier = Modifier
+            .padding(horizontal = 8.dp)
+            .glass(dark, shape = RoundedCornerShape(16.dp))
     )
-}
-
-/**
- * Grup avatarı için gradient renk oluşturur.
- */
-private fun groupAvatarGradient(name: String): Brush {
-    val colors = listOf(
-        Color(0xFF00897B) to Color(0xFF004D40),
-        Color(0xFF00ACC1) to Color(0xFF006064),
-        Color(0xFF5C6BC0) to Color(0xFF283593),
-        Color(0xFF7E57C2) to Color(0xFF4527A0)
-    )
-    val index = abs(name.hashCode()) % colors.size
-    val (start, end) = colors[index]
-    return Brush.linearGradient(listOf(start, end))
-}
-
-/**
- * Üye avatarı için gradient renk oluşturur.
- */
-private fun memberAvatarGradient(userId: String): Brush {
-    val colors = listOf(
-        Color(0xFF4ECDC4) to Color(0xFF26A69A),
-        Color(0xFF42A5F5) to Color(0xFF1976D2),
-        Color(0xFF7C4DFF) to Color(0xFF512DA8),
-        Color(0xFFFF7043) to Color(0xFFD84315),
-        Color(0xFFEC407A) to Color(0xFFC2185B),
-        Color(0xFF66BB6A) to Color(0xFF388E3C)
-    )
-    val index = abs(userId.hashCode()) % colors.size
-    val (start, end) = colors[index]
-    return Brush.linearGradient(listOf(start, end))
 }
 
 /**
@@ -718,9 +696,12 @@ private fun GroupInfoMenuItem(
     iconTint: Color = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .glass(dark)
             .clickable { onClick() }
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -765,7 +746,7 @@ private fun GroupSectionDivider() {
     HorizontalDivider(
         modifier = Modifier.padding(vertical = 8.dp),
         thickness = 0.5.dp,
-        color = Color(0xFF30363D)
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
     )
 }
 
@@ -966,14 +947,12 @@ private fun GroupMessageResultItem(
     showStar: Boolean = false,
     onClick: () -> Unit
 ) {
-    Card(
+    val dark = LocalDarkTheme.current
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
-        ),
-        shape = RoundedCornerShape(12.dp)
+            .glass(dark)
+            .clickable { onClick() }
     ) {
         Row(
             modifier = Modifier

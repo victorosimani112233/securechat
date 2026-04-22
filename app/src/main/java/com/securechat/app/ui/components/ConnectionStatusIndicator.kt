@@ -28,7 +28,7 @@ fun ConnectionStatusIndicator(
     modifier: Modifier = Modifier
 ) {
     val targetColor = when (connectionState) {
-        is ConnectionState.Connected -> Color(0xFF4ECDC4) // Teal - çevrimiçi
+        is ConnectionState.Connected -> Color(0xFF22C55E) // Yeşil - çevrimiçi
         is ConnectionState.Connecting -> Color(0xFFFFA726) // Amber - bağlanıyor
         is ConnectionState.Disconnected -> Color(0xFF6C757D) // Gray - çevrimdışı
         is ConnectionState.Error -> MaterialTheme.colorScheme.error // Red - hata

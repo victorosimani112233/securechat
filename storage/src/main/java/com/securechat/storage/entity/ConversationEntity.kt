@@ -28,5 +28,6 @@ data class ConversationEntity(
     @ColumnInfo(name = "custom_notification_uri") val customNotificationUri: String? = null,
     @ColumnInfo(name = "is_archived") val isArchived: Boolean = false,
     @ColumnInfo(name = "disappearing_duration") val disappearingDuration: Long = 0, // milisaniye, 0 = kapali
-    @ColumnInfo(name = "group_admins") val groupAdmins: String? = null // virgul ile ayrilmis admin userId listesi
+    @ColumnInfo(name = "group_admins") val groupAdmins: String? = null, // virgul ile ayrilmis admin userId listesi
+    @ColumnInfo(name = "is_favorite") val isFavorite: Boolean = false
 )

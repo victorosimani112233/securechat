@@ -40,7 +40,7 @@ fun SecurityBadge(
         SecurityBadgeType.END_TO_END_ENCRYPTED -> Triple(
             Icons.Default.Lock,
             "Şifreli",
-            Color(0xFF4ECDC4)
+            Color(0xFF3E7BFA)
         )
         SecurityBadgeType.IDENTITY_VERIFIED -> Triple(
             Icons.Default.Verified,

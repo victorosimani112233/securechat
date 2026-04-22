@@ -2,6 +2,9 @@ package com.securechat.app.ui.screen
 
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,9 +29,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContactPhone
+import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,6 +49,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -50,12 +57,12 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -63,16 +70,29 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.securechat.app.ui.components.GeneratedAvatar
+import com.securechat.app.ui.components.GlassDialog
 import com.securechat.app.ui.viewmodel.ContactsViewModel
 import com.securechat.contacts.PhoneNumberNormalizer
+import android.content.Intent
 import com.securechat.contacts.model.DeviceContact
 import com.securechat.contacts.model.RegisteredContact
 import com.securechat.storage.domain.Conversation
+import com.securechat.app.ui.theme.AzureDoodleBackdrop
+import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.glass
+import com.securechat.app.ui.theme.MonoFamily
+import com.securechat.app.ui.theme.DisplayFamily
 import kotlin.math.abs
+
+private val AZ_AVATAR_COLORS_CONTACTS = listOf(
+    Color(0xFF3E7BFA), Color(0xFF6B737D), Color(0xFF8A929C),
+    Color(0xFF5D6570), Color(0xFF4A535E), Color(0xFF9BA3AE),
+)
 
 /**
  * Kişi listesi ekranı.
- * Midnight Teal tasarım: koyu arka plan, canlı avatar gradientleri, koyu search bar.
+ * Azure glassmorphism tasarım.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +109,7 @@ fun ContactsScreen(
     val manualUserId by viewModel.manualUserId.collectAsStateWithLifecycle()
     val recentConversations by viewModel.recentConversations.collectAsStateWithLifecycle()
     val resolvedUserId by viewModel.resolvedUserId.collectAsStateWithLifecycle()
+    val userNotFound by viewModel.userNotFound.collectAsStateWithLifecycle()
 
     // Sunucudan UUID cozumlendiginde sohbete git
     LaunchedEffect(resolvedUserId) {
@@ -118,6 +139,72 @@ fun ContactsScreen(
         }
     }
 
+    val dark = LocalDarkTheme.current
+    var showManualInput by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Kullanıcı bulunamadı popup'ı
+    userNotFound?.let { phoneNumber ->
+        GlassDialog(onDismissRequest = { viewModel.consumeUserNotFound() }) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.PersonSearch,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Kullanıcı Bulunamadı",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "$phoneNumber numaralı kullanıcı Elçim'de kayıtlı değil.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = {
+                        viewModel.consumeUserNotFound()
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                "Elçim uygulamasını indir, güvenli bir şekilde mesajlaşalım! https://elcim.app"
+                            )
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Davet gönder"))
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Davet Gönder")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(onClick = { viewModel.consumeUserNotFound() }) {
+                    Text("Kapat")
+                }
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        AzureDoodleBackdrop(dark = dark)
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -136,55 +223,86 @@ fun ContactsScreen(
                         )
                     }
                 },
+                actions = {
+                    val active = showManualInput
+                    Surface(
+                        onClick = { showManualInput = !showManualInput },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                else Color.Transparent,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Dialpad,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = if (active) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "Numara Gir",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (active) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
-                modifier = Modifier.drawBehind {
-                    drawLine(
-                        color = Color(0xFF30363D),
-                        start = Offset(0f, size.height),
-                        end = Offset(size.width, size.height),
-                        strokeWidth = 1f
-                    )
-                }
+                windowInsets = WindowInsets(0)
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0)
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .padding(padding)
-                .fillMaxSize()
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
         ) {
-            // Manuel kullanıcı ID girişi bölümü — EN ÜSTE, birincil yöntem
+            // Manuel kullanıcı ID girişi bölümü — tuş ikonu ile açılır
             item {
-                ManualUserIdSection(
-                    manualUserId = manualUserId,
-                    onManualUserIdChanged = { viewModel.onManualUserIdChanged(it) },
-                    onStartChat = {
-                        val input = manualUserId.trim()
-                        // Kayitli kullanicilar arasinda telefon numarasiyla esleseni bul
-                        val normalizedInput = PhoneNumberNormalizer.normalizeDigits(input)
-                        val match = contacts.firstOrNull { reg ->
-                            PhoneNumberNormalizer.normalizeDigits(reg.phoneNumber) == normalizedInput
-                        }
-                        if (match != null) {
-                            onContactClick(match.userId)
-                        } else if (input.length == 36 && input.contains("-")) {
-                            // UUID direkt girildiyse
-                            onContactClick(input)
-                        } else {
-                            // Telefon numarasi girildiyse sunucudan UUID cozumle
-                            viewModel.resolvePhoneToUuid(input)
-                        }
+                AnimatedVisibility(
+                    visible = showManualInput,
+                    enter = expandVertically(),
+                    exit = shrinkVertically()
+                ) {
+                    Column {
+                        ManualUserIdSection(
+                            manualUserId = manualUserId,
+                            onManualUserIdChanged = { viewModel.onManualUserIdChanged(it) },
+                            onStartChat = {
+                                val input = manualUserId.trim()
+                                val normalizedInput = PhoneNumberNormalizer.normalizeDigits(input)
+                                val match = contacts.firstOrNull { reg ->
+                                    PhoneNumberNormalizer.normalizeDigits(reg.phoneNumber) == normalizedInput
+                                }
+                                if (match != null) {
+                                    onContactClick(match.userId)
+                                } else if (input.length == 36 && input.contains("-")) {
+                                    onContactClick(input)
+                                } else {
+                                    viewModel.resolvePhoneToUuid(input)
+                                }
+                            }
+                        )
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                            thickness = 0.5.dp
+                        )
                     }
-                )
-
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                    thickness = 0.5.dp
-                )
+                }
             }
 
             // Geçmiş konuşmalar bölümü — hızlı erişim
@@ -307,11 +425,11 @@ fun ContactsScreen(
                 }
             }
 
-            // Kayıtlı (Elçi kullanan) kişiler
+            // Kayıtlı (Elçim kullanan) kişiler
             if (contacts.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Elçi Kullanıcıları",
+                        text = "Elçim Kullanıcıları",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
@@ -333,6 +451,10 @@ fun ContactsScreen(
 
             // Telefon rehberindeki kişiler — izin verilmişse gösterilir
             if (phoneContacts.isNotEmpty()) {
+                val registeredNumbers = contacts.map {
+                    PhoneNumberNormalizer.normalizeDigits(it.phoneNumber)
+                }.toSet()
+
                 item {
                     Text(
                         text = "Telefon Rehberi",
@@ -343,17 +465,18 @@ fun ContactsScreen(
                     )
                 }
                 items(phoneContacts, key = { "phone_${it.id}_${it.phoneNumber}" }) { contact ->
+                    val normalized = PhoneNumberNormalizer.normalizeDigits(contact.phoneNumber)
+                    val isRegistered = normalized in registeredNumbers
                     PhoneContactItem(
                         contact = contact,
+                        isRegistered = isRegistered,
                         onClick = {
-                            // Kayitli kullanicilar arasinda telefon numarasiyla esleseni bul
                             val match = contacts.firstOrNull { reg ->
-                                reg.phoneNumber == contact.phoneNumber
+                                PhoneNumberNormalizer.normalizeDigits(reg.phoneNumber) == normalized
                             }
                             if (match != null) {
                                 onContactClick(match.userId)
                             }
-                            // Kayitli degilse tiklamada bir sey yapilmaz
                         }
                     )
                     HorizontalDivider(
@@ -365,6 +488,7 @@ fun ContactsScreen(
             }
         }
     }
+    } // Box
 }
 
 /**
@@ -377,56 +501,38 @@ private fun ManualUserIdSection(
     onManualUserIdChanged: (String) -> Unit,
     onStartChat: () -> Unit
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        modifier = Modifier.fillMaxWidth()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-        ) {
-            Text(
-                text = "Telefon numarası ile sohbet başlat",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp)
+        OutlinedTextField(
+            value = manualUserId,
+            onValueChange = onManualUserIdChanged,
+            modifier = Modifier.weight(1f),
+            placeholder = { Text("Telefon numarası girin") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            textStyle = MaterialTheme.typography.bodyMedium,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                cursorColor = MaterialTheme.colorScheme.primary
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = manualUserId,
-                    onValueChange = onManualUserIdChanged,
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Telefon numarası girin") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                        cursorColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = onStartChat,
-                    enabled = manualUserId.isNotBlank()
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Sohbet başlat",
-                        tint = if (manualUserId.isNotBlank())
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    )
-                }
-            }
-            Text(
-                text = "Örnek: 5551234567, 05551234567 veya 905551234567",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 4.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        IconButton(
+            onClick = onStartChat,
+            enabled = manualUserId.isNotBlank()
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.Send,
+                contentDescription = "Sohbet başlat",
+                tint = if (manualUserId.isNotBlank())
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
             )
         }
     }
@@ -440,12 +546,16 @@ private fun ManualUserIdSection(
 private fun PermissionRequestSection(
     onRequestPermission: () -> Unit
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        modifier = Modifier.fillMaxWidth()
+    val dark = LocalDarkTheme.current
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .glass(dark, strong = true)
     ) {
         Column(
             modifier = Modifier
+                .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -457,7 +567,7 @@ private fun PermissionRequestSection(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Rehber erişimi ile Elçi kullanan kişilerinizi görebilirsiniz.",
+                text = "Rehber erişimi ile Elçim kullanan kişilerinizi görebilirsiniz.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -466,8 +576,8 @@ private fun PermissionRequestSection(
             Button(
                 onClick = onRequestPermission,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color(0xFF0D1117)
+                    containerColor = Color(0xFF3E7BFA),
+                    contentColor = Color.White
                 )
             ) {
                 Text("Rehber Erişimi Ver")
@@ -518,7 +628,7 @@ private fun EmptyContactsState(
         val bodyText = when {
             isSearching -> "Farklı bir arama terimi deneyin."
             !hasPermission -> "Kişilerinizi görmek için rehber erişimi verin\nveya yukarıdaki alandan numara ile sohbet başlatabilirsiniz."
-            else -> "Elçi kullanan bir kişiniz bulunamadı.\nYukarıdaki alandan numara ile sohbet başlatabilirsiniz."
+            else -> "Elçim kullanan bir kişiniz bulunamadı.\nYukarıdaki alandan numara ile sohbet başlatabilirsiniz."
         }
 
         Text(
@@ -540,28 +650,6 @@ private fun EmptyContactsState(
 }
 
 /**
- * Avatar için isim bazlı gradient renk paleti oluşturur.
- * Midnight Teal ile uyumlu, daha koyu ve canlı gradient çiftleri.
- */
-private fun contactAvatarGradient(name: String): Brush {
-    val colorPairs = listOf(
-        Color(0xFF00897B) to Color(0xFF004D40),
-        Color(0xFF00ACC1) to Color(0xFF006064),
-        Color(0xFF5C6BC0) to Color(0xFF283593),
-        Color(0xFF7E57C2) to Color(0xFF4527A0),
-        Color(0xFFEF5350) to Color(0xFFB71C1C),
-        Color(0xFFFF7043) to Color(0xFFBF360C),
-        Color(0xFF26A69A) to Color(0xFF00695C),
-        Color(0xFF42A5F5) to Color(0xFF1565C0),
-        Color(0xFFEC407A) to Color(0xFF880E4F),
-        Color(0xFF66BB6A) to Color(0xFF2E7D32)
-    )
-    val index = abs(name.hashCode()) % colorPairs.size
-    val (startColor, endColor) = colorPairs[index]
-    return Brush.linearGradient(colors = listOf(startColor, endColor))
-}
-
-/**
  * Kişi listesindeki tek bir kişi satırı.
  * Gradient dairesi içinde başlangıç harfi, isim ve telefon numarası gösterir.
  */
@@ -570,10 +658,13 @@ fun ContactItem(
     contact: RegisteredContact,
     onClick: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
+
     ListItem(
         modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(vertical = 2.dp),
+            .padding(horizontal = 12.dp)
+            .glass(dark, shape = RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
         headlineContent = {
             Text(
                 text = contact.displayName,
@@ -588,41 +679,35 @@ fun ContactItem(
             )
         },
         leadingContent = {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(contactAvatarGradient(contact.displayName)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = "Kişi",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            GeneratedAvatar(
+                name = contact.displayName,
+                size = 48.dp
+            )
         },
         colors = ListItemDefaults.colors(
-            containerColor = MaterialTheme.colorScheme.background
+            containerColor = Color.Transparent
         )
     )
 }
 
 /**
  * Telefon rehberindeki tek bir kişi satırı.
- * Gradient dairesi içinde başlangıç harfi, isim ve telefon numarası gösterir.
- * Dokunulduğunda numara normalize edilerek sohbet başlatılır.
+ * Kayıtlı değilse "Davet Et" butonu gösterir.
  */
 @Composable
 fun PhoneContactItem(
     contact: DeviceContact,
+    isRegistered: Boolean = false,
     onClick: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     ListItem(
         modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(vertical = 2.dp),
+            .padding(horizontal = 12.dp)
+            .glass(dark, shape = RoundedCornerShape(16.dp))
+            .then(if (isRegistered) Modifier.clickable(onClick = onClick) else Modifier),
         headlineContent = {
             Text(
                 text = contact.displayName,
@@ -637,23 +722,45 @@ fun PhoneContactItem(
             )
         },
         leadingContent = {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(contactAvatarGradient(contact.displayName)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = "Kişi",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            GeneratedAvatar(
+                name = contact.displayName,
+                size = 48.dp
+            )
         },
+        trailingContent = if (!isRegistered) {
+            {
+                Button(
+                    onClick = {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                "Elçim uygulamasını indir, güvenli bir şekilde mesajlaşalım! https://elcim.app"
+                            )
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Davet gönder"))
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ),
+                    contentPadding = ButtonDefaults.ContentPadding.let {
+                        androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    },
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Share,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Davet Et", fontSize = 12.sp)
+                }
+            }
+        } else null,
         colors = ListItemDefaults.colors(
-            containerColor = MaterialTheme.colorScheme.background
+            containerColor = Color.Transparent
         )
     )
 }
@@ -667,11 +774,14 @@ private fun RecentConversationItem(
     conversation: Conversation,
     onClick: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
     val displayName = conversation.peerName.ifBlank { conversation.peerId }
+
     ListItem(
         modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(vertical = 2.dp),
+            .padding(horizontal = 12.dp)
+            .glass(dark, shape = RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
         headlineContent = {
             Text(
                 text = displayName,
@@ -687,23 +797,14 @@ private fun RecentConversationItem(
             )
         },
         leadingContent = {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(contactAvatarGradient(displayName)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = "Kişi",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            GeneratedAvatar(
+                name = displayName,
+                isGroup = conversation.isGroup,
+                size = 48.dp
+            )
         },
         colors = ListItemDefaults.colors(
-            containerColor = MaterialTheme.colorScheme.background
+            containerColor = Color.Transparent
         )
     )
 }

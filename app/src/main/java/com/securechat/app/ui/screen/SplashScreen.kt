@@ -11,6 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -30,20 +31,29 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.securechat.app.R
+import com.securechat.app.ui.theme.AzureDoodleBackdrop
+import com.securechat.app.ui.theme.DisplayFamily
+import com.securechat.app.ui.theme.LocalDarkTheme
 import kotlinx.coroutines.delay
 
 /**
  * Splash ekrani — uygulama acilisinda ~2 saniye gosterilir.
  * Logo pulse animasyonu, parlayan halka efekti ve app ismi icerir.
+ * Azure DoodleBackdrop arka plani ile.
  */
 @Composable
 fun SplashScreen(
     onSplashFinished: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
+
     // Logo giris animasyonu
     val logoScale = remember { Animatable(0.6f) }
     val logoAlpha = remember { Animatable(0f) }
@@ -81,27 +91,26 @@ fun SplashScreen(
         onSplashFinished()
     }
 
-    // Tema renkleri — dark/light mod'a uyum saglar
-    val backgroundColor = MaterialTheme.colorScheme.background
     val primaryColor = MaterialTheme.colorScheme.primary
     val onBackgroundColor = MaterialTheme.colorScheme.onBackground
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(backgroundColor),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
+        // Azure DoodleBackdrop arka plan
+        AzureDoodleBackdrop(dark = dark)
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 contentAlignment = Alignment.Center
             ) {
-                // Dis halka — pulse efekti
+                // Pulse efekti
                 Box(
                     modifier = Modifier
-                        .size(140.dp)
+                        .size(160.dp)
                         .scale(pulseScale)
                         .alpha(pulseAlpha)
                         .clip(CircleShape)
@@ -115,49 +124,52 @@ fun SplashScreen(
                         )
                 )
 
-                // Ic halka — sabit gradient
-                Box(
+                // App logosu — direkt, çerçevesiz
+                Image(
+                    painter = painterResource(id = R.drawable.splash_logo),
+                    contentDescription = "ELÇİM",
                     modifier = Modifier
-                        .size(110.dp)
+                        .size(130.dp)
                         .scale(logoScale.value)
                         .alpha(logoAlpha.value)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    primaryColor.copy(alpha = 0.8f),
-                                    primaryColor
-                                )
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // App logosu
-                    Image(
-                        painter = painterResource(id = R.mipmap.ic_launcher_foreground),
-                        contentDescription = "ELÇİM",
-                        modifier = Modifier.size(80.dp)
-                    )
-                }
+                )
             }
 
             Spacer(modifier = Modifier.height(28.dp))
 
-            // App ismi
+            // App ismi — "elçim" + azure nokta
             Text(
-                text = "ELÇİM",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = primaryColor,
-                modifier = Modifier.alpha(textAlpha.value),
-                letterSpacing = 4.sp
+                text = buildAnnotatedString {
+                    withStyle(
+                        SpanStyle(
+                            fontFamily = DisplayFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 28.sp,
+                            letterSpacing = 4.sp,
+                            color = primaryColor
+                        )
+                    ) {
+                        append("elçim")
+                    }
+                    withStyle(
+                        SpanStyle(
+                            fontFamily = DisplayFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 28.sp,
+                            color = Color(0xFF3E7BFA)
+                        )
+                    ) {
+                        append(".")
+                    }
+                },
+                modifier = Modifier.alpha(textAlpha.value)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             // Alt yazi
             Text(
-                text = "Guvenli Haberlesme",
+                text = "Güvenli Haberleşme",
                 fontSize = 14.sp,
                 color = onBackgroundColor.copy(alpha = 0.6f),
                 modifier = Modifier.alpha(textAlpha.value),

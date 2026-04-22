@@ -6,11 +6,35 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.securechat.app.ui.screen.CallHistoryScreen
 import com.securechat.app.ui.screen.CallScreen
@@ -24,8 +48,8 @@ import com.securechat.app.ui.screen.OtpVerificationScreen
 import com.securechat.app.ui.screen.PhoneVerificationScreen
 import com.securechat.app.ui.screen.SettingsScreen
 import com.securechat.app.ui.screen.SplashScreen
+import com.securechat.app.ui.theme.LocalDarkTheme
 import com.securechat.network.model.CallType
-import com.securechat.storage.domain.Conversation
 
 private const val ANIM_DURATION = 250
 
@@ -41,6 +65,17 @@ private fun defaultPopEnter(): EnterTransition =
 private fun defaultPopExit(): ExitTransition =
     fadeOut(tween(ANIM_DURATION)) + slideOutHorizontally(tween(ANIM_DURATION)) { it / 6 }
 
+/** Alt navigasyon bar sekmeleri. */
+private enum class BottomTab(val route: String, val label: String, val icon: ImageVector) {
+    SOHBET("conversations", "Sohbet", Icons.AutoMirrored.Filled.Chat),
+    ARAMA("call_history", "Arama", Icons.Default.Call),
+    REHBER("contacts", "Rehber", Icons.Default.Contacts),
+    AYARLAR("settings", "Ayarlar", Icons.Default.Settings),
+}
+
+/** Alt bar'ın gösterileceği route'lar. */
+private val BOTTOM_BAR_ROUTES = BottomTab.entries.map { it.route }.toSet()
+
 @Composable
 fun SecureChatNavHost(
     navController: NavHostController = rememberNavController(),
@@ -48,182 +83,256 @@ fun SecureChatNavHost(
     skipSplash: Boolean = false,
     onUserRegistered: (name: String, phone: String) -> Unit = { _, _ -> }
 ) {
-    // Bildirimden veya arka plandan geliyorsa splash'i atla
     val actualStartDestination = if (skipSplash) startDestination else "splash"
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val showBottomBar = currentRoute in BOTTOM_BAR_ROUTES
+    val dark = LocalDarkTheme.current
 
-    NavHost(
-        navController = navController,
-        startDestination = actualStartDestination,
-        enterTransition = { defaultEnter() },
-        exitTransition = { defaultExit() },
-        popEnterTransition = { defaultPopEnter() },
-        popExitTransition = { defaultPopExit() }
-    ) {
-        composable(
-            "splash",
-            enterTransition = { fadeIn(tween(0)) },
-            exitTransition = { fadeOut(tween(300)) }
-        ) {
-            SplashScreen(
-                onSplashFinished = {
-                    navController.navigate(startDestination) {
-                        popUpTo("splash") { inclusive = true }
-                    }
-                }
-            )
-        }
-
-        composable("auth/phone") {
-            PhoneVerificationScreen(
-                onVerified = { name, phone ->
-                    // OTP bypass - doğrudan kayıt et ve ana ekrana git
-                    onUserRegistered(name, phone)
-                    navController.navigate("conversations") {
-                        popUpTo("auth/phone") { inclusive = true }
-                    }
-                }
-            )
-        }
-
-        composable("auth/otp/{phoneNumber}") { backStackEntry ->
-            val phoneNumber = backStackEntry.arguments?.getString("phoneNumber") ?: ""
-            OtpVerificationScreen(
-                phoneNumber = phoneNumber,
-                onVerified = {
-                    // Başarılı doğrulama sonrası ana ekrana git
-                    navController.navigate("conversations") {
-                        popUpTo("auth/phone") { inclusive = true }
-                    }
-                },
-                onBackClick = { navController.popBackStack() }
-            )
-        }
-
-        composable("conversations") {
-            ConversationsScreen(
-                onConversationClick = { conversationId ->
-                    navController.navigate("chat/$conversationId")
-                },
-                onConversationInfoClick = { conversation ->
-                    if (conversation.isGroup) {
-                        navController.navigate("group_info/${conversation.id}")
-                    } else {
-                        navController.navigate("chat_info/${conversation.id}")
-                    }
-                },
-                onNewChat = { navController.navigate("contacts") },
-                onNewGroup = { navController.navigate("create_group") },
-                onSettingsClick = { navController.navigate("settings") },
-                onCallHistoryClick = { navController.navigate("call_history") }
-            )
-        }
-
-        composable("create_group") {
-            CreateGroupScreen(
-                onGroupCreated = { groupId ->
-                    navController.navigate("chat/$groupId") {
-                        popUpTo("conversations")
-                    }
-                },
-                onBackClick = { navController.popBackStack() }
-            )
-        }
-
-        composable("chat/{conversationId}") {
-            val conversationId = it.arguments?.getString("conversationId") ?: ""
-            ChatScreen(
-                conversationId = conversationId,
-                onBackClick = { navController.popBackStack() },
-                onVoiceCallClick = { peerId ->
-                    navController.navigate("call/$peerId/VOICE")
-                },
-                onVideoCallClick = { peerId ->
-                    navController.navigate("call/$peerId/VIDEO")
-                },
-                onChatInfoClick = { convId ->
-                    navController.navigate("chat_info/$convId")
-                },
-                onGroupInfoClick = { groupId ->
-                    navController.navigate("group_info/$groupId")
-                }
-            )
-        }
-
-        composable("group_info/{groupId}") { backStackEntry ->
-            val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
-            GroupInfoScreen(
-                groupId = groupId,
-                onBackClick = { navController.popBackStack() },
-                onAddMember = {
-                    // TODO: Navigate to contact selection for adding members
-                }
-            )
-        }
-
-        composable("chat_info/{conversationId}") { backStackEntry ->
-            val conversationId = backStackEntry.arguments?.getString("conversationId") ?: ""
-            val context = androidx.compose.ui.platform.LocalContext.current
-            ChatInfoScreen(
-                conversationId = conversationId,
-                onBackClick = { navController.popBackStack() },
-                onMessageClick = { messageId ->
-                    navController.popBackStack()
-                },
-                onMediaClick = { message ->
-                    // content formatı: "dosyaAdi|mimeType|dosyaBoyutu|yerelDosyaYolu"
-                    val parts = message.content.split("|")
-                    val mimeType = parts.getOrNull(1) ?: "application/octet-stream"
-                    val filePath = parts.getOrNull(3)
-                    if (!filePath.isNullOrBlank()) {
-                        com.securechat.app.util.FileOpenHelper.openFile(
-                            context = context,
-                            filePath = filePath,
-                            mimeType = mimeType
+    Scaffold(
+        bottomBar = {
+            if (showBottomBar) {
+                NavigationBar(
+                    containerColor = if (dark) Color(0xFF0D1014).copy(alpha = 0.85f)
+                                     else Color.White.copy(alpha = 0.85f),
+                    tonalElevation = 0.dp,
+                    windowInsets = WindowInsets(0, 0, 0, 0)
+                ) {
+                    BottomTab.entries.forEach { tab ->
+                        NavigationBarItem(
+                            selected = currentRoute == tab.route,
+                            onClick = {
+                                if (currentRoute != tab.route) {
+                                    navController.navigate(tab.route) {
+                                        popUpTo("conversations") { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         )
                     }
                 }
-            )
-        }
-
-        composable("contacts") {
-            ContactsScreen(
-                onContactClick = { userId ->
-                    navController.navigate("chat/$userId") {
-                        popUpTo("conversations")
-                    }
-                },
-                onBackClick = { navController.popBackStack() }
-            )
-        }
-
-        composable("call/{peerId}/{callType}") { backStackEntry ->
-            val peerId = backStackEntry.arguments?.getString("peerId") ?: ""
-            val callTypeStr = backStackEntry.arguments?.getString("callType") ?: "VOICE"
-            val callType = try {
-                CallType.valueOf(callTypeStr)
-            } catch (_: IllegalArgumentException) {
-                CallType.VOICE
             }
-            CallScreen(
-                peerId = peerId,
-                callType = callType,
-                onCallEnded = { navController.popBackStack() }
-            )
-        }
+        },
+        containerColor = Color.Transparent
+    ) { innerPadding ->
+        NavHost(
+            navController = navController,
+            startDestination = actualStartDestination,
+            modifier = Modifier
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding),
+            enterTransition = { defaultEnter() },
+            exitTransition = { defaultExit() },
+            popEnterTransition = { defaultPopEnter() },
+            popExitTransition = { defaultPopExit() }
+        ) {
+            composable(
+                "splash",
+                enterTransition = { fadeIn(tween(0)) },
+                exitTransition = { fadeOut(tween(300)) }
+            ) {
+                SplashScreen(
+                    onSplashFinished = {
+                        navController.navigate(startDestination) {
+                            popUpTo("splash") { inclusive = true }
+                        }
+                    }
+                )
+            }
 
-        composable("call_history") {
-            CallHistoryScreen(
-                onBackClick = { navController.popBackStack() },
-                onCallClick = { peerId, callType ->
-                    navController.navigate("call/$peerId/$callType")
+            composable("auth/phone") {
+                PhoneVerificationScreen(
+                    onVerified = { name, phone ->
+                        onUserRegistered(name, phone)
+                        navController.navigate("conversations") {
+                            popUpTo("auth/phone") { inclusive = true }
+                        }
+                    }
+                )
+            }
+
+            composable("auth/otp/{phoneNumber}") { backStackEntry ->
+                val phoneNumber = backStackEntry.arguments?.getString("phoneNumber") ?: ""
+                OtpVerificationScreen(
+                    phoneNumber = phoneNumber,
+                    onVerified = {
+                        navController.navigate("conversations") {
+                            popUpTo("auth/phone") { inclusive = true }
+                        }
+                    },
+                    onBackClick = { navController.popBackStack() }
+                )
+            }
+
+            composable("conversations") {
+                ConversationsScreen(
+                    onConversationClick = { conversationId ->
+                        navController.navigate("chat/$conversationId")
+                    },
+                    onConversationInfoClick = { conversation ->
+                        if (conversation.isGroup) {
+                            navController.navigate("group_info/${conversation.id}")
+                        } else {
+                            navController.navigate("chat_info/${conversation.id}")
+                        }
+                    },
+                    onNewChat = {
+                        navController.navigate("contacts") {
+                            popUpTo("conversations") { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onNewGroup = { navController.navigate("create_group") },
+                    onSettingsClick = {
+                        navController.navigate("settings") {
+                            popUpTo("conversations") { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onCallHistoryClick = {
+                        navController.navigate("call_history") {
+                            popUpTo("conversations") { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onContactsClick = {
+                        navController.navigate("contacts") {
+                            popUpTo("conversations") { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
+
+            composable(
+                "create_group",
+                enterTransition = { fadeIn(tween(ANIM_DURATION)) + slideInVertically(tween(ANIM_DURATION)) { it / 6 } },
+                exitTransition = { fadeOut(tween(ANIM_DURATION)) },
+                popEnterTransition = { fadeIn(tween(ANIM_DURATION)) },
+                popExitTransition = { fadeOut(tween(ANIM_DURATION)) + slideOutVertically(tween(ANIM_DURATION)) { it / 6 } }
+            ) {
+                CreateGroupScreen(
+                    onGroupCreated = { groupId ->
+                        navController.navigate("chat/$groupId") {
+                            popUpTo("conversations")
+                        }
+                    },
+                    onBackClick = { navController.popBackStack() }
+                )
+            }
+
+            composable("chat/{conversationId}") {
+                val conversationId = it.arguments?.getString("conversationId") ?: ""
+                ChatScreen(
+                    conversationId = conversationId,
+                    onBackClick = { navController.popBackStack() },
+                    onVoiceCallClick = { peerId ->
+                        navController.navigate("call/$peerId/VOICE")
+                    },
+                    onVideoCallClick = { peerId ->
+                        navController.navigate("call/$peerId/VIDEO")
+                    },
+                    onChatInfoClick = { convId ->
+                        navController.navigate("chat_info/$convId")
+                    },
+                    onGroupInfoClick = { groupId ->
+                        navController.navigate("group_info/$groupId")
+                    }
+                )
+            }
+
+            composable("group_info/{groupId}") { backStackEntry ->
+                val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
+                GroupInfoScreen(
+                    groupId = groupId,
+                    onBackClick = { navController.popBackStack() },
+                    onAddMember = {
+                        // TODO: Navigate to contact selection for adding members
+                    },
+                    onMemberClick = { memberId ->
+                        navController.navigate("chat_info/$memberId")
+                    }
+                )
+            }
+
+            composable("chat_info/{conversationId}") { backStackEntry ->
+                val conversationId = backStackEntry.arguments?.getString("conversationId") ?: ""
+                val context = androidx.compose.ui.platform.LocalContext.current
+                ChatInfoScreen(
+                    conversationId = conversationId,
+                    onBackClick = { navController.popBackStack() },
+                    onMessageClick = { messageId ->
+                        navController.popBackStack()
+                    },
+                    onMediaClick = { message ->
+                        val parts = message.content.split("|")
+                        val mimeType = parts.getOrNull(1) ?: "application/octet-stream"
+                        val filePath = parts.getOrNull(3)
+                        if (!filePath.isNullOrBlank()) {
+                            com.securechat.app.util.FileOpenHelper.openFile(
+                                context = context,
+                                filePath = filePath,
+                                mimeType = mimeType
+                            )
+                        }
+                    }
+                )
+            }
+
+            composable("contacts") {
+                ContactsScreen(
+                    onContactClick = { userId ->
+                        navController.navigate("chat/$userId") {
+                            popUpTo("conversations")
+                        }
+                    },
+                    onBackClick = { navController.popBackStack() }
+                )
+            }
+
+            composable("call/{peerId}/{callType}") { backStackEntry ->
+                val peerId = backStackEntry.arguments?.getString("peerId") ?: ""
+                val callTypeStr = backStackEntry.arguments?.getString("callType") ?: "VOICE"
+                val callType = try {
+                    CallType.valueOf(callTypeStr)
+                } catch (_: IllegalArgumentException) {
+                    CallType.VOICE
                 }
-            )
-        }
+                CallScreen(
+                    peerId = peerId,
+                    callType = callType,
+                    onCallEnded = { navController.popBackStack() }
+                )
+            }
 
-        composable("settings") {
-            SettingsScreen(
-                onBackClick = { navController.popBackStack() }
-            )
+            composable("call_history") {
+                CallHistoryScreen(
+                    onBackClick = { navController.popBackStack() },
+                    onCallClick = { peerId, callType ->
+                        navController.navigate("call/$peerId/$callType")
+                    }
+                )
+            }
+
+            composable("settings") {
+                SettingsScreen(
+                    onBackClick = { navController.popBackStack() }
+                )
+            }
         }
     }
 }

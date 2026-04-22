@@ -63,6 +63,12 @@ class ContactsViewModel @Inject constructor(
     private val _resolvedUserId = MutableStateFlow<String?>(null)
     val resolvedUserId: StateFlow<String?> = _resolvedUserId.asStateFlow()
 
+    // Kullanici bulunamadiginda tetiklenir — girilen numara ile birlikte
+    private val _userNotFound = MutableStateFlow<String?>(null)
+    val userNotFound: StateFlow<String?> = _userNotFound.asStateFlow()
+
+    fun consumeUserNotFound() { _userNotFound.value = null }
+
     private val _phoneContacts = MutableStateFlow<List<DeviceContact>>(emptyList())
     /** Cihaz rehberinden okunan telefon kisileri — arama sorgusuna gore filtrelenir. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -173,13 +179,14 @@ class ContactsViewModel @Inject constructor(
                 if (match != null) {
                     _resolvedUserId.value = match.userId
                 } else {
-                    // Kullanici bulunamadi — hash'i direkt ID olarak kullanma
                     android.util.Log.w("ContactsVM", "Numara icin kullanici bulunamadi: $digits")
                     _resolvedUserId.value = null
+                    _userNotFound.value = phoneInput
                 }
             } catch (e: Exception) {
                 android.util.Log.e("ContactsVM", "UUID cozumleme hatasi", e)
                 _resolvedUserId.value = null
+                _userNotFound.value = phoneInput
             }
         }
     }

@@ -1,221 +1,334 @@
-# Handoff: Elçim — P2P Mesajlaşma Uygulaması
+# Elçim — Azure Tema Uygulama Rehberi
 
-## Overview
-Elçim, sunucusuz (peer-to-peer) çalışan bir mobil mesajlaşma uygulaması. Bu paket, uygulamanın yüksek-fideliteli UI tasarımını içeriyor — **Azure yönü**: Space Grotesk + Inter tipografi, nötr cam zemin + mavi primary, doodle art arkaplan. Tasarımlar iOS (390×844) ve Android (412×892) için hazırlandı.
+Bu paket, **mevcut Kotlin + Jetpack Compose projenize** Azure temasını uygulamak için hazırlanmış bir tasarım referansıdır. Yeni proje kurulumu yoktur — amaç, sizin projenizdeki mevcut ekranların görünümünü bu tasarıma dönüştürmek.
 
-## About the Design Files
-Bu paketteki dosyalar **HTML ile oluşturulmuş tasarım referanslarıdır** — prototiplerdir, doğrudan kopyalanacak üretim kodu değildir. Görev, bu HTML tasarımları **hedef uygulamanın mevcut ortamında** (React Native, Flutter, SwiftUI, Jetpack Compose vb.) o ortamın yerleşik kalıp ve kütüphaneleriyle yeniden oluşturmaktır. Eğer bir ortam henüz yoksa, proje için en uygun framework seçilip tasarımlar orada uygulanmalıdır.
+## Ne Yapacaksın
+1. `ui/theme/` altına 4 dosya ekle (tokens, typography, glass modifier, doodle backdrop)
+2. Mevcut `Theme.kt` / `MaterialTheme` sarmalını Azure tema ile değiştir
+3. Mevcut ekranlarda renkleri/fontları/köşe radius'larını token'lardan çek
+4. Chat ekranındaki balonları, Home'daki sohbet kartlarını, FAB'ı ve tab bar'ı aşağıdaki spec'e göre güncelle
 
-Önerilen stack:
-- **React Native + Expo** (iOS + Android tek kod tabanı, P2P için WebRTC/libp2p uyumlu)
-- veya **Flutter** (aynı avantaj)
+Mevcut business logic (ViewModel, navigation, P2P transport, Room, DataStore) değişmez — **sadece UI layer**.
 
-## Fidelity
-**Yüksek-fidelite (hi-fi).** Renkler, tipografi, boşluk, gölge, blur değerleri kesindir. Geliştirici UI'ı piksel seviyesinde uygulamalıdır.
+---
 
-## Screens / Views
+## 1. Design Tokens
 
-Toplam 8 ekran tasarlandı. Her ekran hem iOS (390×844) hem Android (412×892) frame'lerinde gösteriliyor.
+`ui/theme/AzureTokens.kt` olarak ekle:
 
-### 1. Kayıt / Kurulum (Register)
-- **Amaç**: İlk açılışta yerel ed25519 kimliği oluşturulur, görünen isim + durum alınır
-- **Layout**: Dikey akış, 3 adım progress bar (tek ekran ×3 adım)
-- **Adımlar**: 01 Kimlik → 02 Ağ → 03 Yedek
-- **Key bileşenler**:
-  - Progress bar: 3 bölüm, aktif mavi (`#3E7BFA`), pasif glass border
-  - Doodle arkaplan (AzDoodleBackdrop)
-  - Kimlik kartı: transparan cam, mono font (`JetBrains Mono`) ile peer ID
-  - Görünen isim input: alt border 2px mavi
-  - CTA: dolu mavi pill button, tam genişlik
+```kotlin
+package com.elcim.app.ui.theme
 
-### 2. Ana Ekran (Home)
-- **Amaç**: Sohbet listesi
-- **Layout**:
-  - Header: logo + wordmark, arama ikonu, yeni sohbet (mavi FAB)
-  - Bağlantı şeridi: "Mesh bağlı · 14 peer · 42ms" transparan kart
-  - Arama kutusu: transparan cam
-  - Sohbet kartları: **her biri ayrı transparan cam kutu**, 8px dikey gap
-  - FAB: sağ altta, mavi daire 56px
-  - Alt tab bar: Sohbet · Ağ · Rehber · Ayarlar (blur glass, aktif sekme altında 26×3 mavi çizgi)
-- **Sohbet kartı**: avatar (42-44px) + isim + grup üye badge + zaman + preview + unread badge + peer ID (mono, küçük gri)
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
-### 3. Sohbet (Chat)
-- **Amaç**: Tek kişiyle/grupla mesajlaşma
-- **Layout**:
-  - Header: geri + avatar + isim + "çevrimiçi · p2p direct" + sesli/görüntülü ikonları
-  - Gövde: doodle art arkaplan
-  - Mesaj balonları:
-    - **Benim mesajım**: `rgba(62,123,250,0.28)` mavi transparan + `blur(18px)` + mavi border `rgba(94,163,255,0.35)` + beyaz text, sağ alt köşe 4px radius
-    - **Karşı taraf**: `rgba(15,20,28,0.55)` koyu transparan + `blur(18px)` + beyaz %8 border + frost text, sol alt köşe 4px radius
-    - Sistem mesajı: pill shape, kilit ikonu + "uçtan-uca şifrelendi"
-  - Composer: transparan pill + mavi gönder butonu 36px
+@Immutable
+data class AzureTokens(
+    // Neutral base
+    val night: Color = Color(0xFF0D1014),
+    val nightRaise: Color = Color(0xFF151A21),
+    val nightEdge: Color = Color(0xFF1E242D),
+    val paper: Color = Color(0xFFF4F2EC),
+    val paperDim: Color = Color(0xFFEAE7DD),
 
-### 4. Kişi Bilgisi (Contact Info)
-- Hero: 104px avatar + isim + peer ID + "uçtan-uca şifreli" + "çevrimiçi" chips
-- 4'lü action grid: Mesaj · Ara · Video · Engel (her biri transparan cam tile)
-- Güvenlik anahtarı kartı: mono 12 grup 4-char blok + "Doğrula" mavi pill
-- Bilgi satırları: Telefon · Cihaz · Eklendi · Son görülme
-- Paylaşılan medya: 4 kolonlu grid
-- Engelleme CTA: danger `#FF5E87`
+    // Ink (dark text on light)
+    val ink: Color = Color(0xFF13161B),
+    val inkMute: Color = Color(0xFF5D6570),
+    val inkSoft: Color = Color(0xFF8A929C),
 
-### 5. Grup Bilgisi (Group Info)
-- Aynı pattern + grup avatar (Çv2 monogramı, transparan cam) + üye sayısı
-- 3'lü action: Üye ekle · Sesli · Görüntülü
-- Açıklama kartı
-- **Üyeler**: **her üye ayrı transparan cam kart**; admin rozeti mavi tint
-- Seçenekler: Bildirim · Kayboluyor mesaj · Medya
-- "Gruptan ayrıl" danger
+    // Frost (light text on dark)
+    val frost: Color = Color(0xFFECEEF2),
+    val frostMute: Color = Color(0xFF9BA3AE),
+    val frostSoft: Color = Color(0xFF6B737D),
 
-### 6. Rehber (Contacts)
-- Header: "Rehber" başlık + peer sayısı + mavi ekle FAB
-- Arama
-- Quick actions: QR ile ekle · Yakındakiler (transparan cam tile'lar)
-- Kişi listesi: **her kişi ayrı transparan cam kutu** 8px gap (alfabetik grup YOK — düz liste)
-- Her satırda: avatar + isim + status + sağda peer ID (mono) + "● aktif" (yeşil)
+    // PRIMARY — yalnız CTA + aktif durumlar
+    val azure: Color = Color(0xFF3E7BFA),
+    val azureDeep: Color = Color(0xFF1E52D9),
+    val azureGlow: Color = Color(0xFF5EA3FF),
 
-## Interactions & Behavior
-- Tema toggle: localStorage'a `theme: light|dark` kaydedilmeli
-- Tab bar: aktif sekme altında animasyonlu 3px mavi highlight
-- Sohbet balonlarında read/delivered tiki: gri → mavi
-- Composer'da typing indicator: 3 nokta, opacity pulse animasyonu
-- FAB: scale on press 0.95
-- Long-press: kişi/sohbet kartında context menu (tasarlanmadı — standart)
+    // Status
+    val ok: Color = Color(0xFF22C55E),
+    val warn: Color = Color(0xFFFFB800),
+    val danger: Color = Color(0xFFFF5E87),
 
-## State Management
-Önerilen state (Redux/Zustand):
-- `currentUser` (peer ID, name, status, avatar seed)
-- `peers[]` (online/offline, RTT, direct/relay)
-- `conversations[]` (peer/group ID, messages, unread, pinned, lastSeen)
-- `contacts[]` (name, peer ID, status, verified)
-- `groups[]` (members, admins, description, ephemeral TTL)
-- `networkState` (mesh bağlı mı, kaç peer, ortalama RTT)
-- `settings` (theme, notifications, ephemeral default)
+    // Spacing (base 4)
+    val s1: Dp = 4.dp, val s2: Dp = 8.dp, val s3: Dp = 12.dp,
+    val s4: Dp = 16.dp, val s5: Dp = 20.dp, val s6: Dp = 24.dp,
 
-## Design Tokens
+    // Radii
+    val rCard: Dp = 16.dp,
+    val rPill: Dp = 100.dp,
+    val rBubble: Dp = 20.dp,
+    val rBubbleTail: Dp = 4.dp,
+)
 
-### Colors
-```
-// Neutral base
-night:        #0D1014   // dark bg
-nightRaise:   #151A21
-nightEdge:    #1E242D
-paper:        #F4F2EC   // light bg
-paperDim:     #EAE7DD
+val LocalAzureTokens = staticCompositionLocalOf { AzureTokens() }
 
-// Ink (text on light)
-ink:          #13161B
-inkMute:      #5D6570
-inkSoft:      #8A929C
-
-// Frost (text on dark)
-frost:        #ECEEF2
-frostMute:    #9BA3AE
-frostSoft:    #6B737D
-
-// PRIMARY ACCENT — blue; yalnız CTA + aktif durumlarda
-azure:        #3E7BFA
-azureDeep:    #1E52D9
-azureGlow:    #5EA3FF
-
-// Status
-ok:           #22C55E
-warn:         #FFB800
-danger:       #FF5E87
+// Kısayol: MaterialTheme.azure
+val androidx.compose.material3.MaterialTheme.azure: AzureTokens
+    @Composable @ReadOnlyComposable
+    get() = LocalAzureTokens.current
 ```
 
-### Glass surface
+Kullanım: `MaterialTheme.azure.azure`, `MaterialTheme.azure.frost`, `MaterialTheme.azure.s4`, vb.
+
+---
+
+## 2. Typography
+
+Fontları `res/font/` altına ekle:
+- `inter_regular.ttf`, `inter_medium.ttf`, `inter_semibold.ttf`, `inter_bold.ttf`
+- `space_grotesk_semibold.ttf`, `space_grotesk_bold.ttf`
+- `jetbrains_mono_regular.ttf`, `jetbrains_mono_medium.ttf`
+
+`ui/theme/AzureType.kt`:
+
+```kotlin
+val InterFamily = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold),
+)
+val DisplayFamily = FontFamily(
+    Font(R.font.space_grotesk_semibold, FontWeight.SemiBold),
+    Font(R.font.space_grotesk_bold, FontWeight.Bold),
+)
+val MonoFamily = FontFamily(
+    Font(R.font.jetbrains_mono_regular, FontWeight.Normal),
+    Font(R.font.jetbrains_mono_medium, FontWeight.Medium),
+)
+
+val AzureTypography = Typography(
+    displayLarge = TextStyle(fontFamily = DisplayFamily, fontWeight = FontWeight.Bold, fontSize = 40.sp, letterSpacing = (-1.0).sp, lineHeight = 44.sp),
+    headlineMedium = TextStyle(fontFamily = DisplayFamily, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, letterSpacing = (-0.6).sp, lineHeight = 28.sp),
+    titleLarge = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, letterSpacing = (-0.2).sp),
+    titleMedium = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
+    bodyLarge = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 22.sp),
+    bodyMedium = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp),
+    bodySmall = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.Normal, fontSize = 12.sp),
+    labelMedium = TextStyle(fontFamily = MonoFamily, fontWeight = FontWeight.Medium, fontSize = 11.sp, letterSpacing = 0.5.sp),
+)
 ```
-dark:
-  bg:             rgba(255,255,255,0.05)
-  bgStrong:       rgba(255,255,255,0.08)
-  border:         rgba(255,255,255,0.09)
-  borderStrong:   rgba(255,255,255,0.14)
-  backdropFilter: blur(18px) saturate(160%)
-  shadow:         0 4px 20px rgba(0,0,0,0.35)
 
-light:
-  bg:             rgba(255,255,255,0.55)
-  bgStrong:       rgba(255,255,255,0.75)
-  border:         rgba(19,22,27,0.07)
-  borderStrong:   rgba(19,22,27,0.12)
-  shadow:         0 4px 18px rgba(19,22,27,0.07)
+**Mono kullanımı**: peer ID, zaman damgası, teknik veri gibi yerlerde `fontFamily = MonoFamily` explicit ver.
+
+---
+
+## 3. Azure Theme wrapper
+
+`ui/theme/AzureTheme.kt`:
+
+```kotlin
+@Composable
+fun AzureTheme(
+    dark: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+) {
+    val tokens = AzureTokens()
+    val colorScheme = if (dark) darkColorScheme(
+        background = tokens.night,
+        surface = tokens.nightRaise,
+        primary = tokens.azure,
+        onPrimary = Color.White,
+        onBackground = tokens.frost,
+        onSurface = tokens.frost,
+        error = tokens.danger,
+    ) else lightColorScheme(
+        background = tokens.paper,
+        surface = Color.White,
+        primary = tokens.azure,
+        onPrimary = Color.White,
+        onBackground = tokens.ink,
+        onSurface = tokens.ink,
+        error = tokens.danger,
+    )
+    CompositionLocalProvider(LocalAzureTokens provides tokens) {
+        MaterialTheme(colorScheme = colorScheme, typography = AzureTypography, content = content)
+    }
+}
 ```
 
-### Chat bubbles (dark)
-- Me: bg `rgba(62,123,250,0.28)` border `rgba(94,163,255,0.35)` text `#FFFFFF`
-- Them: bg `rgba(15,20,28,0.55)` border `rgba(255,255,255,0.08)` text `#ECEEF2`
-- Blur: `18px saturate(160%)` her ikisinde
+Mevcut `MainActivity.kt` / `setContent { ... }` içindeki tema sarmalını `AzureTheme { ... }` ile değiştir.
 
-### Chat bubbles (light)
-- Me: bg `rgba(62,123,250,0.18)` border `rgba(62,123,250,0.35)` text `#1E52D9`
-- Them: bg `rgba(19,22,27,0.06)` border `rgba(19,22,27,0.09)` text `#13161B`
+---
 
-### Typography
-- Sans: `Inter` (varsayılan gövde, 400/500/600/700)
-- Display: `Space Grotesk` (başlıklar, wordmark, 600/700)
-- Mono: `JetBrains Mono` (peer ID, teknik veri, zaman damgaları, 400/500)
-- Letter-spacing başlıklarda -0.6 ila -1.0
+## 4. Glass Modifier
 
-### Radii
-- Kartlar: 14-18px
-- Pill / tab bar: 100px (fully rounded) veya 30px
-- Avatar: tam daire
-- Bubble: 20px, karşı köşe 4px
+`ui/theme/Glass.kt`:
 
-### Spacing (base 4)
-4, 6, 8, 10, 12, 14, 16, 20, 24
+```kotlin
+fun Modifier.glass(
+    dark: Boolean,
+    strong: Boolean = false,
+    shape: Shape = RoundedCornerShape(16.dp),
+): Modifier = composed {
+    val bg = if (dark) Color.White.copy(alpha = if (strong) 0.08f else 0.05f)
+             else Color.White.copy(alpha = if (strong) 0.75f else 0.55f)
+    val border = if (dark) Color.White.copy(alpha = if (strong) 0.14f else 0.09f)
+                 else Color(0xFF13161B).copy(alpha = if (strong) 0.12f else 0.07f)
 
-### Shadows
-Bkz. `Glass surface`. Mavi primary FAB: `0 12px 28px rgba(62,123,250,0.5)`
+    this
+        .clip(shape)
+        .then(
+            if (Build.VERSION.SDK_INT >= 31)
+                Modifier.blur(18.dp, BlurredEdgeTreatment(shape))
+            else Modifier
+        )
+        .background(bg, shape)
+        .border(1.dp, border, shape)
+}
+```
 
-## Doodle Art Backdrop
-`AzDoodleBackdrop` bileşeni: 280×280 tile'lık SVG pattern. İçerik: zarf, peer düğümleri (3 dot + dashed bağlantılar), dalga, kilit, konuşma balonu, @ işareti, dashed path, pulsing node (3 iç içe daire), anahtar, zigzag, küçük yıldızlar, sinyal arkları.
+**Önemli**: Compose'un `Modifier.blur` ikisini de blur'lar (foreground + background). Backdrop blur için alternatif: arkaplanı ayrı `Box` içinde `blur` modifier ile ver, üstüne yarı-saydam `Box`'ı bindir. Detay: [Android docs — blur](https://developer.android.com/jetpack/compose/graphics/draw/modifiers#blur). Hızlı yaklaşım için sadece yarı-saydam bg + border yeterli — doodle backdrop zaten görsel derinlik sağlıyor.
 
-Stroke renkleri:
-- dark: `rgba(255,255,255,0.055)` ve strong `rgba(94,163,255,0.07)`
-- light: `rgba(19,22,27,0.07)` ve strong `rgba(30,82,217,0.10)`
+---
 
-Taban: `night` veya `paper` rengi + çok hafif mavi wash (`rgba(62,123,250,0.035)`).
+## 5. Doodle Backdrop
 
-**Önemli**: Sohbet, Kurulum, Kişi bilgisi, Grup bilgisi, Rehber ekranlarının **hepsinde** bu doodle arkaplan olmalı — transparanlık hissi ancak bu arkaplan olduğunda belirginleşir.
+`res/drawable/doodle_tile.xml` olarak VectorDrawable ekle (280×280dp). İçerik: zarf, 3-nokta peer düğümü, dalga, kilit, konuşma balonu, @ işareti, dashed path, pulsing node (3 iç içe daire), anahtar, zigzag, yıldızlar, sinyal arkları. Stroke renkleri:
 
-## P2P Vurgusu
-Orta seviye — kullanıcıyı korkutmayacak ama gizlilik/şifreleme her yerde hissedilecek:
-- Ana ekranda "Mesh bağlı · 14 peer · 42ms" şeridi
-- Sohbet header'ında "çevrimiçi · p2p direct"
-- Sistem mesajı olarak "uçtan-uca şifrelendi · <peer>"
-- Kişi/grup bilgisinde güvenlik anahtarı bloğu + "Doğrula"
-- Peer ID (`7ab3·9f02·e4c1·8d0a`) mono font ile her yerde ince gri
-- Kayıt akışında "Sunucusuz. Sadece sen ve cihazın."
+- **dark**: `#FFFFFF` @ alpha 0.055 ve mavi vurgu `#5EA3FF` @ alpha 0.07
+- **light**: `#13161B` @ alpha 0.07 ve mavi vurgu `#1E52D9` @ alpha 0.10
 
-## Assets
-Üretim için gerekli dosyalar: hiçbir raster asset yok; tüm ikonlar inline SVG (stroke-based, 24×24 viewBox). Avatarlar harf + nötr gri tonları (tek mavi tonlu avatar kullanılabilir primary kişiler için).
+`ui/theme/DoodleBackdrop.kt`:
 
-## Files
-- `src/Elcim.html` — ana canvas, tüm Azure ekranlarını toplar
-- `src/azure-brand.jsx` — Azure tasarım sistemi: `AZ` (tokens), `azTheme`, `AzDoodleBackdrop`, `Glass`, `AzureMark`, `AzureWordmark`, `AzAvatar`, `AzChip`, `AzLock`, `AzPrimary`
-- `src/azure-screens.jsx` — Azure ekranları: `AzHome`, `AzChat`, `AzContactInfo`, `AzGroupInfo`, `AzContacts`, `AzRegister`, `AzTabs`
-- `src/ios-frame.jsx`, `src/android-frame.jsx` — cihaz çerçeveleri (yalnız mockup için, gerçek uygulamada gerekmez)
-- `src/design-canvas.jsx` — tasarım canvas'ı (yalnız mockup için)
+```kotlin
+@Composable
+fun AzureDoodleBackdrop(
+    modifier: Modifier = Modifier,
+    dark: Boolean = isSystemInDarkTheme(),
+) {
+    val tokens = MaterialTheme.azure
+    val base = if (dark) tokens.night else tokens.paper
+    val wash = Color(0xFF3E7BFA).copy(alpha = 0.035f)
+    val tile = ImageBitmap.imageResource(R.drawable.doodle_tile_280)
 
-## Kullanıcı Tercihleri
-- Dil: Türkçe
-- Tema: light + dark (toggle)
-- Chat style: Modern kart tarzı (gölgeli, boşluklu)
-- Ton: Teknik / cyber / privacy-first
-- P2P vurgusu: Orta
+    Box(modifier.fillMaxSize().background(base)) {
+        Canvas(Modifier.fillMaxSize()) {
+            // tile'ı tekrar çiz
+            val tileSize = 280.dp.toPx()
+            var y = 0f
+            while (y < size.height) {
+                var x = 0f
+                while (x < size.width) {
+                    drawImage(tile, topLeft = Offset(x, y))
+                    x += tileSize
+                }
+                y += tileSize
+            }
+            drawRect(wash)
+        }
+    }
+}
+```
 
-## Nasıl Başlanmalı
-1. React Native + Expo projesi kur (`npx create-expo-app`)
-2. Fontları yükle: `@expo-google-fonts/inter`, `@expo-google-fonts/space-grotesk`, `@expo-google-fonts/jetbrains-mono`
-3. `azure-brand.jsx`'teki tokenları `theme.ts`'ye taşı
-4. `AzDoodleBackdrop`'u `react-native-svg` ile port et — Pattern yerine tek bir tile `ImageBackground` ile tekrar ettir
-5. `expo-blur` ile `<BlurView intensity={80}>` — glass kartları için
-6. Ekranları `azure-screens.jsx`'deki markup'ı referans alarak sırayla uygula: Register → Home → Chat → ContactInfo → GroupInfo → Contacts
+**Bu backdrop şu ekranlarda olmalı**: Register, Home, Chat, ContactInfo, GroupInfo, Contacts. Transparanlık hissi ancak bu arkaplan olduğunda belirginleşir.
 
-## P2P Transport (Referans)
-Tasarımlar ağ katmanına agnostic. Öneriler:
-- `libp2p-js` (JS/RN)
-- `matrix-rust-sdk` ile P2P Matrix
-- `Automerge` + `WebRTC` data channels (CRDT ile offline-first)
-- `Briar` protokolü (Tor üzerinden)
+Kullanım:
+```kotlin
+Box(Modifier.fillMaxSize()) {
+    AzureDoodleBackdrop()
+    // ekran içeriği
+    Column(Modifier.fillMaxSize()) { ... }
+}
+```
+
+---
+
+## 6. Ekran-Ekran Uyarlama
+
+### Home (sohbet listesi)
+- **Header**: `Row` — solda logo + wordmark (`DisplayFamily`, bold), sağda arama ikonu
+- **Bağlantı şeridi**: `Modifier.glass(dark)` + `Row` → `"Mesh bağlı · 14 peer · 42ms"` (Mono font, 11sp, `frostMute`)
+- **Arama kutusu**: `TextField` yerine custom `Modifier.glass(dark).height(44.dp)` + `BasicTextField`
+- **Sohbet kartları**: `LazyColumn` + her item `Modifier.glass(dark).padding(14.dp)` — 8dp dikey gap
+  - Row: `AzAvatar(42.dp)` → `Column(isim · preview) weight(1f)` → `Column(zaman · unreadBadge)`
+  - Peer ID alt satırda mono, 10sp, `frostSoft`
+- **FAB**: sağ altta 56dp daire, `MaterialTheme.azure.azure` bg, `shadow = 0 12dp 28dp rgba(62,123,250,0.5)`
+  - Compose'da: `Modifier.shadow(12.dp, CircleShape, ambientColor = azure, spotColor = azure)`
+- **Alt tab bar**: `Row` içinde 4 `TabItem` — her biri `glass(dark, strong = true)` bir container'da; aktif sekme altında `Box(Modifier.width(26.dp).height(3.dp).background(azure))` + `animateDpAsState` ile x offset
+
+### Chat
+- **Header**: geri ok + `AzAvatar(36.dp)` + isim/status (`"çevrimiçi · p2p direct"` — status Mono 11sp `frostMute`) + sesli/video ikonları
+- **Gövde**: `LazyColumn` + `AzureDoodleBackdrop()` arkaplanda
+- **MessageBubble**:
+  ```kotlin
+  // Me (dark)
+  Modifier
+    .background(Color(0xFF3E7BFA).copy(alpha = 0.28f), shape)
+    .border(1.dp, Color(0xFF5EA3FF).copy(alpha = 0.35f), shape)
+    // text: Color.White
+  // shape: RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)
+  
+  // Them (dark)
+  Modifier
+    .background(Color(0xFF0F141C).copy(alpha = 0.55f), shape)
+    .border(1.dp, Color.White.copy(alpha = 0.08f), shape)
+    // text: frost
+  // shape: RoundedCornerShape(20.dp, 20.dp, 20.dp, 4.dp)
+  ```
+  Light mode için alpha değerleri README'nin altındaki tablodan.
+- **System message**: pill (`RoundedCornerShape(100.dp)`) + kilit ikonu + `"uçtan-uca şifrelendi"` (12sp, `frostMute`)
+- **Composer**: `Modifier.glass(dark)` pill + sağda 36dp mavi daire gönder butonu
+
+### ContactInfo
+- **Hero**: 104dp avatar (Circle), isim (`headlineMedium`), peer ID altında (Mono 12sp), iki chip: `"uçtan-uca şifreli"` + `"çevrimiçi"`
+- **Action grid**: 4 kolonlu `Row` — her tile `glass(dark).size(72.dp)` + ikon + 10sp label
+- **Güvenlik anahtarı kartı**: `glass` + 12 grup × 4-char Mono blok + sağda "Doğrula" mavi pill
+- **Info satırları**: ince separator ile dikey liste — label (inkMute/frostMute) + value
+- **Paylaşılan medya**: 4 kolon grid, 8dp gap, köşe `rCard`
+- **Engelleme CTA**: full-width, danger bg
+
+### GroupInfo
+Aynı pattern + grup avatar (monogram, `glass(dark)` içinde) + üye sayısı. **Üyeler: her üye ayrı `glass` kart**, admin rozeti `azure.copy(alpha = 0.2f)` bg.
+
+### Contacts
+- Header: `"Rehber"` başlık + peer sayısı + mavi ekle FAB
+- Quick actions: 2 tile yan yana (`"QR ile ekle"` + `"Yakındakiler"`)
+- Liste: **her kişi ayrı `glass` kutu**, 8dp gap, alfabetik gruplama YOK
+- Sağda peer ID Mono + `"● aktif"` yeşil (`ok`)
+
+### Register (3 adım)
+Tek `RegisterScreen` composable, `step: Int` state'i:
+- Üstte 3 bölümlü progress bar: `Row` + her bölüm `Modifier.weight(1f).height(4.dp)` — aktif `azure`, pasif `glass(dark)` border
+- 01 Kimlik · 02 Ağ · 03 Yedek başlıkları
+- Kimlik kartı: `glass(dark, strong = true)` + peer ID (Mono)
+- Görünen isim input: `BasicTextField` + alt 2dp `azure` border
+- CTA: `Button` yerine custom — full-width pill, `azure` bg
+
+---
+
+## 7. Chat Bubble Renkleri (tam referans)
+
+### Dark
+- **Me**: bg `rgba(62,123,250,0.28)`, border `rgba(94,163,255,0.35)`, text `#FFFFFF`
+- **Them**: bg `rgba(15,20,28,0.55)`, border `rgba(255,255,255,0.08)`, text `#ECEEF2`
+
+### Light
+- **Me**: bg `rgba(62,123,250,0.18)`, border `rgba(62,123,250,0.35)`, text `#1E52D9`
+- **Them**: bg `rgba(19,22,27,0.06)`, border `rgba(19,22,27,0.09)`, text `#13161B`
+
+---
+
+## 8. Küçük İyileştirmeler
+
+- **Tab bar aktif highlight**: `animateDpAsState(targetValue = selectedTabIndex * tabWidth)` ile x offset animasyonu
+- **FAB press**: `Modifier.pointerInput { awaitPointerEventScope { ... } }` + `animateFloatAsState(if (pressed) 0.95f else 1f)` → `Modifier.scale(scale)`
+- **Typing indicator**: `InfiniteTransition` + 3 nokta, her biri `animateFloat` ile opacity offset 150ms
+- **Read/delivered tiki**: `Crossfade` ile `tick_gray` → `tick_blue` (azure)
+- **Theme toggle**: `DataStore` ile persist; `AzureTheme(dark = settings.dark)` sarmalında kullan
+
+---
+
+## 9. Tasarım Referansı
+
+`src/Elcim.html` dosyasını tarayıcıda aç — canvas'ta tüm ekranların Azure versiyonlarını iOS + Android frame'inde görebilirsin. Sağ üstte Tweaks'ten tema değiştirilebilir. Her ekranın tam renk/layout/boşluk değerleri bu tasarımda görülebilir.
+
+Kaynak dosyalar:
+- `src/azure-brand.jsx` — tokens (`AZ`), tema helper (`azTheme`), bileşenler (`AzureMark`, `Glass`, `AzAvatar`, `AzChip`, `AzLock`, `AzPrimary`, `AzDoodleBackdrop`)
+- `src/azure-screens.jsx` — ekranlar (`AzHome`, `AzChat`, `AzContactInfo`, `AzGroupInfo`, `AzContacts`, `AzRegister`)
+
+JSX sadece referans — Compose'a port et. Bileşen isimleri 1-1 eşleşir (`Glass` → `Modifier.glass()`, `AzAvatar` → `AzAvatar` composable, vb.).

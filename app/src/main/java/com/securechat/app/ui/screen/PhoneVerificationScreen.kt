@@ -47,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,10 +56,15 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.securechat.contacts.PhoneNumberNormalizer
+import com.securechat.app.ui.theme.AzureDoodleBackdrop
+import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.glass
+import com.securechat.app.ui.theme.MonoFamily
+import com.securechat.app.ui.theme.DisplayFamily
 
 /**
  * Telefon doğrulama ve kayıt ekranı.
- * Midnight Teal tasarım: koyu arka plan, cyan gradient kalkan, cyan vurgulu alanlar.
+ * Azure glassmorphism tasarım.
  */
 @Composable
 fun PhoneVerificationScreen(
@@ -184,8 +188,13 @@ fun PhoneVerificationScreen(
         }
     }
 
+    val dark = LocalDarkTheme.current
+
+    Box(Modifier.fillMaxSize()) {
+        AzureDoodleBackdrop(dark = dark)
+
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = Color.Transparent
     ) { padding ->
         Column(
             modifier = Modifier
@@ -210,11 +219,11 @@ fun PhoneVerificationScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Uygulama adı — cyan vurgulu
+            // Uygulama adı
             Text(
                 text = "ELÇİM",
                 style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.primary,
+                color = Color(0xFF3E7BFA),
                 fontWeight = FontWeight.Bold
             )
 
@@ -253,90 +262,97 @@ fun PhoneVerificationScreen(
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // Kayıt başlığı
-            Text(
-                text = "Kayıt Ol",
-                style = MaterialTheme.typography.titleLarge,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Bilgilerinizi girerek başlayabilirsiniz.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // İsim girişi — koyu surfaceVariant arka plan, cyan focus border
-            OutlinedTextField(
-                value = displayName,
-                onValueChange = { displayName = it },
-                label = { Text("Adınız") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("Örneğin: Ahmet Yılmaz") },
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                    cursorColor = MaterialTheme.colorScheme.primary
-                )
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Ülke kodu ve telefon numarası — yan yana
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            // Form area with glass
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glass(dark, strong = true)
+                    .padding(24.dp)
             ) {
-                OutlinedTextField(
-                    value = countryCode,
-                    onValueChange = { countryCode = it },
-                    label = { Text("Kod") },
-                    modifier = Modifier.width(90.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                        cursorColor = MaterialTheme.colorScheme.primary
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Kayıt başlığı
+                    Text(
+                        text = "Kayıt Ol",
+                        style = MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold
                     )
-                )
 
-                OutlinedTextField(
-                    value = phoneNumber,
-                    onValueChange = { phoneNumber = it },
-                    label = { Text("Telefon Numarası") },
-                    modifier = Modifier.weight(1f),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    singleLine = true,
-                    placeholder = { Text("5XX XXX XX XX") },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                        cursorColor = MaterialTheme.colorScheme.primary
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Bilgilerinizi girerek başlayabilirsiniz.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
                     )
-                )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    // İsim girişi
+                    OutlinedTextField(
+                        value = displayName,
+                        onValueChange = { displayName = it },
+                        label = { Text("Adınız") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text("Örneğin: Ahmet Yılmaz") },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF3E7BFA),
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            cursorColor = Color(0xFF3E7BFA)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Ülke kodu ve telefon numarası — yan yana
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = countryCode,
+                            onValueChange = { countryCode = it },
+                            label = { Text("Kod") },
+                            modifier = Modifier.width(90.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF3E7BFA),
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                                cursorColor = Color(0xFF3E7BFA)
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = phoneNumber,
+                            onValueChange = { phoneNumber = it },
+                            label = { Text("Telefon Numarası") },
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            singleLine = true,
+                            placeholder = { Text("5XX XXX XX XX") },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF3E7BFA),
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                                cursorColor = Color(0xFF3E7BFA)
+                            )
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(36.dp))
 
-            // Başla butonu — canlı cyan
+            // Başla butonu — azure pill
             Button(
                 onClick = {
                     requestPermissionsAndProceed()
@@ -345,10 +361,10 @@ fun PhoneVerificationScreen(
                     .fillMaxWidth()
                     .height(52.dp),
                 enabled = displayName.isNotBlank() && phoneNumber.length >= 10,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(100.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color(0xFF0D1117)
+                    containerColor = Color(0xFF3E7BFA),
+                    contentColor = Color.White
                 )
             ) {
                 Text(
@@ -361,4 +377,5 @@ fun PhoneVerificationScreen(
             Spacer(modifier = Modifier.height(48.dp))
         }
     }
+    } // Box
 }

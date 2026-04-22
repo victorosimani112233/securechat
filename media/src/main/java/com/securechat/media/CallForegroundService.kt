@@ -109,7 +109,7 @@ class CallForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Elçi Arama")
+            .setContentTitle("Elçim Arama")
             .setContentText("Arama devam ediyor...")
             .setSmallIcon(android.R.drawable.ic_menu_call)
             .setOngoing(true)
