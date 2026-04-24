@@ -70,11 +70,19 @@ class SecureChatActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
-        // Sistem navigasyon barini gizle (immersive mode)
-        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-        insetsController.hide(WindowInsetsCompat.Type.navigationBars())
-        insetsController.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        // Tam ekran modu tercihi — kullanıcının ayarına göre navigasyon çubuğunu yönet
+        lifecycleScope.launch {
+            themeManager.fullscreenMode.collect { fullscreen ->
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                if (fullscreen) {
+                    insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+                    insetsController.systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else {
+                    insetsController.show(WindowInsetsCompat.Type.navigationBars())
+                }
+            }
+        }
 
         // Intent'ten chat_peer varsa kaydet
         intent.getStringExtra("chat_peer")?.let { pendingChatPeerId.value = it }

@@ -1,5 +1,7 @@
 package com.securechat.app.ui.screen
 
+import android.app.Activity
+import android.media.RingtoneManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,10 +32,14 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -52,10 +58,20 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.style.TextAlign
+import com.securechat.app.ui.components.GlassDialog
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,6 +108,9 @@ fun SettingsScreen(
     val followSystem by viewModel.followSystemTheme.collectAsStateWithLifecycle()
     val isDark by viewModel.isDarkTheme.collectAsStateWithLifecycle()
     val showNotificationContent by viewModel.showNotificationContent.collectAsStateWithLifecycle()
+    val notificationSoundUri by viewModel.notificationSoundUri.collectAsStateWithLifecycle()
+    val useDoodleBackground by viewModel.useDoodleBackground.collectAsStateWithLifecycle()
+    val fullscreenMode by viewModel.fullscreenMode.collectAsStateWithLifecycle()
     val shareLastSeen by viewModel.shareLastSeen.collectAsStateWithLifecycle()
 
     var showNukeDialog by remember { mutableStateOf(false) }
@@ -111,6 +130,16 @@ fun SettingsScreen(
                 )
             } catch (_: Exception) { }
             viewModel.updateProfilePhoto(it.toString())
+        }
+    }
+
+    // Bildirim sesi seçici
+    val soundPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uri = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            viewModel.setNotificationSoundUri(uri?.toString() ?: "")
         }
     }
 
@@ -227,6 +256,68 @@ fun SettingsScreen(
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable { showThemeDialog = true }
                         )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        ListItem(
+                            headlineContent = { Text("Arka Plan Deseni") },
+                            supportingContent = {
+                                Text(if (useDoodleBackground) "Doodle desenli arka plan" else "Düz renk arka plan")
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.Wallpaper, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = useDoodleBackground,
+                                    onCheckedChange = { viewModel.setUseDoodleBackground(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    )
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        ListItem(
+                            headlineContent = { Text("Tam Ekran Modu") },
+                            supportingContent = {
+                                Text(if (fullscreenMode) "Sistem navigasyon çubuğu gizli" else "Sistem navigasyon çubuğu görünür")
+                            },
+                            leadingContent = {
+                                Icon(
+                                    if (fullscreenMode) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = fullscreenMode,
+                                    onCheckedChange = { viewModel.setFullscreenMode(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    )
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
                     }
                 }
 
@@ -257,10 +348,51 @@ fun SettingsScreen(
                                 Switch(
                                     checked = showNotificationContent,
                                     onCheckedChange = { viewModel.setShowNotificationContent(it) },
-                                    colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary)
+                                    colors = SwitchDefaults.colors(
+                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    )
                                 )
                             },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        val soundLabel = if (notificationSoundUri.isEmpty()) {
+                            "Varsayılan"
+                        } else {
+                            try {
+                                val ringtone = RingtoneManager.getRingtone(context, Uri.parse(notificationSoundUri))
+                                ringtone?.getTitle(context) ?: "Varsayılan"
+                            } catch (_: Exception) { "Varsayılan" }
+                        }
+
+                        ListItem(
+                            headlineContent = { Text("Bildirim Sesi") },
+                            supportingContent = { Text(soundLabel) },
+                            leadingContent = {
+                                Icon(Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                val intent = android.content.Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Bildirim Sesi Seçin")
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                                    if (notificationSoundUri.isNotEmpty()) {
+                                        putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(notificationSoundUri))
+                                    }
+                                }
+                                soundPickerLauncher.launch(intent)
+                            }
                         )
                     }
                 }
@@ -319,7 +451,12 @@ fun SettingsScreen(
                                 Switch(
                                     checked = shareLastSeen,
                                     onCheckedChange = { viewModel.setShareLastSeen(it) },
-                                    colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary)
+                                    colors = SwitchDefaults.colors(
+                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    )
                                 )
                             },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
@@ -340,7 +477,7 @@ fun SettingsScreen(
                         SectionHeader("Veri Yönetimi")
 
                         ListItem(
-                            headlineContent = { Text("Mesaj saklama süresi") },
+                            headlineContent = { Text("Mesaj Depolama Politikası") },
                             supportingContent = { Text("Mesajlar yalnızca bu cihazda saklanır") },
                             leadingContent = {
                                 Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -369,6 +506,9 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // === Hakkında ===
+                var versionTapCount by remember { mutableIntStateOf(0) }
+                var showEasterEgg by remember { mutableStateOf(false) }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -384,8 +524,56 @@ fun SettingsScreen(
                             leadingContent = {
                                 Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                if (!showEasterEgg) {
+                                    versionTapCount++
+                                    if (versionTapCount >= 5) {
+                                        showEasterEgg = true
+                                        versionTapCount = 0
+                                    }
+                                }
+                            }
                         )
+                    }
+                }
+
+                // Easter egg popup
+                if (showEasterEgg) {
+                    var dismissTriggered by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        delay(3000)
+                        dismissTriggered = true
+                    }
+                    if (dismissTriggered) {
+                        showEasterEgg = false
+                    } else {
+                        GlassDialog(onDismissRequest = { showEasterEgg = false }) {
+                            val infiniteTransition = rememberInfiniteTransition(label = "blink")
+                            val alpha by infiniteTransition.animateFloat(
+                                initialValue = 1f,
+                                targetValue = 0.1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(400),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "blinkAlpha"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "güçcük whatsapp",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -573,6 +761,6 @@ private fun SectionHeader(title: String) {
         text = title,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
     )
 }

@@ -86,8 +86,8 @@ fun SplashScreen(
         logoScale.animateTo(1f, animationSpec = tween(250, easing = FastOutSlowInEasing))
         // Metin animasyonu
         textAlpha.animateTo(1f, animationSpec = tween(200))
-        // Kısa bekleme
-        delay(350)
+        // Kısa bekleme — toplam ~1.5 saniye splash
+        delay(850)
         onSplashFinished()
     }
 

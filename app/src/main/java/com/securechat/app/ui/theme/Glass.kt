@@ -30,7 +30,7 @@ fun Modifier.glass(
     val bg = if (dark) Color.White.copy(alpha = if (strong) 0.14f else 0.07f)
              else Color.White.copy(alpha = if (strong) 0.85f else 0.62f)
     val borderColor = if (dark) Color.White.copy(alpha = if (strong) 0.20f else 0.12f)
-                      else Color(0xFF13161B).copy(alpha = if (strong) 0.16f else 0.08f)
+                      else Color(0xFF13161B).copy(alpha = if (strong) 0.10f else 0.04f)
 
     this
         .clip(shape)

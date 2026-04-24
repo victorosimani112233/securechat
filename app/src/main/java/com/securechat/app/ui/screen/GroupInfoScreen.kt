@@ -124,10 +124,8 @@ fun GroupInfoScreen(
     var currentTab by remember { mutableStateOf(GroupInfoTab.MAIN) }
     var showEditGroupDialog by remember { mutableStateOf(false) }
     var showDisappearingDialog by remember { mutableStateOf(false) }
-    var showAddMemberDialog by remember { mutableStateOf(false) }
     var showRemoveMemberDialog by remember { mutableStateOf<String?>(null) }
     var editedGroupName by remember { mutableStateOf("") }
-    var newMemberInput by remember { mutableStateOf("") }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val dark = LocalDarkTheme.current
@@ -205,7 +203,7 @@ fun GroupInfoScreen(
         floatingActionButton = {
             if (isAdmin && currentTab == GroupInfoTab.MAIN) {
                 FloatingActionButton(
-                    onClick = { showAddMemberDialog = true },
+                    onClick = onAddMember,
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = Color.White,
                     shape = CircleShape
@@ -391,52 +389,6 @@ fun GroupInfoScreen(
                 TextButton(onClick = {
                     showEditGroupDialog = false
                     editedGroupName = ""
-                }) {
-                    Text("İptal")
-                }
-            }
-        )
-    }
-
-    // Üye ekleme dialog'u
-    if (showAddMemberDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddMemberDialog = false },
-            title = { Text("Yeni Üye Ekle") },
-            text = {
-                OutlinedTextField(
-                    value = newMemberInput,
-                    onValueChange = { newMemberInput = it },
-                    label = { Text("Kullanıcı ID") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        cursorColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newMemberInput.isNotBlank()) {
-                            viewModel.addMember(groupId, newMemberInput.trim())
-                            showAddMemberDialog = false
-                            newMemberInput = ""
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color.White
-                    )
-                ) {
-                    Text("Ekle")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showAddMemberDialog = false
-                    newMemberInput = ""
                 }) {
                     Text("İptal")
                 }

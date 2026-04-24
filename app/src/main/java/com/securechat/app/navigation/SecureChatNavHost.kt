@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Call
@@ -42,6 +43,7 @@ import com.securechat.app.ui.screen.ChatInfoScreen
 import com.securechat.app.ui.screen.ChatScreen
 import com.securechat.app.ui.screen.ContactsScreen
 import com.securechat.app.ui.screen.ConversationsScreen
+import com.securechat.app.ui.screen.AddGroupMemberScreen
 import com.securechat.app.ui.screen.CreateGroupScreen
 import com.securechat.app.ui.screen.GroupInfoScreen
 import com.securechat.app.ui.screen.OtpVerificationScreen
@@ -95,8 +97,7 @@ fun SecureChatNavHost(
                 NavigationBar(
                     containerColor = if (dark) Color(0xFF0D1014).copy(alpha = 0.85f)
                                      else Color.White.copy(alpha = 0.85f),
-                    tonalElevation = 0.dp,
-                    windowInsets = WindowInsets(0, 0, 0, 0)
+                    tonalElevation = 0.dp
                 ) {
                     BottomTab.entries.forEach { tab ->
                         NavigationBarItem(
@@ -110,7 +111,20 @@ fun SecureChatNavHost(
                                     }
                                 }
                             },
-                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            icon = {
+                                Icon(
+                                    tab.icon,
+                                    contentDescription = tab.label,
+                                    modifier = Modifier.padding(vertical = 2.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    tab.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 11.sp
+                                )
+                            },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.primary,
                                 selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -235,7 +249,13 @@ fun SecureChatNavHost(
                 )
             }
 
-            composable("chat/{conversationId}") {
+            composable(
+                "chat/{conversationId}",
+                enterTransition = { defaultEnter() },
+                exitTransition = { defaultExit() },
+                popEnterTransition = { defaultPopEnter() },
+                popExitTransition = { defaultPopExit() }
+            ) {
                 val conversationId = it.arguments?.getString("conversationId") ?: ""
                 ChatScreen(
                     conversationId = conversationId,
@@ -261,11 +281,18 @@ fun SecureChatNavHost(
                     groupId = groupId,
                     onBackClick = { navController.popBackStack() },
                     onAddMember = {
-                        // TODO: Navigate to contact selection for adding members
+                        navController.navigate("add_member/$groupId")
                     },
                     onMemberClick = { memberId ->
                         navController.navigate("chat_info/$memberId")
                     }
+                )
+            }
+
+            composable("add_member/{groupId}") {
+                AddGroupMemberScreen(
+                    onMembersAdded = { navController.popBackStack() },
+                    onBackClick = { navController.popBackStack() }
                 )
             }
 

@@ -1,0 +1,23 @@
+1) açık tema da mesaj girilen input fieldın etrafı siyah olarak kalıyor.
+
+2) dosya yükleme butonuna tıklandığında seçenekler açılsın yukarı doğru --> Kamera, Galeri ve Dosyalar olmak üzere 3 seçenek çıkması gerekiyor.
+
+3) Uygulama bildirim seslerini ayarlar üzerinden kullanıcı değiştirebilmeli.
+
+4) Numara girilen her yerdeki formatı placeholderda olduğu gibi olması lazım örneği 555 555 55 55 şeklinde gösteriyor olmamız lazım.
+
+5) Sohbete giderken animasyonda sorunumuz var sağ üstten ortaya geliyor gibi gözüküyor. Diğer sayfalar gibi değil.
+
+6) Rehber sayfasında yukarıdaki "Geçmiş Konuşmalar" başlığı ve altındaki alanı kaldıralım. "Kişi Ara" kısmından başlasın o sayfa.
+
+7) Arama kayıtlarında silme işlemi için onay pop-upı olması lazım kullanıcı onu onaylarsa silinsin. Ayrıca her bir arama kaydı ayrı ayrı silinebiliyor olmalı sağ veya sola çekilerek ilgili kayıt ve yine onay pop-up'ı lazım.
+
+8) Ayarlar sayfasındaki her bir kutunun başlığı ve altındaki itemler ile arasındaki gap çok fazla daha kompakt olsun.
+
+9) Alttaki barda seçilen itemin seçilme hoverı alttan üstten biraz daha geniş olabilir bunuda ayarla.
+
+10) Splash screeni yarım saniye kadar azaltıp 1.5 saniye yapalım.
+
+11) Alttaki andoridin ana ekran geri git butonları falan var ya onu kişiye özel yapmamız lazım ister tam ekran olacak ister alttan o butonlar gözüküyor gibi olacak.
+
+12) Uygulama arka planı kullanıcının isteğine bağlı olarak ister doodleartlı şu anki arka plan olsun. İsterse düz uygulama renklerinde sade arka plan olsun.

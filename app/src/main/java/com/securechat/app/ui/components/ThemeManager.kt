@@ -9,6 +9,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +30,9 @@ class ThemeManager @Inject constructor(
     private val IS_DARK_THEME_KEY = booleanPreferencesKey("is_dark_theme")
     private val FOLLOW_SYSTEM_KEY = booleanPreferencesKey("follow_system_theme")
     private val SHOW_NOTIFICATION_CONTENT_KEY = booleanPreferencesKey("show_notification_content")
+    private val NOTIFICATION_SOUND_URI_KEY = stringPreferencesKey("notification_sound_uri")
+    private val USE_DOODLE_BACKGROUND_KEY = booleanPreferencesKey("use_doodle_background")
+    private val FULLSCREEN_MODE_KEY = booleanPreferencesKey("fullscreen_mode")
 
     /**
      * Sistem temasını takip etme durumu flow'u.
@@ -51,6 +55,29 @@ class ThemeManager @Inject constructor(
      */
     val showNotificationContent: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[SHOW_NOTIFICATION_CONTENT_KEY] ?: true
+    }
+
+    /**
+     * Bildirim sesi URI'si. Bos string = varsayilan ses.
+     */
+    val notificationSoundUri: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[NOTIFICATION_SOUND_URI_KEY] ?: ""
+    }
+
+    /**
+     * Doodle arka plan tercihi.
+     * true = doodle desenli arka plan, false = duz renk arka plan.
+     */
+    val useDoodleBackground: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[USE_DOODLE_BACKGROUND_KEY] ?: true
+    }
+
+    /**
+     * Tam ekran modu tercihi.
+     * true = sistem navigasyon cubugu gizlenir.
+     */
+    val fullscreenMode: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[FULLSCREEN_MODE_KEY] ?: false
     }
 
     /**
@@ -77,6 +104,33 @@ class ThemeManager @Inject constructor(
     suspend fun setShowNotificationContent(show: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[SHOW_NOTIFICATION_CONTENT_KEY] = show
+        }
+    }
+
+    /**
+     * Bildirim sesi URI'sini ayarla.
+     */
+    suspend fun setNotificationSoundUri(uri: String) {
+        context.dataStore.edit { preferences ->
+            preferences[NOTIFICATION_SOUND_URI_KEY] = uri
+        }
+    }
+
+    /**
+     * Doodle arka plan tercihini ayarla.
+     */
+    suspend fun setUseDoodleBackground(use: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[USE_DOODLE_BACKGROUND_KEY] = use
+        }
+    }
+
+    /**
+     * Tam ekran modu tercihini ayarla.
+     */
+    suspend fun setFullscreenMode(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[FULLSCREEN_MODE_KEY] = enabled
         }
     }
 }

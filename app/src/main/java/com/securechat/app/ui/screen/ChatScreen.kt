@@ -50,6 +50,7 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -98,6 +99,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
@@ -212,6 +214,26 @@ fun ChatScreen(
         uri?.let { viewModel.sendFile(it) }
     }
 
+    // Galeri seçici launcher
+    val galleryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.sendFile(it) }
+    }
+
+    // Kamera launcher
+    var cameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            cameraPhotoUri?.let { viewModel.sendFile(it) }
+        }
+    }
+
+    // Ataşman menü state
+    var showAttachMenu by remember { mutableStateOf(false) }
+
     // Dosya transfer hata mesajlarını göster
     LaunchedEffect(Unit) {
         viewModel.fileTransferEvent.collect { message ->
@@ -293,23 +315,14 @@ fun ChatScreen(
         }
     }
 
+    val dark = LocalDarkTheme.current
+    Box(Modifier.fillMaxSize()) {
+        AzureDoodleBackdrop(dark = dark)
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            if (isSearchMode) {
-                ChatSearchBar(
-                    query = searchQuery,
-                    resultCount = searchResultIds.size,
-                    currentIndex = currentSearchIndex,
-                    onQueryChange = { viewModel.searchInChat(it) },
-                    onNext = { viewModel.nextSearchResult() },
-                    onPrev = { viewModel.prevSearchResult() },
-                    onClose = {
-                        isSearchMode = false
-                        viewModel.clearChatSearch()
-                    }
-                )
-            } else {
+            Column {
                 ChatTopBar(
                     peerName = displayName,
                     isGroup = isGroup,
@@ -335,6 +348,24 @@ fun ChatScreen(
                         }
                     }
                 )
+                AnimatedVisibility(
+                    visible = isSearchMode,
+                    enter = slideInVertically(tween(200)) { -it } + fadeIn(tween(200)),
+                    exit = slideOutVertically(tween(200)) { -it } + fadeOut(tween(200))
+                ) {
+                    ChatSearchBar(
+                        query = searchQuery,
+                        resultCount = searchResultIds.size,
+                        currentIndex = currentSearchIndex,
+                        onQueryChange = { viewModel.searchInChat(it) },
+                        onNext = { viewModel.nextSearchResult() },
+                        onPrev = { viewModel.prevSearchResult() },
+                        onClose = {
+                            isSearchMode = false
+                            viewModel.clearChatSearch()
+                        }
+                    )
+                }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -348,15 +379,11 @@ fun ChatScreen(
                 .imePadding()
         ) {
             // Mesaj listesi
-            val dark = LocalDarkTheme.current
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                // Azure glassmorphism arka plan deseni
-                AzureDoodleBackdrop(dark = dark)
-
                 if (messages.isEmpty()) {
                     EncryptionInfoBanner(
                         modifier = Modifier
@@ -521,6 +548,62 @@ fun ChatScreen(
                     )
                 }
 
+                // Ataşman seçenekleri popup
+                AnimatedVisibility(
+                    visible = showAttachMenu,
+                    enter = slideInVertically(tween(200)) { it } + fadeIn(tween(200)),
+                    exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(200))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        val chatContext = LocalContext.current
+                        AttachOption(
+                            icon = Icons.Default.CameraAlt,
+                            label = "Kamera",
+                            color = Color(0xFF3E7BFA),
+                            dark = dark,
+                            onClick = {
+                                showAttachMenu = false
+                                val photoFile = java.io.File(
+                                    chatContext.cacheDir,
+                                    "camera_${System.currentTimeMillis()}.jpg"
+                                )
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    chatContext,
+                                    "${chatContext.packageName}.fileprovider",
+                                    photoFile
+                                )
+                                cameraPhotoUri = uri
+                                cameraLauncher.launch(uri)
+                            }
+                        )
+                        AttachOption(
+                            icon = Icons.Default.Image,
+                            label = "Galeri",
+                            color = Color(0xFF22C55E),
+                            dark = dark,
+                            onClick = {
+                                showAttachMenu = false
+                                galleryPickerLauncher.launch("image/*")
+                            }
+                        )
+                        AttachOption(
+                            icon = Icons.AutoMirrored.Filled.InsertDriveFile,
+                            label = "Dosyalar",
+                            color = Color(0xFFFFB800),
+                            dark = dark,
+                            onClick = {
+                                showAttachMenu = false
+                                filePickerLauncher.launch(arrayOf("*/*"))
+                            }
+                        )
+                    }
+                }
+
                 // Mesaj giriş çubuğu
                 MessageInputBar(
                 text = messageText,
@@ -537,12 +620,13 @@ fun ChatScreen(
                     }
                 },
                 onAttachClick = {
-                    filePickerLauncher.launch(arrayOf("*/*"))
+                    showAttachMenu = !showAttachMenu
                 }
             )
             }
         }
     }
+    } // Box wrapper
 }
 
 /**
@@ -579,6 +663,7 @@ fun ChatSearchBar(
     onPrev: () -> Unit,
     onClose: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
@@ -586,65 +671,77 @@ fun ChatSearchBar(
     }
 
     Surface(
-        color = Color.Transparent
+        color = if (dark) Color(0xFF0D1014).copy(alpha = 0.85f)
+                else Color.White.copy(alpha = 0.92f)
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 4.dp, end = 4.dp, top = 8.dp),
+                    .padding(start = 4.dp, end = 4.dp, top = 2.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Geri / kapat butonu
-                IconButton(onClick = onClose) {
+                IconButton(onClick = onClose, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Aramadan çık",
-                        tint = MaterialTheme.colorScheme.onSurface
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
                 // Arama alanı
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            RoundedCornerShape(20.dp)
+                        )
+                        .padding(start = 14.dp, end = 6.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
-                    TextField(
-                        value = query,
-                        onValueChange = onQueryChange,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester),
-                        placeholder = {
-                            Text(
-                                "Mesajlarda ara...",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (query.isEmpty()) {
+                                Text(
+                                    "Mesajlarda ara...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = query,
+                                onValueChange = onQueryChange,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester),
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary)
                             )
-                        },
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            cursorColor = MaterialTheme.colorScheme.primary
-                        ),
-                        trailingIcon = {
-                            if (query.isNotBlank()) {
-                                IconButton(onClick = {
-                                    onQueryChange("")
-                                }) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Temizle",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                        }
+                        if (query.isNotBlank()) {
+                            IconButton(
+                                onClick = { onQueryChange("") },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Temizle",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                         }
-                    )
+                    }
                 }
             }
 
@@ -674,32 +771,32 @@ fun ChatSearchBar(
 
                     // Navigasyon okları
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Yukarı ok — daha yeni mesaja git
-                        IconButton(
-                            onClick = onPrev,
-                            enabled = resultCount > 0 && currentIndex > 0,
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.KeyboardArrowUp,
-                                contentDescription = "Daha yeni sonuç",
-                                tint = if (resultCount > 0 && currentIndex > 0)
-                                    MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-
-                        // Aşağı ok — daha eski mesaja git
+                        // Yukarı ok — daha eski mesaja git
                         IconButton(
                             onClick = onNext,
                             enabled = resultCount > 0 && currentIndex < resultCount - 1,
                             modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
-                                Icons.Default.KeyboardArrowDown,
+                                Icons.Default.KeyboardArrowUp,
                                 contentDescription = "Daha eski sonuç",
                                 tint = if (resultCount > 0 && currentIndex < resultCount - 1)
+                                    MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        // Aşağı ok — daha yeni mesaja git
+                        IconButton(
+                            onClick = onPrev,
+                            enabled = resultCount > 0 && currentIndex > 0,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Daha yeni sonuç",
+                                tint = if (resultCount > 0 && currentIndex > 0)
                                     MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
                                 modifier = Modifier.size(28.dp)
@@ -858,7 +955,8 @@ fun ChatTopBar(
     val dark = LocalDarkTheme.current
     var showMenu by remember { mutableStateOf(false) }
     Surface(
-        color = Color.Transparent
+        color = if (dark) Color(0xFF0D1014).copy(alpha = 0.85f)
+                else Color.White.copy(alpha = 0.92f)
     ) {
         Row(
             modifier = Modifier
@@ -938,37 +1036,40 @@ fun ChatTopBar(
                 }
             }
 
-            // Aksiyon ikonları
-            if (onSearchClick != null) {
-                IconButton(onClick = onSearchClick) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = "Sohbette Ara",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            IconButton(onClick = onVoiceCallClick) {
+            // Aksiyon ikonları — küçültülmüş boyut
+            IconButton(
+                onClick = onVoiceCallClick,
+                modifier = Modifier.size(36.dp)
+            ) {
                 Icon(
                     Icons.Default.Call,
                     contentDescription = "Sesli Arama",
+                    modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onVideoCallClick) {
+            IconButton(
+                onClick = onVideoCallClick,
+                modifier = Modifier.size(36.dp)
+            ) {
                 Icon(
                     Icons.Default.Videocam,
                     contentDescription = "Görüntülü Arama",
+                    modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            // Daha fazla menü (süreli mesaj vb.)
+            // Daha fazla menü (arama, süreli mesaj vb.)
             Box {
-                IconButton(onClick = { showMenu = true }) {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         Icons.Default.MoreVert,
                         contentDescription = "Daha Fazla",
+                        modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -976,6 +1077,22 @@ fun ChatTopBar(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    if (onSearchClick != null) {
+                        DropdownMenuItem(
+                            text = { Text("Sohbette Ara") },
+                            onClick = {
+                                showMenu = false
+                                onSearchClick()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = {
                             Text(
@@ -1198,7 +1315,7 @@ fun MessageBubble(
         Box {
             Box(
                 modifier = Modifier
-                    .widthIn(min = 80.dp, max = 300.dp)
+                    .widthIn(max = 300.dp)
                     .background(bubbleBg, bubbleShape)
                     .border(1.dp, bubbleBorder, bubbleShape)
                     .clip(bubbleShape)
@@ -1223,7 +1340,6 @@ fun MessageBubble(
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                             modifier = Modifier
-                                .fillMaxWidth()
                                 .padding(bottom = 4.dp)
                                 .clickable {
                                     onReplyClick?.invoke(replyToMessage.id)
@@ -1334,7 +1450,7 @@ fun MessageBubble(
                     Row(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.align(Alignment.End)
                     ) {
                         if (message.isStarred) {
                             Icon(
@@ -1822,6 +1938,47 @@ fun MessageInputBar(
 }
 
 /**
+ * Ataşman menü seçenek butonu.
+ */
+@Composable
+private fun AttachOption(
+    icon: ImageVector,
+    label: String,
+    color: Color,
+    dark: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = if (dark) 0.2f else 0.12f))
+                .border(1.dp, color.copy(alpha = 0.3f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = color,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (dark) Color(0xFFECEEF2) else Color(0xFF13161B)
+        )
+    }
+}
+
+/**
  * Sağa sürükle ile yanıtlama jesti.
  * Mesaj sağa sürüklenince onSwipeReply tetiklenir.
  */
@@ -2051,8 +2208,6 @@ private fun MessageInfoPopup(
     groupMembers: List<String>,
     onDismiss: () -> Unit
 ) {
-    val dark = LocalDarkTheme.current
-
     com.securechat.app.ui.components.GlassDialog(
         onDismissRequest = onDismiss
     ) {

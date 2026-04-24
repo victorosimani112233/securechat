@@ -75,9 +75,12 @@ import com.securechat.app.ui.components.GlassDialog
 import com.securechat.app.ui.viewmodel.ContactsViewModel
 import com.securechat.contacts.PhoneNumberNormalizer
 import android.content.Intent
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import com.securechat.app.ui.components.COUNTRY_CODES
+import com.securechat.app.ui.components.CountryCodePicker
 import com.securechat.contacts.model.DeviceContact
 import com.securechat.contacts.model.RegisteredContact
-import com.securechat.storage.domain.Conversation
 import com.securechat.app.ui.theme.AzureDoodleBackdrop
 import com.securechat.app.ui.theme.LocalDarkTheme
 import com.securechat.app.ui.theme.glass
@@ -107,7 +110,6 @@ fun ContactsScreen(
     val permissionGranted by viewModel.permissionGranted.collectAsStateWithLifecycle()
     val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
     val manualUserId by viewModel.manualUserId.collectAsStateWithLifecycle()
-    val recentConversations by viewModel.recentConversations.collectAsStateWithLifecycle()
     val resolvedUserId by viewModel.resolvedUserId.collectAsStateWithLifecycle()
     val userNotFound by viewModel.userNotFound.collectAsStateWithLifecycle()
 
@@ -282,16 +284,19 @@ fun ContactsScreen(
                         ManualUserIdSection(
                             manualUserId = manualUserId,
                             onManualUserIdChanged = { viewModel.onManualUserIdChanged(it) },
-                            onStartChat = {
-                                val input = manualUserId.trim()
+                            onStartChat = { countryCode ->
+                                val raw = manualUserId.trim()
+                                // Ulke kodunu basina ekle (+ ile baslamiyorsa)
+                                val input = if (raw.startsWith("+")) raw
+                                            else "$countryCode$raw"
                                 val normalizedInput = PhoneNumberNormalizer.normalizeDigits(input)
                                 val match = contacts.firstOrNull { reg ->
                                     PhoneNumberNormalizer.normalizeDigits(reg.phoneNumber) == normalizedInput
                                 }
                                 if (match != null) {
                                     onContactClick(match.userId)
-                                } else if (input.length == 36 && input.contains("-")) {
-                                    onContactClick(input)
+                                } else if (raw.length == 36 && raw.contains("-")) {
+                                    onContactClick(raw)
                                 } else {
                                     viewModel.resolvePhoneToUuid(input)
                                 }
@@ -302,36 +307,6 @@ fun ContactsScreen(
                             thickness = 0.5.dp
                         )
                     }
-                }
-            }
-
-            // Geçmiş konuşmalar bölümü — hızlı erişim
-            if (recentConversations.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Geçmiş Konuşmalar",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                    )
-                }
-                items(recentConversations, key = { "conv_${it.id}" }) { conversation ->
-                    RecentConversationItem(
-                        conversation = conversation,
-                        onClick = { onContactClick(conversation.peerId) }
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(start = 72.dp),
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                        thickness = 0.5.dp
-                    )
-                }
-                item {
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                        thickness = 0.5.dp
-                    )
                 }
             }
 
@@ -409,7 +384,7 @@ fun ContactsScreen(
 
             // Kişi listesi veya boş durum
             val hasAnyContacts = contacts.isNotEmpty() || phoneContacts.isNotEmpty()
-            if (!hasAnyContacts && recentConversations.isEmpty()) {
+            if (!hasAnyContacts) {
                 item {
                     Box(
                         modifier = Modifier
@@ -499,31 +474,40 @@ fun ContactsScreen(
 private fun ManualUserIdSection(
     manualUserId: String,
     onManualUserIdChanged: (String) -> Unit,
-    onStartChat: () -> Unit
+    onStartChat: (countryCode: String) -> Unit
 ) {
+    var selectedCountryCode by remember { mutableStateOf(COUNTRY_CODES.first()) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        CountryCodePicker(
+            selectedCode = selectedCountryCode,
+            onCodeSelected = { selectedCountryCode = it }
+        )
         OutlinedTextField(
             value = manualUserId,
-            onValueChange = onManualUserIdChanged,
+            onValueChange = { onManualUserIdChanged(it.filter { c -> c.isDigit() }.take(10)) },
             modifier = Modifier.weight(1f),
-            placeholder = { Text("Telefon numarası girin") },
+            placeholder = { Text("5XX XXX XX XX") },
             singleLine = true,
             shape = RoundedCornerShape(12.dp),
             textStyle = MaterialTheme.typography.bodyMedium,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            visualTransformation = com.securechat.app.util.PhoneVisualTransformation(),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                 cursorColor = MaterialTheme.colorScheme.primary
             )
         )
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(2.dp))
         IconButton(
-            onClick = onStartChat,
+            onClick = { onStartChat(selectedCountryCode.code) },
             enabled = manualUserId.isNotBlank()
         ) {
             Icon(
@@ -765,46 +749,3 @@ fun PhoneContactItem(
     )
 }
 
-/**
- * Geçmiş konuşma satırı.
- * Veritabanındaki mevcut konuşmalardan hızlı erişim sağlar.
- */
-@Composable
-private fun RecentConversationItem(
-    conversation: Conversation,
-    onClick: () -> Unit
-) {
-    val dark = LocalDarkTheme.current
-    val displayName = conversation.peerName.ifBlank { conversation.peerId }
-
-    ListItem(
-        modifier = Modifier
-            .padding(horizontal = 12.dp)
-            .glass(dark, shape = RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick),
-        headlineContent = {
-            Text(
-                text = displayName,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        },
-        supportingContent = {
-            Text(
-                text = conversation.lastMessage ?: "Mesaj yok",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
-        },
-        leadingContent = {
-            GeneratedAvatar(
-                name = displayName,
-                isGroup = conversation.isGroup,
-                size = 48.dp
-            )
-        },
-        colors = ListItemDefaults.colors(
-            containerColor = Color.Transparent
-        )
-    )
-}

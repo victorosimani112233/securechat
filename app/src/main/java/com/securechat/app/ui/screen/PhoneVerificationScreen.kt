@@ -333,10 +333,11 @@ fun PhoneVerificationScreen(
 
                         OutlinedTextField(
                             value = phoneNumber,
-                            onValueChange = { phoneNumber = it },
+                            onValueChange = { phoneNumber = it.filter { c -> c.isDigit() }.take(10) },
                             label = { Text("Telefon Numarası") },
                             modifier = Modifier.weight(1f),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            visualTransformation = com.securechat.app.util.PhoneVisualTransformation(),
                             singleLine = true,
                             placeholder = { Text("5XX XXX XX XX") },
                             shape = RoundedCornerShape(12.dp),

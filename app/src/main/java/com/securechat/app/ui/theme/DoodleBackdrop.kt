@@ -25,8 +25,21 @@ fun AzureDoodleBackdrop(
     dark: Boolean = isSystemInDarkTheme(),
 ) {
     val tokens = LocalAzureTokens.current
+    val useDoodle = LocalUseDoodleBackground.current
     val base = if (dark) tokens.night else tokens.paper
     val wash = Color(0xFF3E7BFA).copy(alpha = if (dark) 0.035f else 0.04f)
+
+    if (!useDoodle) {
+        // Düz renk arka plan
+        Box(modifier.fillMaxSize()) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawRect(base)
+                drawRect(wash)
+            }
+        }
+        return
+    }
+
     val stroke = if (dark) Color.White.copy(alpha = 0.055f)
                  else Color(0xFF13161B).copy(alpha = 0.07f)
     val strokeStrong = if (dark) Color(0xFF5EA3FF).copy(alpha = 0.07f)

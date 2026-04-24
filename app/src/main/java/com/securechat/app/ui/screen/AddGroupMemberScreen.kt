@@ -1,5 +1,9 @@
 package com.securechat.app.ui.screen
 
+import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,10 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -25,9 +31,13 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,7 +51,9 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -53,69 +65,56 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.securechat.app.ui.theme.AzureDoodleBackdrop
-import com.securechat.app.ui.theme.DisplayFamily
-import com.securechat.app.ui.theme.LocalDarkTheme
-import com.securechat.app.ui.theme.glass
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.filled.PersonSearch
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import android.content.Intent
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.securechat.app.ui.components.COUNTRY_CODES
 import com.securechat.app.ui.components.CountryCodePicker
 import com.securechat.app.ui.components.GlassDialog
-import com.securechat.app.ui.viewmodel.CreateGroupViewModel
+import com.securechat.app.ui.theme.AzureDoodleBackdrop
+import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.glass
+import com.securechat.app.ui.viewmodel.AddGroupMemberViewModel
 import com.securechat.app.ui.viewmodel.SelectableContact
 
 /**
- * Grup oluşturma ekranı.
- * Azure glassmorphism tasarım: cam efektli kartlar, DoodleBackdrop arka plan.
+ * Mevcut gruba uye ekleme ekrani.
+ * Kayitli kisileri listeler, mevcut uyeler filtrelenir.
+ * Telefon numarasiyla ekleme ve davet destegi.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CreateGroupScreen(
-    viewModel: CreateGroupViewModel = hiltViewModel(),
-    onGroupCreated: (String) -> Unit,
+fun AddGroupMemberScreen(
+    viewModel: AddGroupMemberViewModel = hiltViewModel(),
+    onMembersAdded: () -> Unit,
     onBackClick: () -> Unit
 ) {
     val dark = LocalDarkTheme.current
-    val groupName by viewModel.groupName.collectAsStateWithLifecycle()
     val contacts by viewModel.contacts.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val isLoadingContacts by viewModel.isLoadingContacts.collectAsStateWithLifecycle()
     val selectedMembers by viewModel.selectedMembers.collectAsStateWithLifecycle()
-    val createdGroupId by viewModel.createdGroupId.collectAsStateWithLifecycle()
+    val isAdding by viewModel.isAdding.collectAsStateWithLifecycle()
+    val addComplete by viewModel.addComplete.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val phoneInput by viewModel.phoneInput.collectAsStateWithLifecycle()
     val isResolvingPhone by viewModel.isResolvingPhone.collectAsStateWithLifecycle()
     val phoneNotFound by viewModel.phoneNotFound.collectAsStateWithLifecycle()
+    val groupName by viewModel.groupName.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showPhoneInput by remember { mutableStateOf(false) }
     var selectedCountryCode by remember { mutableStateOf(COUNTRY_CODES.first()) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    // Grup oluşturulunca sohbet ekranına navigate et
-    LaunchedEffect(createdGroupId) {
-        createdGroupId?.let { groupId ->
-            onGroupCreated(groupId)
-        }
+    // Ekleme tamamlaninca geri don
+    LaunchedEffect(addComplete) {
+        if (addComplete) onMembersAdded()
     }
 
-    // Hata mesajı göster
+    // Hata mesajlarini goster
     LaunchedEffect(error) {
         error?.let { msg ->
             snackbarHostState.showSnackbar(msg)
@@ -130,10 +129,19 @@ fun CreateGroupScreen(
             topBar = {
                 TopAppBar(
                     title = {
-                        Text(
-                            "Yeni Grup",
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Column {
+                            Text(
+                                "Üye Ekle",
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (groupName.isNotBlank()) {
+                                Text(
+                                    groupName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     },
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
@@ -153,13 +161,24 @@ fun CreateGroupScreen(
             },
             snackbarHost = { SnackbarHost(snackbarHostState) },
             floatingActionButton = {
-                if (groupName.isNotBlank() && selectedMembers.isNotEmpty()) {
+                if (selectedMembers.isNotEmpty()) {
                     FloatingActionButton(
-                        onClick = { viewModel.createGroup() },
+                        onClick = { viewModel.addSelectedMembers() },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = Color.White
                     ) {
-                        Text("Oluştur", modifier = Modifier.padding(horizontal = 16.dp))
+                        if (isAdding) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White
+                            )
+                        } else {
+                            Text(
+                                "Ekle (${selectedMembers.size})",
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
                     }
                 }
             },
@@ -173,49 +192,24 @@ fun CreateGroupScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {
-                // Grup adı alanı
-                OutlinedTextField(
-                    value = groupName,
-                    onValueChange = { viewModel.onGroupNameChanged(it) },
-                    label = { Text("Grup Adı") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                        cursorColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Seçili üyelerin chip listesi
+                // Secili uyeler chip listesi
                 if (selectedMembers.isNotEmpty()) {
                     Text(
-                        text = "Seçili Üyeler (${selectedMembers.size})",
+                        text = "Eklenecek Üyeler (${selectedMembers.size})",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-
                     Spacer(modifier = Modifier.height(8.dp))
-
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         selectedMembers.forEach { userId ->
-                            // userId'den kişi adını bul
                             val contactName = contacts.find { it.userId == userId }?.displayName ?: userId
                             AssistChip(
                                 onClick = { viewModel.toggleContactSelection(userId) },
                                 label = {
-                                    Text(
-                                        contactName,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                    Text(contactName, color = MaterialTheme.colorScheme.primary)
                                 },
                                 trailingIcon = {
                                     Icon(
@@ -235,7 +229,6 @@ fun CreateGroupScreen(
                             )
                         }
                     }
-
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
@@ -322,8 +315,6 @@ fun CreateGroupScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // Kullanici bulunamadi dialog — davet butonu ile
                 phoneNotFound?.let { phone ->
                     GlassDialog(onDismissRequest = { viewModel.consumePhoneNotFound() }) {
@@ -383,6 +374,8 @@ fun CreateGroupScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(16.dp))
+
                 // Rehber listesi
                 Text(
                     text = "Kayıtlı Kişiler",
@@ -392,7 +385,7 @@ fun CreateGroupScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Rehber arama alanı
+                // Rehber arama
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { viewModel.onSearchQueryChanged(it) },
@@ -429,7 +422,7 @@ fun CreateGroupScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Contact list container
+                // Kisi listesi
                 if (isLoadingContacts) {
                     Box(
                         modifier = Modifier
@@ -452,6 +445,19 @@ fun CreateGroupScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                } else if (contacts.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Eklenebilecek kişi bulunamadı",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 } else {
                     LazyColumn(
                         modifier = Modifier
@@ -460,7 +466,7 @@ fun CreateGroupScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(contacts) { selectableContact ->
-                            ContactSelectionItem(
+                            AddMemberContactItem(
                                 selectableContact = selectableContact,
                                 dark = dark,
                                 onSelectionChanged = { viewModel.toggleContactSelection(selectableContact.userId) }
@@ -476,11 +482,10 @@ fun CreateGroupScreen(
 }
 
 /**
- * Rehberdeki bir kişiyi seçim için gösteren component.
- * Glass efektli kart ile gösterilir.
+ * Uye ekleme ekranindaki kisi secim itemi.
  */
 @Composable
-private fun ContactSelectionItem(
+private fun AddMemberContactItem(
     selectableContact: SelectableContact,
     dark: Boolean,
     onSelectionChanged: () -> Unit
@@ -493,7 +498,6 @@ private fun ContactSelectionItem(
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Avatar placeholder — solid renk
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -508,7 +512,6 @@ private fun ContactSelectionItem(
             )
         }
 
-        // Contact info
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = selectableContact.displayName,
@@ -522,7 +525,6 @@ private fun ContactSelectionItem(
             )
         }
 
-        // Selection checkbox
         Checkbox(
             checked = selectableContact.isSelected,
             onCheckedChange = { onSelectionChanged() },

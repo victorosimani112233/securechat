@@ -50,6 +50,7 @@ data class AzureTokens(
 
 val LocalAzureTokens = staticCompositionLocalOf { AzureTokens() }
 val LocalDarkTheme = staticCompositionLocalOf { false }
+val LocalUseDoodleBackground = staticCompositionLocalOf { true }
 
 val androidx.compose.material3.MaterialTheme.azure: AzureTokens
     @Composable @ReadOnlyComposable

@@ -38,6 +38,15 @@ class SettingsViewModel @Inject constructor(
     val showNotificationContent: StateFlow<Boolean> = themeManager.showNotificationContent
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
+    val notificationSoundUri: StateFlow<String> = themeManager.notificationSoundUri
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    val useDoodleBackground: StateFlow<Boolean> = themeManager.useDoodleBackground
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val fullscreenMode: StateFlow<Boolean> = themeManager.fullscreenMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _shareLastSeen = MutableStateFlow(userSession.shareLastSeen)
     val shareLastSeen: StateFlow<Boolean> = _shareLastSeen.asStateFlow()
 
@@ -73,6 +82,18 @@ class SettingsViewModel @Inject constructor(
 
     fun setShowNotificationContent(show: Boolean) {
         viewModelScope.launch { themeManager.setShowNotificationContent(show) }
+    }
+
+    fun setNotificationSoundUri(uri: String) {
+        viewModelScope.launch { themeManager.setNotificationSoundUri(uri) }
+    }
+
+    fun setUseDoodleBackground(use: Boolean) {
+        viewModelScope.launch { themeManager.setUseDoodleBackground(use) }
+    }
+
+    fun setFullscreenMode(enabled: Boolean) {
+        viewModelScope.launch { themeManager.setFullscreenMode(enabled) }
     }
 
     fun nukeAllData() {

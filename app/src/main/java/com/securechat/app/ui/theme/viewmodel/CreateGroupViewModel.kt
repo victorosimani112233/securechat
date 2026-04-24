@@ -263,10 +263,15 @@ class CreateGroupViewModel @Inject constructor(
 
     /**
      * Telefon numarasindan kullanici UUID'si cozumler ve secili uyelere ekler.
+     * countryCode: Secili ulke kodu (orn. "+90"). Numara zaten + ile baslamiyorsa basina eklenir.
      */
-    fun addMemberByPhone() {
-        val phone = _phoneInput.value.trim()
-        if (phone.isBlank()) return
+    fun addMemberByPhone(countryCode: String = "+90") {
+        val rawPhone = _phoneInput.value.trim()
+        if (rawPhone.isBlank()) return
+
+        // Ulke kodunu numaranin basina ekle (kullanici sadece numara girerse)
+        val phone = if (rawPhone.startsWith("+")) rawPhone
+                    else "$countryCode$rawPhone"
 
         viewModelScope.launch {
             _isResolvingPhone.value = true

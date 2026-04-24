@@ -8,6 +8,8 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
@@ -70,6 +72,8 @@ fun SecureChatTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) AzureDarkScheme else AzureLightScheme
+    val useDoodle by (themeManager?.useDoodleBackground
+        ?: kotlinx.coroutines.flow.flowOf(true)).collectAsState(initial = true)
 
     val view = LocalView.current
     if (!view.isInEditMode) {
@@ -83,6 +87,7 @@ fun SecureChatTheme(
     CompositionLocalProvider(
         LocalAzureTokens provides AzureTokens(),
         LocalDarkTheme provides darkTheme,
+        LocalUseDoodleBackground provides useDoodle,
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
