@@ -16,10 +16,12 @@ import com.securechat.storage.domain.Conversation
 import com.securechat.storage.repository.MessageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -102,9 +104,10 @@ class ContactsViewModel @Inject constructor(
         android.util.Log.d("ContactsViewModel", "Current chat cleared from contacts")
     }
 
-    /** Arama sorgusuna gore filtrelenmis kisi listesi. */
-    @OptIn(ExperimentalCoroutinesApi::class)
+    /** Arama sorgusuna gore filtrelenmis kisi listesi — 300ms debounce ile API cagrisini azaltir. */
+    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     val contacts: StateFlow<List<RegisteredContact>> = _searchQuery
+        .debounce(300)
         .flatMapLatest { query ->
             if (query.isBlank()) {
                 contactSearchManager.getRegisteredContacts()

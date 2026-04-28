@@ -181,6 +181,21 @@ sealed class SignalMessage {
     ) : SignalMessage()
 
     /**
+     * Mesaj duzenleme bildirimi.
+     * Gonderici kendi mesajini duzenledikten sonra karsi tarafa iletilir.
+     * Sadece 15 dakika icinde gonderilmis mesajlar duzenlenebilir.
+     */
+    @Serializable
+    @SerialName("message_edit")
+    data class MessageEdit(
+        override val senderId: String,
+        override val recipientId: String,
+        override val timestamp: Long,
+        val messageId: String,
+        val newContent: String
+    ) : SignalMessage()
+
+    /**
      * Yazma gostergesi. Kullanici yazmaya basladiginda/biraktiginda karsi tarafa iletilir.
      */
     @Serializable

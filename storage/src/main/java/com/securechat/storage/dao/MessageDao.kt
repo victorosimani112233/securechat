@@ -50,6 +50,10 @@ interface MessageDao {
     @Query("UPDATE messages SET content = :content, content_type = :contentType WHERE id = :messageId")
     suspend fun updateContent(messageId: String, content: String, contentType: String)
 
+    // ✏️ Mesaj duzenleme
+    @Query("UPDATE messages SET content = :content, edited_at = :editedAt WHERE id = :messageId")
+    suspend fun updateContentEdited(messageId: String, content: String, editedAt: Long)
+
     // ⭐ Yıldızlama özellikleri
     @Query("UPDATE messages SET is_starred = :isStarred WHERE id = :messageId")
     suspend fun updateStarred(messageId: String, isStarred: Boolean)

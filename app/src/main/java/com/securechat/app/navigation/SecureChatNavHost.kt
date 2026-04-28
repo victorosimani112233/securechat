@@ -42,6 +42,7 @@ import com.securechat.app.ui.screen.ChatInfoScreen
 import com.securechat.app.ui.screen.ChatScreen
 import com.securechat.app.ui.screen.ContactsScreen
 import com.securechat.app.ui.screen.ConversationsScreen
+import com.securechat.app.ui.screen.BulkMessageScreen
 import com.securechat.app.ui.screen.AddGroupMemberScreen
 import com.securechat.app.ui.screen.CreateGroupScreen
 import com.securechat.app.ui.screen.GroupInfoScreen
@@ -163,6 +164,7 @@ fun SecureChatNavHost(
                         }
                     },
                     onNewGroup = { navController.navigate("create_group") },
+                    onBulkMessage = { navController.navigate("bulk_message") },
                     onScheduledMessages = { navController.navigate("scheduled_messages") },
                     onSettingsClick = {
                         navController.navigate("settings") {
@@ -203,6 +205,16 @@ fun SecureChatNavHost(
                     },
                     onBackClick = { navController.popBackStack() }
                 )
+            }
+
+            composable(
+                "bulk_message",
+                enterTransition = { slideInVertically(tween(ANIM_DURATION)) { it } },
+                exitTransition = { slideOutVertically(tween(ANIM_DURATION)) { -it / 3 } },
+                popEnterTransition = { slideInVertically(tween(ANIM_DURATION)) { -it / 3 } },
+                popExitTransition = { slideOutVertically(tween(ANIM_DURATION)) { it } }
+            ) {
+                BulkMessageScreen(onBackClick = { navController.popBackStack() })
             }
 
             composable("chat/{conversationId}") {

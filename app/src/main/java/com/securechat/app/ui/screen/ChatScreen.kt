@@ -109,8 +109,15 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -209,6 +216,10 @@ fun ChatScreen(
     val currentSearchIndex by viewModel.currentSearchIndex.collectAsStateWithLifecycle()
     val highlightedMessageId by viewModel.highlightedMessageId.collectAsStateWithLifecycle()
 
+    // Mesaj duzenleme state'leri
+    var editingMessageId by remember { mutableStateOf<String?>(null) }
+    var editingMessageContent by remember { mutableStateOf("") }
+
     // Dosya seçici launcher
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -285,6 +296,22 @@ fun ChatScreen(
                 showDisappearingDialog = false
             },
             onDismiss = { showDisappearingDialog = false }
+        )
+    }
+
+    // Mesaj duzenleme dialog'u
+    if (editingMessageId != null) {
+        EditMessageDialog(
+            currentContent = editingMessageContent,
+            onConfirm = { newContent ->
+                viewModel.editMessage(editingMessageId!!, newContent)
+                editingMessageId = null
+                editingMessageContent = ""
+            },
+            onDismiss = {
+                editingMessageId = null
+                editingMessageContent = ""
+            }
         )
     }
 
@@ -472,6 +499,12 @@ fun ChatScreen(
                                         onDeleteMessage = { viewModel.deleteMessage(message.id) },
                                         onDeleteForEveryone = if (message.isOutgoing) {
                                             { viewModel.deleteMessageForEveryone(message.id) }
+                                        } else null,
+                                        onEditMessage = if (message.isOutgoing && !message.isFileMessage && !message.isDeleted) {
+                                            { currentContent ->
+                                                editingMessageId = message.id
+                                                editingMessageContent = currentContent
+                                            }
                                         } else null,
                                         onToggleStarMessage = { messageId, isStarred ->
                                             viewModel.toggleMessageStarred(messageId, isStarred)
@@ -1284,6 +1317,7 @@ fun MessageBubble(
     replyToMessage: LocalMessage? = null,
     onDeleteMessage: (() -> Unit)? = null,
     onDeleteForEveryone: (() -> Unit)? = null,
+    onEditMessage: ((String) -> Unit)? = null,
     onToggleStarMessage: ((String, Boolean) -> Unit)? = null,
     onForwardMessage: (() -> Unit)? = null,
     onReplyClick: ((String) -> Unit)? = null,
@@ -1474,6 +1508,19 @@ fun MessageBubble(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.align(Alignment.End)
                     ) {
+                        if (message.isEdited) {
+                            Text(
+                                text = "düzenlendi",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isOutgoing) {
+                                    if (dark) Color.White.copy(alpha = 0.45f) else Color(0xFF1E52D9).copy(alpha = 0.45f)
+                                } else {
+                                    if (dark) Color(0xFF9BA3AE).copy(alpha = 0.5f) else Color(0xFF5D6570).copy(alpha = 0.5f)
+                                },
+                                fontSize = 10.sp
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
                         if (message.isStarred) {
                             Icon(
                                 Icons.Default.Star,
@@ -1528,11 +1575,23 @@ fun MessageBubble(
                 // Kopyala (dosya mesaji degilse)
                 if (!message.isFileMessage && !message.isDeleted) {
                     val clipboardManager = LocalClipboardManager.current
+                    val clipContext = LocalContext.current
+                    val coroutineScope = rememberCoroutineScope()
                     DropdownMenuItem(
                         text = { Text("Kopyala") },
                         onClick = {
                             showPopupMenu = false
                             clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(message.content))
+                            // Guvenlik: 60 sn sonra panoyu temizle
+                            coroutineScope.launch {
+                                kotlinx.coroutines.delay(60_000)
+                                val cm = clipContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                                    cm.clearPrimaryClip()
+                                } else {
+                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
+                                }
+                            }
                         },
                         leadingIcon = {
                             Icon(
@@ -1542,6 +1601,27 @@ fun MessageBubble(
                             )
                         }
                     )
+                }
+
+                // Duzenle (sadece kendi TEXT mesajlari, 15 dakika icinde)
+                if (onEditMessage != null && message.isOutgoing && !message.isFileMessage && !message.isDeleted) {
+                    val canEdit = (System.currentTimeMillis() - message.timestamp) < 15 * 60 * 1000L
+                    if (canEdit) {
+                        DropdownMenuItem(
+                            text = { Text("Düzenle") },
+                            onClick = {
+                                showPopupMenu = false
+                                onEditMessage(message.content)
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        )
+                    }
                 }
 
                 // Bilgi seçeneği (sadece grup giden mesajlarında)
@@ -1998,6 +2078,56 @@ private fun AttachOption(
             color = if (dark) Color(0xFFECEEF2) else Color(0xFF13161B)
         )
     }
+}
+
+/**
+ * Mesaj duzenleme dialog'u. Mevcut mesaj icerigini gosterir ve kullanicinin duzenlemesine izin verir.
+ */
+@Composable
+private fun EditMessageDialog(
+    currentContent: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var editedText by remember { mutableStateOf(currentContent) }
+    val dark = LocalDarkTheme.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mesajı Düzenle") },
+        text = {
+            OutlinedTextField(
+                value = editedText,
+                onValueChange = { editedText = it },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 6,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF3E7BFA),
+                    cursorColor = Color(0xFF3E7BFA)
+                )
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val trimmed = editedText.trim()
+                    if (trimmed.isNotBlank() && trimmed != currentContent) {
+                        onConfirm(trimmed)
+                    } else {
+                        onDismiss()
+                    }
+                }
+            ) {
+                Text("Kaydet", color = Color(0xFF3E7BFA))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("İptal")
+            }
+        }
+    )
 }
 
 /**

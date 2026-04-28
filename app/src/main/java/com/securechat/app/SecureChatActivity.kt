@@ -52,6 +52,9 @@ class SecureChatActivity : AppCompatActivity() {
 
     private val pendingChatPeerId = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     private val pendingCallNavigation = kotlinx.coroutines.flow.MutableStateFlow<Pair<String, String>?>(null)
+    /** Sistem paylasim intent'inden gelen metin veya URI. */
+    val pendingShareText = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val pendingShareUri = kotlinx.coroutines.flow.MutableStateFlow<android.net.Uri?>(null)
 
     private val requestRecordAudioPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -115,6 +118,9 @@ class SecureChatActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // Sistem paylasim intent'ini handle et
+        handleShareIntent(intent)
 
         // Intent'ten chat_peer varsa kaydet
         intent.getStringExtra("chat_peer")?.let { pendingChatPeerId.value = it }
@@ -210,9 +216,27 @@ class SecureChatActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
+        handleShareIntent(intent)
         intent.getStringExtra("chat_peer")?.let { pendingChatPeerId.value = it }
         handleCallNavigationIntent(intent)
         handleCallbackIntent(intent)
+    }
+
+    private fun handleShareIntent(intent: android.content.Intent) {
+        when (intent.action) {
+            android.content.Intent.ACTION_SEND -> {
+                val text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT)
+                val uri = intent.getParcelableExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM)
+                if (text != null) pendingShareText.value = text
+                if (uri != null) pendingShareUri.value = uri
+                Log.d("SecureChatActivity", "Share intent: text=$text, uri=$uri")
+            }
+            android.content.Intent.ACTION_SEND_MULTIPLE -> {
+                val uris = intent.getParcelableArrayListExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM)
+                if (!uris.isNullOrEmpty()) pendingShareUri.value = uris.first()
+                Log.d("SecureChatActivity", "Share multiple intent: ${uris?.size} items")
+            }
+        }
     }
 
     /**

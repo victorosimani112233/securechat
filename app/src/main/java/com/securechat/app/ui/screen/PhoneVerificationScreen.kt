@@ -139,6 +139,14 @@ fun PhoneVerificationScreen(
         }
     }
 
+    /** Kullanici adi icin tehlikeli karakterleri temizle. */
+    fun sanitizeName(name: String): String {
+        return name.trim()
+            .replace(Regex("[;'\"\\\\\\-\\-]"), "")
+            .replace(Regex("\\s+"), " ")
+            .take(50)
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -154,13 +162,11 @@ fun PhoneVerificationScreen(
             }
         }
 
-        // Kritik izinler (contacts, audio, camera) verilmediyse devam etme
-        val criticalGranted = permissions[Manifest.permission.READ_CONTACTS] != false &&
-            permissions[Manifest.permission.RECORD_AUDIO] != false
-        if (criticalGranted && phoneNumber.length >= 10) {
+        // Izin sonucu ne olursa olsun kayda devam et — izinler sonra da istenebilir
+        if (phoneNumber.length >= 10) {
             val rawPhone = "$countryCode$phoneNumber".replace(" ", "")
             val normalizedDigits = PhoneNumberNormalizer.normalizeDigits(rawPhone)
-            onVerified(displayName.trim(), "+$normalizedDigits")
+            onVerified(sanitizeName(displayName), "+$normalizedDigits")
         }
     }
 
@@ -180,7 +186,7 @@ fun PhoneVerificationScreen(
             android.util.Log.d("PermissionCheck", "Tüm izinler zaten var, devam ediliyor")
             val rawPhone = "$countryCode$phoneNumber".replace(" ", "")
             val normalizedDigits = PhoneNumberNormalizer.normalizeDigits(rawPhone)
-            onVerified(displayName.trim(), "+$normalizedDigits")
+            onVerified(sanitizeName(displayName), "+$normalizedDigits")
         } else {
             // İzinleri talep et
             android.util.Log.d("PermissionCheck", "İzinler talep ediliyor: ${permissionsToRequest.joinToString()}")

@@ -40,5 +40,6 @@ data class MessageEntity(
     @ColumnInfo(name = "reply_to_id") val replyToId: String? = null,
     @ColumnInfo(name = "is_outgoing") val isOutgoing: Boolean,
     @ColumnInfo(name = "is_starred") val isStarred: Boolean = false,
-    @ColumnInfo(name = "expires_at") val expiresAt: Long? = null // milisaniye timestamp, null = suresi dolmaz
+    @ColumnInfo(name = "expires_at") val expiresAt: Long? = null, // milisaniye timestamp, null = suresi dolmaz
+    @ColumnInfo(name = "edited_at") val editedAt: Long? = null // duzenleme zamani, null = duzenlenmedi
 )

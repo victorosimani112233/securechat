@@ -144,6 +144,7 @@ class IncomingMessageHandler @Inject constructor(
                     }
                     is SignalMessage.DeliveryReceipt -> handleDeliveryReceipt(signal)
                     is SignalMessage.MessageDelete -> handleMessageDelete(signal)
+                    is SignalMessage.MessageEdit -> handleMessageEdit(signal)
                     is SignalMessage.DisappearingTimer -> handleDisappearingTimer(signal)
                     is SignalMessage.TypingIndicator -> handleTypingIndicator(signal)
                     is SignalMessage.PresenceUpdate -> handlePresenceUpdate(signal)
@@ -934,6 +935,24 @@ class IncomingMessageHandler @Inject constructor(
     }
 
     /**
+     * Karsi taraftan gelen mesaj duzenleme bildirimini isler.
+     * Mesaj icerigini yeni icerikle gunceller ve editedAt zamanini kaydeder.
+     */
+    private suspend fun handleMessageEdit(signal: SignalMessage.MessageEdit) {
+        android.util.Log.d("IncomingHandler", "MessageEdit: msgId=${signal.messageId} from=${signal.senderId}")
+        try {
+            messageRepository.editMessage(
+                messageId = signal.messageId,
+                newContent = signal.newContent,
+                editedAt = signal.timestamp
+            )
+            android.util.Log.d("IncomingHandler", "Mesaj basariyla duzenlendi: ${signal.messageId}")
+        } catch (e: Exception) {
+            android.util.Log.e("IncomingHandler", "Mesaj duzenlenirken hata: ${e.message}", e)
+        }
+    }
+
+    /**
      * Android bildirim gosterir. Gelen mesaj icin ses ve titresim ile bildirim olusturur.
      * Bildirim kanali yoksa olusturulur (Android 8+ zorunluluk).
      *
@@ -1036,14 +1055,20 @@ class IncomingMessageHandler @Inject constructor(
                 "$totalMessages yeni mesaj"
             }
 
+            val privPriority = if (isAppInForeground) NotificationCompat.PRIORITY_LOW
+                              else NotificationCompat.PRIORITY_HIGH
+            val privDefaults = if (isAppInForeground) 0
+                               else NotificationCompat.DEFAULT_ALL
+
             val privacyBuilder = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(com.securechat.app.R.mipmap.ic_launcher)
                 .setColor(0xFF3E7BFA.toInt())
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setPriority(privPriority)
                 .setAutoCancel(true)
                 .setContentIntent(privacyPendingIntent)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setDefaults(privDefaults)
+                .setSilent(isAppInForeground)
                 .setNumber(totalMessages)
                 .setContentTitle("Elçim")
                 .setContentText(privacyText)
@@ -1073,14 +1098,21 @@ class IncomingMessageHandler @Inject constructor(
             "Elçim"
         }
 
+        // On plandayken banner gosterme — sessiz bildirim yeter
+        val priority = if (isAppInForeground) NotificationCompat.PRIORITY_LOW
+                       else NotificationCompat.PRIORITY_HIGH
+        val defaults = if (isAppInForeground) 0
+                       else NotificationCompat.DEFAULT_ALL
+
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(com.securechat.app.R.mipmap.ic_launcher)
             .setColor(0xFF3E7BFA.toInt())
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(priority)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setDefaults(defaults)
+            .setSilent(isAppInForeground)
             .setGroup(groupKey)
             .setNumber(notifMessageCount[conversationId] ?: 1)
 

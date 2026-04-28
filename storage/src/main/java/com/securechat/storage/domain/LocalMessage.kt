@@ -24,8 +24,14 @@ data class LocalMessage(
     val replyToId: String? = null,
     val isOutgoing: Boolean,
     val isStarred: Boolean = false,
-    val expiresAt: Long? = null
+    val expiresAt: Long? = null,
+    val editedAt: Long? = null
 ) {
+    /** Bu mesaj duzenlenmis mi. */
+    val isEdited: Boolean
+        get() = editedAt != null
+
+
     /** Dosya mesaji ise dosya adini dondurur. */
     val fileName: String?
         get() = if (isFileMessage) content.split("|").getOrNull(0) else null

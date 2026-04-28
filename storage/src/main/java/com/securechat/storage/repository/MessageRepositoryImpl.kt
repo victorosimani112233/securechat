@@ -127,6 +127,10 @@ class MessageRepositoryImpl @Inject constructor(
         messageDao.updateContent(messageId, content, contentType)
     }
 
+    override suspend fun editMessage(messageId: String, newContent: String, editedAt: Long) {
+        messageDao.updateContentEdited(messageId, newContent, editedAt)
+    }
+
     override suspend fun updateConversationArchived(conversationId: String, isArchived: Boolean) {
         conversationDao.updateArchived(conversationId, isArchived)
     }
@@ -168,7 +172,8 @@ internal fun LocalMessage.toEntity(): MessageEntity = MessageEntity(
     replyToId = replyToId,
     isOutgoing = isOutgoing,
     isStarred = isStarred,
-    expiresAt = expiresAt
+    expiresAt = expiresAt,
+    editedAt = editedAt
 )
 
 /**
@@ -188,7 +193,8 @@ internal fun MessageEntity.toDomain(): LocalMessage = LocalMessage(
     replyToId = replyToId,
     isOutgoing = isOutgoing,
     isStarred = isStarred,
-    expiresAt = expiresAt
+    expiresAt = expiresAt,
+    editedAt = editedAt
 )
 
 /** ConversationEntity'yi Conversation domain modeline donusturur. */

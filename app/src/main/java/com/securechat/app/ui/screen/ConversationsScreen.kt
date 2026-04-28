@@ -116,6 +116,7 @@ fun ConversationsScreen(
     onNewChat: () -> Unit,
     onNewGroup: () -> Unit = {},
     onScheduledMessages: () -> Unit = {},
+    onBulkMessage: () -> Unit = {},
     onSettingsClick: () -> Unit,
     onCallHistoryClick: () -> Unit = {},
     onContactsClick: () -> Unit = onNewChat
@@ -260,6 +261,13 @@ fun ConversationsScreen(
                                     onClick = { showMoreMenu = false; onNewGroup() },
                                     leadingIcon = {
                                         Icon(Icons.Default.GroupAdd, null, modifier = Modifier.size(20.dp))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Toplu Mesaj") },
+                                    onClick = { showMoreMenu = false; onBulkMessage() },
+                                    leadingIcon = {
+                                        Icon(Icons.AutoMirrored.Filled.Chat, null, modifier = Modifier.size(20.dp))
                                     }
                                 )
                                 DropdownMenuItem(

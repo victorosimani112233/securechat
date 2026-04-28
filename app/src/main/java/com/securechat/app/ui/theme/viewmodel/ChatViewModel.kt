@@ -465,6 +465,55 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * Mesaji duzenler (15 dakika icinde gonderilmis olmali).
+     * Yerel DB'de gunceller ve karsi tarafa sinyal gonderir.
+     */
+    fun editMessage(messageId: String, newContent: String) {
+        viewModelScope.launch {
+            val userId = userSession.userId ?: return@launch
+            val msg = messageRepository.getMessageById(messageId) ?: return@launch
+
+            // 15 dakika kontrolu
+            val fifteenMinutes = 15 * 60 * 1000L
+            if (System.currentTimeMillis() - msg.timestamp > fifteenMinutes) return@launch
+            if (!msg.isOutgoing) return@launch
+
+            val editedAt = System.currentTimeMillis()
+
+            // Yerel DB guncelle
+            messageRepository.editMessage(messageId, newContent, editedAt)
+
+            // Karsi tarafa bildir
+            val conv = conversationDao.getById(conversationId) ?: return@launch
+            if (conv.isGroup) {
+                val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                for (memberId in members) {
+                    if (memberId == userId) continue
+                    signalingClient.sendSignal(
+                        SignalMessage.MessageEdit(
+                            senderId = userId,
+                            recipientId = memberId,
+                            timestamp = editedAt,
+                            messageId = messageId,
+                            newContent = newContent
+                        )
+                    )
+                }
+            } else {
+                signalingClient.sendSignal(
+                    SignalMessage.MessageEdit(
+                        senderId = userId,
+                        recipientId = conv.peerId,
+                        timestamp = editedAt,
+                        messageId = messageId,
+                        newContent = newContent
+                    )
+                )
+            }
+        }
+    }
+
+    /**
      * Mesajı yıldızlı olarak işaretler veya yıldızdan çıkarır.
      *
      * @param messageId Yıldızlama durumu değiştirilecek mesaj ID'si

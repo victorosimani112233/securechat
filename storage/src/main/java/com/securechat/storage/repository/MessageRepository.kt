@@ -43,6 +43,9 @@ interface MessageRepository {
     /** Mesaj icerigini guncelle (herkesten silme icin). */
     suspend fun updateMessageContent(messageId: String, content: String, contentType: String)
 
+    /** Mesaj icerigini duzenle ve editedAt zamanini kaydet. */
+    suspend fun editMessage(messageId: String, newContent: String, editedAt: Long)
+
     /** Konuşmayı arşivle veya arşivden çıkar. */
     suspend fun updateConversationArchived(conversationId: String, isArchived: Boolean)
 
