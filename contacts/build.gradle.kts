@@ -23,6 +23,11 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    @Suppress("UnstableApiUsage")
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {

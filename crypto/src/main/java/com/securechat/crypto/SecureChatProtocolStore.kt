@@ -4,6 +4,7 @@ import com.securechat.crypto.store.CryptoIdentityStore
 import com.securechat.crypto.store.CryptoPreKeyStore
 import com.securechat.crypto.store.CryptoSessionStore
 import com.securechat.crypto.store.CryptoSignedPreKeyStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.whispersystems.libsignal.IdentityKey
 import org.whispersystems.libsignal.IdentityKeyPair
@@ -38,22 +39,26 @@ class SecureChatProtocolStore @Inject constructor(
     private val identityStore: CryptoIdentityStore
 ) : SignalProtocolStore {
 
+    // Signal Protocol senkron interface'leri — IO dispatcher'da calistir
+    // main thread'i bloklamaktan kacinilir, ozellikle eski cihazlarda DB erisimi yavasken
+    private fun <T> ioBlocking(block: suspend () -> T): T = runBlocking(Dispatchers.IO) { block() }
+
     // --- IdentityKeyStore ---
 
-    override fun getIdentityKeyPair(): IdentityKeyPair = runBlocking {
+    override fun getIdentityKeyPair(): IdentityKeyPair = ioBlocking {
         val bytes = identityStore.getIdentityKeyPair()
             ?: throw IllegalStateException("Identity key pair not found")
         IdentityKeyPair(bytes)
     }
 
-    override fun getLocalRegistrationId(): Int = runBlocking {
+    override fun getLocalRegistrationId(): Int = ioBlocking {
         identityStore.getLocalRegistrationId()
     }
 
     override fun saveIdentity(
         address: SignalProtocolAddress,
         identityKey: IdentityKey
-    ): Boolean = runBlocking {
+    ): Boolean = ioBlocking {
         identityStore.storeIdentity(address.name, identityKey.serialize())
     }
 
@@ -61,92 +66,92 @@ class SecureChatProtocolStore @Inject constructor(
         address: SignalProtocolAddress,
         identityKey: IdentityKey,
         direction: IdentityKeyStore.Direction
-    ): Boolean = runBlocking {
+    ): Boolean = ioBlocking {
         val existingKey = identityStore.loadIdentity(address.name)
-        if (existingKey == null) return@runBlocking true
+        if (existingKey == null) return@ioBlocking true
         // Constant-time comparison icin IdentityKey.equals kullanilir
         val existing = IdentityKey(existingKey, 0)
         existing == identityKey
     }
 
-    override fun getIdentity(address: SignalProtocolAddress): IdentityKey? = runBlocking {
+    override fun getIdentity(address: SignalProtocolAddress): IdentityKey? = ioBlocking {
         identityStore.loadIdentity(address.name)?.let { IdentityKey(it, 0) }
     }
 
     // --- PreKeyStore ---
 
-    override fun loadPreKey(preKeyId: Int): PreKeyRecord = runBlocking {
+    override fun loadPreKey(preKeyId: Int): PreKeyRecord = ioBlocking {
         val bytes = preKeyStore.loadPreKey(preKeyId)
             ?: throw InvalidKeyIdException("PreKey not found: $preKeyId")
         PreKeyRecord(bytes)
     }
 
-    override fun storePreKey(preKeyId: Int, record: PreKeyRecord): Unit = runBlocking {
+    override fun storePreKey(preKeyId: Int, record: PreKeyRecord): Unit = ioBlocking {
         preKeyStore.storePreKey(preKeyId, record.serialize())
     }
 
-    override fun containsPreKey(preKeyId: Int): Boolean = runBlocking {
+    override fun containsPreKey(preKeyId: Int): Boolean = ioBlocking {
         preKeyStore.containsPreKey(preKeyId)
     }
 
-    override fun removePreKey(preKeyId: Int): Unit = runBlocking {
+    override fun removePreKey(preKeyId: Int): Unit = ioBlocking {
         preKeyStore.removePreKey(preKeyId)
     }
 
     // --- SignedPreKeyStore ---
 
-    override fun loadSignedPreKey(signedPreKeyId: Int): SignedPreKeyRecord = runBlocking {
+    override fun loadSignedPreKey(signedPreKeyId: Int): SignedPreKeyRecord = ioBlocking {
         val bytes = signedPreKeyStore.loadSignedPreKey(signedPreKeyId)
             ?: throw InvalidKeyIdException("SignedPreKey not found: $signedPreKeyId")
         SignedPreKeyRecord(bytes)
     }
 
-    override fun loadSignedPreKeys(): List<SignedPreKeyRecord> = runBlocking {
+    override fun loadSignedPreKeys(): List<SignedPreKeyRecord> = ioBlocking {
         signedPreKeyStore.loadAllSignedPreKeys().map { SignedPreKeyRecord(it) }
     }
 
     override fun storeSignedPreKey(
         signedPreKeyId: Int,
         record: SignedPreKeyRecord
-    ): Unit = runBlocking {
+    ): Unit = ioBlocking {
         signedPreKeyStore.storeSignedPreKey(signedPreKeyId, record.serialize())
     }
 
-    override fun containsSignedPreKey(signedPreKeyId: Int): Boolean = runBlocking {
+    override fun containsSignedPreKey(signedPreKeyId: Int): Boolean = ioBlocking {
         signedPreKeyStore.containsSignedPreKey(signedPreKeyId)
     }
 
-    override fun removeSignedPreKey(signedPreKeyId: Int): Unit = runBlocking {
+    override fun removeSignedPreKey(signedPreKeyId: Int): Unit = ioBlocking {
         signedPreKeyStore.removeSignedPreKey(signedPreKeyId)
     }
 
     // --- SessionStore ---
 
-    override fun loadSession(address: SignalProtocolAddress): SessionRecord = runBlocking {
+    override fun loadSession(address: SignalProtocolAddress): SessionRecord = ioBlocking {
         val bytes = sessionStore.loadSession(address.name, address.deviceId)
         if (bytes != null) SessionRecord(bytes) else SessionRecord()
     }
 
-    override fun getSubDeviceSessions(name: String): List<Int> = runBlocking {
+    override fun getSubDeviceSessions(name: String): List<Int> = ioBlocking {
         sessionStore.getSubDeviceSessions(name)
     }
 
     override fun storeSession(
         address: SignalProtocolAddress,
         record: SessionRecord
-    ): Unit = runBlocking {
+    ): Unit = ioBlocking {
         sessionStore.storeSession(address.name, address.deviceId, record.serialize())
     }
 
-    override fun containsSession(address: SignalProtocolAddress): Boolean = runBlocking {
+    override fun containsSession(address: SignalProtocolAddress): Boolean = ioBlocking {
         sessionStore.containsSession(address.name, address.deviceId)
     }
 
-    override fun deleteSession(address: SignalProtocolAddress): Unit = runBlocking {
+    override fun deleteSession(address: SignalProtocolAddress): Unit = ioBlocking {
         sessionStore.deleteSession(address.name, address.deviceId)
     }
 
-    override fun deleteAllSessions(name: String): Unit = runBlocking {
+    override fun deleteAllSessions(name: String): Unit = ioBlocking {
         sessionStore.deleteAllSessions(name)
     }
 

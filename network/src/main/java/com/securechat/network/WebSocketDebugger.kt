@@ -232,11 +232,11 @@ class WebSocketDebugger {
         Log.d("SecureChat", "🌐 Testing HTTP endpoint: $baseUrl")
 
         val httpUrl = baseUrl.replace("ws://", "http://").replace("wss://", "https://")
-        val request = Request.Builder()
-            .url(httpUrl)
-            .build()
 
         try {
+            val request = Request.Builder()
+                .url(httpUrl)
+                .build()
             val response = okHttpClient.newCall(request).execute()
             Log.d("SecureChat", "✅ HTTP request SUCCESS!")
             Log.d("SecureChat", "  Status: ${response.code} ${response.message}")

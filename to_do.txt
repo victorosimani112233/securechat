@@ -25,3 +25,10 @@
 ### GEREKLİ GÜNCELLEMELER YAPILDI VE KONTROL EDİLDİ ####
 
 ### UI_RESTRUCTURE_PLAN.md dosyası çıkarıldı tema ayarlarının tam çalışmamasının vb sebepleri var ###
+
+Alttaki barda sohbet arama gibi butonların altında yazı olmayacak sadece simgeler olacak
+Splash screeni yarım saniye kadar azaltıp 1 saniye yapalım.
+Planlı otomatik mesaj sistemi eklememiz gerekiyor. Ana ekranda bulunan headerda yeni sohbet butonun yanına eklensin ve uygun bir ikon koyulsun. Bu bizi planlı mesajlar sayfasına yönlendirsin. Bu sayfada planlı mesajların listesi olacak bu listedeki her bir eleman için CRUD işlemi yapılabilecek. Tab switcher kullanılsın. Bir tab da "Oluştur" diğer tabda "Mevcut Planlananlar" olsun. Bu sistem 4 ana parçadan oluşacak. Bu parçalar "Gün Seçimi"(her gün tekrarlama,tek seferlik, özel gün seçimi şeklinde) bu gün seçimi için pop-up şeklinde açılıp seçilmeli. İkinci parça ise "Saat Seçimi"(Timepicker ile saat seçilecek). Üçüncü parça ise "Mesaj içeriği"(Kullanıcı mesajı burada olacak). Son parça ise kişi seçimi olacak toplu seçim veya özel seçim olabilecek. Düzenleme ekranından bir mesaja ait gönderilecek kullanıcılar eklenip çıkartılabilecek.
+
+Planlı mesajlar simgesini değiştir ve ana ekrandaki sohbet arama butonu hariç diğerlerini üç nokta içerisinde koy ben ona basınca bu seçenekler açılsın ayrıca "Planlı Mesajlar" ekranı animasyonu bozuk diğerlerinden farklı şu an
+

@@ -16,6 +16,9 @@ interface MessageRepository {
     /** Belirli bir konuşmadaki tum mesajlari reaktif olarak getir. */
     fun getMessages(conversationId: String): Flow<List<LocalMessage>>
 
+    /** Belirli bir konuşmadaki son N mesaji reaktif olarak getir (sayfalama icin). */
+    fun getRecentMessages(conversationId: String, limit: Int): Flow<List<LocalMessage>>
+
     /** Tum konuşmalari reaktif olarak getir. */
     fun getConversations(): Flow<List<Conversation>>
 
@@ -30,6 +33,15 @@ interface MessageRepository {
 
     /** Tek bir mesaji sil. */
     suspend fun deleteMessage(messageId: String)
+
+    /** Tek bir mesaji sil ve konusmanin son mesaj onizlemesini yeniden hesapla. */
+    suspend fun deleteMessage(messageId: String, conversationId: String)
+
+    /** Konusmanin lastMessage ve lastMessageTimestamp alanlarini yeniden hesaplar. */
+    suspend fun recalculateLastMessage(conversationId: String)
+
+    /** SENDING durumunda takili kalmis mesajlari getirir (belirtilen sureden eski). */
+    suspend fun getStuckSendingMessages(olderThanMs: Long): List<LocalMessage>
 
     /** Konuşmayi ve tum mesajlarini sil. */
     suspend fun deleteConversation(conversationId: String)
@@ -63,4 +75,12 @@ interface MessageRepository {
 
     /** Konuşmanın sessiz modunu güncelle. */
     suspend fun updateConversationMuted(conversationId: String, isMuted: Boolean)
+
+    /**
+     * SENDING durumunda takilmis mesajlari FAILED olarak isaretler.
+     * Uygulama baslatildiginda cagrilir — belirtilen cutoff'tan eski SENDING mesajlar kurtarilir.
+     * @param cutoff Bu zamandan eski SENDING mesajlar FAILED yapilir (milisaniye timestamp)
+     * @return Guncellenen mesaj sayisi
+     */
+    suspend fun markStuckMessagesAsFailed(cutoff: Long): Int
 }

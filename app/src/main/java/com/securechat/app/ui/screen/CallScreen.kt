@@ -121,6 +121,7 @@ fun CallScreen(
     val context = LocalContext.current
     val callSession by viewModel.callState.collectAsStateWithLifecycle()
     val callDuration by viewModel.callDuration.collectAsStateWithLifecycle()
+    val peerDisplayName by viewModel.peerDisplayName.collectAsStateWithLifecycle()
 
     // RECORD_AUDIO runtime izin istegi
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
@@ -391,7 +392,7 @@ fun CallScreen(
 
                         // Avatar — premium animasyonlu
                         CallAvatar(
-                            name = peerId,
+                            name = peerDisplayName,
                             isRinging = isRinging,
                             isConnecting = isConnecting,
                             isActive = isActive
@@ -418,7 +419,7 @@ fun CallScreen(
                             )
                         } else {
                             Text(
-                                text = peerId,
+                                text = peerDisplayName,
                                 style = MaterialTheme.typography.headlineMedium,
                                 color = Color.White,
                                 fontWeight = FontWeight.SemiBold,

@@ -119,8 +119,12 @@ sealed class SignalMessage {
 
     /**
      * WebSocket uzerinden dosya transferi.
-     * Kucuk dosyalar (<5MB) Base64 olarak encode edilip dogrudan gonderilir.
+     * Kucuk dosyalar tek parca, buyuk dosyalar chunk'lar halinde gonderilir.
      * Resim, video, belge (pdf, word, zip, txt vb.) destekler.
+     *
+     * Chunk sistemi: transferId ayni olan parcalar birlestirilir.
+     * chunkIndex=0'dan baslar, chunkIndex==totalChunks-1 son parcadir.
+     * totalChunks=1 ise tek parca (geriye uyumlu).
      */
     @Serializable
     @SerialName("file_transfer")
@@ -131,9 +135,12 @@ sealed class SignalMessage {
         val fileName: String,
         val mimeType: String,
         val fileSize: Long,
-        val data: String, // Base64 encoded dosya icerigi
-        val groupId: String? = null, // Grup mesaji ise grup ID'si
-        val groupName: String? = null // Grup mesaji ise grup adi
+        val data: String, // Base64 encoded dosya icerigi (veya chunk)
+        val groupId: String? = null,
+        val groupName: String? = null,
+        val transferId: String? = null, // Chunk'lari eslestirmek icin benzersiz ID
+        val chunkIndex: Int = 0, // Bu parcanin sirasi (0-based)
+        val totalChunks: Int = 1 // Toplam parca sayisi (1 = tek parca)
     ) : SignalMessage()
 
     /**

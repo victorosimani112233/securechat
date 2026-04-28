@@ -1,6 +1,7 @@
 package com.securechat.app.ui.viewmodel
 
 import app.cash.turbine.test
+import com.securechat.app.usecase.UpdateContactNamesUseCase
 import com.securechat.network.SignalingClient
 import com.securechat.network.model.ConnectionState
 import com.securechat.storage.domain.Conversation
@@ -30,13 +31,15 @@ class ConversationsViewModelTest {
     private val testDispatcher = UnconfinedTestDispatcher()
     private lateinit var messageRepository: MessageRepository
     private lateinit var signalingClient: SignalingClient
+    private lateinit var updateContactNamesUseCase: UpdateContactNamesUseCase
     private val connectionStateFlow = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        messageRepository = mockk()
+        messageRepository = mockk(relaxed = true)
         signalingClient = mockk(relaxed = true)
+        updateContactNamesUseCase = mockk(relaxed = true)
         every { signalingClient.connectionState } returns connectionStateFlow
     }
 
@@ -53,7 +56,7 @@ class ConversationsViewModelTest {
         )
         every { messageRepository.getConversations() } returns flowOf(testConversations)
 
-        val viewModel = ConversationsViewModel(messageRepository, signalingClient)
+        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase)
 
         viewModel.conversations.test {
             val first = awaitItem()
@@ -73,7 +76,7 @@ class ConversationsViewModelTest {
     fun `conversations defaults to empty list`() = runTest {
         every { messageRepository.getConversations() } returns flowOf(emptyList())
 
-        val viewModel = ConversationsViewModel(messageRepository, signalingClient)
+        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase)
 
         assertEquals(emptyList<Conversation>(), viewModel.conversations.value)
     }
@@ -83,7 +86,7 @@ class ConversationsViewModelTest {
         every { messageRepository.getConversations() } returns flowOf(emptyList())
         connectionStateFlow.value = ConnectionState.Connected
 
-        val viewModel = ConversationsViewModel(messageRepository, signalingClient)
+        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase)
 
         viewModel.connectionState.test {
             val first = awaitItem()
@@ -102,7 +105,7 @@ class ConversationsViewModelTest {
         every { messageRepository.getConversations() } returns flowOf(emptyList())
         connectionStateFlow.value = ConnectionState.Disconnected
 
-        val viewModel = ConversationsViewModel(messageRepository, signalingClient)
+        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase)
 
         assertTrue(viewModel.connectionState.value is ConnectionState.Disconnected)
     }

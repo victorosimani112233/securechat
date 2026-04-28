@@ -112,9 +112,11 @@ class ConnectionManager(
             lastSeenMap[userId] = System.currentTimeMillis()
         }
 
-        // Gizlilik aktifse subscriber'lara bildirim GONDERME
+        // Gizlilik aktifken subscriber'lara "gizli" bildirimi gonder
+        // Boylece istemci eski "az once" verisini temizler
         if (hideLastSeen) {
-            println("[P] Presence guncellendi: $userId online=$isOnline (GIZLI — subscriber bildirilmedi)")
+            notifyPresenceChange(userId, isOnline = false, lastSeen = 0, hideLastSeen = true)
+            println("[P] Presence guncellendi: $userId online=$isOnline (GIZLI — subscriber'lara temizleme gonderildi)")
             return
         }
 
@@ -128,9 +130,9 @@ class ConnectionManager(
      */
     private suspend fun sendPresenceResponse(requesterId: String, targetUserId: String) {
         val session = connections[requesterId] ?: return
-        // Hedef kullanici gizlilik aktifse bos presence gonder
+        // Hedef kullanici gizlilik aktifse hideLastSeen=true ile bos presence gonder
         if (hideLastSeenUsers.contains(targetUserId)) {
-            val json = buildPresenceJson(targetUserId, requesterId, isOnline = false, lastSeen = 0)
+            val json = buildPresenceJson(targetUserId, requesterId, isOnline = false, lastSeen = 0, hideLastSeen = true)
             try { session.send(Frame.Text(json)) } catch (_: Exception) { }
             return
         }
@@ -148,10 +150,10 @@ class ConnectionManager(
      * Durum degisikligini yalnizca subscribe olmus kullanicilara bildirir.
      * Broadcast YAPMAZ — O(subscriber) karmasiklik.
      */
-    private suspend fun notifyPresenceChange(userId: String, isOnline: Boolean, lastSeen: Long) {
+    private suspend fun notifyPresenceChange(userId: String, isOnline: Boolean, lastSeen: Long, hideLastSeen: Boolean = false) {
         val subscribers = presenceSubscribers[userId] ?: return
         if (subscribers.isEmpty()) return
-        val json = buildPresenceJson(userId, "subscriber", isOnline, lastSeen)
+        val json = buildPresenceJson(userId, "subscriber", isOnline, lastSeen, hideLastSeen)
         for (subscriberId in subscribers) {
             val session = connections[subscriberId] ?: continue
             try {
@@ -160,9 +162,9 @@ class ConnectionManager(
         }
     }
 
-    private fun buildPresenceJson(senderId: String, recipientId: String, isOnline: Boolean, lastSeen: Long): String {
+    private fun buildPresenceJson(senderId: String, recipientId: String, isOnline: Boolean, lastSeen: Long, hideLastSeen: Boolean = false): String {
         val now = System.currentTimeMillis()
-        return """{"type":"presence_update","senderId":"$senderId","recipientId":"$recipientId","timestamp":$now,"isOnline":$isOnline,"lastSeen":$lastSeen}"""
+        return """{"type":"presence_update","senderId":"$senderId","recipientId":"$recipientId","timestamp":$now,"isOnline":$isOnline,"lastSeen":$lastSeen,"hideLastSeen":$hideLastSeen}"""
     }
 
     /**

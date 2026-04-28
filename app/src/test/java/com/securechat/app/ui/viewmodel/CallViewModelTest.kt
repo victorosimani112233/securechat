@@ -3,9 +3,11 @@ package com.securechat.app.ui.viewmodel
 import androidx.lifecycle.SavedStateHandle
 import com.securechat.app.data.UserSession
 import com.securechat.media.CallManager
+import com.securechat.media.model.CallDirection
 import com.securechat.media.model.CallSession
 import com.securechat.media.model.CallState
 import com.securechat.network.model.CallType
+import com.securechat.storage.dao.ConversationDao
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -34,6 +36,7 @@ class CallViewModelTest {
     private lateinit var callManager: CallManager
     private lateinit var userSession: UserSession
     private lateinit var savedStateHandle: SavedStateHandle
+    private lateinit var conversationDao: ConversationDao
     private val callSessionFlow = MutableStateFlow<CallSession?>(null)
 
     @Before
@@ -41,6 +44,7 @@ class CallViewModelTest {
         Dispatchers.setMain(testDispatcher)
         callManager = mockk(relaxed = true)
         userSession = mockk(relaxed = true)
+        conversationDao = mockk(relaxed = true)
         every { callManager.callSession } returns callSessionFlow
         every { callManager.currentSession } returns null
         every { callManager.getCallDuration() } returns null
@@ -58,48 +62,48 @@ class CallViewModelTest {
 
     @Test
     fun `toggleMute delegates to callManager`() {
-        val viewModel = CallViewModel(savedStateHandle, callManager, userSession)
+        val viewModel = CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
         viewModel.toggleMute()
         verify { callManager.toggleMute() }
     }
 
     @Test
     fun `toggleSpeaker delegates to callManager`() {
-        val viewModel = CallViewModel(savedStateHandle, callManager, userSession)
+        val viewModel = CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
         viewModel.toggleSpeaker()
         verify { callManager.toggleSpeaker() }
     }
 
     @Test
     fun `toggleCamera delegates to callManager`() {
-        val viewModel = CallViewModel(savedStateHandle, callManager, userSession)
+        val viewModel = CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
         viewModel.toggleCamera()
         verify { callManager.toggleCamera() }
     }
 
     @Test
     fun `switchCamera delegates to callManager`() {
-        val viewModel = CallViewModel(savedStateHandle, callManager, userSession)
+        val viewModel = CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
         viewModel.switchCamera()
         verify { callManager.switchCamera() }
     }
 
     @Test
     fun `endCall delegates to callManager with userId`() {
-        val viewModel = CallViewModel(savedStateHandle, callManager, userSession)
+        val viewModel = CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
         viewModel.endCall()
         verify { callManager.endCall("test-user") }
     }
 
     @Test
     fun `callState initially null`() {
-        val viewModel = CallViewModel(savedStateHandle, callManager, userSession)
+        val viewModel = CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
         assertNull(viewModel.callState.value)
     }
 
     @Test
     fun `callDuration defaults to zero`() {
-        val viewModel = CallViewModel(savedStateHandle, callManager, userSession)
+        val viewModel = CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
         assertEquals(0L, viewModel.callDuration.value)
     }
 
@@ -107,24 +111,27 @@ class CallViewModelTest {
     fun `initiateCall called when peerId is set and no current session`() {
         savedStateHandle = SavedStateHandle(mapOf("peerId" to "peer-123", "callType" to "VOICE"))
 
-        CallViewModel(savedStateHandle, callManager, userSession)
+        CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
 
         verify { callManager.initiateCall("peer-123", CallType.VOICE, "test-user") }
     }
 
     @Test
     fun `initiateCall not called when current session exists`() {
-        every { callManager.currentSession } returns mockk(relaxed = true)
+        every { callManager.currentSession } returns mockk(relaxed = true) {
+            every { state } returns CallState.ACTIVE
+            every { direction } returns CallDirection.INCOMING
+        }
         savedStateHandle = SavedStateHandle(mapOf("peerId" to "peer-123", "callType" to "VOICE"))
 
-        CallViewModel(savedStateHandle, callManager, userSession)
+        CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
 
         verify(exactly = 0) { callManager.initiateCall(any(), any(), any()) }
     }
 
     @Test
     fun `acceptCall delegates with correct userId`() {
-        val viewModel = CallViewModel(savedStateHandle, callManager, userSession)
+        val viewModel = CallViewModel(savedStateHandle, callManager, userSession, conversationDao)
         viewModel.acceptCall()
         verify { callManager.acceptCall("test-user") }
     }

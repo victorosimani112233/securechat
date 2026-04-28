@@ -104,6 +104,7 @@ fun AddGroupMemberScreen(
     val isResolvingPhone by viewModel.isResolvingPhone.collectAsStateWithLifecycle()
     val phoneNotFound by viewModel.phoneNotFound.collectAsStateWithLifecycle()
     val groupName by viewModel.groupName.collectAsStateWithLifecycle()
+    val remainingCapacity by viewModel.remainingCapacity.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showPhoneInput by remember { mutableStateOf(false) }
     var selectedCountryCode by remember { mutableStateOf(COUNTRY_CODES.first()) }
@@ -131,14 +132,17 @@ fun AddGroupMemberScreen(
                     title = {
                         Column {
                             Text(
-                                "Üye Ekle",
+                                "\u00DCye Ekle",
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             if (groupName.isNotBlank()) {
                                 Text(
-                                    groupName,
+                                    "$groupName \u2022 Kalan kapasite: $remainingCapacity",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (remainingCapacity <= 10)
+                                        MaterialTheme.colorScheme.error
+                                    else
+                                        MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }

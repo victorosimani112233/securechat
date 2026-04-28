@@ -27,6 +27,9 @@ android {
 
     @Suppress("UnstableApiUsage")
     testOptions {
+        // android.util.Log gibi mocklenmemis Android API'leri icin
+        // default deger donmesini sagla (exception firlatmak yerine)
+        unitTests.isReturnDefaultValues = true
         unitTests.all {
             it.maxHeapSize = "4096m"
         }

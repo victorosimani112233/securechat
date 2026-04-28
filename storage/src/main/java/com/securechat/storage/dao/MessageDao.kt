@@ -50,9 +50,24 @@ interface MessageDao {
     @Query("UPDATE messages SET content = :content, content_type = :contentType WHERE id = :messageId")
     suspend fun updateContent(messageId: String, content: String, contentType: String)
 
+    // 📦 Yedekleme icin tum mesajlari getir
+    @Query("SELECT * FROM messages ORDER BY timestamp ASC")
+    suspend fun getAllMessages(): List<MessageEntity>
+
+    // 📄 Sayfalama destekli mesaj sorgulari
+    @Query("SELECT * FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    suspend fun getMessagesPaginated(conversationId: String, limit: Int, offset: Int): List<MessageEntity>
+
+    @Query("SELECT COUNT(*) FROM messages WHERE conversation_id = :conversationId")
+    suspend fun getMessageCount(conversationId: String): Int
+
+    // 📦 Yedekleme icin toplu mesaj getirme (bellek tasarruflu)
+    @Query("SELECT * FROM messages ORDER BY timestamp ASC LIMIT :limit OFFSET :offset")
+    suspend fun getMessagesBatch(limit: Int, offset: Int): List<MessageEntity>
+
     // ✏️ Mesaj duzenleme
-    @Query("UPDATE messages SET content = :content, edited_at = :editedAt WHERE id = :messageId")
-    suspend fun updateContentEdited(messageId: String, content: String, editedAt: Long)
+    @Query("UPDATE messages SET content = :content, edited_at = :editedAt, edit_history = :editHistory WHERE id = :messageId")
+    suspend fun updateContentEdited(messageId: String, content: String, editedAt: Long, editHistory: String?)
 
     // ⭐ Yıldızlama özellikleri
     @Query("UPDATE messages SET is_starred = :isStarred WHERE id = :messageId")
@@ -78,4 +93,12 @@ interface MessageDao {
     // Sureli mesaj — suresi dolan mesajlari sil
     @Query("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at < :now")
     suspend fun deleteExpiredMessages(now: Long): Int
+
+    // Takilmis SENDING mesajlari bul — belirtilen zaman damgasindan eski, giden mesajlar
+    @Query("SELECT * FROM messages WHERE status = 'SENDING' AND is_outgoing = 1 AND timestamp < :olderThan")
+    suspend fun getStuckSendingMessages(olderThan: Long): List<MessageEntity>
+
+    // Takilmis SENDING mesajlari toplu olarak FAILED olarak isaretle
+    @Query("UPDATE messages SET status = 'FAILED' WHERE status = 'SENDING' AND timestamp < :cutoff")
+    suspend fun markStuckMessagesAsFailed(cutoff: Long): Int
 }

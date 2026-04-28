@@ -36,7 +36,8 @@ class GroupChatStorageTest {
     fun setup() {
         messageDao = mockk(relaxed = true)
         conversationDao = mockk(relaxed = true)
-        repository = MessageRepositoryImpl(messageDao, conversationDao)
+        val contactNameResolver = mockk<com.securechat.storage.resolver.ContactNameResolver>(relaxed = true)
+        repository = MessageRepositoryImpl(messageDao, conversationDao, contactNameResolver)
     }
 
     // --- ConversationEntity grup alanlari ---

@@ -38,6 +38,11 @@ class AddGroupMemberViewModel @Inject constructor(
     private val discoveryApiService: DiscoveryApiService
 ) : ViewModel() {
 
+    companion object {
+        /** Bir grubun icerebilecegi maksimum uye sayisi */
+        const val MAX_MEMBERS = 256
+    }
+
     val groupId: String = savedStateHandle["groupId"] ?: ""
 
     private val _contacts = MutableStateFlow<List<SelectableContact>>(emptyList())
@@ -66,6 +71,13 @@ class AddGroupMemberViewModel @Inject constructor(
     val selectedMembers: StateFlow<List<String>> = _contacts.map { contacts ->
         contacts.filter { it.isSelected }.map { it.userId }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
+
+    /** Gruba eklenebilecek kalan uye kapasitesi */
+    val remainingCapacity: StateFlow<Int> = combine(
+        _existingMembers, _contacts.map { c -> c.count { it.isSelected } }
+    ) { existing, selectedCount ->
+        MAX_MEMBERS - existing.size - selectedCount
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), MAX_MEMBERS)
 
     private val _isLoadingContacts = MutableStateFlow(false)
     val isLoadingContacts: StateFlow<Boolean> = _isLoadingContacts.asStateFlow()
@@ -149,6 +161,16 @@ class AddGroupMemberViewModel @Inject constructor(
     }
 
     fun toggleContactSelection(userId: String) {
+        val contact = _contacts.value.find { it.userId == userId } ?: return
+        // Secim aciliyorsa limit kontrolu yap (mevcut uyeler + secili uyeler)
+        if (!contact.isSelected) {
+            val existingCount = _existingMembers.value.size
+            val selectedCount = _contacts.value.count { it.isSelected }
+            if (existingCount + selectedCount >= MAX_MEMBERS) {
+                _error.value = "Grup en fazla $MAX_MEMBERS \u00FCye i\u00E7erebilir"
+                return
+            }
+        }
         _contacts.value = _contacts.value.map {
             if (it.userId == userId) it.copy(isSelected = !it.isSelected) else it
         }
@@ -191,6 +213,8 @@ class AddGroupMemberViewModel @Inject constructor(
                         _error.value = "Bu kişi zaten grupta"
                     } else if (_contacts.value.any { it.userId == userId && it.isSelected }) {
                         _error.value = "Bu kişi zaten seçili"
+                    } else if (_existingMembers.value.size + _contacts.value.count { it.isSelected } >= MAX_MEMBERS) {
+                        _error.value = "Grup en fazla $MAX_MEMBERS \u00FCye i\u00E7erebilir"
                     } else {
                         val existsInList = _contacts.value.any { it.userId == userId }
                         if (existsInList) {
@@ -226,6 +250,12 @@ class AddGroupMemberViewModel @Inject constructor(
         val memberIds = selectedMembers.value
         if (memberIds.isEmpty()) {
             _error.value = "En az 1 kişi seçmelisiniz"
+            return
+        }
+        // Toplam uye sayisi limiti kontrol et
+        val totalAfterAdd = _existingMembers.value.size + memberIds.size
+        if (totalAfterAdd > MAX_MEMBERS) {
+            _error.value = "Grup en fazla $MAX_MEMBERS \u00FCye i\u00E7erebilir. Kalan kapasite: ${MAX_MEMBERS - _existingMembers.value.size}"
             return
         }
 

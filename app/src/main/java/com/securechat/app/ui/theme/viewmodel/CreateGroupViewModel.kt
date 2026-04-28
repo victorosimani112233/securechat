@@ -54,6 +54,11 @@ class CreateGroupViewModel @Inject constructor(
     private val discoveryApiService: DiscoveryApiService
 ) : ViewModel() {
 
+    companion object {
+        /** Bir grubun icerebilecegi maksimum uye sayisi */
+        const val MAX_MEMBERS = 256
+    }
+
     private val _groupName = MutableStateFlow("")
     val groupName: StateFlow<String> = _groupName.asStateFlow()
 
@@ -166,8 +171,19 @@ class CreateGroupViewModel @Inject constructor(
 
     /**
      * Belirtilen kisinin secim durumunu degistirir.
+     * Maksimum uye limiti kontrolu yapar (mevcut kullanici + secili uyeler <= MAX_MEMBERS).
      */
     fun toggleContactSelection(userId: String) {
+        val contact = _contacts.value.find { it.userId == userId } ?: return
+        // Secim aciliyorsa limit kontrolu yap (mevcut kullanici dahil +1)
+        if (!contact.isSelected) {
+            val currentSelectedCount = _contacts.value.count { it.isSelected }
+            // +1 mevcut kullanici (grup kurucusu) dahil
+            if (currentSelectedCount + 1 >= MAX_MEMBERS) {
+                _error.value = "Grup en fazla $MAX_MEMBERS \u00FCye i\u00E7erebilir"
+                return
+            }
+        }
         _contacts.value = _contacts.value.map { selectableContact ->
             if (selectableContact.userId == userId) {
                 selectableContact.copy(isSelected = !selectableContact.isSelected)
@@ -198,6 +214,11 @@ class CreateGroupViewModel @Inject constructor(
         }
         if (memberUserIds.isEmpty()) {
             _error.value = "En az 1 kişi seçmelisiniz"
+            return
+        }
+        // Mevcut kullanici + secili uyeler toplami MAX_MEMBERS'i asmamali
+        if (memberUserIds.size + 1 > MAX_MEMBERS) {
+            _error.value = "Grup en fazla $MAX_MEMBERS \u00FCye i\u00E7erebilir"
             return
         }
 
@@ -288,6 +309,9 @@ class CreateGroupViewModel @Inject constructor(
                     val alreadySelected = _contacts.value.any { it.userId == userId && it.isSelected }
                     if (alreadySelected) {
                         _error.value = "Bu kişi zaten ekli"
+                    } else if (_contacts.value.count { it.isSelected } + 1 >= MAX_MEMBERS) {
+                        // Uye limiti kontrolu (mevcut kullanici dahil +1)
+                        _error.value = "Grup en fazla $MAX_MEMBERS \u00FCye i\u00E7erebilir"
                     } else {
                         // Mevcut listede varsa sec, yoksa yeni ekle
                         val existsInList = _contacts.value.any { it.userId == userId }

@@ -1,5 +1,6 @@
 package com.securechat.app.ui.viewmodel
 
+import android.content.SharedPreferences
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -13,6 +14,7 @@ import com.securechat.media.FileTransferManager
 import com.securechat.media.FileTransferResult
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
+import com.securechat.network.model.ConnectionState
 import com.securechat.storage.dao.ConversationDao
 import com.securechat.storage.domain.LocalMessage
 import com.securechat.storage.model.MessageContentType
@@ -20,6 +22,7 @@ import com.securechat.storage.model.MessageStatus
 import com.securechat.storage.repository.MessageRepository
 import com.securechat.storage.resolver.ContactNameResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -27,8 +30,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.UUID
 import javax.inject.Inject
 
@@ -48,15 +55,31 @@ class ChatViewModel @Inject constructor(
     private val fileTransferManager: FileTransferManager,
     private val userSession: UserSession,
     private val signalingClient: SignalingClient,
-    private val contactNameResolver: ContactNameResolver
+    private val contactNameResolver: ContactNameResolver,
+    private val sharedPreferences: SharedPreferences
 ) : ViewModel() {
 
     /** Navigation argument'inden alinan konusma kimlik numarasi. */
     val conversationId: String = savedStateHandle.get<String>("conversationId") ?: ""
 
-    /** Konusmadaki mesajlarin reaktif listesi. */
-    val messages: StateFlow<List<LocalMessage>> = observeMessagesUseCase(conversationId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    /** Sayfalama icin her seferde yuklenen mesaj sayisi. */
+    private val PAGE_SIZE = 50
+
+    /** Esanli dosya gonderimini sinirlar — UI donmasini engeller (maks 3). */
+    private val fileUploadSemaphore = Semaphore(3)
+
+    /** Mevcut mesaj limiti — loadMore() cagrildiginda artar. */
+    private val _messageLimit = MutableStateFlow(PAGE_SIZE)
+
+    /** Daha eski mesaj yuklenebilir mi. */
+    private val _hasMoreMessages = MutableStateFlow(true)
+    val hasMoreMessages: StateFlow<Boolean> = _hasMoreMessages.asStateFlow()
+
+    /** Konusmadaki mesajlarin reaktif listesi (sayfalamali). */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val messages: StateFlow<List<LocalMessage>> = _messageLimit.flatMapLatest { limit ->
+        messageRepository.getRecentMessages(conversationId, limit)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Konusma bilgisi — grup mu, ismi, uye sayisi vb. */
     private val _conversationInfo = MutableStateFlow<ConversationInfo?>(null)
@@ -65,6 +88,10 @@ class ChatViewModel @Inject constructor(
     /** Dosya gonderim durumu — hata mesajlari icin. */
     private val _fileTransferEvent = MutableSharedFlow<String>()
     val fileTransferEvent: SharedFlow<String> = _fileTransferEvent.asSharedFlow()
+
+    /** Aktif upload ilerleme durumu — messageId -> progress yuzde (0-100). */
+    private val _uploadProgress = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val uploadProgress: StateFlow<Map<String, Int>> = _uploadProgress.asStateFlow()
 
     // --- Sohbet ici arama state'leri ---
     private val _searchQuery = MutableStateFlow("")
@@ -129,6 +156,12 @@ class ChatViewModel @Inject constructor(
             _disappearingDuration.value = conv?.disappearingDuration ?: 0
         }
 
+        // Sohbet acildiginda SENDING durumunda takilmis mesajlari FAILED olarak isaretle
+        // 2 dakikadan eski SENDING mesajlar gonderim sirasinda takilmis kabul edilir
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            recoverStuckSendingMessages()
+        }
+
         // Sohbet acikken gelen mesajlari surekli izle ve READ receipt gonder
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             markIncomingMessagesAsRead()
@@ -141,6 +174,15 @@ class ChatViewModel @Inject constructor(
                 val deleted = messageRepository.deleteExpiredMessages()
                 if (deleted > 0) {
                     android.util.Log.d("ChatViewModel", "Sureli mesaj temizlendi: $deleted")
+                }
+            }
+        }
+
+        // Baglanti kuruldugunda bekleyen silme islemlerini gonder
+        viewModelScope.launch {
+            signalingClient.connectionState.collect { state ->
+                if (state is ConnectionState.Connected) {
+                    flushPendingDeletes()
                 }
             }
         }
@@ -185,9 +227,30 @@ class ChatViewModel @Inject constructor(
     /** Kayitli taslak mesaji getirir. */
     fun getDraft(): String = draftMessages[conversationId] ?: ""
 
+    /**
+     * Daha eski mesajlari yukler (sayfalama).
+     * Kullanici liste basina scroll ettiginde cagrilir.
+     */
+    fun loadMore() {
+        val currentLimit = _messageLimit.value
+        val currentSize = messages.value.size
+        // Mevcut mesaj sayisi limitten azsa, daha fazla mesaj yoktur
+        if (currentSize < currentLimit) {
+            _hasMoreMessages.value = false
+            return
+        }
+        _messageLimit.value = currentLimit + PAGE_SIZE
+    }
+
     companion object {
         /** Oturum boyunca sohbet taslaklarini tutar. */
         private val draftMessages = mutableMapOf<String, String>()
+
+        /** SharedPreferences anahtari: cevrimdisi silme islemlerinin kuyrugu. */
+        private const val PREF_PENDING_DELETES = "pending_deletes"
+
+        /** SENDING durumunda takili kalmis mesajlar icin esik suresi (2 dakika). */
+        private const val STUCK_MESSAGE_THRESHOLD_MS = 2 * 60 * 1000L
     }
 
     /**
@@ -218,6 +281,24 @@ class ChatViewModel @Inject constructor(
                     )
                 )
             }
+        }
+    }
+
+    /**
+     * SENDING durumunda takilmis mesajlari kurtarir.
+     * 2 dakikadan eski SENDING mesajlar FAILED olarak isaretlenir.
+     */
+    private suspend fun recoverStuckSendingMessages() {
+        try {
+            val stuckMessages = messageRepository.getStuckSendingMessages(STUCK_MESSAGE_THRESHOLD_MS)
+            for (msg in stuckMessages) {
+                messageRepository.updateMessageStatus(msg.id, MessageStatus.FAILED)
+            }
+            if (stuckMessages.isNotEmpty()) {
+                android.util.Log.w("ChatViewModel", "Takili ${stuckMessages.size} mesaj FAILED yapildi")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ChatViewModel", "Takilmis mesaj kurtarma hatasi", e)
         }
     }
 
@@ -321,6 +402,68 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * Gonderimi basarisiz olan mesaji tekrar gondermeyi dener.
+     * Metin mesajlari SendMessageUseCase uzerinden, dosya mesajlari
+     * FileTransferManager uzerinden yeniden gonderilir.
+     * Onceki basarisiz mesaj silinir ve yeni mesaj olusturulur.
+     */
+    fun retryMessage(messageId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val failedMessage = messageRepository.getMessageById(messageId) ?: return@launch
+            if (failedMessage.status != MessageStatus.FAILED) return@launch
+
+            if (failedMessage.isFileMessage) {
+                // Dosya mesaji — lokal kopyadan tekrar gonder
+                val filePath = failedMessage.filePath
+                if (filePath.isNullOrBlank()) {
+                    _fileTransferEvent.emit("Dosya bulunamadi, tekrar gonderilemez")
+                    return@launch
+                }
+                val file = java.io.File(filePath)
+                if (!file.exists()) {
+                    _fileTransferEvent.emit("Dosya bulunamadi, tekrar gonderilemez")
+                    return@launch
+                }
+                // Onceki basarisiz mesaji sil
+                messageRepository.deleteMessage(messageId)
+                // Dosyayi tekrar gonder (lokal path'ten Uri olustur)
+                val uri = android.net.Uri.fromFile(file)
+                sendFile(uri)
+            } else {
+                // Metin mesaji — onceki basarisiz mesaji sil ve tekrar gonder
+                val content = failedMessage.content
+                val replyToId = failedMessage.replyToId
+                messageRepository.deleteMessage(messageId)
+                sendMessageUseCase(conversationId, content, replyToId)
+            }
+        }
+    }
+
+    /**
+     * Anket mesaji gonderir. POLL contentType ile kaydeder.
+     *
+     * @param pollJson Anket JSON icerik stringi
+     */
+    fun sendPollMessage(pollJson: String) {
+        viewModelScope.launch {
+            val senderId = userSession.userId ?: "unknown"
+            val timestamp = System.currentTimeMillis()
+            val message = LocalMessage(
+                id = UUID.randomUUID().toString(),
+                conversationId = conversationId,
+                senderId = senderId,
+                peerId = conversationId,
+                content = pollJson,
+                contentType = MessageContentType.POLL,
+                timestamp = timestamp,
+                status = MessageStatus.SENT,
+                isOutgoing = true
+            )
+            messageRepository.saveMessage(message)
+        }
+    }
+
+    /**
      * Secilen dosyayi karsi tarafa gonderir.
      *
      * Islem sirasi:
@@ -333,135 +476,206 @@ class ChatViewModel @Inject constructor(
      * @param uri Gonderilecek dosyanin content URI'si
      */
     fun sendFile(uri: Uri) {
-        viewModelScope.launch {
-            android.util.Log.d("ChatVM", "sendFile basladi: $uri")
-            val senderId = userSession.userId ?: "unknown"
-            val fileName = fileTransferManager.getFileName(uri) ?: "dosya"
-            val fileSize = fileTransferManager.getFileSize(uri) ?: 0L
-            val mimeType = fileTransferManager.getMimeType(uri)
+        viewModelScope.launch(Dispatchers.IO) {
+            // Esanli gonderim siniri — maks 3 dosya ayni anda (UI donmasini onler)
+            fileUploadSemaphore.acquire()
+            try {
+                android.util.Log.d("ChatVM", "sendFile basladi: $uri")
+                val senderId = userSession.userId ?: "unknown"
+                val fileName = fileTransferManager.getFileName(uri) ?: "dosya"
+                val fileSize = fileTransferManager.getFileSize(uri) ?: 0L
+                val mimeType = fileTransferManager.getMimeType(uri)
 
-            // Boyut kontrolu
-            if (fileSize > FileTransferManager.MAX_FILE_SIZE) {
-                _fileTransferEvent.emit("Dosya boyutu cok buyuk (maksimum 5MB)")
-                return@launch
-            }
-
-            // Icerik tipini belirle — resim dosyalari IMAGE, digerleri FILE
-            val contentType = if (mimeType.startsWith("image/")) {
-                MessageContentType.IMAGE
-            } else {
-                MessageContentType.FILE
-            }
-
-            // Giden dosyayi da yerel kopyasini olustur - daha sonra acilabilmesi icin
-            val localFilePath = fileTransferManager.copySentFile(uri, fileName) ?: uri.toString()
-
-            val fileContent = LocalMessage.buildFileContent(
-                fileName = fileName,
-                mimeType = mimeType,
-                fileSize = fileSize,
-                filePath = localFilePath
-            )
-
-            // Sureli mesaj kontrolu — konusmada sureli mesaj aktifse expiresAt hesapla
-            val fileTimestamp = System.currentTimeMillis()
-            val fileDuration = conversationDao.getById(conversationId)?.disappearingDuration ?: 0
-            val fileExpiresAt = if (fileDuration > 0) fileTimestamp + fileDuration else null
-
-            // Onceden yerel mesaj kaydet (SENDING durumunda)
-            val messageId = UUID.randomUUID().toString()
-            val message = LocalMessage(
-                id = messageId,
-                conversationId = conversationId,
-                senderId = senderId,
-                peerId = conversationId,
-                content = fileContent,
-                contentType = contentType,
-                timestamp = fileTimestamp,
-                status = MessageStatus.SENDING,
-                isOutgoing = true,
-                expiresAt = fileExpiresAt
-            )
-            messageRepository.saveMessage(message)
-
-            // Grup bilgisini al
-            val conversation = conversationDao.getById(conversationId)
-            val isGroup = conversation?.isGroup == true
-            val members = conversation?.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
-
-            // Dosya gonder
-            val result = fileTransferManager.sendFile(
-                localUserId = senderId,
-                recipientId = conversationId,
-                uri = uri,
-                isGroup = isGroup,
-                groupMembers = members,
-                groupName = if (isGroup) conversation?.peerName else null
-            )
-
-            android.util.Log.d("ChatVM", "sendFile sonucu: $result")
-            when (result) {
-                is FileTransferResult.Success -> {
-                    messageRepository.updateMessageStatus(messageId, MessageStatus.SENT)
+                // Boyut kontrolu
+                if (fileSize > FileTransferManager.MAX_FILE_SIZE) {
+                    _fileTransferEvent.emit("Dosya boyutu cok buyuk (maksimum 1GB)")
+                    fileUploadSemaphore.release()
+                    return@launch
                 }
-                is FileTransferResult.Error -> {
-                    android.util.Log.e("ChatVM", "Dosya gonderim hatasi: ${result.message}")
-                    messageRepository.updateMessageStatus(messageId, MessageStatus.FAILED)
-                    _fileTransferEvent.emit(result.message)
+
+                // Icerik tipini belirle — resim dosyalari IMAGE, digerleri FILE
+                val contentType = if (mimeType.startsWith("image/")) {
+                    MessageContentType.IMAGE
+                } else {
+                    MessageContentType.FILE
                 }
+
+                // Giden dosyayi da yerel kopyasini olustur - daha sonra acilabilmesi icin
+                val localFilePath = fileTransferManager.copySentFile(uri, fileName) ?: uri.toString()
+
+                val fileContent = LocalMessage.buildFileContent(
+                    fileName = fileName,
+                    mimeType = mimeType,
+                    fileSize = fileSize,
+                    filePath = localFilePath
+                )
+
+                // Sureli mesaj kontrolu — konusmada sureli mesaj aktifse expiresAt hesapla
+                val fileTimestamp = System.currentTimeMillis()
+                val fileDuration = conversationDao.getById(conversationId)?.disappearingDuration ?: 0
+                val fileExpiresAt = if (fileDuration > 0) fileTimestamp + fileDuration else null
+
+                // Onceden yerel mesaj kaydet (SENDING durumunda)
+                val messageId = UUID.randomUUID().toString()
+                val message = LocalMessage(
+                    id = messageId,
+                    conversationId = conversationId,
+                    senderId = senderId,
+                    peerId = conversationId,
+                    content = fileContent,
+                    contentType = contentType,
+                    timestamp = fileTimestamp,
+                    status = MessageStatus.SENDING,
+                    isOutgoing = true,
+                    expiresAt = fileExpiresAt
+                )
+                messageRepository.saveMessage(message)
+
+                // Upload progress izleme — arka planda transferProgress'i dinle
+                val progressJob = launch {
+                    fileTransferManager.transferProgress.collect { progress ->
+                        if (progress != null) {
+                            _uploadProgress.value = _uploadProgress.value + (messageId to progress.percent)
+                        }
+                    }
+                }
+
+                // Grup bilgisini al
+                val conversation = conversationDao.getById(conversationId)
+                val isGroup = conversation?.isGroup == true
+                val members = conversation?.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+
+                // Dosya gonder
+                val result = fileTransferManager.sendFile(
+                    localUserId = senderId,
+                    recipientId = conversationId,
+                    uri = uri,
+                    isGroup = isGroup,
+                    groupMembers = members,
+                    groupName = if (isGroup) conversation?.peerName else null
+                )
+
+                // Progress izlemeyi durdur ve temizle
+                progressJob.cancel()
+                _uploadProgress.value = _uploadProgress.value - messageId
+
+                android.util.Log.d("ChatVM", "sendFile sonucu: $result")
+                when (result) {
+                    is FileTransferResult.Success -> {
+                        messageRepository.updateMessageStatus(messageId, MessageStatus.SENT)
+                    }
+                    is FileTransferResult.Error -> {
+                        android.util.Log.e("ChatVM", "Dosya gonderim hatasi: ${result.message}")
+                        messageRepository.updateMessageStatus(messageId, MessageStatus.FAILED)
+                        _fileTransferEvent.emit(result.message)
+                    }
+                }
+            } finally {
+                fileUploadSemaphore.release()
             }
         }
     }
 
     /**
-     * Belirtilen mesaji siler.
-     *
-     * @param messageId Silinecek mesajin kimlik numarasi
-     */
-    /**
      * Mesaji sadece yerel cihazdan siler (benden sil).
+     * Silme sonrasi konusma onizlemesini yeniden hesaplar.
      */
     fun deleteMessage(messageId: String) {
         viewModelScope.launch {
-            messageRepository.deleteMessage(messageId)
+            messageRepository.deleteMessage(messageId, conversationId)
         }
     }
 
     /**
      * Mesaji herkesten siler — yerel olarak siler ve karsi tarafa silme bildirimi gonderir.
+     * Baglanti yoksa silme islemini kuyruga alir, baglanti kuruldugunda gonderir.
      */
     fun deleteMessageForEveryone(messageId: String) {
         viewModelScope.launch {
             val userId = userSession.userId ?: return@launch
             val conv = conversationDao.getById(conversationId) ?: return@launch
+            val isConnected = signalingClient.connectionState.value is ConnectionState.Connected
 
-            if (conv.isGroup) {
-                // Grup: tum uyelere ayri ayri silme bildirimi gonder
-                val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
-                for (memberId in members) {
-                    if (memberId == userId) continue
-                    signalingClient.sendSignal(
-                        SignalMessage.MessageDelete(
-                            senderId = userId,
-                            recipientId = memberId,
-                            timestamp = System.currentTimeMillis(),
-                            messageId = messageId
-                        )
-                    )
-                }
+            if (isConnected) {
+                sendDeleteSignals(userId, conv, messageId)
             } else {
+                savePendingDelete(messageId, conv.peerId)
+                android.util.Log.d("ChatViewModel", "Silme sinyali kuyruga alindi (cevrimdisi): $messageId")
+            }
+
+            // Yerel olarak da "silindi" olarak isaretle
+            messageRepository.updateMessageContent(messageId, "Bu mesaj silindi", "DELETED")
+            // Konusma onizlemesini guncelle
+            messageRepository.recalculateLastMessage(conversationId)
+        }
+    }
+
+    /** Silme sinyallerini karsi tarafa (veya grup uyelerine) gonderir. */
+    private suspend fun sendDeleteSignals(
+        userId: String,
+        conv: com.securechat.storage.entity.ConversationEntity,
+        messageId: String
+    ) {
+        if (conv.isGroup) {
+            val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+            for (memberId in members) {
+                if (memberId == userId) continue
                 signalingClient.sendSignal(
                     SignalMessage.MessageDelete(
                         senderId = userId,
-                        recipientId = conv.peerId,
+                        recipientId = memberId,
                         timestamp = System.currentTimeMillis(),
                         messageId = messageId
                     )
                 )
             }
-            // Yerel olarak da "silindi" olarak isaretle (tamamen silme yerine)
-            messageRepository.updateMessageContent(messageId, "Bu mesaj silindi", "DELETED")
+        } else {
+            signalingClient.sendSignal(
+                SignalMessage.MessageDelete(
+                    senderId = userId,
+                    recipientId = conv.peerId,
+                    timestamp = System.currentTimeMillis(),
+                    messageId = messageId
+                )
+            )
         }
+    }
+
+    /** Cevrimdisi silme islemini SharedPreferences'a kaydeder. */
+    private fun savePendingDelete(messageId: String, recipientId: String) {
+        val jsonStr = sharedPreferences.getString(PREF_PENDING_DELETES, "[]") ?: "[]"
+        val arr = JSONArray(jsonStr)
+        arr.put(JSONObject().apply {
+            put("messageId", messageId)
+            put("recipientId", recipientId)
+        })
+        sharedPreferences.edit().putString(PREF_PENDING_DELETES, arr.toString()).apply()
+    }
+
+    /** Bekleyen silme islemlerini gonderir. Basarili olanlari kuyruktan cikarir. */
+    private suspend fun flushPendingDeletes() {
+        val userId = userSession.userId ?: return
+        val jsonStr = sharedPreferences.getString(PREF_PENDING_DELETES, "[]") ?: "[]"
+        val arr = JSONArray(jsonStr)
+        if (arr.length() == 0) return
+
+        val remaining = JSONArray()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val messageId = obj.getString("messageId")
+            val recipientId = obj.getString("recipientId")
+            val sent = signalingClient.sendSignal(
+                SignalMessage.MessageDelete(
+                    senderId = userId,
+                    recipientId = recipientId,
+                    timestamp = System.currentTimeMillis(),
+                    messageId = messageId
+                )
+            )
+            if (!sent) remaining.put(obj)
+        }
+        sharedPreferences.edit().putString(PREF_PENDING_DELETES, remaining.toString()).apply()
+        android.util.Log.d("ChatViewModel", "Bekleyen silme: ${arr.length() - remaining.length()} gonderildi")
     }
 
     /**

@@ -7,6 +7,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -321,9 +322,9 @@ fun ConversationsScreen(
                         }
                     )
 
-                    // Filtre uygula
-                    val filtered = conversations.let { list ->
-                        var result = list
+                    // Filtre uygula — remember ile memoize et, gereksiz recomposition hesaplamasini onle
+                    val filtered = remember(conversations, searchQuery, activeFilter) {
+                        var result = conversations
                         if (searchQuery.isNotBlank()) {
                             result = result.filter {
                                 it.peerName.contains(searchQuery, ignoreCase = true) ||
@@ -753,11 +754,22 @@ fun ConversationItem(
             )
             if (conversation.unreadCount > 0) {
                 Spacer(modifier = Modifier.height(4.dp))
+                // Renk koru ayirt edilebilirlik icin border/outline eklendi
                 Badge(
                     containerColor = MaterialTheme.colorScheme.secondary,
-                    contentColor = Color.White
+                    contentColor = Color.White,
+                    modifier = Modifier
+                        .border(
+                            1.5.dp,
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                            CircleShape
+                        )
                 ) {
-                    Text("${conversation.unreadCount}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${conversation.unreadCount}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

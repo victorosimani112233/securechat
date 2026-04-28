@@ -77,14 +77,12 @@ class FileTransferManagerTest {
 
     @Test
     fun `sendFile dosya boyutu limitini asinca hata doner`() = runTest {
-        // Arrange — 6MB dosya (limit 5MB)
-        val largeData = ByteArray(6 * 1024 * 1024)
+        // Arrange — 1GB'dan buyuk dosya (boyut URI metadata'dan alinir, bellege yuklenmez)
         val uri = mockk<Uri>()
-        val inputStream = ByteArrayInputStream(largeData)
 
         every { contentResolver.getType(uri) } returns "application/pdf"
-        every { contentResolver.openInputStream(uri) } returns inputStream
-        every { contentResolver.query(uri, any(), any(), any(), any()) } returns mockCursorWithName("buyuk.pdf")
+        // Boyut sorgusu: 1GB + 1 byte
+        every { contentResolver.query(uri, any(), any(), any(), any()) } returns mockCursorWithSize(1024L * 1024 * 1024 + 1)
 
         // Act
         val result = fileTransferManager.sendFile(testSenderId, testRecipientId, uri)
@@ -143,7 +141,7 @@ class FileTransferManagerTest {
 
         every { contentResolver.getType(uri) } returns "text/plain"
         every { contentResolver.openInputStream(uri) } returns inputStream
-        every { contentResolver.query(uri, any(), any(), any(), any()) } returns mockCursorWithName("merhaba.txt")
+        every { contentResolver.query(uri, any(), any(), any(), any()) } returns mockCursorWithNameAndSize("merhaba.txt", testData.size.toLong())
         every { signalingClient.sendSignal(capture(signalSlot)) } returns true
 
         // Act
@@ -158,6 +156,9 @@ class FileTransferManagerTest {
         assertEquals("merhaba.txt", fileTransfer.fileName)
         assertEquals("text/plain", fileTransfer.mimeType)
         assertEquals(testData.size.toLong(), fileTransfer.fileSize)
+        assertEquals(1, fileTransfer.totalChunks)
+        assertEquals(0, fileTransfer.chunkIndex)
+        assertNotNull(fileTransfer.transferId)
 
         // Base64 verisini dogrula
         val decoded = Base64.getDecoder().decode(fileTransfer.data)
@@ -374,11 +375,116 @@ class FileTransferManagerTest {
         assertNull(size)
     }
 
+    // ---- receiveChunk testleri ----
+
+    @Test
+    fun `receiveChunk tek parcali dosya dogrudan kaydeder`() {
+        // Arrange
+        val content = "Tek parca dosya"
+        val encoded = Base64.getEncoder().encodeToString(content.toByteArray())
+        val tempDir = createTempDir("test_files")
+        every { context.filesDir } returns tempDir
+
+        // Act
+        val uri = fileTransferManager.receiveChunk(
+            transferId = null,
+            chunkIndex = 0,
+            totalChunks = 1,
+            fileName = "tek.txt",
+            mimeType = "text/plain",
+            fileSize = content.length.toLong(),
+            data = encoded
+        )
+
+        // Assert — tek parca dogrudan kaydedilmeli
+        val receivedDir = File(tempDir, "received_files")
+        assertTrue(receivedDir.exists())
+        val files = receivedDir.listFiles() ?: emptyArray()
+        assertTrue(files.isNotEmpty())
+        assertEquals(content, files.first().readText())
+
+        tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun `receiveChunk coklu chunk birlestirme`() {
+        // Arrange — 3 parcali dosya
+        val part1 = "AAA"
+        val part2 = "BBB"
+        val part3 = "CCC"
+        val transferId = "test-transfer-123"
+        val tempDir = createTempDir("test_files")
+        every { context.filesDir } returns tempDir
+
+        // Act — ilk 2 chunk null donmeli (henuz tamamlanmadi)
+        val result1 = fileTransferManager.receiveChunk(
+            transferId = transferId, chunkIndex = 0, totalChunks = 3,
+            fileName = "multi.txt", mimeType = "text/plain", fileSize = 9,
+            data = Base64.getEncoder().encodeToString(part1.toByteArray())
+        )
+        assertNull(result1)
+
+        val result2 = fileTransferManager.receiveChunk(
+            transferId = transferId, chunkIndex = 1, totalChunks = 3,
+            fileName = "multi.txt", mimeType = "text/plain", fileSize = 9,
+            data = Base64.getEncoder().encodeToString(part2.toByteArray())
+        )
+        assertNull(result2)
+
+        // Son chunk — dosya birlestirilip kaydedilmeli
+        val result3 = fileTransferManager.receiveChunk(
+            transferId = transferId, chunkIndex = 2, totalChunks = 3,
+            fileName = "multi.txt", mimeType = "text/plain", fileSize = 9,
+            data = Base64.getEncoder().encodeToString(part3.toByteArray())
+        )
+
+        // Assert
+        val receivedDir = File(tempDir, "received_files")
+        val files = receivedDir.listFiles() ?: emptyArray()
+        assertTrue(files.isNotEmpty())
+        assertEquals("AAABBBCCC", files.first().readText())
+
+        tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun `receiveChunk sirayi karistirip dogru birlestirme`() {
+        // Arrange — chunk'lar sirali gelmeyebilir
+        val transferId = "out-of-order-test"
+        val tempDir = createTempDir("test_files")
+        every { context.filesDir } returns tempDir
+
+        // Act — chunk 2, sonra 0, sonra 1
+        assertNull(fileTransferManager.receiveChunk(
+            transferId = transferId, chunkIndex = 2, totalChunks = 3,
+            fileName = "oof.txt", mimeType = "text/plain", fileSize = 9,
+            data = Base64.getEncoder().encodeToString("333".toByteArray())
+        ))
+        assertNull(fileTransferManager.receiveChunk(
+            transferId = transferId, chunkIndex = 0, totalChunks = 3,
+            fileName = "oof.txt", mimeType = "text/plain", fileSize = 9,
+            data = Base64.getEncoder().encodeToString("111".toByteArray())
+        ))
+        val result = fileTransferManager.receiveChunk(
+            transferId = transferId, chunkIndex = 1, totalChunks = 3,
+            fileName = "oof.txt", mimeType = "text/plain", fileSize = 9,
+            data = Base64.getEncoder().encodeToString("222".toByteArray())
+        )
+
+        // Assert — siralama chunk index'e gore olmali
+        val receivedDir = File(tempDir, "received_files")
+        val files = receivedDir.listFiles() ?: emptyArray()
+        assertTrue(files.isNotEmpty())
+        assertEquals("111222333", files.first().readText())
+
+        tempDir.deleteRecursively()
+    }
+
     // ---- MAX_FILE_SIZE sabiti ----
 
     @Test
-    fun `MAX_FILE_SIZE 5MB olarak tanimli`() {
-        assertEquals(5L * 1024 * 1024, FileTransferManager.MAX_FILE_SIZE)
+    fun `MAX_FILE_SIZE 1GB olarak tanimli`() {
+        assertEquals(1024L * 1024 * 1024, FileTransferManager.MAX_FILE_SIZE)
     }
 
     // ---- Yardimci metodlar ----
@@ -388,6 +494,17 @@ class FileTransferManagerTest {
         every { cursor.moveToFirst() } returns true
         every { cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME) } returns 0
         every { cursor.getString(0) } returns name
+        every { cursor.close() } returns Unit
+        return cursor
+    }
+
+    private fun mockCursorWithNameAndSize(name: String, size: Long): Cursor {
+        val cursor = mockk<Cursor>(relaxed = true)
+        every { cursor.moveToFirst() } returns true
+        every { cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME) } returns 0
+        every { cursor.getString(0) } returns name
+        every { cursor.getColumnIndex(OpenableColumns.SIZE) } returns 1
+        every { cursor.getLong(1) } returns size
         every { cursor.close() } returns Unit
         return cursor
     }

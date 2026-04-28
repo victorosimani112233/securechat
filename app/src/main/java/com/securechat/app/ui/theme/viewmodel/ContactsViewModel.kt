@@ -5,13 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.securechat.app.data.IncomingMessageHandler
 import com.securechat.contacts.ContactPermissionManager
 import com.securechat.contacts.ContactSearchManager
+import com.securechat.contacts.toRegisteredContact
 import com.securechat.contacts.ContactsProvider
 import com.securechat.contacts.UserDiscoveryService
-import com.securechat.contacts.DiscoveryApiService
-import com.securechat.contacts.PhoneNumberNormalizer
-import com.securechat.contacts.model.CheckUsersRequest
 import com.securechat.contacts.model.DeviceContact
 import com.securechat.contacts.model.RegisteredContact
+import com.securechat.storage.dao.ContactDao
 import com.securechat.storage.domain.Conversation
 import com.securechat.storage.repository.MessageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -42,7 +41,7 @@ class ContactsViewModel @Inject constructor(
     private val userDiscoveryService: UserDiscoveryService,
     private val contactsProvider: ContactsProvider,
     private val messageRepository: MessageRepository,
-    private val discoveryApiService: DiscoveryApiService
+    private val contactDao: ContactDao
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -71,6 +70,26 @@ class ContactsViewModel @Inject constructor(
 
     fun consumeUserNotFound() { _userNotFound.value = null }
 
+    // Ag hatasi durumunda gosterilecek mesaj
+    private val _networkError = MutableStateFlow<String?>(null)
+    val networkError: StateFlow<String?> = _networkError.asStateFlow()
+    fun consumeNetworkError() { _networkError.value = null }
+
+    // --- Sayfalama state'leri ---
+    /** Her seferde yuklenen kisi sayisi. */
+    private val CONTACTS_PAGE_SIZE = 50
+
+    /** Mevcut yuklenmis kayitli kisi listesi. */
+    private val _paginatedContacts = MutableStateFlow<List<RegisteredContact>>(emptyList())
+
+    /** Daha fazla kisi yuklenebilir mi. */
+    private val _hasMoreContacts = MutableStateFlow(true)
+    val hasMoreContacts: StateFlow<Boolean> = _hasMoreContacts.asStateFlow()
+
+    /** Sayfalama yukleme islemi devam ediyor mu. */
+    private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore: StateFlow<Boolean> = _isLoadingMore.asStateFlow()
+
     private val _phoneContacts = MutableStateFlow<List<DeviceContact>>(emptyList())
     /** Cihaz rehberinden okunan telefon kisileri — arama sorgusuna gore filtrelenir. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -95,6 +114,9 @@ class ContactsViewModel @Inject constructor(
         if (contactPermissionManager.hasPermission()) {
             loadPhoneContacts()
         }
+
+        // Ilk sayfa kayitli kisileri yukle
+        loadInitialContacts()
     }
 
     override fun onCleared() {
@@ -104,14 +126,20 @@ class ContactsViewModel @Inject constructor(
         android.util.Log.d("ContactsViewModel", "Current chat cleared from contacts")
     }
 
-    /** Arama sorgusuna gore filtrelenmis kisi listesi — 300ms debounce ile API cagrisini azaltir. */
+    /**
+     * Arama sorgusuna gore filtrelenmis kisi listesi.
+     * Arama yoksa sayfalamali yukleme kullanilir (ilk 50 + loadMore ile devam).
+     * Arama varsa debounce ile tum sonuclari getirir.
+     */
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     val contacts: StateFlow<List<RegisteredContact>> = _searchQuery
         .debounce(300)
         .flatMapLatest { query ->
             if (query.isBlank()) {
-                contactSearchManager.getRegisteredContacts()
+                // Arama yokken sayfalamali listeyi kullan
+                _paginatedContacts
             } else {
+                // Arama varken tum sonuclari getir
                 contactSearchManager.searchContacts(query)
             }
         }
@@ -124,6 +152,51 @@ class ContactsViewModel @Inject constructor(
             conversations.sortedByDescending { it.lastMessageTimestamp }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Ilk sayfa kayitli kisileri yukler (CONTACTS_PAGE_SIZE adet).
+     * ViewModel olusturuldugunda otomatik cagrilir.
+     */
+    private fun loadInitialContacts() {
+        viewModelScope.launch {
+            try {
+                val totalCount = contactDao.getRegisteredCount()
+                val firstPage = contactDao.getRegisteredPaginated(CONTACTS_PAGE_SIZE, 0)
+                val mapped = firstPage.map { it.toRegisteredContact() }
+                _paginatedContacts.value = mapped
+                _hasMoreContacts.value = mapped.size < totalCount
+                android.util.Log.d("ContactsVM", "Ilk sayfa yuklendi: ${mapped.size}/$totalCount kisi")
+            } catch (e: Exception) {
+                android.util.Log.e("ContactsVM", "Ilk sayfa yuklenemedi", e)
+            }
+        }
+    }
+
+    /**
+     * Sonraki sayfa kayitli kisileri yukler.
+     * LazyColumn'da listenin sonuna yaklasinca cagrilir.
+     */
+    fun loadMoreContacts() {
+        // Arama aktifken, zaten yukleme yapiliyorsa veya daha fazla yoksa atla
+        if (_searchQuery.value.isNotBlank() || _isLoadingMore.value || !_hasMoreContacts.value) return
+
+        viewModelScope.launch {
+            _isLoadingMore.value = true
+            try {
+                val currentSize = _paginatedContacts.value.size
+                val totalCount = contactDao.getRegisteredCount()
+                val nextPage = contactDao.getRegisteredPaginated(CONTACTS_PAGE_SIZE, currentSize)
+                val mapped = nextPage.map { it.toRegisteredContact() }
+                _paginatedContacts.value = _paginatedContacts.value + mapped
+                _hasMoreContacts.value = _paginatedContacts.value.size < totalCount
+                android.util.Log.d("ContactsVM", "Sonraki sayfa yuklendi: +${mapped.size}, toplam=${_paginatedContacts.value.size}/$totalCount")
+            } catch (e: Exception) {
+                android.util.Log.e("ContactsVM", "Sonraki sayfa yuklenemedi", e)
+            } finally {
+                _isLoadingMore.value = false
+            }
+        }
+    }
 
     /**
      * Arama sorgusunu gunceller.
@@ -173,23 +246,25 @@ class ContactsViewModel @Inject constructor(
     fun resolvePhoneToUuid(phoneInput: String) {
         viewModelScope.launch {
             try {
-                val digits = PhoneNumberNormalizer.normalizeDigits(phoneInput)
-                val hash = UserDiscoveryService.hashPhoneNumber(digits)
-                val response = discoveryApiService.checkRegisteredUsers(
-                    CheckUsersRequest(hashes = listOf(hash))
-                )
-                val match = response.users.firstOrNull()
-                if (match != null) {
-                    _resolvedUserId.value = match.userId
+                val userId = userDiscoveryService.resolvePhoneHash(phoneInput)
+                if (userId != null) {
+                    _resolvedUserId.value = userId
                 } else {
-                    android.util.Log.w("ContactsVM", "Numara icin kullanici bulunamadi: $digits")
                     _resolvedUserId.value = null
                     _userNotFound.value = phoneInput
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("ContactsVM", "UUID cozumleme hatasi", e)
+            } catch (e: java.net.ConnectException) {
+                android.util.Log.e("ContactsVM", "Sunucuya baglanilamadi", e)
                 _resolvedUserId.value = null
-                _userNotFound.value = phoneInput
+                _networkError.value = "Sunucuya bağlanılamadı"
+            } catch (e: java.net.SocketTimeoutException) {
+                android.util.Log.e("ContactsVM", "Sunucu zaman asimi", e)
+                _resolvedUserId.value = null
+                _networkError.value = "Bağlantı zaman aşımına uğradı"
+            } catch (e: Exception) {
+                android.util.Log.e("ContactsVM", "UUID cozumleme hatasi: ${e.javaClass.simpleName}: ${e.message}", e)
+                _resolvedUserId.value = null
+                _networkError.value = "Bağlantı hatası: ${e.message}"
             }
         }
     }

@@ -183,11 +183,12 @@ fun GroupInfoScreen(
                     }
                 },
                 actions = {
-                    if (currentTab == GroupInfoTab.MAIN) {
+                    // Sadece admin kullanicilar grup adini duzenleyebilir
+                    if (currentTab == GroupInfoTab.MAIN && isAdmin) {
                         IconButton(onClick = { showEditGroupDialog = true }) {
                             Icon(
                                 Icons.Default.Edit,
-                                contentDescription = "Grup Adını Düzenle",
+                                contentDescription = "Grup Ad\u0131n\u0131 D\u00FCzenle",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -302,14 +303,22 @@ fun GroupInfoScreen(
                         GroupSectionDivider()
                     }
 
-                    // Süreli mesajlar menü ögesi
+                    // Sureli mesajlar menu ogesi — sadece admin degistirebilir
                     item {
                         GroupInfoMenuItem(
                             icon = Icons.Default.Schedule,
                             iconTint = Color(0xFF00897B),
-                            title = "Süreli Mesajlar",
-                            subtitle = formatGroupDisappearingLabel(disappearingDuration),
-                            onClick = { showDisappearingDialog = true }
+                            title = "S\u00FCreli Mesajlar",
+                            subtitle = if (isAdmin)
+                                formatGroupDisappearingLabel(disappearingDuration)
+                            else
+                                "${formatGroupDisappearingLabel(disappearingDuration)} (Sadece y\u00F6netici de\u011Fi\u015Ftirebilir)",
+                            onClick = {
+                                if (isAdmin) {
+                                    showDisappearingDialog = true
+                                }
+                                // Admin degil ise tiklama etkisiz
+                            }
                         )
                     }
 

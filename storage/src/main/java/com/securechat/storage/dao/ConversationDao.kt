@@ -73,4 +73,25 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET is_muted = :isMuted WHERE id = :conversationId")
     suspend fun updateMuted(conversationId: String, isMuted: Boolean)
+
+    /**
+     * Belirtilen konusmadaki en son mesajin icerigini dondurur.
+     * Mesaj silme veya duzenleme sonrasi lastMessage alanini yeniden hesaplamak icin kullanilir.
+     */
+    @Query("SELECT content FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLastMessageContent(conversationId: String): String?
+
+    /**
+     * Belirtilen konusmadaki en son mesajin zaman damgasini dondurur.
+     * Mesaj silme veya duzenleme sonrasi lastMessageTimestamp alanini yeniden hesaplamak icin kullanilir.
+     */
+    @Query("SELECT timestamp FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLastMessageTimestamp(conversationId: String): Long?
+
+    /**
+     * Konusmadaki son mesaji ID ile gunceller.
+     * Silme veya duzenleme sonrasi konusma listesindeki onizleme metnini dogru gostermek icin kullanilir.
+     */
+    @Query("UPDATE conversations SET last_message = :message, last_message_timestamp = :timestamp WHERE id = :conversationId")
+    suspend fun updateLastMessageById(conversationId: String, message: String, timestamp: Long)
 }

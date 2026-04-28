@@ -1,11 +1,15 @@
 package com.securechat.app.data
 
+import android.content.Context
+import com.securechat.app.ui.components.ThemeManager
 import com.securechat.media.CallManager
 import com.securechat.media.FileTransferManager
+import com.securechat.media.IncomingCallHandler
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
 import com.securechat.network.model.CallAction
 import com.securechat.network.model.CallType
+import com.securechat.storage.dao.ContactDao
 import com.securechat.storage.dao.ConversationDao
 import com.securechat.storage.repository.MessageRepository
 import io.mockk.every
@@ -24,33 +28,48 @@ import org.junit.Test
 class IncomingMessageHandlerTest {
 
     private lateinit var handler: IncomingMessageHandler
+    private lateinit var context: Context
     private lateinit var signalingClient: SignalingClient
     private lateinit var messageRepository: MessageRepository
     private lateinit var conversationDao: ConversationDao
+    private lateinit var contactDao: ContactDao
     private lateinit var callManager: CallManager
     private lateinit var fileTransferManager: FileTransferManager
     private lateinit var userSession: UserSession
+    private lateinit var incomingCallHandler: IncomingCallHandler
+    private lateinit var missedCallTracker: MissedCallTracker
+    private lateinit var themeManager: ThemeManager
 
     private val testUserId = "local-user-123"
     private val testPeerId = "remote-peer-456"
 
     @Before
     fun setup() {
+        context = mockk(relaxed = true)
         signalingClient = mockk(relaxed = true)
         messageRepository = mockk(relaxed = true)
         conversationDao = mockk(relaxed = true)
+        contactDao = mockk(relaxed = true)
         callManager = mockk(relaxed = true)
         fileTransferManager = mockk(relaxed = true)
         userSession = mockk(relaxed = true)
+        incomingCallHandler = mockk(relaxed = true)
+        missedCallTracker = mockk(relaxed = true)
+        themeManager = mockk(relaxed = true)
         every { userSession.userId } returns testUserId
 
         handler = IncomingMessageHandler(
+            context = context,
             signalingClient = signalingClient,
             messageRepository = messageRepository,
             conversationDao = conversationDao,
+            contactDao = contactDao,
             callManager = callManager,
             fileTransferManager = fileTransferManager,
-            userSession = userSession
+            userSession = userSession,
+            incomingCallHandler = incomingCallHandler,
+            missedCallTracker = missedCallTracker,
+            themeManager = themeManager
         )
     }
 

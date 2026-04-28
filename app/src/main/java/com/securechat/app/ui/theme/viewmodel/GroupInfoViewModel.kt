@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.securechat.app.data.UserSession
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
+import com.securechat.network.model.GroupAction
 import com.securechat.app.domain.usecase.AddGroupMemberUseCase
 import com.securechat.app.domain.usecase.PromoteToAdminUseCase
 import com.securechat.app.domain.usecase.RemoveGroupMemberUseCase
@@ -39,6 +40,11 @@ class GroupInfoViewModel @Inject constructor(
     private val removeGroupMemberUseCase: RemoveGroupMemberUseCase,
     private val updateGroupNameUseCase: UpdateGroupNameUseCase
 ) : ViewModel() {
+
+    companion object {
+        /** Bir grubun icerebilecegi maksimum uye sayisi */
+        const val MAX_MEMBERS = 256
+    }
 
     private val _groupInfo = MutableStateFlow<GroupInfo?>(null)
     val groupInfo: StateFlow<GroupInfo?> = _groupInfo.asStateFlow()
@@ -195,10 +201,17 @@ class GroupInfoViewModel @Inject constructor(
 
     /**
      * Gruba yeni uye ekler (sadece admin).
+     * Uye limiti kontrolu yapar — maksimum MAX_MEMBERS uye.
      */
     fun addMember(groupId: String, newMemberId: String) {
         viewModelScope.launch {
             try {
+                // Mevcut uye sayisi limiti kontrol et
+                val currentMemberCount = _groupInfo.value?.members?.size ?: 0
+                if (currentMemberCount >= MAX_MEMBERS) {
+                    _error.value = "Grup \u00FCye limiti doldu ($MAX_MEMBERS)"
+                    return@launch
+                }
                 addGroupMemberUseCase(groupId, newMemberId)
                 // UI'yi guncelle
                 loadGroupInfo(groupId)
@@ -251,6 +264,49 @@ class GroupInfoViewModel @Inject constructor(
                 messageDao.updateStarred(messageId, isStarred)
             } catch (e: Exception) {
                 android.util.Log.e("GroupInfoVM", "Mesaj yildizlama hatasi", e)
+            }
+        }
+    }
+
+    /**
+     * Kullanici kendi istegi ile gruptan ayrilir.
+     * Tum kalan uyelere LEAVE_GROUP bildirimi gonderilir.
+     */
+    fun leaveGroup(groupId: String, onLeft: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val userId = userSession.userId ?: return@launch
+                val conv = conversationDao.getById(groupId) ?: return@launch
+                val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+
+                // Kalan uyelere LEAVE_GROUP bildirimi gonder
+                val remainingMembers = members.filter { it != userId }
+                for (memberId in remainingMembers) {
+                    signalingClient.sendSignal(
+                        SignalMessage.GroupNotification(
+                            senderId = userId,
+                            recipientId = memberId,
+                            timestamp = System.currentTimeMillis(),
+                            groupId = groupId,
+                            groupName = conv.peerName,
+                            action = GroupAction.LEAVE_GROUP,
+                            groupMembers = remainingMembers,
+                            targetMemberId = null
+                        )
+                    )
+                }
+
+                // Yerel uye listesinden kendini cikar
+                conversationDao.updateGroupMembers(groupId, remainingMembers.joinToString(","))
+
+                // Konusmayi arsivle
+                conversationDao.updateArchived(groupId, true)
+
+                android.util.Log.d("GroupInfoVM", "Gruptan ayrildi: $groupId")
+                onLeft()
+            } catch (e: Exception) {
+                android.util.Log.e("GroupInfoVM", "Gruptan ayrilirken hata", e)
+                _error.value = e.message ?: "Gruptan ayrılamadı"
             }
         }
     }

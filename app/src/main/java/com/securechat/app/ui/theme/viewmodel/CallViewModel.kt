@@ -9,6 +9,7 @@ import com.securechat.media.CallManager
 import com.securechat.media.model.CallSession
 import com.securechat.network.model.CallType
 import com.securechat.storage.dao.ConversationDao
+import com.securechat.storage.resolver.ContactNameResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -26,7 +27,8 @@ class CallViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val callManager: CallManager,
     private val userSession: UserSession,
-    private val conversationDao: ConversationDao
+    private val conversationDao: ConversationDao,
+    private val contactNameResolver: ContactNameResolver
 ) : ViewModel() {
 
     private val peerId: String = savedStateHandle.get<String>("peerId") ?: ""
@@ -36,6 +38,10 @@ class CallViewModel @Inject constructor(
 
     private val _callDuration = MutableStateFlow(0L)
     val callDuration: StateFlow<Long> = _callDuration.asStateFlow()
+
+    /** Karsi tarafin gosterilecek adi — UUID yerine rehber/DB ismi. */
+    private val _peerDisplayName = MutableStateFlow(peerId)
+    val peerDisplayName: StateFlow<String> = _peerDisplayName.asStateFlow()
 
     /** Karsi tarafin video track'i — SurfaceViewRenderer'a baglanir (1-to-1). */
     val remoteVideoTrack: StateFlow<VideoTrack?> = callManager.remoteVideoTrackFlow
@@ -55,6 +61,18 @@ class CallViewModel @Inject constructor(
     init {
         IncomingMessageHandler.currentChatId = "call_$peerId"
         android.util.Log.d("CallViewModel", "Current chat set to: call_$peerId")
+
+        // Peer ismini coz — UUID yerine rehber/DB ismi goster
+        if (peerId.isNotBlank()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                if (peerId.startsWith("group_")) {
+                    val conv = conversationDao.getById(peerId)
+                    _peerDisplayName.value = conv?.peerName ?: peerId
+                } else {
+                    _peerDisplayName.value = contactNameResolver.resolveDisplayName(peerId)
+                }
+            }
+        }
 
         val current = callManager.currentSession
         android.util.Log.d("CallVM", "init: peerId=$peerId callType=$callTypeStr currentSession=${current?.state} userId=${userSession.userId}")

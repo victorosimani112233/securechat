@@ -9,6 +9,7 @@ import com.securechat.storage.entity.MessageEntity
 import com.securechat.storage.model.MessageContentType
 import com.securechat.storage.model.MessageStatus
 import com.securechat.storage.repository.MessageRepositoryImpl
+import com.securechat.storage.resolver.ContactNameResolver
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -27,13 +28,17 @@ class MessageRepositoryImplTest {
 
     private lateinit var messageDao: MessageDao
     private lateinit var conversationDao: ConversationDao
+    private lateinit var contactNameResolver: ContactNameResolver
     private lateinit var repository: MessageRepositoryImpl
 
     @Before
     fun setup() {
         messageDao = mockk(relaxed = true)
         conversationDao = mockk(relaxed = true)
-        repository = MessageRepositoryImpl(messageDao, conversationDao)
+        contactNameResolver = mockk(relaxed = true)
+        coEvery { contactNameResolver.resolveDisplayName(any()) } returns "Test User"
+        coEvery { contactNameResolver.resolvePhoneNumber(any()) } returns "+905551234567"
+        repository = MessageRepositoryImpl(messageDao, conversationDao, contactNameResolver)
     }
 
     private fun createTestMessage(
@@ -233,5 +238,137 @@ class MessageRepositoryImplTest {
 
         coVerify { messageDao.deleteByConversation("conv-1") }
         coVerify { conversationDao.delete("conv-1") }
+    }
+
+    // --- Bug 019: Silme ve duzenleme sonrasi lastMessage yeniden hesaplama testleri ---
+
+    @Test
+    fun `deleteMessage with conversationId recalculates last message`() = runTest {
+        coEvery { conversationDao.getLastMessageContent("conv-1") } returns "Onceki mesaj"
+        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 1000L
+
+        repository.deleteMessage("msg-1", "conv-1")
+
+        coVerify { messageDao.delete("msg-1") }
+        coVerify { conversationDao.updateLastMessageById("conv-1", "Onceki mesaj", 1000L) }
+    }
+
+    @Test
+    fun `deleteMessage with conversationId sets empty when no messages remain`() = runTest {
+        coEvery { conversationDao.getLastMessageContent("conv-1") } returns null
+        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns null
+
+        repository.deleteMessage("msg-1", "conv-1")
+
+        coVerify { messageDao.delete("msg-1") }
+        coVerify { conversationDao.updateLastMessageById("conv-1", "", 0L) }
+    }
+
+    @Test
+    fun `recalculateLastMessage updates conversation with latest message`() = runTest {
+        coEvery { conversationDao.getLastMessageContent("conv-1") } returns "Son mesaj"
+        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 5000L
+
+        repository.recalculateLastMessage("conv-1")
+
+        coVerify { conversationDao.updateLastMessageById("conv-1", "Son mesaj", 5000L) }
+    }
+
+    @Test
+    fun `editMessage updates last message when edited message is most recent`() = runTest {
+        val entity = MessageEntity(
+            id = "msg-1",
+            conversationId = "conv-1",
+            senderId = "user-1",
+            content = "Eski icerik",
+            contentType = MessageContentType.TEXT,
+            timestamp = 3000L,
+            status = MessageStatus.SENT,
+            isOutgoing = true
+        )
+        coEvery { messageDao.getById("msg-1") } returns entity
+        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 3000L
+
+        repository.editMessage("msg-1", "Yeni icerik", 4000L)
+
+        coVerify { messageDao.updateContentEdited("msg-1", "Yeni icerik", 4000L, any()) }
+        coVerify { conversationDao.updateLastMessageById("conv-1", "Yeni icerik", 3000L) }
+    }
+
+    @Test
+    fun `editMessage does not update last message when not most recent`() = runTest {
+        val entity = MessageEntity(
+            id = "msg-1",
+            conversationId = "conv-1",
+            senderId = "user-1",
+            content = "Eski icerik",
+            contentType = MessageContentType.TEXT,
+            timestamp = 1000L,
+            status = MessageStatus.SENT,
+            isOutgoing = true
+        )
+        coEvery { messageDao.getById("msg-1") } returns entity
+        // En son mesajin zaman damgasi farkli — duzenlenen mesaj en son degil
+        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 5000L
+
+        repository.editMessage("msg-1", "Yeni icerik", 4000L)
+
+        coVerify { messageDao.updateContentEdited("msg-1", "Yeni icerik", 4000L, any()) }
+        coVerify(exactly = 0) { conversationDao.updateLastMessageById(any(), any(), any()) }
+    }
+
+    @Test
+    fun `updateMessageContent updates last message when content is most recent`() = runTest {
+        val entity = MessageEntity(
+            id = "msg-1",
+            conversationId = "conv-1",
+            senderId = "user-1",
+            content = "Silinecek mesaj",
+            contentType = MessageContentType.TEXT,
+            timestamp = 3000L,
+            status = MessageStatus.SENT,
+            isOutgoing = true
+        )
+        coEvery { messageDao.getById("msg-1") } returns entity
+        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 3000L
+
+        repository.updateMessageContent("msg-1", "Bu mesaj silindi", "DELETED")
+
+        coVerify { messageDao.updateContent("msg-1", "Bu mesaj silindi", "DELETED") }
+        coVerify { conversationDao.updateLastMessageById("conv-1", "Bu mesaj silindi", 3000L) }
+    }
+
+    // --- Bug 017: Takili mesajlari kurtarma testleri ---
+
+    @Test
+    fun `getStuckSendingMessages returns messages older than threshold`() = runTest {
+        val stuckEntities = listOf(
+            MessageEntity(
+                id = "stuck-1",
+                conversationId = "conv-1",
+                senderId = "user-1",
+                content = "Takili mesaj",
+                contentType = MessageContentType.TEXT,
+                timestamp = 1000L,
+                status = MessageStatus.SENDING,
+                isOutgoing = true
+            )
+        )
+        coEvery { messageDao.getStuckSendingMessages(any()) } returns stuckEntities
+
+        val result = repository.getStuckSendingMessages(120_000L)
+
+        assertThat(result).hasSize(1)
+        assertThat(result[0].id).isEqualTo("stuck-1")
+        assertThat(result[0].status).isEqualTo(MessageStatus.SENDING)
+    }
+
+    @Test
+    fun `getStuckSendingMessages returns empty when no stuck messages`() = runTest {
+        coEvery { messageDao.getStuckSendingMessages(any()) } returns emptyList()
+
+        val result = repository.getStuckSendingMessages(120_000L)
+
+        assertThat(result).isEmpty()
     }
 }

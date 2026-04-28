@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -38,6 +39,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,6 +75,7 @@ fun PhoneVerificationScreen(
     var displayName by remember { mutableStateOf("") }
     var phoneNumber by remember { mutableStateOf("") }
     var countryCode by remember { mutableStateOf("+90") }
+    var showContactsPermissionDialog by remember { mutableStateOf(false) }
 
     // Permission handling
     val context = LocalContext.current
@@ -162,7 +165,15 @@ fun PhoneVerificationScreen(
             }
         }
 
-        // Izin sonucu ne olursa olsun kayda devam et — izinler sonra da istenebilir
+        // READ_CONTACTS zorunlu — verilmediyse kaydi engelle ve aciklama goster
+        val contactsGranted = permissions[Manifest.permission.READ_CONTACTS] == true
+        if (!contactsGranted) {
+            android.util.Log.w("PermissionCheck", "READ_CONTACTS reddedildi, kayit engellendi")
+            showContactsPermissionDialog = true
+            return@rememberLauncherForActivityResult
+        }
+
+        // READ_CONTACTS verildi, diger izinler opsiyonel — devam et
         if (phoneNumber.length >= 10) {
             val rawPhone = "$countryCode$phoneNumber".replace(" ", "")
             val normalizedDigits = PhoneNumberNormalizer.normalizeDigits(rawPhone)
@@ -175,23 +186,61 @@ fun PhoneVerificationScreen(
             ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED
         }
 
-        // DEBUG: Hangi izinlerin eksik olduğunu göster
+        // DEBUG: Hangi izinlerin eksik oldugunu goster
         requiredPermissions.forEach { permission ->
             val granted = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
             android.util.Log.d("PermissionCheck", "$permission: ${if (granted) "GRANTED" else "DENIED"}")
         }
 
+        // READ_CONTACTS zorunlu izin kontrol — verilmemisse izin iste
+        val contactsGranted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+
         if (permissionsToRequest.isEmpty()) {
-            // Tüm izinler zaten var, direkt devam et
-            android.util.Log.d("PermissionCheck", "Tüm izinler zaten var, devam ediliyor")
+            // Tum izinler zaten var, direkt devam et
+            android.util.Log.d("PermissionCheck", "Tum izinler zaten var, devam ediliyor")
             val rawPhone = "$countryCode$phoneNumber".replace(" ", "")
             val normalizedDigits = PhoneNumberNormalizer.normalizeDigits(rawPhone)
             onVerified(sanitizeName(displayName), "+$normalizedDigits")
+        } else if (!contactsGranted) {
+            // READ_CONTACTS henuz verilmedi — tum izinleri talep et
+            android.util.Log.d("PermissionCheck", "READ_CONTACTS gerekli, izinler talep ediliyor")
+            permissionLauncher.launch(requiredPermissions)
         } else {
-            // İzinleri talep et
-            android.util.Log.d("PermissionCheck", "İzinler talep ediliyor: ${permissionsToRequest.joinToString()}")
+            // READ_CONTACTS var ama diger izinler eksik — opsiyonel izinleri iste, devam et
+            android.util.Log.d("PermissionCheck", "Opsiyonel izinler talep ediliyor: ${permissionsToRequest.joinToString()}")
             permissionLauncher.launch(requiredPermissions)
         }
+    }
+
+    // Rehber izni zorunlu aciklama dialog'u
+    if (showContactsPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showContactsPermissionDialog = false },
+            title = { Text("Rehber Erisimi Gerekli") },
+            text = {
+                Text(
+                    "Rehber erisimi uygulamanin temel islevleri icin gereklidir. " +
+                    "Kisilarinizi bulabilmek ve guvenli mesajlasma baslatabilmek icin " +
+                    "lutfen rehber erisim iznini verin."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showContactsPermissionDialog = false
+                    // Izinleri tekrar iste
+                    permissionLauncher.launch(requiredPermissions)
+                }) {
+                    Text("Tekrar Dene")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showContactsPermissionDialog = false }) {
+                    Text("Iptal")
+                }
+            }
+        )
     }
 
     val dark = LocalDarkTheme.current

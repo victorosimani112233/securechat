@@ -173,11 +173,23 @@ fun CreateGroupScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {
-                // Grup adı alanı
+                // Grup adi alani — maksimum 50 karakter siniri
                 OutlinedTextField(
                     value = groupName,
-                    onValueChange = { viewModel.onGroupNameChanged(it) },
-                    label = { Text("Grup Adı") },
+                    onValueChange = { if (it.length <= 50) viewModel.onGroupNameChanged(it) },
+                    label = { Text("Grup Ad\u0131") },
+                    supportingText = {
+                        Text(
+                            text = "${groupName.length}/50",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.End,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (groupName.length >= 50)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),

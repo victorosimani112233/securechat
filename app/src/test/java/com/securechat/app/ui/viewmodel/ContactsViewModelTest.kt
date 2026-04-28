@@ -3,8 +3,11 @@ package com.securechat.app.ui.viewmodel
 import app.cash.turbine.test
 import com.securechat.contacts.ContactPermissionManager
 import com.securechat.contacts.ContactSearchManager
+import com.securechat.storage.entity.ContactEntity
 import com.securechat.contacts.ContactsProvider
 import com.securechat.contacts.UserDiscoveryService
+import com.securechat.contacts.DiscoveryApiService
+import com.securechat.storage.dao.ContactDao
 import com.securechat.storage.repository.MessageRepository
 import com.securechat.contacts.model.RegisteredContact
 import io.mockk.coEvery
@@ -39,6 +42,8 @@ class ContactsViewModelTest {
     private lateinit var userDiscoveryService: UserDiscoveryService
     private lateinit var contactsProvider: ContactsProvider
     private lateinit var messageRepository: MessageRepository
+    private lateinit var discoveryApiService: DiscoveryApiService
+    private lateinit var contactDao: ContactDao
 
     @Before
     fun setup() {
@@ -48,6 +53,8 @@ class ContactsViewModelTest {
         userDiscoveryService = mockk(relaxed = true)
         contactsProvider = mockk(relaxed = true)
         messageRepository = mockk(relaxed = true)
+        discoveryApiService = mockk(relaxed = true)
+        contactDao = mockk(relaxed = true)
     }
 
     @After
@@ -59,7 +66,7 @@ class ContactsViewModelTest {
         every { contactPermissionManager.hasPermission() } returns hasPermission
         every { contactSearchManager.getRegisteredContacts() } returns flowOf(emptyList())
         every { contactSearchManager.searchContacts(any()) } returns flowOf(emptyList())
-        return ContactsViewModel(contactSearchManager, contactPermissionManager, userDiscoveryService, contactsProvider, messageRepository)
+        return ContactsViewModel(contactSearchManager, contactPermissionManager, userDiscoveryService, contactsProvider, messageRepository, discoveryApiService, contactDao)
     }
 
     // --- Arama testleri ---
@@ -81,27 +88,28 @@ class ContactsViewModelTest {
 
     @Test
     fun `contacts bos sorgu icin getRegisteredContacts kullanir`() = runTest {
-        val testContacts = listOf(
-            createTestContact("u1", "Ali Veli"),
-            createTestContact("u2", "Ayse Fatma")
+        val testEntities = listOf(
+            ContactEntity(id = "u1", phoneNumber = "+905551111111", phoneHash = "h1", displayName = "Ali Veli", isRegistered = true),
+            ContactEntity(id = "u2", phoneNumber = "+905552222222", phoneHash = "h2", displayName = "Ayse Fatma", isRegistered = true)
         )
         every { contactPermissionManager.hasPermission() } returns false
-        every { contactSearchManager.getRegisteredContacts() } returns flowOf(testContacts)
+        coEvery { contactDao.getRegisteredCount() } returns 2
+        coEvery { contactDao.getRegisteredPaginated(any(), any()) } returns testEntities
         every { contactSearchManager.searchContacts(any()) } returns flowOf(emptyList())
 
         val viewModel = ContactsViewModel(
-            contactSearchManager, contactPermissionManager, userDiscoveryService, contactsProvider, messageRepository
+            contactSearchManager, contactPermissionManager, userDiscoveryService, contactsProvider, messageRepository, discoveryApiService, contactDao
         )
 
+        // WhileSubscribed flow'u Turbine ile dinle, debounce(300) icin zamani ilerlet
         viewModel.contacts.test {
-            val first = awaitItem()
-            if (first.isEmpty()) {
+            val first = awaitItem() // initial emptyList()
+            if (first.size == 2) {
+                assertEquals("Ali Veli", first[0].displayName)
+            } else {
                 val second = awaitItem()
                 assertEquals(2, second.size)
                 assertEquals("Ali Veli", second[0].displayName)
-            } else {
-                assertEquals(2, first.size)
-                assertEquals("Ali Veli", first[0].displayName)
             }
             cancelAndConsumeRemainingEvents()
         }
@@ -115,7 +123,7 @@ class ContactsViewModelTest {
         every { contactSearchManager.searchContacts("Ali") } returns flowOf(searchResult)
 
         val viewModel = ContactsViewModel(
-            contactSearchManager, contactPermissionManager, userDiscoveryService, contactsProvider, messageRepository
+            contactSearchManager, contactPermissionManager, userDiscoveryService, contactsProvider, messageRepository, discoveryApiService, contactDao
         )
 
         viewModel.onSearchQueryChanged("Ali")
@@ -160,7 +168,7 @@ class ContactsViewModelTest {
         every { contactSearchManager.getRegisteredContacts() } returns flowOf(emptyList())
 
         val viewModel = ContactsViewModel(
-            contactSearchManager, contactPermissionManager, userDiscoveryService, contactsProvider, messageRepository
+            contactSearchManager, contactPermissionManager, userDiscoveryService, contactsProvider, messageRepository, discoveryApiService, contactDao
         )
 
         assertTrue(viewModel.hasPermission())

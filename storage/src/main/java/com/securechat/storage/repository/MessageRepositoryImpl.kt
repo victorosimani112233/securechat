@@ -72,6 +72,13 @@ class MessageRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun getRecentMessages(conversationId: String, limit: Int): Flow<List<LocalMessage>> {
+        return messageDao.getRecentMessages(conversationId, limit).map { entities ->
+            // getRecentMessages DESC siralama doner, kronolojik sira icin ters cevir
+            entities.reversed().map { it.toDomain() }
+        }
+    }
+
     override fun getConversations(): Flow<List<Conversation>> {
         return conversationDao.getAll().map { entities ->
             entities.map { it.toDomain() }
@@ -92,6 +99,27 @@ class MessageRepositoryImpl @Inject constructor(
 
     override suspend fun deleteMessage(messageId: String) {
         messageDao.delete(messageId)
+    }
+
+    override suspend fun deleteMessage(messageId: String, conversationId: String) {
+        messageDao.delete(messageId)
+        // Silinen mesaj en son mesaj olabilir — konusma onizlemesini yeniden hesapla
+        recalculateLastMessage(conversationId)
+    }
+
+    override suspend fun recalculateLastMessage(conversationId: String) {
+        val lastContent = conversationDao.getLastMessageContent(conversationId)
+        val lastTimestamp = conversationDao.getLastMessageTimestamp(conversationId)
+        conversationDao.updateLastMessageById(
+            conversationId,
+            lastContent ?: "",
+            lastTimestamp ?: 0L
+        )
+    }
+
+    override suspend fun getStuckSendingMessages(olderThanMs: Long): List<LocalMessage> {
+        val cutoff = System.currentTimeMillis() - olderThanMs
+        return messageDao.getStuckSendingMessages(cutoff).map { it.toDomain() }
     }
 
     override suspend fun deleteConversation(conversationId: String) {
@@ -124,11 +152,55 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateMessageContent(messageId: String, content: String, contentType: String) {
+        // Guncelleme oncesi mesajin hangi konusmaya ait oldugunu bul
+        val messageEntity = messageDao.getById(messageId)
         messageDao.updateContent(messageId, content, contentType)
+
+        // "Herkesten silme" sonrasi konusma onizlemesini guncelle
+        if (messageEntity != null) {
+            val conversationId = messageEntity.conversationId
+            val lastTimestamp = conversationDao.getLastMessageTimestamp(conversationId)
+            if (lastTimestamp != null && lastTimestamp == messageEntity.timestamp) {
+                conversationDao.updateLastMessageById(conversationId, content, lastTimestamp)
+            }
+        }
     }
 
     override suspend fun editMessage(messageId: String, newContent: String, editedAt: Long) {
-        messageDao.updateContentEdited(messageId, newContent, editedAt)
+        // Duzenleme oncesi mesajin mevcut icerigini ve gecmisini al
+        val messageEntity = messageDao.getById(messageId)
+
+        // Onceki icerigi edit_history JSON dizisine ekle
+        var updatedHistory: String? = null
+        if (messageEntity != null) {
+            val previousContent = messageEntity.content
+            val historyEntry = org.json.JSONObject().apply {
+                put("content", previousContent)
+                put("editedAt", editedAt)
+            }
+            val historyArray = if (!messageEntity.editHistory.isNullOrBlank()) {
+                try {
+                    org.json.JSONArray(messageEntity.editHistory)
+                } catch (_: Exception) {
+                    org.json.JSONArray()
+                }
+            } else {
+                org.json.JSONArray()
+            }
+            historyArray.put(historyEntry)
+            updatedHistory = historyArray.toString()
+        }
+
+        messageDao.updateContentEdited(messageId, newContent, editedAt, updatedHistory)
+
+        // Duzenlenen mesaj konusmanin en son mesaji ise, konusma onizlemesini guncelle
+        if (messageEntity != null) {
+            val conversationId = messageEntity.conversationId
+            val lastTimestamp = conversationDao.getLastMessageTimestamp(conversationId)
+            if (lastTimestamp != null && lastTimestamp == messageEntity.timestamp) {
+                conversationDao.updateLastMessageById(conversationId, newContent, lastTimestamp)
+            }
+        }
     }
 
     override suspend fun updateConversationArchived(conversationId: String, isArchived: Boolean) {
@@ -156,6 +228,10 @@ class MessageRepositoryImpl @Inject constructor(
     override suspend fun updateConversationMuted(conversationId: String, isMuted: Boolean) {
         conversationDao.updateMuted(conversationId, isMuted)
     }
+
+    override suspend fun markStuckMessagesAsFailed(cutoff: Long): Int {
+        return messageDao.markStuckMessagesAsFailed(cutoff)
+    }
 }
 
 // --- Extension fonksiyonlari: Entity <-> Domain donusumleri ---
@@ -173,7 +249,8 @@ internal fun LocalMessage.toEntity(): MessageEntity = MessageEntity(
     isOutgoing = isOutgoing,
     isStarred = isStarred,
     expiresAt = expiresAt,
-    editedAt = editedAt
+    editedAt = editedAt,
+    editHistory = editHistory
 )
 
 /**
@@ -194,7 +271,8 @@ internal fun MessageEntity.toDomain(): LocalMessage = LocalMessage(
     isOutgoing = isOutgoing,
     isStarred = isStarred,
     expiresAt = expiresAt,
-    editedAt = editedAt
+    editedAt = editedAt,
+    editHistory = editHistory
 )
 
 /** ConversationEntity'yi Conversation domain modeline donusturur. */

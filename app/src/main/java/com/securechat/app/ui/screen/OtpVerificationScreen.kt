@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -72,6 +73,7 @@ import kotlinx.coroutines.delay
 fun OtpVerificationScreen(
     phoneNumber: String,
     onVerified: () -> Unit,
+    onBackupRestore: (() -> Unit)? = null,
     onBackClick: () -> Unit = {}
 ) {
     var otpCode by remember { mutableStateOf("") }
@@ -79,6 +81,7 @@ fun OtpVerificationScreen(
     var countdown by remember { mutableStateOf(60) }
     var canResend by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
+    var showBackupPrompt by remember { mutableStateOf(false) }
 
     // Geri sayım timer
     LaunchedEffect(Unit) {
@@ -89,6 +92,43 @@ fun OtpVerificationScreen(
         canResend = true
     }
 
+    // Yedek geri yukleme prompt'u — yeni cihazda mevcut yedek var mi diye sorar
+    if (showBackupPrompt) {
+        AlertDialog(
+            onDismissRequest = {
+                showBackupPrompt = false
+                onVerified()
+            },
+            title = { Text("Mevcut bir yedeginiz var mi?") },
+            text = {
+                Text(
+                    "Daha once sifreli bir yedek olusturduysaniz, sohbetlerinizi geri yukleyebilirsiniz."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBackupPrompt = false
+                    // Yedek geri yukleme akisina yonlendir
+                    if (onBackupRestore != null) {
+                        onBackupRestore()
+                    } else {
+                        onVerified()
+                    }
+                }) {
+                    Text("Evet, yedegi geri yukle", color = Color(0xFF3E7BFA))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showBackupPrompt = false
+                    onVerified()
+                }) {
+                    Text("Hayir, yeni basla")
+                }
+            }
+        )
+    }
+
     val dark = LocalDarkTheme.current
 
     Box(Modifier.fillMaxSize()) {
@@ -97,7 +137,7 @@ fun OtpVerificationScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Doğrulama") },
+                title = { Text("Dogrulama") },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
@@ -181,14 +221,15 @@ fun OtpVerificationScreen(
                         otpCode = newCode
                         errorMessage = ""
 
-                        // 6 hane tamamlandığında otomatik doğrula
+                        // 6 hane tamamlandiginda otomatik dogrula
                         if (newCode.length == 6) {
                             isLoading = true
                             // Simulated verification
-                            // Gerçek implementasyonda burada API çağrısı olacak
+                            // Gercek implementasyonda burada API cagrisi olacak
                             otpCode = ""
                             isLoading = false
-                            onVerified()
+                            // Yedek prompt'unu goster
+                            showBackupPrompt = true
                         }
                     }
                 }
@@ -243,16 +284,17 @@ fun OtpVerificationScreen(
 
             Spacer(modifier = Modifier.height(64.dp))
 
-            // Manuel doğrula butonu — azure pill
+            // Manuel dogrula butonu — azure pill
             Button(
                 onClick = {
                     if (otpCode.length == 6) {
                         isLoading = true
                         // Simulated verification
                         isLoading = false
-                        onVerified()
+                        // Yedek prompt'unu goster
+                        showBackupPrompt = true
                     } else {
-                        errorMessage = "Lütfen 6 haneli kodu tamamen girin"
+                        errorMessage = "Lutfen 6 haneli kodu tamamen girin"
                     }
                 },
                 modifier = Modifier

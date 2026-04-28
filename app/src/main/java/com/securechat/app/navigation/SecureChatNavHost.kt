@@ -51,6 +51,7 @@ import com.securechat.app.ui.screen.PhoneVerificationScreen
 import com.securechat.app.ui.screen.ScheduledMessagesScreen
 import com.securechat.app.ui.screen.SettingsScreen
 import com.securechat.app.ui.screen.SplashScreen
+import com.securechat.app.backup.BackupScreen
 import com.securechat.app.ui.theme.LocalDarkTheme
 import com.securechat.network.model.CallType
 
@@ -139,6 +140,13 @@ fun SecureChatNavHost(
                         navController.navigate("conversations") {
                             popUpTo("auth/phone") { inclusive = true }
                         }
+                    },
+                    onBackupRestore = {
+                        // Once conversations'a git, sonra backup ekranina yonlendir
+                        navController.navigate("conversations") {
+                            popUpTo("auth/phone") { inclusive = true }
+                        }
+                        navController.navigate("backup")
                     },
                     onBackClick = { navController.popBackStack() }
                 )
@@ -322,7 +330,21 @@ fun SecureChatNavHost(
                     onBackClick = { navController.popBackStack() },
                     onScheduledMessages = {
                         navController.navigate("scheduled_messages/1")
+                    },
+                    onBackupClick = {
+                        navController.navigate("backup")
+                    },
+                    onAccountDeleted = {
+                        navController.navigate("auth/phone") {
+                            popUpTo(0) { inclusive = true }
+                        }
                     }
+                )
+            }
+
+            composable("backup") {
+                BackupScreen(
+                    onBackClick = { navController.popBackStack() }
                 )
             }
 

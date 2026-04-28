@@ -53,6 +53,8 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
@@ -61,6 +63,9 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Poll
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
@@ -113,6 +118,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
@@ -145,6 +151,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.abs
 
 /**
@@ -182,12 +190,23 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var initialScrollDone by remember { mutableStateOf(false) }
 
-    // Sohbet açıldığında en alta scroll (animasyonsuz, anlık)
+    // Sohbet acildiginda en alta scroll (animasyonsuz, anlik)
+    // NOT: buildFlatItemList yerine groupedMessages'dan hesapla — cift gruplama onlenir
     LaunchedEffect(messages) {
         if (!initialScrollDone && messages.isNotEmpty()) {
-            val totalItems = buildFlatItemList(messages).size
+            // encryption_info(1) + her tarih grubu icin separator(1) + mesaj sayisi
+            val grouped = groupMessagesByDate(messages)
+            val totalItems = 1 + grouped.size + messages.size
             listState.scrollToItem(maxOf(0, totalItems - 1))
             initialScrollDone = true
+        }
+    }
+
+    // Sayfalama: kullanici listeyi en uste scroll ettiginde daha eski mesajlari yukle
+    val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
+    LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages) {
+        if (listState.firstVisibleItemIndex <= 1 && hasMoreMessages && initialScrollDone) {
+            viewModel.loadMore()
         }
     }
 
@@ -227,11 +246,11 @@ fun ChatScreen(
         uri?.let { viewModel.sendFile(it) }
     }
 
-    // Galeri seçici launcher
+    // Galeri secici launcher — coklu dosya secimi destekler
     val galleryPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.sendFile(it) }
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        uris.forEach { uri -> viewModel.sendFile(uri) }
     }
 
     // Kamera launcher
@@ -244,8 +263,14 @@ fun ChatScreen(
         }
     }
 
-    // Ataşman menü state
+    // Atasma menu state
     var showAttachMenu by remember { mutableStateOf(false) }
+
+    // Anket olusturma dialog state
+    var showPollDialog by remember { mutableStateOf(false) }
+
+    // Upload progress durumu
+    val uploadProgress by viewModel.uploadProgress.collectAsStateWithLifecycle()
 
     // Dosya transfer hata mesajlarını göster
     LaunchedEffect(Unit) {
@@ -315,7 +340,19 @@ fun ChatScreen(
         )
     }
 
-    // İletme hedef seçim dialog'u
+    // Anket olusturma dialog'u
+    if (showPollDialog) {
+        CreatePollDialog(
+            onCreatePoll = { pollJson ->
+                viewModel.sendPollMessage(pollJson)
+                replyingToMessage = null
+                showPollDialog = false
+            },
+            onDismiss = { showPollDialog = false }
+        )
+    }
+
+    // Iletme hedef secim dialog'u
     if (showForwardPicker) {
         val forwardConversations by viewModel.getConversationsFlow()
             .collectAsStateWithLifecycle(initialValue = emptyList())
@@ -479,6 +516,7 @@ fun ChatScreen(
                                             isGroupChat = isGroup,
                                             memberNames = conversationInfo?.memberNames ?: emptyMap(),
                                             replyToMessage = replyToMsg,
+                                            uploadPercent = uploadProgress[message.id],
                                             onReplyClick = { replyId ->
                                                 viewModel.navigateToMessage(replyId)
                                             }
@@ -496,6 +534,10 @@ fun ChatScreen(
                                         isHighlighted = message.id == highlightedMessageId,
                                         searchQuery = if (isSearchMode) searchQuery else "",
                                         replyToMessage = replyToMsg,
+                                        uploadPercent = uploadProgress[message.id],
+                                        onRetryMessage = if (message.status == MessageStatus.FAILED && message.isOutgoing) {
+                                            { viewModel.retryMessage(message.id) }
+                                        } else null,
                                         onDeleteMessage = { viewModel.deleteMessage(message.id) },
                                         onDeleteForEveryone = if (message.isOutgoing) {
                                             { viewModel.deleteMessageForEveryone(message.id) }
@@ -638,15 +680,29 @@ fun ChatScreen(
                                 filePickerLauncher.launch(arrayOf("*/*"))
                             }
                         )
+                        AttachOption(
+                            icon = Icons.Default.Poll,
+                            label = "Anket",
+                            color = Color(0xFF9C27B0),
+                            dark = dark,
+                            onClick = {
+                                showAttachMenu = false
+                                showPollDialog = true
+                            }
+                        )
                     }
                 }
 
                 // Mesaj giriş çubuğu
                 MessageInputBar(
                 text = messageText,
-                onTextChange = {
-                    messageText = it
-                    viewModel.updateTypingState(it.isNotBlank())
+                onTextChange = { raw ->
+                    // Kontrol karakterlerini temizle (newline haric) ve uzunluk sinirla
+                    val sanitized = raw
+                        .replace(Regex("[\\p{Cc}&&[^\\n\\r]]"), "")
+                        .take(10000)
+                    messageText = sanitized
+                    viewModel.updateTypingState(sanitized.isNotBlank())
                 },
                 onSend = {
                     if (messageText.isNotBlank()) {
@@ -914,11 +970,16 @@ private fun DateSeparator(dateLabel: String) {
  * Mesajları tarih bazında gruplar.
  * Bugün, Dün, bu haftanın günleri veya tarih olarak etiketler.
  */
+// Cached SimpleDateFormat'lar — her cagride yeniden olusturma pahali, ozellikle eski cihazlarda
+private val cachedDateFormat = SimpleDateFormat("dd MMMM yyyy", Locale("tr"))
+private val cachedDayOfWeekFormat = SimpleDateFormat("EEEE", Locale("tr"))
+private val cachedTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
 private fun groupMessagesByDate(messages: List<LocalMessage>): List<Pair<String, List<LocalMessage>>> {
     if (messages.isEmpty()) return emptyList()
 
-    val dateFormat = SimpleDateFormat("dd MMMM yyyy", Locale("tr"))
-    val dayOfWeekFormat = SimpleDateFormat("EEEE", Locale("tr"))
+    val dateFormat = cachedDateFormat
+    val dayOfWeekFormat = cachedDayOfWeekFormat
     val now = Calendar.getInstance()
     val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
 
@@ -1315,6 +1376,8 @@ fun MessageBubble(
     isHighlighted: Boolean = false,
     searchQuery: String = "",
     replyToMessage: LocalMessage? = null,
+    uploadPercent: Int? = null,
+    onRetryMessage: (() -> Unit)? = null,
     onDeleteMessage: (() -> Unit)? = null,
     onDeleteForEveryone: (() -> Unit)? = null,
     onEditMessage: ((String) -> Unit)? = null,
@@ -1327,6 +1390,7 @@ fun MessageBubble(
     val isOutgoing = message.isOutgoing
     val dark = LocalDarkTheme.current
     var showPopupMenu by remember { mutableStateOf(false) }
+    var showEditHistoryDialog by remember { mutableStateOf(false) }
 
     // Azure tema balon renkleri
     val bubbleBg = if (isOutgoing) {
@@ -1474,6 +1538,7 @@ fun MessageBubble(
                             FileMessageContent(
                                 message = message,
                                 isOutgoing = isOutgoing,
+                                uploadPercent = uploadPercent,
                                 onFileClick = {
                                     message.filePath?.let { filePath ->
                                         FileOpenHelper.openFile(
@@ -1493,6 +1558,12 @@ fun MessageBubble(
                                         )
                                     }
                                 }
+                            )
+                        }
+                        message.isPollMessage -> {
+                            PollMessageContent(
+                                message = message,
+                                isOutgoing = isOutgoing
                             )
                         }
                         else -> TextMessageContent(
@@ -1542,7 +1613,20 @@ fun MessageBubble(
                         )
                         if (isOutgoing) {
                             Spacer(modifier = Modifier.width(3.dp))
-                            MessageStatusIcon(status = message.status)
+                            if (message.status == MessageStatus.FAILED && onRetryMessage != null) {
+                                // Basarisiz mesajlarda tıklanabilir hata ikonu
+                                Icon(
+                                    imageVector = Icons.Default.Error,
+                                    contentDescription = "Tekrar gonder",
+                                    modifier = Modifier
+                                        .padding(start = 2.dp)
+                                        .size(16.dp)
+                                        .clickable { onRetryMessage() },
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            } else {
+                                MessageStatusIcon(status = message.status)
+                            }
                         }
                     }
                 }
@@ -1567,6 +1651,29 @@ fun MessageBubble(
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.graphicsLayer(rotationZ = 180f)
+                            )
+                        }
+                    )
+                }
+
+                // Tekrar gonder (sadece basarisiz mesajlar)
+                if (message.status == MessageStatus.FAILED && onRetryMessage != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Tekrar Gönder",
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        onClick = {
+                            showPopupMenu = false
+                            onRetryMessage()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     )
@@ -1622,6 +1729,24 @@ fun MessageBubble(
                             }
                         )
                     }
+                }
+
+                // Duzenleme gecmisi (duzenlenmis mesajlarda gosterilir)
+                if (message.isEdited && !message.editHistory.isNullOrBlank()) {
+                    DropdownMenuItem(
+                        text = { Text("Düzenleme Geçmişi") },
+                        onClick = {
+                            showPopupMenu = false
+                            showEditHistoryDialog = true
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    )
                 }
 
                 // Bilgi seçeneği (sadece grup giden mesajlarında)
@@ -1752,6 +1877,62 @@ fun MessageBubble(
                     )
                 }
             }
+
+            // Duzenleme gecmisi diyalogu
+            if (showEditHistoryDialog && !message.editHistory.isNullOrBlank()) {
+                val historyEntries = remember(message.editHistory) {
+                    try {
+                        val arr = org.json.JSONArray(message.editHistory)
+                        (0 until arr.length()).map { i ->
+                            val obj = arr.getJSONObject(i)
+                            val content = obj.optString("content", "")
+                            val editedAt = obj.optLong("editedAt", 0L)
+                            Pair(content, editedAt)
+                        }
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+                AlertDialog(
+                    onDismissRequest = { showEditHistoryDialog = false },
+                    title = { Text("Düzenleme Geçmişi") },
+                    text = {
+                        Column {
+                            historyEntries.forEachIndexed { index, (content, editedAt) ->
+                                val timeText = if (editedAt > 0L) {
+                                    cachedDateFormat.format(Date(editedAt))
+                                } else {
+                                    "Bilinmeyen tarih"
+                                }
+                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    Text(
+                                        text = timeText,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = content,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                if (index < historyEntries.size - 1) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 4.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showEditHistoryDialog = false }) {
+                            Text("Kapat")
+                        }
+                    }
+                )
+            }
         }
     }
 }
@@ -1844,10 +2025,12 @@ private fun buildHighlightedText(
 private fun FileMessageContent(
     message: LocalMessage,
     isOutgoing: Boolean,
+    uploadPercent: Int? = null,
     onFileClick: () -> Unit = {},
     onShareClick: () -> Unit = {}
 ) {
     val dark = LocalDarkTheme.current
+    val isUploading = uploadPercent != null
     val textColor = if (isOutgoing) {
         if (dark) Color.White else Color(0xFF1E52D9)
     } else {
@@ -1860,65 +2043,123 @@ private fun FileMessageContent(
         if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570)
     }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .padding(vertical = 4.dp)
-            .combinedClickable(
-                onClick = onFileClick
-            )
-    ) {
-        // Dosya tipi ikonu
-        val icon = if (message.isImageFile) {
-            Icons.Default.Image
-        } else {
-            Icons.AutoMirrored.Filled.InsertDriveFile
-        }
-
-        // Dynamic color based on MIME type
-        val iconTint = message.fileMimeType?.let { mimeType ->
-            FileOpenHelper.getMimeTypeColor(mimeType)
-        } ?: if (message.isImageFile) {
-            Color(0xFF3E7BFA)
-        } else {
-            Color(0xFF42A5F5)
-        }
-
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = iconTint.copy(alpha = 0.15f),
-            modifier = Modifier.size(40.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = iconTint,
-                    modifier = Modifier.size(24.dp)
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .padding(vertical = 4.dp)
+                .combinedClickable(
+                    onClick = { if (!isUploading) onFileClick() }
                 )
+        ) {
+            // Dosya tipi ikonu veya yukleme gostergesi
+            val icon = if (message.isImageFile) {
+                Icons.Default.Image
+            } else {
+                Icons.AutoMirrored.Filled.InsertDriveFile
+            }
+
+            // Dynamic color based on MIME type
+            val iconTint = message.fileMimeType?.let { mimeType ->
+                FileOpenHelper.getMimeTypeColor(mimeType)
+            } ?: if (message.isImageFile) {
+                Color(0xFF3E7BFA)
+            } else {
+                Color(0xFF42A5F5)
+            }
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(40.dp)
+            ) {
+                if (isUploading) {
+                    // WhatsApp tarzı dairesel ilerleme gostergesi
+                    val animatedProgress by animateFloatAsState(
+                        targetValue = (uploadPercent ?: 0) / 100f,
+                        animationSpec = tween(300),
+                        label = "upload_progress"
+                    )
+                    androidx.compose.material3.CircularProgressIndicator(
+                        progress = { animatedProgress },
+                        modifier = Modifier.size(36.dp),
+                        color = iconTint,
+                        trackColor = iconTint.copy(alpha = 0.15f),
+                        strokeWidth = 3.dp
+                    )
+                    // Ortada yuzde
+                    Text(
+                        text = "${uploadPercent}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = iconTint,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = iconTint.copy(alpha = 0.15f),
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = iconTint,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = message.fileName ?: "Dosya",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textColor,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Medium
+                )
+                val sizeText = message.fileSize?.let { formatFileSize(it) } ?: ""
+                val typeText = message.fileMimeType?.let { mimeType ->
+                    FileOpenHelper.getFileTypeDisplayName(mimeType, message.fileName ?: "")
+                } ?: "Dosya"
+
+                if (isUploading) {
+                    Text(
+                        text = "Gonderiliyor... %${uploadPercent}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = iconTint,
+                        fontSize = 11.sp
+                    )
+                } else {
+                    Text(
+                        text = if (sizeText.isNotBlank()) "$typeText - $sizeText" else typeText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = subtextColor,
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = message.fileName ?: "Dosya",
-                style = MaterialTheme.typography.bodyMedium,
-                color = textColor,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.Medium
+        // Yukleme sırasında yatay ilerleme cubugu
+        if (isUploading) {
+            val animatedProgress by animateFloatAsState(
+                targetValue = (uploadPercent ?: 0) / 100f,
+                animationSpec = tween(300),
+                label = "upload_bar"
             )
-            val sizeText = message.fileSize?.let { formatFileSize(it) } ?: ""
-            val typeText = message.fileMimeType?.let { mimeType ->
-                FileOpenHelper.getFileTypeDisplayName(mimeType, message.fileName ?: "")
-            } ?: "Dosya"
-            Text(
-                text = if (sizeText.isNotBlank()) "$typeText - $sizeText" else typeText,
-                style = MaterialTheme.typography.labelSmall,
-                color = subtextColor,
-                fontSize = 11.sp
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp),
+                color = if (dark) Color(0xFF3E7BFA) else Color(0xFF1E52D9),
+                trackColor = if (dark) Color.White.copy(alpha = 0.1f) else Color(0xFF1E52D9).copy(alpha = 0.1f)
             )
         }
     }
@@ -2479,3 +2720,254 @@ private fun MessageInfoPopup(
         }
     }
 }
+
+/**
+ * Anket olusturma dialog'u.
+ * Soru metni, 2-4 secenek ve tek/coklu secim secenegi sunar.
+ * Olusturulan anket JSON formatinda dondurulur.
+ */
+@Composable
+private fun CreatePollDialog(
+    onCreatePoll: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var question by remember { mutableStateOf("") }
+    var options by remember { mutableStateOf(listOf("", "")) }
+    var singleChoice by remember { mutableStateOf(true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Anket Olustur") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it },
+                    label = { Text("Soru") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF3E7BFA),
+                        cursorColor = Color(0xFF3E7BFA)
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                options.forEachIndexed { index, option ->
+                    OutlinedTextField(
+                        value = option,
+                        onValueChange = { newValue ->
+                            options = options.toMutableList().apply { this[index] = newValue }
+                        },
+                        label = { Text("Secenek ${index + 1}") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF3E7BFA),
+                            cursorColor = Color(0xFF3E7BFA)
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                if (options.size < 4) {
+                    TextButton(onClick = {
+                        options = options + ""
+                    }) {
+                        Text("+ Secenek Ekle", color = Color(0xFF3E7BFA))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (singleChoice) "Tek secim" else "Coklu secim",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { singleChoice = !singleChoice }) {
+                        Text(
+                            if (singleChoice) "Coklu secime gec" else "Tek secime gec",
+                            color = Color(0xFF3E7BFA),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val validOptions = options.filter { it.isNotBlank() }
+                    if (question.isNotBlank() && validOptions.size >= 2) {
+                        val pollJson = JSONObject().apply {
+                            put("question", question)
+                            put("options", JSONArray(validOptions))
+                            put("singleChoice", singleChoice)
+                            put("votes", JSONObject())
+                        }.toString()
+                        onCreatePoll(pollJson)
+                    }
+                },
+                enabled = question.isNotBlank() && options.count { it.isNotBlank() } >= 2
+            ) {
+                Text("Olustur", color = Color(0xFF3E7BFA))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Iptal")
+            }
+        }
+    )
+}
+
+/**
+ * Anket mesaj icerigini gosteren composable.
+ * JSON formatindaki anket verisini parse eder ve secenekleri radyo buton/checkbox ile gosterir.
+ * Tek secim modunda sadece bir secenek secilebilir.
+ */
+@Composable
+private fun PollMessageContent(
+    message: LocalMessage,
+    isOutgoing: Boolean
+) {
+    val textColor = if (isOutgoing)
+        MaterialTheme.colorScheme.onSurface
+    else
+        MaterialTheme.colorScheme.onSurface
+
+    // JSON icerigini parse et
+    val pollData = remember(message.content) {
+        try {
+            val json = JSONObject(message.content)
+            val question = json.optString("question", "")
+            val optionsArray = json.optJSONArray("options") ?: JSONArray()
+            val optionsList = (0 until optionsArray.length()).map { optionsArray.getString(it) }
+            val singleChoice = json.optBoolean("singleChoice", true)
+            val votesObj = json.optJSONObject("votes") ?: JSONObject()
+            // votes: Map<optionIndex, List<voterId>>
+            val votes = mutableMapOf<Int, List<String>>()
+            votesObj.keys().forEach { key ->
+                val arr = votesObj.optJSONArray(key) ?: JSONArray()
+                votes[key.toIntOrNull() ?: 0] = (0 until arr.length()).map { arr.getString(it) }
+            }
+            PollData(question, optionsList, singleChoice, votes)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    if (pollData == null) {
+        Text(
+            text = "Anket yuklenemedi",
+            style = MaterialTheme.typography.bodyMedium,
+            color = textColor.copy(alpha = 0.6f)
+        )
+        return
+    }
+
+    // Toplam oy sayisi
+    val totalVotes = pollData.votes.values.sumOf { it.size }
+
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        // Anket ikonu ve soru
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Poll,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = Color(0xFF9C27B0)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "Anket",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF9C27B0),
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = pollData.question,
+            style = MaterialTheme.typography.bodyMedium,
+            color = textColor,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Secim tipi bilgisi
+        Text(
+            text = if (pollData.singleChoice) "Tek secim" else "Coklu secim",
+            style = MaterialTheme.typography.labelSmall,
+            color = textColor.copy(alpha = 0.5f)
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Secenekler
+        pollData.options.forEachIndexed { index, option ->
+            val voteCount = pollData.votes[index]?.size ?: 0
+            val percentage = if (totalVotes > 0) (voteCount * 100) / totalVotes else 0
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp)
+            ) {
+                // Secim ikonu — tek secim: radyo, coklu: checkbox
+                Icon(
+                    imageVector = if (pollData.singleChoice)
+                        if (voteCount > 0) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked
+                    else
+                        if (voteCount > 0) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (voteCount > 0) Color(0xFF3E7BFA) else textColor.copy(alpha = 0.4f)
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Text(
+                    text = option,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = textColor,
+                    modifier = Modifier.weight(1f)
+                )
+
+                if (totalVotes > 0) {
+                    Text(
+                        text = "$voteCount ($percentage%)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textColor.copy(alpha = 0.5f)
+                    )
+                }
+            }
+        }
+
+        if (totalVotes > 0) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Toplam $totalVotes oy",
+                style = MaterialTheme.typography.labelSmall,
+                color = textColor.copy(alpha = 0.4f)
+            )
+        }
+    }
+}
+
+/** Anket veri modeli — JSON'dan parse edilir. */
+private data class PollData(
+    val question: String,
+    val options: List<String>,
+    val singleChoice: Boolean,
+    val votes: Map<Int, List<String>>
+)

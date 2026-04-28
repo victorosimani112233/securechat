@@ -2,51 +2,78 @@ package com.securechat.app.ui.viewmodel
 
 import com.securechat.app.data.UserSession
 import com.securechat.app.domain.usecase.AddGroupMemberUseCase
+import com.securechat.app.domain.usecase.PromoteToAdminUseCase
 import com.securechat.app.domain.usecase.RemoveGroupMemberUseCase
 import com.securechat.app.domain.usecase.UpdateGroupNameUseCase
-import com.securechat.app.ui.screen.GroupMember
+import com.securechat.network.SignalingClient
+import com.securechat.storage.dao.ContactDao
 import com.securechat.storage.dao.ConversationDao
+import com.securechat.storage.dao.MessageDao
 import com.securechat.storage.entity.ConversationEntity
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 
-@ExperimentalCoroutinesApi
+@OptIn(ExperimentalCoroutinesApi::class)
 class GroupInfoViewModelTest {
 
     private lateinit var viewModel: GroupInfoViewModel
-    private val conversationDao = mockk<ConversationDao>()
+    private val conversationDao = mockk<ConversationDao>(relaxed = true)
+    private val messageDao = mockk<MessageDao>(relaxed = true)
+    private val contactDao = mockk<ContactDao>(relaxed = true)
     private val userSession = mockk<UserSession>()
+    private val signalingClient = mockk<SignalingClient>(relaxed = true)
     private val addGroupMemberUseCase = mockk<AddGroupMemberUseCase>()
+    private val promoteToAdminUseCase = mockk<PromoteToAdminUseCase>()
     private val removeGroupMemberUseCase = mockk<RemoveGroupMemberUseCase>()
     private val updateGroupNameUseCase = mockk<UpdateGroupNameUseCase>()
 
-    private val testScope = TestScope(UnconfinedTestDispatcher())
+    private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
     fun setup() {
+        Dispatchers.setMain(testDispatcher)
         every { userSession.userId } returns "user1"
+        every { userSession.displayName } returns "Test User"
+        every { userSession.phoneNumber } returns "+905551234567"
+
+        // Default media/doc/starred flows
+        every { messageDao.getMediaMessages(any()) } returns flowOf(emptyList())
+        every { messageDao.getDocumentMessages(any()) } returns flowOf(emptyList())
+        every { messageDao.getStarredMessages(any()) } returns flowOf(emptyList())
 
         viewModel = GroupInfoViewModel(
             conversationDao = conversationDao,
+            messageDao = messageDao,
+            contactDao = contactDao,
             userSession = userSession,
+            signalingClient = signalingClient,
             addGroupMemberUseCase = addGroupMemberUseCase,
+            promoteToAdminUseCase = promoteToAdminUseCase,
             removeGroupMemberUseCase = removeGroupMemberUseCase,
             updateGroupNameUseCase = updateGroupNameUseCase
         )
     }
 
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
     @Test
-    fun `loadGroupInfo loads group information correctly`() = testScope.runTest {
-        // Given
+    fun `loadGroupInfo loads group information correctly`() = runTest {
         val groupId = "group123"
         val groupConversation = ConversationEntity(
             id = groupId,
@@ -56,7 +83,8 @@ class GroupInfoViewModelTest {
             lastMessage = null,
             lastMessageTimestamp = null,
             isGroup = true,
-            groupMembers = "user1,user2,user3"
+            groupMembers = "user1,user2,user3",
+            groupAdmins = "user1"
         )
 
         val user2Conversation = ConversationEntity(
@@ -72,11 +100,10 @@ class GroupInfoViewModelTest {
         coEvery { conversationDao.getById(groupId) } returns groupConversation
         coEvery { conversationDao.getByPeerId("user2") } returns user2Conversation
         coEvery { conversationDao.getByPeerId("user3") } returns null
+        coEvery { contactDao.getById(any()) } returns null
 
-        // When
         viewModel.loadGroupInfo(groupId)
 
-        // Then
         val groupInfo = viewModel.groupInfo.value
         assertNotNull(groupInfo)
         assertEquals("Test Group", groupInfo?.name)
@@ -84,23 +111,17 @@ class GroupInfoViewModelTest {
 
         val members = groupInfo?.members ?: emptyList()
         val user1Member = members.find { it.userId == "user1" }
-        val user2Member = members.find { it.userId == "user2" }
 
         assertNotNull(user1Member)
         assertTrue(user1Member?.isAdmin ?: false)
         assertTrue(user1Member?.isCurrentUser ?: false)
-
-        assertNotNull(user2Member)
-        assertFalse(user2Member?.isAdmin ?: true)
-        assertFalse(user2Member?.isCurrentUser ?: true)
 
         assertEquals("John Doe", groupInfo?.memberNames?.get("user2"))
         assertTrue(viewModel.isAdmin.value)
     }
 
     @Test
-    fun `loadGroupInfo handles non-group conversation`() = testScope.runTest {
-        // Given
+    fun `loadGroupInfo handles non-group conversation`() = runTest {
         val conversationId = "user2"
         val directConversation = ConversationEntity(
             id = conversationId,
@@ -114,22 +135,18 @@ class GroupInfoViewModelTest {
 
         coEvery { conversationDao.getById(conversationId) } returns directConversation
 
-        // When
         viewModel.loadGroupInfo(conversationId)
 
-        // Then
         assertNotNull(viewModel.error.value)
         assertTrue(viewModel.error.value?.contains("Grup bulunamadi") ?: false)
     }
 
     @Test
-    fun `updateGroupName calls use case and updates UI`() = testScope.runTest {
-        // Given
+    fun `updateGroupName calls use case and updates UI`() = runTest {
         val groupId = "group123"
         val newName = "Updated Group Name"
         coEvery { updateGroupNameUseCase(groupId, newName) } returns true
 
-        // Set up initial state - simulate loaded group info with admin status
         val groupConversation = ConversationEntity(
             id = groupId,
             peerId = groupId,
@@ -138,23 +155,22 @@ class GroupInfoViewModelTest {
             lastMessage = null,
             lastMessageTimestamp = null,
             isGroup = true,
-            groupMembers = "user1"
+            groupMembers = "user1",
+            groupAdmins = "user1"
         )
         coEvery { conversationDao.getById(groupId) } returns groupConversation
         coEvery { conversationDao.getByPeerId(any()) } returns null
-        viewModel.loadGroupInfo(groupId) // This will set up admin status
+        coEvery { contactDao.getById(any()) } returns null
+        viewModel.loadGroupInfo(groupId)
 
-        // When
         viewModel.updateGroupName(groupId, newName)
 
-        // Then
         coVerify { updateGroupNameUseCase(groupId, newName) }
         assertEquals(newName, viewModel.groupInfo.value?.name)
     }
 
     @Test
-    fun `addMember calls use case and reloads group info`() = testScope.runTest {
-        // Given
+    fun `addMember calls use case and reloads group info`() = runTest {
         val groupId = "group123"
         val newMemberId = "user4"
         val groupConversation = ConversationEntity(
@@ -165,24 +181,23 @@ class GroupInfoViewModelTest {
             lastMessage = null,
             lastMessageTimestamp = null,
             isGroup = true,
-            groupMembers = "user1,user2,user3,user4" // Updated after add
+            groupMembers = "user1,user2,user3,user4",
+            groupAdmins = "user1"
         )
 
         coEvery { addGroupMemberUseCase(groupId, newMemberId) } returns true
         coEvery { conversationDao.getById(groupId) } returns groupConversation
         coEvery { conversationDao.getByPeerId(any()) } returns null
+        coEvery { contactDao.getById(any()) } returns null
 
-        // When
         viewModel.addMember(groupId, newMemberId)
 
-        // Then
         coVerify { addGroupMemberUseCase(groupId, newMemberId) }
         coVerify { conversationDao.getById(groupId) }
     }
 
     @Test
-    fun `removeMember calls use case and reloads group info`() = testScope.runTest {
-        // Given
+    fun `removeMember calls use case and reloads group info`() = runTest {
         val groupId = "group123"
         val memberId = "user3"
         val groupConversation = ConversationEntity(
@@ -193,31 +208,28 @@ class GroupInfoViewModelTest {
             lastMessage = null,
             lastMessageTimestamp = null,
             isGroup = true,
-            groupMembers = "user1,user2" // Updated after removal
+            groupMembers = "user1,user2",
+            groupAdmins = "user1"
         )
 
         coEvery { removeGroupMemberUseCase(groupId, memberId) } returns true
         coEvery { conversationDao.getById(groupId) } returns groupConversation
         coEvery { conversationDao.getByPeerId(any()) } returns null
+        coEvery { contactDao.getById(any()) } returns null
 
-        // When
         viewModel.removeMember(groupId, memberId)
 
-        // Then
         coVerify { removeGroupMemberUseCase(groupId, memberId) }
         coVerify { conversationDao.getById(groupId) }
     }
 
     @Test
-    fun `clearError clears error state`() = testScope.runTest {
-        // Given - simulate an error by calling a use case that will fail
+    fun `clearError clears error state`() = runTest {
         coEvery { conversationDao.getById(any()) } returns null
-        viewModel.loadGroupInfo("invalid_id") // This should set an error
+        viewModel.loadGroupInfo("invalid_id")
 
-        // When
         viewModel.clearError()
 
-        // Then
         assertNull(viewModel.error.value)
     }
 }

@@ -35,16 +35,20 @@ class CallAudioManager @Inject constructor(
         previousSpeakerState = audioManager.isSpeakerphoneOn
 
         // Audio focus talep et — bu olmadan Android ses yonlendirmesi duzgun calismaz
-        val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
-            )
-            .build()
-        audioManager.requestAudioFocus(focusRequest)
-        audioFocusRequest = focusRequest
+        try {
+            val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .build()
+            audioManager.requestAudioFocus(focusRequest)
+            audioFocusRequest = focusRequest
+        } catch (_: Exception) {
+            // Bazi cihazlarda veya JVM test ortaminda AudioFocusRequest olusturulamayabilir
+        }
 
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.isSpeakerphoneOn = false

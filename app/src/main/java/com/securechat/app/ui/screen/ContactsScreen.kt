@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,10 +58,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -112,6 +116,26 @@ fun ContactsScreen(
     val manualUserId by viewModel.manualUserId.collectAsStateWithLifecycle()
     val resolvedUserId by viewModel.resolvedUserId.collectAsStateWithLifecycle()
     val userNotFound by viewModel.userNotFound.collectAsStateWithLifecycle()
+    val networkError by viewModel.networkError.collectAsStateWithLifecycle()
+    val hasMoreContacts by viewModel.hasMoreContacts.collectAsStateWithLifecycle()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
+
+    // LazyColumn scroll state — sayfalama icin listenin sonunu tespit eder
+    val listState = rememberLazyListState()
+
+    // Listenin sonuna yaklastiginda daha fazla kisi yukle
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalItems = listState.layoutInfo.totalItemsCount
+            lastVisibleItem >= totalItems - 5 && hasMoreContacts && !isLoadingMore
+        }
+    }
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore) {
+            viewModel.loadMoreContacts()
+        }
+    }
 
     // Sunucudan UUID cozumlendiginde sohbete git
     LaunchedEffect(resolvedUserId) {
@@ -204,6 +228,41 @@ fun ContactsScreen(
         }
     }
 
+    // Ag hatasi popup'i — sunucuya ulasilamadiginda gosterilir
+    networkError?.let { errorMsg ->
+        GlassDialog(onDismissRequest = { viewModel.consumeNetworkError() }) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.WifiOff,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Bağlantı Hatası",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    errorMsg,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(onClick = { viewModel.consumeNetworkError() }) {
+                    Text("Kapat")
+                }
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         AzureDoodleBackdrop(dark = dark)
 
@@ -267,6 +326,7 @@ fun ContactsScreen(
         contentWindowInsets = WindowInsets(0)
     ) { padding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize(),
@@ -421,6 +481,24 @@ fun ContactsScreen(
                         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                         thickness = 0.5.dp
                     )
+                }
+
+                // Daha fazla kisi yuklenirken gosterge
+                if (isLoadingMore) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
             }
 

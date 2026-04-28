@@ -25,7 +25,8 @@ data class LocalMessage(
     val isOutgoing: Boolean,
     val isStarred: Boolean = false,
     val expiresAt: Long? = null,
-    val editedAt: Long? = null
+    val editedAt: Long? = null,
+    val editHistory: String? = null // Onceki iceriklerin JSON dizisi
 ) {
     /** Bu mesaj duzenlenmis mi. */
     val isEdited: Boolean
@@ -55,6 +56,10 @@ data class LocalMessage(
     /** Bu mesaj bir dosya mesaji mi (IMAGE veya FILE). */
     val isFileMessage: Boolean
         get() = contentType == MessageContentType.IMAGE || contentType == MessageContentType.FILE
+
+    /** Bu mesaj bir anket mesaji mi. */
+    val isPollMessage: Boolean
+        get() = contentType == MessageContentType.POLL
 
     /** Dosya mesaji ise resim mi kontrol eder. */
     val isImageFile: Boolean

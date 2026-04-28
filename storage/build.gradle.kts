@@ -24,6 +24,10 @@ android {
         jvmTarget = "17"
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
     }

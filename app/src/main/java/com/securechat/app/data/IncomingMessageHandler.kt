@@ -60,6 +60,9 @@ class IncomingMessageHandler @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Bildirim ikonu icin onbelleklenmis bitmap — her bildirimde yeniden olusturulmasin diye. */
+    private var cachedAppIconBitmap: android.graphics.Bitmap? = null
+
     companion object {
         /** Uygulama on plandaysa true */
         @Volatile
@@ -200,8 +203,23 @@ class IncomingMessageHandler @Inject constructor(
             return
         }
 
-        // Dosyayi yerel depolamaya kaydet
-        val savedUri = fileTransferManager.saveReceivedFile(signal.fileName, signal.data)
+        // Chunk destekli dosya alma — tek parcali veya coklu parcali
+        val savedUri = fileTransferManager.receiveChunk(
+            transferId = signal.transferId,
+            chunkIndex = signal.chunkIndex,
+            totalChunks = signal.totalChunks,
+            fileName = signal.fileName,
+            mimeType = signal.mimeType,
+            fileSize = signal.fileSize,
+            data = signal.data
+        )
+
+        // Henuz tum chunk'lar gelmedi — mesaj kaydetme, bekle
+        if (savedUri == null && signal.totalChunks > 1 && signal.chunkIndex < signal.totalChunks - 1) {
+            android.util.Log.d("IncomingHandler", "Chunk bekleniyor: ${signal.transferId} [${signal.chunkIndex + 1}/${signal.totalChunks}]")
+            return
+        }
+
         val filePath = savedUri?.path ?: ""
 
         // Resim dosyalari IMAGE, digerleri FILE olarak siniflandirilir
@@ -275,14 +293,12 @@ class IncomingMessageHandler @Inject constructor(
 
             android.util.Log.d("IncomingHandler", "Grup dosya alindi: ${signal.fileName} -> $groupId")
 
-            // Grup sohbeti acik degilse bildirim goster
+            // Grup sohbeti acik degilse bildirim goster (sessiz konusmalar icin sessiz bildirim)
             if (!isGroupChatOpen) {
                 val senderName = resolvePeerName(senderId)
                 val convForNotif = conversationDao.getById(groupId)
-                if (convForNotif?.isMuted != true) {
-                    val displayGroupName = convForNotif?.peerName ?: "Grup"
-                    showMessageNotification("$senderName ($displayGroupName)", "Dosya: ${signal.fileName}", groupId)
-                }
+                val displayGroupName = convForNotif?.peerName ?: "Grup"
+                showMessageNotification("$senderName ($displayGroupName)", "Dosya: ${signal.fileName}", groupId)
             }
         } else {
             // --- Birebir dosya mesaji ---
@@ -961,12 +977,25 @@ class IncomingMessageHandler @Inject constructor(
      * - Uygulama foreground'daysa sadece current chat'ten farkliysa bildirim goster
      */
     private suspend fun showMessageNotification(senderName: String, content: String, conversationId: String) {
-        // Sessize alinmis konusmalar icin bildirim gosterme
+        // Sessiz konusmalar icin bildirim gosterilir ama ses/titresim kapatilir
         val conv = conversationDao.getById(conversationId)
             ?: conversationDao.getByPeerId(conversationId)
-        if (conv?.isMuted == true) {
-            android.util.Log.d("IncomingHandler", "Bildirim gosterilmedi - sessiz: $conversationId")
-            return
+        val isMutedRaw = conv?.isMuted == true
+
+        // Sessize alinmis grupta bile @mention bildirim gonderilmeli
+        val isMuted = if (isMutedRaw) {
+            val currentUserId = userSession.userId ?: ""
+            val currentDisplayName = userSession.displayName ?: ""
+            val isMentioned = content.contains("@$currentUserId") ||
+                              (currentDisplayName.isNotBlank() && content.contains("@$currentDisplayName"))
+            if (isMentioned) {
+                android.util.Log.d("IncomingHandler", "Sessize alinmis grupta @mention algilandi")
+                false // @mention varsa sessiz degil — normal bildirim goster
+            } else {
+                true // @mention yoksa sessiz kalsin
+            }
+        } else {
+            false
         }
 
         // Smart bildirim logic: current chat'ten gelen mesajlarda bildirim gosterme
@@ -1055,9 +1084,10 @@ class IncomingMessageHandler @Inject constructor(
                 "$totalMessages yeni mesaj"
             }
 
-            val privPriority = if (isAppInForeground) NotificationCompat.PRIORITY_LOW
+            val shouldBeSilent = isAppInForeground || isMuted
+            val privPriority = if (shouldBeSilent) NotificationCompat.PRIORITY_LOW
                               else NotificationCompat.PRIORITY_HIGH
-            val privDefaults = if (isAppInForeground) 0
+            val privDefaults = if (shouldBeSilent) 0
                                else NotificationCompat.DEFAULT_ALL
 
             val privacyBuilder = NotificationCompat.Builder(context, channelId)
@@ -1068,7 +1098,7 @@ class IncomingMessageHandler @Inject constructor(
                 .setAutoCancel(true)
                 .setContentIntent(privacyPendingIntent)
                 .setDefaults(privDefaults)
-                .setSilent(isAppInForeground)
+                .setSilent(shouldBeSilent)
                 .setNumber(totalMessages)
                 .setContentTitle("Elçim")
                 .setContentText(privacyText)
@@ -1098,11 +1128,27 @@ class IncomingMessageHandler @Inject constructor(
             "Elçim"
         }
 
-        // On plandayken banner gosterme — sessiz bildirim yeter
-        val priority = if (isAppInForeground) NotificationCompat.PRIORITY_LOW
+        // On plandayken veya sessiz konusmada banner gosterme — sessiz bildirim yeter
+        val shouldBeSilent = isAppInForeground || isMuted
+        val priority = if (shouldBeSilent) NotificationCompat.PRIORITY_LOW
                        else NotificationCompat.PRIORITY_HIGH
-        val defaults = if (isAppInForeground) 0
-                       else NotificationCompat.DEFAULT_ALL
+
+        // Kullanici tarafindan secilen bildirim sesi URI'si
+        val customSoundUri = try {
+            themeManager.notificationSoundUri.first()
+        } catch (_: Exception) {
+            ""
+        }
+
+        // Sessiz degilse ve ozel ses secilmisse DEFAULT_ALL yerine sadece isik/titresim kullan
+        val defaults = if (shouldBeSilent) {
+            0
+        } else if (customSoundUri.isNotEmpty()) {
+            // Ozel ses kullanilacak, varsayilan sesi devre disi birak
+            NotificationCompat.DEFAULT_VIBRATE or NotificationCompat.DEFAULT_LIGHTS
+        } else {
+            NotificationCompat.DEFAULT_ALL
+        }
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(com.securechat.app.R.mipmap.ic_launcher)
@@ -1112,9 +1158,18 @@ class IncomingMessageHandler @Inject constructor(
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setDefaults(defaults)
-            .setSilent(isAppInForeground)
+            .setSilent(shouldBeSilent)
             .setGroup(groupKey)
             .setNumber(notifMessageCount[conversationId] ?: 1)
+
+        // Ozel bildirim sesi ayarla (sessiz degilse)
+        if (!shouldBeSilent && customSoundUri.isNotEmpty()) {
+            try {
+                builder.setSound(android.net.Uri.parse(customSoundUri))
+            } catch (e: Exception) {
+                android.util.Log.w("IncomingHandler", "Ozel bildirim sesi uygulanamadi: ${e.message}")
+            }
+        }
 
         val shortcutId = "contact_$conversationId"
         val person = androidx.core.app.Person.Builder()
@@ -1209,13 +1264,23 @@ class IncomingMessageHandler @Inject constructor(
      * Uygulama launcher ikonunu bildirim avatari olarak dondurur.
      */
     private fun getAppIconBitmap(): android.graphics.Bitmap {
+        cachedAppIconBitmap?.let { return it }
         val drawable = context.packageManager.getApplicationIcon(context.applicationInfo)
         val size = 128
         val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
         drawable.setBounds(0, 0, size, size)
         drawable.draw(canvas)
+        cachedAppIconBitmap = bitmap
         return bitmap
+    }
+
+    /**
+     * Bellek baskisi altinda onbelleklenmis bitmap'i serbest birakir.
+     * SecureChatApplication.onTrimMemory() tarafindan cagrilir.
+     */
+    fun clearBitmapCache() {
+        cachedAppIconBitmap = null
     }
 
     /**
@@ -1302,25 +1367,86 @@ class IncomingMessageHandler @Inject constructor(
                 // Gruptan uye cikarildi
                 val groupConv = conversationDao.getById(signal.groupId)
                 if (groupConv != null) {
-                    android.util.Log.d("IncomingHandler", "Grup üye listesi güncelleniyor: ${signal.groupId}")
-                    conversationDao.updateGroupMembers(signal.groupId, signal.groupMembers.joinToString(","))
-
-                    // Sistem mesajı kaydet
                     val targetMember = signal.targetMemberId ?: "bilinmeyen"
-                    val systemMessage = "${signal.senderId}, ${targetMember}'i gruptan çıkardı"
 
-                    val message = com.securechat.storage.domain.LocalMessage(
+                    // Cikarilan uye kendimiz ise konusmayi arsivle ve aktif sohbetlerden kaldir
+                    if (targetMember == localUserId) {
+                        android.util.Log.w("IncomingHandler", "Gruptan çıkarıldınız: ${signal.groupId}")
+
+                        // Uye listesini guncelle (kendimizi cikar)
+                        val updatedMembers = signal.groupMembers.filter { it != localUserId }
+                        conversationDao.updateGroupMembers(signal.groupId, updatedMembers.joinToString(","))
+
+                        // Konusmayi arsivle
+                        conversationDao.updateArchived(signal.groupId, true)
+
+                        // Bu grup icin bekleyen bildirimleri temizle
+                        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        nm.cancel(signal.groupId.hashCode())
+                        // Bildirim sayacini da temizle
+                        notifMessageCount.remove(signal.groupId)
+                        notifRecentMessages.remove(signal.groupId)
+
+                        // Sistem mesaji kaydet — kullanici cikarildigini bilsin
+                        val systemMessage = "Bu gruptan çıkarıldınız"
+                        val message = com.securechat.storage.domain.LocalMessage(
+                            id = UUID.randomUUID().toString(),
+                            conversationId = signal.groupId,
+                            senderId = "SYSTEM",
+                            peerId = signal.groupId,
+                            content = systemMessage,
+                            contentType = MessageContentType.SYSTEM,
+                            timestamp = signal.timestamp,
+                            status = MessageStatus.DELIVERED,
+                            isOutgoing = false
+                        )
+                        messageRepository.saveMessage(message)
+                    } else {
+                        // Baskasi cikarildi — uye listesini guncelle
+                        android.util.Log.d("IncomingHandler", "Grup üye listesi güncelleniyor: ${signal.groupId}")
+                        conversationDao.updateGroupMembers(signal.groupId, signal.groupMembers.joinToString(","))
+
+                        // Sistem mesaji kaydet
+                        val systemMessage = "${signal.senderId}, ${targetMember}'i gruptan çıkardı"
+                        val message = com.securechat.storage.domain.LocalMessage(
+                            id = UUID.randomUUID().toString(),
+                            conversationId = signal.groupId,
+                            senderId = "SYSTEM",
+                            peerId = signal.groupId,
+                            content = systemMessage,
+                            contentType = MessageContentType.SYSTEM,
+                            timestamp = signal.timestamp,
+                            status = MessageStatus.DELIVERED,
+                            isOutgoing = false
+                        )
+                        messageRepository.saveMessage(message)
+                    }
+                }
+            }
+
+            com.securechat.network.model.GroupAction.LEAVE_GROUP -> {
+                // Bir uye kendi istegi ile gruptan ayrildi
+                val groupConv = conversationDao.getById(signal.groupId)
+                if (groupConv != null) {
+                    // Ayrilan uyeyi grup uyelerinden cikar
+                    val currentMembers = groupConv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                    val updatedMembers = currentMembers.filter { it != signal.senderId }
+                    conversationDao.updateGroupMembers(signal.groupId, updatedMembers.joinToString(","))
+
+                    // Sistem mesaji kaydet
+                    val leaverName = resolvePeerName(signal.senderId)
+                    val leaveMessage = com.securechat.storage.domain.LocalMessage(
                         id = UUID.randomUUID().toString(),
                         conversationId = signal.groupId,
                         senderId = "SYSTEM",
-                        peerId = signal.groupId, // Grup ID'si peer olarak
-                        content = systemMessage,
+                        peerId = signal.groupId,
+                        content = "$leaverName gruptan ayrıldı",
                         contentType = MessageContentType.SYSTEM,
                         timestamp = signal.timestamp,
                         status = MessageStatus.DELIVERED,
                         isOutgoing = false
                     )
-                    messageRepository.saveMessage(message)
+                    messageRepository.saveMessage(leaveMessage)
                 }
             }
 

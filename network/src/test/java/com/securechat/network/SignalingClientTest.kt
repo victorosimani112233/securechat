@@ -234,4 +234,128 @@ class SignalingClientTest {
         assertThat(sentTextSlot.captured).contains("\"type\":\"sdp_offer\"")
         assertThat(sentTextSlot.captured).contains("\"senderId\":\"user1\"")
     }
+
+    // --- Bug 001: Offline kuyruk otomatik flush testleri ---
+
+    @Test
+    fun `onOpen flushes offline queue when messages pending`() {
+        val mockQueue: OfflineMessageQueue = mockk(relaxed = true)
+        every { mockQueue.getPendingCount() } returns 3
+
+        signalingClient.offlineMessageQueue = mockQueue
+        signalingClient.connect("user1", "token123", "ws://localhost:8080")
+
+        capturedListener.onOpen(mockWebSocket, mockResponse)
+
+        verify { mockQueue.flushQueue("user1") }
+    }
+
+    @Test
+    fun `onOpen does not flush when queue is empty`() {
+        val mockQueue: OfflineMessageQueue = mockk(relaxed = true)
+        every { mockQueue.getPendingCount() } returns 0
+
+        signalingClient.offlineMessageQueue = mockQueue
+        signalingClient.connect("user1", "token123", "ws://localhost:8080")
+
+        capturedListener.onOpen(mockWebSocket, mockResponse)
+
+        verify(exactly = 0) { mockQueue.flushQueue(any()) }
+    }
+
+    @Test
+    fun `onOpen does not crash when offlineMessageQueue is null`() {
+        signalingClient.offlineMessageQueue = null
+        signalingClient.connect("user1", "token123", "ws://localhost:8080")
+
+        // NullPointerException firlatilmamali
+        capturedListener.onOpen(mockWebSocket, mockResponse)
+
+        assertThat(signalingClient.connectionState.value).isEqualTo(ConnectionState.Connected)
+    }
+
+    // --- Bug 003: Reconnected callback testleri ---
+
+    @Test
+    fun `onOpen invokes onReconnectedCallback`() {
+        var callbackInvoked = false
+        signalingClient.onReconnectedCallback = { callbackInvoked = true }
+
+        signalingClient.connect("user1", "token123", "ws://localhost:8080")
+        capturedListener.onOpen(mockWebSocket, mockResponse)
+
+        assertThat(callbackInvoked).isTrue()
+    }
+
+    @Test
+    fun `onOpen does not crash when onReconnectedCallback is null`() {
+        signalingClient.onReconnectedCallback = null
+
+        signalingClient.connect("user1", "token123", "ws://localhost:8080")
+
+        // NullPointerException firlatilmamali
+        capturedListener.onOpen(mockWebSocket, mockResponse)
+
+        assertThat(signalingClient.connectionState.value).isEqualTo(ConnectionState.Connected)
+    }
+
+    @Test
+    fun `onOpen invokes onConnectedListener before onReconnectedCallback`() {
+        val callOrder = mutableListOf<String>()
+        signalingClient.onConnectedListener = { callOrder.add("connected") }
+        signalingClient.onReconnectedCallback = { callOrder.add("reconnected") }
+
+        signalingClient.connect("user1", "token123", "ws://localhost:8080")
+        capturedListener.onOpen(mockWebSocket, mockResponse)
+
+        assertThat(callOrder).containsExactly("connected", "reconnected").inOrder()
+    }
+
+    @Test
+    fun `getCurrentUserId returns userId after connect`() {
+        signalingClient.connect("user42", "token", "ws://localhost:8080")
+
+        assertThat(signalingClient.getCurrentUserId()).isEqualTo("user42")
+    }
+
+    @Test
+    fun `getCurrentUserId returns null before connect`() {
+        assertThat(signalingClient.getCurrentUserId()).isNull()
+    }
+
+    @Test
+    fun `getCurrentUserId returns null after disconnect`() {
+        every { mockWebSocket.close(any(), any()) } returns true
+
+        signalingClient.connect("user1", "token", "ws://localhost:8080")
+        capturedListener.onOpen(mockWebSocket, mockResponse)
+        signalingClient.disconnect()
+
+        assertThat(signalingClient.getCurrentUserId()).isNull()
+    }
+
+    @Test
+    fun `STUCK_MESSAGE_TIMEOUT_MS is 30 seconds`() {
+        assertThat(SignalingClient.STUCK_MESSAGE_TIMEOUT_MS).isEqualTo(30_000L)
+    }
+
+    @Test
+    fun `onOpen flush and callback work together on reconnect`() {
+        // Tam reconnect senaryosu: flush + callback birlikte calisir
+        val mockQueue: OfflineMessageQueue = mockk(relaxed = true)
+        every { mockQueue.getPendingCount() } returns 2
+
+        var reconnectCallbackInvoked = false
+        signalingClient.offlineMessageQueue = mockQueue
+        signalingClient.onReconnectedCallback = { reconnectCallbackInvoked = true }
+
+        signalingClient.connect("user1", "token", "ws://localhost:8080")
+
+        // Ilk baglanti
+        capturedListener.onOpen(mockWebSocket, mockResponse)
+
+        // Her ikisi de calistirilmali
+        verify { mockQueue.flushQueue("user1") }
+        assertThat(reconnectCallbackInvoked).isTrue()
+    }
 }

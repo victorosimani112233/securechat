@@ -46,16 +46,19 @@ object FileOpenHelper {
             context.startActivity(chooser)
 
         } catch (e: ActivityNotFoundException) {
-            showToast(context, "Bu dosya tipini acabilecek uygulama bulunamadi")
+            showToast(context, "Bu dosyay\u0131 a\u00e7abilecek uygulama bulunamad\u0131")
+        } catch (e: SecurityException) {
+            android.util.Log.e("FileOpenHelper", "Dosya erisim izni reddedildi: ${e.message}")
+            showToast(context, "Dosya erisim izni reddedildi")
         } catch (e: Exception) {
             android.util.Log.e("FileOpenHelper", "Dosya acilamadi: ${e.message}")
-            showToast(context, "Dosya acilamadi: ${e.message}")
+            showToast(context, "Dosya acilamadi")
         }
     }
 
     /**
-     * "Birlikte aç" (Share) menüsünü gösterir.
-     * Kullanıcı hangi app ile açacağını seçebilir.
+     * "Birlikte ac" (Share) menusunu gosterir.
+     * Kullanici hangi app ile acacagini secebilir.
      */
     fun openWithChooser(context: Context, filePath: String, mimeType: String) {
         try {
@@ -71,7 +74,10 @@ object FileOpenHelper {
             context.startActivity(chooser)
 
         } catch (e: ActivityNotFoundException) {
-            showToast(context, "Bu dosya tipini destekleyen uygulama bulunamadi")
+            showToast(context, "Bu dosyay\u0131 a\u00e7abilecek uygulama bulunamad\u0131")
+        } catch (e: SecurityException) {
+            android.util.Log.e("FileOpenHelper", "Dosya erisim izni reddedildi: ${e.message}")
+            showToast(context, "Dosya erisim izni reddedildi")
         } catch (e: Exception) {
             android.util.Log.e("FileOpenHelper", "Chooser acilamadi: ${e.message}")
             showToast(context, "Dosya paylasilamadi")
@@ -79,8 +85,8 @@ object FileOpenHelper {
     }
 
     /**
-     * Dosyayı share eder (Send intent).
-     * WhatsApp, email, Bluetooth vb. ile paylaşım.
+     * Dosyayi share eder (Send intent).
+     * WhatsApp, email, Bluetooth vb. ile paylasim.
      */
     fun shareFile(context: Context, filePath: String, mimeType: String, fileName: String = "Dosya") {
         try {
@@ -98,7 +104,10 @@ object FileOpenHelper {
             context.startActivity(chooser)
 
         } catch (e: ActivityNotFoundException) {
-            showToast(context, "Paylasim uygulamasi bulunamadi")
+            showToast(context, "Bu dosyay\u0131 a\u00e7abilecek uygulama bulunamad\u0131")
+        } catch (e: SecurityException) {
+            android.util.Log.e("FileOpenHelper", "Dosya erisim izni reddedildi: ${e.message}")
+            showToast(context, "Dosya erisim izni reddedildi")
         } catch (e: Exception) {
             android.util.Log.e("FileOpenHelper", "Dosya paylasilamadi: ${e.message}")
             showToast(context, "Dosya paylasilamadi")

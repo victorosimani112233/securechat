@@ -7,6 +7,7 @@ import com.securechat.storage.dao.IdentityDao
 import com.securechat.storage.entity.IdentityEntity
 import com.securechat.storage.model.TrustLevel
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -18,7 +19,7 @@ import javax.inject.Singleton
 @Singleton
 class CryptoIdentityStoreImpl @Inject constructor(
     private val identityDao: IdentityDao,
-    private val prefs: SharedPreferences
+    @Named("crypto") private val prefs: SharedPreferences
 ) : CryptoIdentityStore {
 
     companion object {

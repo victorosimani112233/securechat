@@ -1,5 +1,7 @@
 package com.securechat.app.di
 
+import android.content.Context
+import android.content.SharedPreferences
 import com.securechat.app.BuildConfig
 import com.securechat.app.data.UserIdentityProviderImpl
 import com.securechat.app.resolver.ContactNameResolverImpl
@@ -9,19 +11,20 @@ import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Named
 import javax.inject.Singleton
 
 /**
- * App modülü için Hilt dependency injection modülü.
+ * App modulu icin Hilt dependency injection modulu.
  */
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class AppModule {
 
     /**
-     * UserIdentityProvider interface'ini implementation'ına bind eder.
+     * UserIdentityProvider interface'ini implementation'ina bind eder.
      */
     @Binds
     abstract fun bindUserIdentityProvider(
@@ -29,7 +32,7 @@ abstract class AppModule {
     ): UserIdentityProvider
 
     /**
-     * ContactNameResolver interface'ini implementation'ına bind eder.
+     * ContactNameResolver interface'ini implementation'ina bind eder.
      */
     @Binds
     abstract fun bindContactNameResolver(
@@ -40,5 +43,15 @@ abstract class AppModule {
         @Provides
         @Named("apiBaseUrl")
         fun provideApiBaseUrl(): String = BuildConfig.API_BASE_URL
+
+        /**
+         * Uygulama genelinde kullanilan SharedPreferences instance'i.
+         * Cevrimdisi kuyruk, bekleyen islemler gibi verileri saklar.
+         */
+        @Provides
+        @Singleton
+        fun provideSharedPreferences(
+            @ApplicationContext context: Context
+        ): SharedPreferences = context.getSharedPreferences("securechat_prefs", Context.MODE_PRIVATE)
     }
 }

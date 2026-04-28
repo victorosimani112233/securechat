@@ -75,17 +75,27 @@ class SecureChatActivity : AppCompatActivity() {
 
         enableEdgeToEdge()
 
-        // Klavye ve sistem UI icin night mode'u senkron ayarla (setContent'ten once olmali)
-        val nightMode = kotlinx.coroutines.runBlocking {
-            val followSystem = themeManager.followSystemTheme.first()
-            if (followSystem) {
-                AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
-            } else {
-                if (themeManager.isDarkTheme.first()) AppCompatDelegate.MODE_NIGHT_YES
-                else AppCompatDelegate.MODE_NIGHT_NO
-            }
+        // Tema tercihini SharedPreferences'tan senkron oku — DataStore'dan runBlocking YAPMA
+        // DataStore cold-read eski cihazlarda main thread'i bloklar ve ANR'a yol acar
+        val themePrefs = getSharedPreferences("theme_settings_cache", MODE_PRIVATE)
+        val followSystem = themePrefs.getBoolean("follow_system", true)
+        val isDark = themePrefs.getBoolean("is_dark", false)
+        val nightMode = when {
+            followSystem -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+            isDark -> AppCompatDelegate.MODE_NIGHT_YES
+            else -> AppCompatDelegate.MODE_NIGHT_NO
         }
         AppCompatDelegate.setDefaultNightMode(nightMode)
+
+        // DataStore degerlerini arka planda oku ve cache'i guncelle
+        lifecycleScope.launch {
+            val realFollowSystem = themeManager.followSystemTheme.first()
+            val realIsDark = themeManager.isDarkTheme.first()
+            themePrefs.edit()
+                .putBoolean("follow_system", realFollowSystem)
+                .putBoolean("is_dark", realIsDark)
+                .apply()
+        }
 
         // Tam ekran modu tercihi — kullanıcının ayarına göre navigasyon çubuğunu yönet
         lifecycleScope.launch {
@@ -250,8 +260,9 @@ class SecureChatActivity : AppCompatActivity() {
      */
     private suspend fun registerUserOnServer(userId: String, phone: String) {
         try {
-            val phoneDigits = phone.replace(Regex("[^0-9]"), "")
+            val phoneDigits = com.securechat.contacts.PhoneNumberNormalizer.normalizeDigits(phone)
             val phoneHash = com.securechat.contacts.UserDiscoveryService.hashPhoneNumber(phoneDigits)
+            Log.d("SecureChat", "Kayit: phone=${phone.take(4)}***, normalized=$phoneDigits, hash=${phoneHash.take(12)}...")
             val encryptedPhone = com.securechat.contacts.PhoneEncryptor.encrypt(phoneDigits)
             val json = org.json.JSONObject().apply {
                 put("userId", userId)
@@ -322,12 +333,13 @@ class SecureChatActivity : AppCompatActivity() {
         getSystemService(android.app.NotificationManager::class.java).cancelAll()
         IncomingMessageHandler.clearNotificationCounts()
         // Uygulama on plana gelince cevrimici bildir
+        // NOT: hide degerini her seferinde canli oku — ayar degisince eski deger kalmasin
         val uid = userSession.userId ?: return
         presenceJob?.cancel()
-        val hide = !userSession.shareLastSeen
         presenceJob = lifecycleScope.launch {
             signalingClient.connectionState.collect { state ->
                 if (state is ConnectionState.Connected) {
+                    val hide = !userSession.shareLastSeen
                     signalingClient.sendPresenceUpdate(uid, true, hideLastSeen = hide)
                 }
             }

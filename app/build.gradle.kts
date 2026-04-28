@@ -23,12 +23,46 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val localProps = rootProject.file("local.properties")
+            // local.properties satirlarini oku (java.util.Properties yerine — uyumluluk)
+            val propsMap = mutableMapOf<String, String>()
+            if (localProps.exists()) {
+                localProps.readLines().forEach { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.isNotEmpty() && !trimmed.startsWith("#") && trimmed.contains("=")) {
+                        val key = trimmed.substringBefore("=").trim()
+                        val value = trimmed.substringAfter("=").trim()
+                        propsMap[key] = value
+                    }
+                }
+            }
+
+            val ksPath = propsMap["RELEASE_STORE_FILE"] ?: ""
+            if (ksPath.isNotBlank()) {
+                try {
+                    val ksFile = file(ksPath)
+                    if (ksFile.exists()) {
+                        storeFile = ksFile
+                        storePassword = propsMap["RELEASE_STORE_PASSWORD"] ?: ""
+                        keyAlias = propsMap["RELEASE_KEY_ALIAS"] ?: ""
+                        keyPassword = propsMap["RELEASE_KEY_PASSWORD"] ?: ""
+                    }
+                } catch (_: Exception) {
+                    // Keystore path gecersiz veya baska platformda — atla
+                }
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isDebuggable = true
             applicationIdSuffix = ".debug"
         }
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -78,6 +112,7 @@ android {
 
     @Suppress("UnstableApiUsage")
     testOptions {
+        unitTests.isReturnDefaultValues = true
         unitTests.all {
             it.maxHeapSize = "4096m"
             it.jvmArgs("-XX:MaxMetaspaceSize=512m")

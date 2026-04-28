@@ -21,28 +21,37 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -50,6 +59,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
@@ -65,6 +75,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -104,7 +115,9 @@ import com.securechat.app.ui.viewmodel.SettingsViewModel
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     onBackClick: () -> Unit,
-    onScheduledMessages: () -> Unit = {}
+    onScheduledMessages: () -> Unit = {},
+    onBackupClick: () -> Unit = {},
+    onAccountDeleted: () -> Unit = {}
 ) {
     val dark = LocalDarkTheme.current
     val profilePhotoUri by viewModel.profilePhotoUri.collectAsStateWithLifecycle()
@@ -116,9 +129,16 @@ fun SettingsScreen(
     val fullscreenMode by viewModel.fullscreenMode.collectAsStateWithLifecycle()
     val shareLastSeen by viewModel.shareLastSeen.collectAsStateWithLifecycle()
     val scheduledMessagesEnabled by viewModel.scheduledMessagesEnabled.collectAsStateWithLifecycle()
+    val storageInfo by viewModel.storageInfo.collectAsStateWithLifecycle()
+
+    // Ekran acildiginda depolama bilgisini hesapla
+    LaunchedEffect(Unit) {
+        viewModel.calculateStorageUsage()
+    }
 
     var showNukeDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
 
@@ -166,6 +186,126 @@ fun SettingsScreen(
             },
             icon = {
                 Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+            }
+        )
+    }
+
+    // Hesap silme tamamlandiginda kayit ekranina yonlendir
+    val accountDeleted by viewModel.accountDeleted.collectAsStateWithLifecycle()
+    LaunchedEffect(accountDeleted) {
+        if (accountDeleted) {
+            onAccountDeleted()
+        }
+    }
+
+    // Hesap silme onay diyalogu
+    if (showDeleteAccountDialog) {
+        var deleteConfirmText by remember { mutableStateOf("") }
+        val isDeleteEnabled = deleteConfirmText == "SİL"
+        var isDeleting by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { if (!isDeleting) showDeleteAccountDialog = false },
+            title = {
+                Text(
+                    "Hesabı Sil",
+                    color = MaterialTheme.colorScheme.error
+                )
+            },
+            text = {
+                Column {
+                    // Yedekleme butonu
+                    Button(
+                        onClick = {
+                            showDeleteAccountDialog = false
+                            onBackupClick()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Önce Yedekleme Yap", fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        "Silmeden önce verilerinizi yedeklemenizi öneriyoruz.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Hesabınız kalıcı olarak silinecek.",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Tüm mesajlarınız, kişileriniz ve ayarlarınız silinecek.")
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Bu işlem geri alınamaz.",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Onaylamak için \"SİL\" yazın:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = deleteConfirmText,
+                        onValueChange = { deleteConfirmText = it },
+                        singleLine = true,
+                        placeholder = { Text("SİL") },
+                        enabled = !isDeleting,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.error,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            cursorColor = MaterialTheme.colorScheme.error
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        isDeleting = true
+                        viewModel.deleteAccount()
+                    },
+                    enabled = isDeleteEnabled && !isDeleting,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    if (isDeleting) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = MaterialTheme.colorScheme.onError,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(if (isDeleting) "Siliniyor..." else "Hesabı Sil")
+                }
+            },
+            dismissButton = {
+                if (!isDeleting) {
+                    TextButton(onClick = { showDeleteAccountDialog = false }) {
+                        Text("İptal")
+                    }
+                }
+            },
+            icon = {
+                Icon(
+                    Icons.Default.DeleteForever,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
             }
         )
     }
@@ -378,14 +518,95 @@ fun SettingsScreen(
                             } catch (_: Exception) { "Varsayılan" }
                         }
 
+                        // Ses onizleme icin MediaPlayer durumu
+                        var isPlayingPreview by remember { mutableStateOf(false) }
+                        val mediaPlayerRef = remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+
+                        // Composable'dan cikildiginda MediaPlayer'i serbest birak
+                        DisposableEffect(Unit) {
+                            onDispose {
+                                mediaPlayerRef.value?.let { mp ->
+                                    try {
+                                        if (mp.isPlaying) mp.stop()
+                                        mp.release()
+                                    } catch (_: Exception) { }
+                                }
+                                mediaPlayerRef.value = null
+                            }
+                        }
+
                         ListItem(
                             headlineContent = { Text("Bildirim Sesi") },
                             supportingContent = { Text(soundLabel) },
                             leadingContent = {
                                 Icon(Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
+                            trailingContent = {
+                                // Ses onizleme butonu
+                                IconButton(
+                                    onClick = {
+                                        if (isPlayingPreview) {
+                                            // Onceki calan sesi durdur
+                                            mediaPlayerRef.value?.let { mp ->
+                                                try {
+                                                    if (mp.isPlaying) mp.stop()
+                                                    mp.release()
+                                                } catch (_: Exception) { }
+                                            }
+                                            mediaPlayerRef.value = null
+                                            isPlayingPreview = false
+                                        } else {
+                                            // Secili sesi cal
+                                            try {
+                                                val soundUri = if (notificationSoundUri.isNotEmpty()) {
+                                                    Uri.parse(notificationSoundUri)
+                                                } else {
+                                                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                                                }
+                                                val mp = android.media.MediaPlayer().apply {
+                                                    setDataSource(context, soundUri)
+                                                    setAudioAttributes(
+                                                        android.media.AudioAttributes.Builder()
+                                                            .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                                                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                                            .build()
+                                                    )
+                                                    setOnCompletionListener {
+                                                        isPlayingPreview = false
+                                                        it.release()
+                                                        mediaPlayerRef.value = null
+                                                    }
+                                                    prepare()
+                                                    start()
+                                                }
+                                                mediaPlayerRef.value = mp
+                                                isPlayingPreview = true
+                                            } catch (e: Exception) {
+                                                android.util.Log.w("SettingsScreen", "Ses onizleme basarisiz: ${e.message}")
+                                                isPlayingPreview = false
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        if (isPlayingPreview) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                        contentDescription = if (isPlayingPreview) "Durdur" else "Dinle",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable {
+                                // Ses onizleme caliyorsa durdur
+                                mediaPlayerRef.value?.let { mp ->
+                                    try {
+                                        if (mp.isPlaying) mp.stop()
+                                        mp.release()
+                                    } catch (_: Exception) { }
+                                }
+                                mediaPlayerRef.value = null
+                                isPlayingPreview = false
+
                                 val intent = android.content.Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
                                     putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
                                     putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Bildirim Sesi Seçin")
@@ -560,6 +781,68 @@ fun SettingsScreen(
                         )
 
                         ListItem(
+                            headlineContent = { Text("Yedekleme") },
+                            supportingContent = { Text("Sohbetleri şifreli olarak yedekle veya geri yükle") },
+                            leadingContent = {
+                                Icon(Icons.Default.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable { onBackupClick() }
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        // Depolama bilgisi
+                        storageInfo?.let { info ->
+                            ListItem(
+                                headlineContent = { Text("Depolama Kullanimi") },
+                                supportingContent = {
+                                    Column {
+                                        Text("Toplam: ${formatStorageSize(info.totalSize)}")
+                                        Text(
+                                            "Veritabani: ${formatStorageSize(info.dbSize)} | " +
+                                            "Onbellek: ${formatStorageSize(info.cacheSize)} | " +
+                                            "Dosyalar: ${formatStorageSize(info.filesSize)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.SdStorage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+
+                            // Onbellek temizleme butonu
+                            ListItem(
+                                headlineContent = { Text("Onbellegi Temizle") },
+                                supportingContent = { Text("Onbellek: ${formatStorageSize(info.cacheSize)}") },
+                                leadingContent = {
+                                    Icon(Icons.Default.CleaningServices, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { viewModel.clearCache() }
+                            )
+
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
+
+                        ListItem(
                             headlineContent = { Text("Tüm Sohbetleri Sil", color = MaterialTheme.colorScheme.error) },
                             supportingContent = { Text("Tüm mesajlar ve sohbetler kalıcı olarak silinir", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) },
                             leadingContent = {
@@ -567,6 +850,22 @@ fun SettingsScreen(
                             },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable { showNukeDialog = true }
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        ListItem(
+                            headlineContent = { Text("Hesabı Sil", color = MaterialTheme.colorScheme.error) },
+                            supportingContent = { Text("Hesabınız ve tüm verileriniz kalıcı olarak silinir", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) },
+                            leadingContent = {
+                                Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable { showDeleteAccountDialog = true }
                         )
                     }
                 }
@@ -831,4 +1130,14 @@ private fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
     )
+}
+
+/** Dosya boyutunu okunabilir formata cevirir (B/KB/MB/GB). */
+private fun formatStorageSize(bytes: Long): String {
+    return when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        bytes < 1024 * 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+        else -> String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+    }
 }

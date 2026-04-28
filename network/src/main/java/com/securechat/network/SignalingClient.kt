@@ -35,13 +35,15 @@ import javax.inject.Singleton
  * - Gelen signaling mesajlarini SharedFlow olarak yayar
  * - Baglanti koptuğunda exponential backoff ile yeniden baglanti dener
  * - Baglanti durumunu StateFlow olarak izlemeye sunar
+ * - Yeniden baglanti kuruldugunda offline kuyrugu otomatik flush eder (Bug 001)
+ * - SENDING durumunda takili kalan mesajlari kurtarir (Bug 003)
  *
  * GUVENLIK: Authorization token WebSocket handshake'inde Bearer token olarak gonderilir.
  */
 @Singleton
 class SignalingClient @Inject constructor(
     private val okHttpClient: OkHttpClient,
-    @Named("signalingUrl") private val signalingUrl: String
+    @Named("signalingUrl") private val signalingUrl: String = ""
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -71,6 +73,20 @@ class SignalingClient @Inject constructor(
 
     /** Baglanti (yeniden) kurulunca cagirilir — foreground durumuna gore presence gondermek icin */
     var onConnectedListener: (() -> Unit)? = null
+
+    /**
+     * Yeniden baglanti kuruldugunda cagirilir — SENDING durumunda takili kalan
+     * mesajlari kurtarmak ve offline kuyrugu flush etmek icin (Bug 001, Bug 003).
+     * IncomingMessageHandler veya AppLifecycleObserver bu callback'i set eder.
+     */
+    var onReconnectedCallback: (() -> Unit)? = null
+
+    /**
+     * Offline mesaj kuyrugu referansi.
+     * Yeniden baglanti kuruldugunda otomatik flush icin kullanilir (Bug 001).
+     * Setter ile atanir cunku constructor injection dongusel bagimlilik yaratir.
+     */
+    var offlineMessageQueue: OfflineMessageQueue? = null
 
     /**
      * Signaling sunucusuna WebSocket baglantisi kurar.
@@ -115,11 +131,26 @@ class SignalingClient @Inject constructor(
 
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("SecureChat", "✅ WebSocket CONNECTED (code=${response.code})")
+                Log.d("SecureChat", "WebSocket CONNECTED (code=${response.code})")
                 isConnecting = false
                 _connectionState.value = ConnectionState.Connected
                 reconnectJob?.cancel()
                 onConnectedListener?.invoke()
+
+                // Bug 001: Yeniden baglanti kuruldugunda offline kuyrugu otomatik flush et
+                val uid = currentUserId
+                if (uid != null) {
+                    offlineMessageQueue?.let { queue ->
+                        val pendingCount = queue.getPendingCount()
+                        if (pendingCount > 0) {
+                            Log.d("SecureChat", "Reconnected: flushing $pendingCount offline messages")
+                            queue.flushQueue(uid)
+                        }
+                    }
+                }
+
+                // Bug 003: Takili kalan SENDING mesajlarini kurtarmak icin callback
+                onReconnectedCallback?.invoke()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -322,9 +353,17 @@ class SignalingClient @Inject constructor(
         ))
     }
 
+    /**
+     * Mevcut kullanici ID'sini dondurur.
+     * Offline kuyruk flush ve stuck message recovery icin gereklidir.
+     */
+    fun getCurrentUserId(): String? = currentUserId
+
     companion object {
         private const val NORMAL_CLOSURE_CODE = 1000
         private const val INITIAL_RECONNECT_DELAY_MS = 2000L
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
+        /** SENDING durumunda takili kalan mesajlar icin timeout suresi (milisaniye) */
+        const val STUCK_MESSAGE_TIMEOUT_MS = 30_000L
     }
 }

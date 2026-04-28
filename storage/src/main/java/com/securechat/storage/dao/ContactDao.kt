@@ -23,6 +23,12 @@ interface ContactDao {
     @Query("SELECT * FROM contacts WHERE is_registered = 1 ORDER BY display_name ASC")
     fun getRegistered(): Flow<List<ContactEntity>>
 
+    @Query("SELECT * FROM contacts WHERE is_registered = 1 ORDER BY display_name ASC LIMIT :limit OFFSET :offset")
+    suspend fun getRegisteredPaginated(limit: Int, offset: Int): List<ContactEntity>
+
+    @Query("SELECT COUNT(*) FROM contacts WHERE is_registered = 1")
+    suspend fun getRegisteredCount(): Int
+
     @Query("SELECT * FROM contacts WHERE phone_hash IN (:hashes)")
     suspend fun getByHashes(hashes: List<String>): List<ContactEntity>
 

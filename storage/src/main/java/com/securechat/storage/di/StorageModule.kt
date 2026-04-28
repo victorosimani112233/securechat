@@ -7,7 +7,10 @@ import com.securechat.crypto.store.CryptoIdentityStore
 import com.securechat.crypto.store.CryptoPreKeyStore
 import com.securechat.crypto.store.CryptoSessionStore
 import com.securechat.crypto.store.CryptoSignedPreKeyStore
+import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.securechat.storage.SecureChatDatabase
+import javax.inject.Named
 import com.securechat.storage.crypto.CryptoIdentityStoreImpl
 import com.securechat.storage.crypto.CryptoPreKeyStoreImpl
 import com.securechat.storage.crypto.CryptoSessionStoreImpl
@@ -61,6 +64,14 @@ object StorageModule {
         )
             .openHelperFactory(factory)
             .fallbackToDestructiveMigration()
+            .addCallback(object : RoomDatabase.Callback() {
+                override fun onOpen(db: SupportSQLiteDatabase) {
+                    super.onOpen(db)
+                    // Silinen verilerin diskten guvenli silinmesini sagla
+                    // SQLCipher PRAGMA komutlarini execSQL ile degil query ile calistirir
+                    db.query("PRAGMA secure_delete = ON")
+                }
+            })
             .build()
     }
 
@@ -93,6 +104,7 @@ object StorageModule {
 
     @Provides
     @Singleton
+    @Named("crypto")
     fun provideCryptoPrefs(@ApplicationContext context: Context): SharedPreferences {
         return context.getSharedPreferences("crypto_prefs", Context.MODE_PRIVATE)
     }

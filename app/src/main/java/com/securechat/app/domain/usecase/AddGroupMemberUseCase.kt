@@ -18,6 +18,11 @@ class AddGroupMemberUseCase @Inject constructor(
     private val signalingClient: SignalingClient
 ) {
 
+    companion object {
+        /** Bir grubun icerebilecegi maksimum uye sayisi */
+        const val MAX_MEMBERS = 256
+    }
+
     /**
      * Gruba yeni uye ekler ve gerekli bildirimleri gonderir.
      *
@@ -48,6 +53,11 @@ class AddGroupMemberUseCase @Inject constructor(
         // Zaten uye mi kontrolu
         if (currentMembers.contains(newMemberId)) {
             throw IllegalArgumentException("Kullanici zaten grup uyesi")
+        }
+
+        // Uye limiti kontrolu
+        if (currentMembers.size >= MAX_MEMBERS) {
+            throw IllegalStateException("Grup \u00FCye limiti doldu ($MAX_MEMBERS)")
         }
 
         // Yeni uyeyi ekle
