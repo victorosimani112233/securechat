@@ -33,6 +33,7 @@ class ThemeManager @Inject constructor(
     private val NOTIFICATION_SOUND_URI_KEY = stringPreferencesKey("notification_sound_uri")
     private val USE_DOODLE_BACKGROUND_KEY = booleanPreferencesKey("use_doodle_background")
     private val FULLSCREEN_MODE_KEY = booleanPreferencesKey("fullscreen_mode")
+    private val SCHEDULED_MESSAGES_ENABLED_KEY = booleanPreferencesKey("scheduled_messages_enabled")
 
     /**
      * Sistem temasını takip etme durumu flow'u.
@@ -78,6 +79,13 @@ class ThemeManager @Inject constructor(
      */
     val fullscreenMode: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[FULLSCREEN_MODE_KEY] ?: false
+    }
+
+    /**
+     * Planli mesajlar aktif/pasif tercihi.
+     */
+    val scheduledMessagesEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[SCHEDULED_MESSAGES_ENABLED_KEY] ?: true
     }
 
     /**
@@ -131,6 +139,15 @@ class ThemeManager @Inject constructor(
     suspend fun setFullscreenMode(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[FULLSCREEN_MODE_KEY] = enabled
+        }
+    }
+
+    /**
+     * Planli mesajlar tercihini ayarla.
+     */
+    suspend fun setScheduledMessagesEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[SCHEDULED_MESSAGES_ENABLED_KEY] = enabled
         }
     }
 }

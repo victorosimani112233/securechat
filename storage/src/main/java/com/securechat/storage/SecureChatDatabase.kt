@@ -11,12 +11,14 @@ import com.securechat.storage.dao.MessageDao
 import com.securechat.storage.dao.PreKeyDao
 import com.securechat.storage.dao.SessionDao
 import com.securechat.storage.dao.SignedPreKeyDao
+import com.securechat.storage.dao.ScheduledMessageDao
 import com.securechat.storage.entity.CallLogEntity
 import com.securechat.storage.entity.ContactEntity
 import com.securechat.storage.entity.ConversationEntity
 import com.securechat.storage.entity.IdentityEntity
 import com.securechat.storage.entity.MessageEntity
 import com.securechat.storage.entity.PreKeyEntity
+import com.securechat.storage.entity.ScheduledMessageEntity
 import com.securechat.storage.entity.SessionEntity
 import com.securechat.storage.entity.SignedPreKeyEntity
 
@@ -33,9 +35,10 @@ import com.securechat.storage.entity.SignedPreKeyEntity
         SignedPreKeyEntity::class,
         SessionEntity::class,
         IdentityEntity::class,
-        CallLogEntity::class
+        CallLogEntity::class,
+        ScheduledMessageEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -48,4 +51,5 @@ abstract class SecureChatDatabase : RoomDatabase() {
     abstract fun sessionDao(): SessionDao
     abstract fun identityDao(): IdentityDao
     abstract fun callLogDao(): CallLogDao
+    abstract fun scheduledMessageDao(): ScheduledMessageDao
 }

@@ -6,7 +6,8 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -32,13 +33,14 @@ import com.securechat.network.model.ConnectionState
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class SecureChatActivity : ComponentActivity() {
+class SecureChatActivity : AppCompatActivity() {
 
     @Inject lateinit var userSession: UserSession
     @Inject lateinit var signalingClient: SignalingClient
@@ -70,6 +72,18 @@ class SecureChatActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
+        // Klavye ve sistem UI icin night mode'u senkron ayarla (setContent'ten once olmali)
+        val nightMode = kotlinx.coroutines.runBlocking {
+            val followSystem = themeManager.followSystemTheme.first()
+            if (followSystem) {
+                AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+            } else {
+                if (themeManager.isDarkTheme.first()) AppCompatDelegate.MODE_NIGHT_YES
+                else AppCompatDelegate.MODE_NIGHT_NO
+            }
+        }
+        AppCompatDelegate.setDefaultNightMode(nightMode)
+
         // Tam ekran modu tercihi — kullanıcının ayarına göre navigasyon çubuğunu yönet
         lifecycleScope.launch {
             themeManager.fullscreenMode.collect { fullscreen ->
@@ -80,6 +94,24 @@ class SecureChatActivity : ComponentActivity() {
                         WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 } else {
                     insetsController.show(WindowInsetsCompat.Type.navigationBars())
+                }
+            }
+        }
+
+        // Tema degisikliklerini dinamik olarak dinle (kullanici ayarlardan degistirirse)
+        lifecycleScope.launch {
+            themeManager.followSystemTheme.collect { followSystem ->
+                if (followSystem) {
+                    AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+                } else {
+                    launch {
+                        themeManager.isDarkTheme.collect { isDark ->
+                            AppCompatDelegate.setDefaultNightMode(
+                                if (isDark) AppCompatDelegate.MODE_NIGHT_YES
+                                else AppCompatDelegate.MODE_NIGHT_NO
+                            )
+                        }
+                    }
                 }
             }
         }

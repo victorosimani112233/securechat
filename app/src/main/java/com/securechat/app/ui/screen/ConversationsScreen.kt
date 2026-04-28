@@ -42,11 +42,15 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Badge
 import androidx.compose.material3.DropdownMenuItem
@@ -103,7 +107,7 @@ private enum class ConversationFilter { NONE, UNREAD, GROUPS, FAVORITES }
  * Alt navigasyon bar, filtre chip'leri, favori/arsiv destegi, swipe aksiyonlari.
  * Azure glassmorphism tasarim.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConversationsScreen(
     viewModel: ConversationsViewModel = hiltViewModel(),
@@ -111,6 +115,7 @@ fun ConversationsScreen(
     onConversationInfoClick: (Conversation) -> Unit = {},
     onNewChat: () -> Unit,
     onNewGroup: () -> Unit = {},
+    onScheduledMessages: () -> Unit = {},
     onSettingsClick: () -> Unit,
     onCallHistoryClick: () -> Unit = {},
     onContactsClick: () -> Unit = onNewChat
@@ -149,7 +154,13 @@ fun ConversationsScreen(
             topBar = {
                 TopAppBar(
                     title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.combinedClickable(
+                                onClick = {},
+                                onLongClick = { viewModel.createTestConversation() }
+                            )
+                        ) {
                             Text(
                                 "elçim",
                                 fontFamily = DisplayFamily,
@@ -223,19 +234,42 @@ fun ConversationsScreen(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        IconButton(onClick = onNewGroup) {
-                            Icon(
-                                Icons.Default.GroupAdd,
-                                contentDescription = "Yeni Grup",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        IconButton(onClick = onNewChat) {
-                            Icon(
-                                Icons.Default.PersonAdd,
-                                contentDescription = "Yeni Sohbet",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        // Uc nokta menu
+                        var showMoreMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "Daha Fazla",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            GlassDropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Yeni Sohbet") },
+                                    onClick = { showMoreMenu = false; onNewChat() },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(20.dp))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Yeni Grup") },
+                                    onClick = { showMoreMenu = false; onNewGroup() },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.GroupAdd, null, modifier = Modifier.size(20.dp))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Planlı Mesajlar") },
+                                    onClick = { showMoreMenu = false; onScheduledMessages() },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.EditCalendar, null, modifier = Modifier.size(20.dp))
+                                    }
+                                )
+                            }
                         }
                     },
                     windowInsets = WindowInsets(0),
@@ -329,7 +363,8 @@ fun ConversationsScreen(
                                         onInfoClick = { onConversationInfoClick(conversation) },
                                         onDeleteRequest = { conversationToDelete = conversation },
                                         onArchiveRequest = { viewModel.archiveConversation(conversation.id) },
-                                        onFavoriteToggle = { viewModel.toggleFavorite(conversation.id, !conversation.isFavorite) }
+                                        onFavoriteToggle = { viewModel.toggleFavorite(conversation.id, !conversation.isFavorite) },
+                                        onMuteToggle = { viewModel.toggleMuted(conversation.id, !conversation.isMuted) }
                                     )
                                 }
                             }
@@ -482,7 +517,8 @@ private fun SwipeableConversationItem(
     onInfoClick: (() -> Unit)? = null,
     onDeleteRequest: () -> Unit,
     onArchiveRequest: (() -> Unit)? = null,
-    onFavoriteToggle: (() -> Unit)? = null
+    onFavoriteToggle: (() -> Unit)? = null,
+    onMuteToggle: (() -> Unit)? = null
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
 
@@ -585,6 +621,20 @@ private fun SwipeableConversationItem(
                         }
                     )
                 }
+                if (onMuteToggle != null) {
+                    val isMuted = conversation.isMuted
+                    DropdownMenuItem(
+                        text = { Text(if (isMuted) "Sesi Aç" else "Sessize Al") },
+                        onClick = { showContextMenu = false; onMuteToggle() },
+                        leadingIcon = {
+                            Icon(
+                                if (isMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    )
+                }
                 if (onArchiveRequest != null) {
                     DropdownMenuItem(
                         text = { Text("Arşivle") },
@@ -638,6 +688,16 @@ fun ConversationItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                if (conversation.isMuted) {
+                    Icon(
+                        Icons.Default.NotificationsOff,
+                        contentDescription = "Sessiz",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier
+                            .size(16.dp)
+                            .padding(start = 4.dp)
+                    )
+                }
                 if (conversation.isFavorite) {
                     Icon(
                         Icons.Default.Star,

@@ -13,6 +13,7 @@ import com.securechat.storage.crypto.CryptoPreKeyStoreImpl
 import com.securechat.storage.crypto.CryptoSessionStoreImpl
 import com.securechat.storage.crypto.CryptoSignedPreKeyStoreImpl
 import com.securechat.storage.dao.CallLogDao
+import com.securechat.storage.dao.ScheduledMessageDao
 import com.securechat.storage.dao.ContactDao
 import com.securechat.storage.dao.ConversationDao
 import com.securechat.storage.dao.IdentityDao
@@ -71,6 +72,9 @@ object StorageModule {
 
     @Provides
     fun provideCallLogDao(db: SecureChatDatabase): CallLogDao = db.callLogDao()
+
+    @Provides
+    fun provideScheduledMessageDao(db: SecureChatDatabase): ScheduledMessageDao = db.scheduledMessageDao()
 
     @Provides
     fun provideContactDao(db: SecureChatDatabase): ContactDao = db.contactDao()

@@ -71,6 +71,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -331,6 +333,7 @@ fun ChatScreen(
                     peerIsOnline = peerPresence?.isOnline ?: false,
                     peerLastSeen = peerPresence?.lastSeen,
                     disappearingDuration = disappearingDuration,
+                    isMuted = conversationInfo?.isMuted ?: false,
                     onBackClick = onBackClick,
                     onVoiceCallClick = {
                         onVoiceCallClick(conversationId)
@@ -340,6 +343,7 @@ fun ChatScreen(
                     },
                     onSearchClick = { isSearchMode = true },
                     onDisappearingClick = { showDisappearingDialog = true },
+                    onMuteToggle = { viewModel.toggleMuted() },
                     onChatInfoClick = {
                         if (conversationInfo?.isGroup == true) {
                             onGroupInfoClick(conversationId)
@@ -945,11 +949,13 @@ fun ChatTopBar(
     peerIsOnline: Boolean = false,
     peerLastSeen: Long? = null,
     disappearingDuration: Long = 0,
+    isMuted: Boolean = false,
     onBackClick: () -> Unit,
     onVoiceCallClick: () -> Unit,
     onVideoCallClick: () -> Unit,
     onSearchClick: (() -> Unit)? = null,
     onDisappearingClick: (() -> Unit)? = null,
+    onMuteToggle: (() -> Unit)? = null,
     onChatInfoClick: (() -> Unit)? = null
 ) {
     val dark = LocalDarkTheme.current
@@ -1112,6 +1118,22 @@ fun ChatTopBar(
                             )
                         }
                     )
+                    if (onMuteToggle != null) {
+                        DropdownMenuItem(
+                            text = { Text(if (isMuted) "Sesi Aç" else "Sessize Al") },
+                            onClick = {
+                                showMenu = false
+                                onMuteToggle()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    if (isMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }

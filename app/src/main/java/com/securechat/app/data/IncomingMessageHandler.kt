@@ -942,6 +942,14 @@ class IncomingMessageHandler @Inject constructor(
      * - Uygulama foreground'daysa sadece current chat'ten farkliysa bildirim goster
      */
     private suspend fun showMessageNotification(senderName: String, content: String, conversationId: String) {
+        // Sessize alinmis konusmalar icin bildirim gosterme
+        val conv = conversationDao.getById(conversationId)
+            ?: conversationDao.getByPeerId(conversationId)
+        if (conv?.isMuted == true) {
+            android.util.Log.d("IncomingHandler", "Bildirim gosterilmedi - sessiz: $conversationId")
+            return
+        }
+
         // Smart bildirim logic: current chat'ten gelen mesajlarda bildirim gosterme
         val shouldShowNotification = if (isAppInForeground) {
             conversationId != currentChatId

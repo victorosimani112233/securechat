@@ -57,4 +57,7 @@ interface MessageRepository {
 
     /** Konuşmanın favori durumunu güncelle. */
     suspend fun updateConversationFavorite(conversationId: String, isFavorite: Boolean)
+
+    /** Konuşmanın sessiz modunu güncelle. */
+    suspend fun updateConversationMuted(conversationId: String, isMuted: Boolean)
 }

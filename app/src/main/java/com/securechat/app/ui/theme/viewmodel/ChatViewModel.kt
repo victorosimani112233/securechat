@@ -279,7 +279,8 @@ class ChatViewModel @Inject constructor(
                 isGroup = entity.isGroup,
                 memberCount = members.size,
                 members = members,
-                memberNames = memberNames
+                memberNames = memberNames,
+                isMuted = entity.isMuted
             )
         } else {
             // Konusma DB'de yok — rehberden yeni acilan sohbet.
@@ -517,6 +518,15 @@ class ChatViewModel @Inject constructor(
      * Sureli mesaj suresini ayarlar ve karsi tarafa bildirir.
      * @param duration Milisaniye cinsinden sure, 0 = kapali
      */
+    fun toggleMuted() {
+        viewModelScope.launch {
+            val current = _conversationInfo.value?.isMuted ?: false
+            val newMuted = !current
+            messageRepository.updateConversationMuted(conversationId, newMuted)
+            _conversationInfo.value = _conversationInfo.value?.copy(isMuted = newMuted)
+        }
+    }
+
     fun setDisappearingDuration(duration: Long) {
         viewModelScope.launch {
             _disappearingDuration.value = duration
@@ -667,5 +677,6 @@ data class ConversationInfo(
     val memberCount: Int,
     val members: List<String>,
     /** Uye kimliklerinden goruntuleme adlarina esleme. Grup sohbetlerinde gonderen ismi gostermek icin kullanilir. */
-    val memberNames: Map<String, String> = emptyMap()
+    val memberNames: Map<String, String> = emptyMap(),
+    val isMuted: Boolean = false
 )

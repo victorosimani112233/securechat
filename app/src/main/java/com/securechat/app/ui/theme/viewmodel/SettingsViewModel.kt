@@ -47,6 +47,9 @@ class SettingsViewModel @Inject constructor(
     val fullscreenMode: StateFlow<Boolean> = themeManager.fullscreenMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val scheduledMessagesEnabled: StateFlow<Boolean> = themeManager.scheduledMessagesEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     private val _shareLastSeen = MutableStateFlow(userSession.shareLastSeen)
     val shareLastSeen: StateFlow<Boolean> = _shareLastSeen.asStateFlow()
 
@@ -94,6 +97,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setFullscreenMode(enabled: Boolean) {
         viewModelScope.launch { themeManager.setFullscreenMode(enabled) }
+    }
+
+    fun setScheduledMessagesEnabled(enabled: Boolean) {
+        viewModelScope.launch { themeManager.setScheduledMessagesEnabled(enabled) }
     }
 
     fun nukeAllData() {

@@ -1,10 +1,10 @@
-1) açık tema da mesaj girilen input fieldın etrafı siyah olarak kalıyor.
+1) mesaj yazma ekranında input alanının arkasındaki field hep koyu temada kalıyor bunu güncelle
 
-2) dosya yükleme butonuna tıklandığında seçenekler açılsın yukarı doğru --> Kamera, Galeri ve Dosyalar olmak üzere 3 seçenek çıkması gerekiyor.
+2) dosya yükleme butonuna tıklandığında seçenekler açılsın yukarı doğru --> Kamera, Galeri ve Dosyalar olmak üzere 3 seçenek çıkması gerekiyor. Bu açılan alan beyaz tema uyumlu değil
 
 3) Uygulama bildirim seslerini ayarlar üzerinden kullanıcı değiştirebilmeli.
 
-4) Numara girilen her yerdeki formatı placeholderda olduğu gibi olması lazım örneği 555 555 55 55 şeklinde gösteriyor olmamız lazım.
+4) Numara girilen her yerdeki formatı placeholderda olduğu gibi olması lazım örneği 555 555 55 55 şeklinde gösteriyor olmamız lazım.şuan doğru şekilde boşluk brakıyor ancak ekstra istenilenden çok hane girilebiliyor.
 
 5) Sohbete giderken animasyonda sorunumuz var sağ üstten ortaya geliyor gibi gözüküyor. Diğer sayfalar gibi değil.
 
@@ -16,8 +16,12 @@
 
 9) Alttaki barda seçilen itemin seçilme hoverı alttan üstten biraz daha geniş olabilir bunuda ayarla.
 
-10) Splash screeni yarım saniye kadar azaltıp 1.5 saniye yapalım.
+10) Splash screeni yarım saniye kadar azaltıp 1.5 saniye yapalım. ### BU OLMADI GALİBA
 
 11) Alttaki andoridin ana ekran geri git butonları falan var ya onu kişiye özel yapmamız lazım ister tam ekran olacak ister alttan o butonlar gözüküyor gibi olacak.
 
 12) Uygulama arka planı kullanıcının isteğine bağlı olarak ister doodleartlı şu anki arka plan olsun. İsterse düz uygulama renklerinde sade arka plan olsun.
+
+### GEREKLİ GÜNCELLEMELER YAPILDI VE KONTROL EDİLDİ ####
+
+### UI_RESTRUCTURE_PLAN.md dosyası çıkarıldı tema ayarlarının tam çalışmamasının vb sebepleri var ###

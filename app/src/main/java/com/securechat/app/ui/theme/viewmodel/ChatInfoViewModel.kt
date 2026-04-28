@@ -69,6 +69,9 @@ class ChatInfoViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _isMuted = MutableStateFlow(false)
+    val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
+
     /** Sureli mesaj suresi (ms). 0 = kapali. */
     private val _disappearingDuration = MutableStateFlow(0L)
     val disappearingDuration: StateFlow<Long> = _disappearingDuration.asStateFlow()
@@ -131,6 +134,7 @@ class ChatInfoViewModel @Inject constructor(
                     _contactNote.value = conversation.contactNote
                     _customNotificationUri.value = conversation.customNotificationUri
                     _isGroup.value = conversation.isGroup
+                    _isMuted.value = conversation.isMuted
                     _disappearingDuration.value = conversation.disappearingDuration
                 } else {
                     _conversationName.value = conversationId
@@ -217,6 +221,18 @@ class ChatInfoViewModel @Inject constructor(
             } catch (e: Exception) {
                 android.util.Log.e("ChatInfoVM", "Bildirim güncelleme hatası", e)
             }
+        }
+    }
+
+    /**
+     * Sohbetin sessiz modunu degistirir.
+     */
+    fun toggleMuted() {
+        val conversationId = currentConversationId ?: return
+        viewModelScope.launch {
+            val newMuted = !_isMuted.value
+            conversationDao.updateMuted(conversationId, newMuted)
+            _isMuted.value = newMuted
         }
     }
 

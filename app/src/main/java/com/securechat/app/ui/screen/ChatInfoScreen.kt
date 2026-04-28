@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -117,6 +118,7 @@ fun ChatInfoScreen(
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val disappearingDuration by viewModel.disappearingDuration.collectAsStateWithLifecycle()
+    val isMuted by viewModel.isMuted.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(ChatInfoTab.MAIN) }
@@ -241,6 +243,8 @@ fun ChatInfoScreen(
                         }
                         ringtoneLauncher.launch(intent)
                     },
+                    isMuted = isMuted,
+                    onMuteToggle = { viewModel.toggleMuted() },
                     onAddContactClick = {
                         val addContactIntent = Intent(ContactsContract.Intents.Insert.ACTION).apply {
                             type = ContactsContract.RawContacts.CONTENT_TYPE
@@ -362,6 +366,8 @@ private fun MainInfoContent(
     onNoteClick: () -> Unit,
     onDisappearingClick: () -> Unit,
     onNotificationClick: () -> Unit,
+    isMuted: Boolean = false,
+    onMuteToggle: () -> Unit = {},
     onAddContactClick: () -> Unit = {}
 ) {
     LazyColumn(
@@ -438,6 +444,17 @@ private fun MainInfoContent(
                 title = "Kişiye Not",
                 subtitle = contactNote ?: "Not eklemek için dokun",
                 onClick = onNoteClick
+            )
+        }
+
+        // Sessize al
+        item {
+            InfoMenuItem(
+                icon = if (isMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
+                iconTint = if (isMuted) MaterialTheme.colorScheme.error else Color(0xFF66BB6A),
+                title = if (isMuted) "Sessizde" else "Sesli",
+                subtitle = if (isMuted) "Bildirimler kapalı" else "Bildirimler açık",
+                onClick = onMuteToggle
             )
         }
 

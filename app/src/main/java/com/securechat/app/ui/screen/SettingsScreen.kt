@@ -25,7 +25,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Info
@@ -101,7 +103,8 @@ import com.securechat.app.ui.viewmodel.SettingsViewModel
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onScheduledMessages: () -> Unit = {}
 ) {
     val dark = LocalDarkTheme.current
     val profilePhotoUri by viewModel.profilePhotoUri.collectAsStateWithLifecycle()
@@ -112,6 +115,7 @@ fun SettingsScreen(
     val useDoodleBackground by viewModel.useDoodleBackground.collectAsStateWithLifecycle()
     val fullscreenMode by viewModel.fullscreenMode.collectAsStateWithLifecycle()
     val shareLastSeen by viewModel.shareLastSeen.collectAsStateWithLifecycle()
+    val scheduledMessagesEnabled by viewModel.scheduledMessagesEnabled.collectAsStateWithLifecycle()
 
     var showNukeDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -393,6 +397,70 @@ fun SettingsScreen(
                                 }
                                 soundPickerLauncher.launch(intent)
                             }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // === Planlı Mesajlar ===
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .glass(dark = dark, shape = RoundedCornerShape(16.dp))
+                ) {
+                    Column {
+                        SectionHeader("Planlı Mesajlar")
+
+                        ListItem(
+                            headlineContent = { Text("Planlı Mesajlar") },
+                            supportingContent = {
+                                Text(
+                                    if (scheduledMessagesEnabled) "Planlı mesajlar aktif"
+                                    else "Planlı mesajlar devre dışı"
+                                )
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.EditCalendar, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = scheduledMessagesEnabled,
+                                    onCheckedChange = { viewModel.setScheduledMessagesEnabled(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    )
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        ListItem(
+                            headlineContent = { Text("Planlı Mesajları Yönet") },
+                            supportingContent = { Text("Mevcut planlı mesajları görüntüle ve düzenle") },
+                            leadingContent = {
+                                Icon(Icons.Default.EditCalendar, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            trailingContent = {
+                                Icon(
+                                    Icons.Default.ArrowForward,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable { onScheduledMessages() }
                         )
                     }
                 }

@@ -1,5 +1,6 @@
 package com.securechat.app.navigation
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
@@ -9,10 +10,10 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Call
@@ -23,15 +24,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -48,24 +47,27 @@ import com.securechat.app.ui.screen.CreateGroupScreen
 import com.securechat.app.ui.screen.GroupInfoScreen
 import com.securechat.app.ui.screen.OtpVerificationScreen
 import com.securechat.app.ui.screen.PhoneVerificationScreen
+import com.securechat.app.ui.screen.ScheduledMessagesScreen
 import com.securechat.app.ui.screen.SettingsScreen
 import com.securechat.app.ui.screen.SplashScreen
 import com.securechat.app.ui.theme.LocalDarkTheme
 import com.securechat.network.model.CallType
 
-private const val ANIM_DURATION = 250
+private const val ANIM_DURATION = 300
 
+// Ileri navigasyon: yeni ekran sagdan tam kayarak gelir, eski ekran sola kayar
 private fun defaultEnter(): EnterTransition =
-    fadeIn(tween(ANIM_DURATION)) + slideInHorizontally(tween(ANIM_DURATION)) { it / 6 }
+    slideInHorizontally(tween(ANIM_DURATION)) { it }
 
 private fun defaultExit(): ExitTransition =
-    fadeOut(tween(ANIM_DURATION)) + slideOutHorizontally(tween(ANIM_DURATION)) { -it / 6 }
+    slideOutHorizontally(tween(ANIM_DURATION)) { -it / 3 }
 
+// Geri navigasyon: mevcut ekran saga kayarak cikar, onceki ekran soldan gelir
 private fun defaultPopEnter(): EnterTransition =
-    fadeIn(tween(ANIM_DURATION)) + slideInHorizontally(tween(ANIM_DURATION)) { -it / 6 }
+    slideInHorizontally(tween(ANIM_DURATION)) { -it / 3 }
 
 private fun defaultPopExit(): ExitTransition =
-    fadeOut(tween(ANIM_DURATION)) + slideOutHorizontally(tween(ANIM_DURATION)) { it / 6 }
+    slideOutHorizontally(tween(ANIM_DURATION)) { it }
 
 /** Alt navigasyon bar sekmeleri. */
 private enum class BottomTab(val route: String, val label: String, val icon: ImageVector) {
@@ -91,60 +93,13 @@ fun SecureChatNavHost(
     val showBottomBar = currentRoute in BOTTOM_BAR_ROUTES
     val dark = LocalDarkTheme.current
 
-    Scaffold(
-        bottomBar = {
-            if (showBottomBar) {
-                NavigationBar(
-                    containerColor = if (dark) Color(0xFF0D1014).copy(alpha = 0.85f)
-                                     else Color.White.copy(alpha = 0.85f),
-                    tonalElevation = 0.dp
-                ) {
-                    BottomTab.entries.forEach { tab ->
-                        NavigationBarItem(
-                            selected = currentRoute == tab.route,
-                            onClick = {
-                                if (currentRoute != tab.route) {
-                                    navController.navigate(tab.route) {
-                                        popUpTo("conversations") { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    tab.icon,
-                                    contentDescription = tab.label,
-                                    modifier = Modifier.padding(vertical = 2.dp)
-                                )
-                            },
-                            label = {
-                                Text(
-                                    tab.label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 11.sp
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        )
-                    }
-                }
-            }
-        },
-        containerColor = Color.Transparent
-    ) { innerPadding ->
+    // NavHost tam ekran, bottom bar overlay olarak ustune biner.
+    // Boylece bottom bar gizlendiginde NavHost boyutu degismez, animasyon bozulmaz.
+    Box(Modifier.fillMaxSize().systemBarsPadding()) {
         NavHost(
             navController = navController,
             startDestination = actualStartDestination,
-            modifier = Modifier
-                .padding(innerPadding)
-                .consumeWindowInsets(innerPadding),
+            modifier = Modifier.fillMaxSize(),
             enterTransition = { defaultEnter() },
             exitTransition = { defaultExit() },
             popEnterTransition = { defaultPopEnter() },
@@ -208,6 +163,7 @@ fun SecureChatNavHost(
                         }
                     },
                     onNewGroup = { navController.navigate("create_group") },
+                    onScheduledMessages = { navController.navigate("scheduled_messages") },
                     onSettingsClick = {
                         navController.navigate("settings") {
                             popUpTo("conversations") { saveState = true }
@@ -234,10 +190,10 @@ fun SecureChatNavHost(
 
             composable(
                 "create_group",
-                enterTransition = { fadeIn(tween(ANIM_DURATION)) + slideInVertically(tween(ANIM_DURATION)) { it / 6 } },
-                exitTransition = { fadeOut(tween(ANIM_DURATION)) },
-                popEnterTransition = { fadeIn(tween(ANIM_DURATION)) },
-                popExitTransition = { fadeOut(tween(ANIM_DURATION)) + slideOutVertically(tween(ANIM_DURATION)) { it / 6 } }
+                enterTransition = { slideInVertically(tween(ANIM_DURATION)) { it } },
+                exitTransition = { slideOutVertically(tween(ANIM_DURATION)) { -it / 3 } },
+                popEnterTransition = { slideInVertically(tween(ANIM_DURATION)) { -it / 3 } },
+                popExitTransition = { slideOutVertically(tween(ANIM_DURATION)) { it } }
             ) {
                 CreateGroupScreen(
                     onGroupCreated = { groupId ->
@@ -249,13 +205,7 @@ fun SecureChatNavHost(
                 )
             }
 
-            composable(
-                "chat/{conversationId}",
-                enterTransition = { defaultEnter() },
-                exitTransition = { defaultExit() },
-                popEnterTransition = { defaultPopEnter() },
-                popExitTransition = { defaultPopExit() }
-            ) {
+            composable("chat/{conversationId}") {
                 val conversationId = it.arguments?.getString("conversationId") ?: ""
                 ChatScreen(
                     conversationId = conversationId,
@@ -357,8 +307,68 @@ fun SecureChatNavHost(
 
             composable("settings") {
                 SettingsScreen(
+                    onBackClick = { navController.popBackStack() },
+                    onScheduledMessages = {
+                        navController.navigate("scheduled_messages/1")
+                    }
+                )
+            }
+
+            composable("scheduled_messages") {
+                ScheduledMessagesScreen(
                     onBackClick = { navController.popBackStack() }
                 )
+            }
+
+            composable("scheduled_messages/{initialTab}") { backStackEntry ->
+                val tab = backStackEntry.arguments?.getString("initialTab")?.toIntOrNull() ?: 0
+                ScheduledMessagesScreen(
+                    onBackClick = { navController.popBackStack() },
+                    initialTab = tab
+                )
+            }
+        }
+
+        // Bottom bar — NavHost ustune overlay olarak biner
+        AnimatedVisibility(
+            visible = showBottomBar,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = slideInVertically(tween(200)) { it },
+            exit = slideOutVertically(tween(200)) { it }
+        ) {
+            NavigationBar(
+                containerColor = if (dark) Color(0xFF0D1014).copy(alpha = 0.95f)
+                                 else Color.White.copy(alpha = 0.95f),
+                tonalElevation = 0.dp
+            ) {
+                BottomTab.entries.forEach { tab ->
+                    NavigationBarItem(
+                        selected = currentRoute == tab.route,
+                        onClick = {
+                            if (currentRoute != tab.route) {
+                                navController.navigate(tab.route) {
+                                    popUpTo("conversations") { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        },
+                        icon = {
+                            Icon(
+                                tab.icon,
+                                contentDescription = tab.label,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                }
             }
         }
     }

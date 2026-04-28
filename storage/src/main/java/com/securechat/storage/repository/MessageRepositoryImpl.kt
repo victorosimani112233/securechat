@@ -148,6 +148,10 @@ class MessageRepositoryImpl @Inject constructor(
     override suspend fun updateConversationFavorite(conversationId: String, isFavorite: Boolean) {
         conversationDao.updateFavorite(conversationId, isFavorite)
     }
+
+    override suspend fun updateConversationMuted(conversationId: String, isMuted: Boolean) {
+        conversationDao.updateMuted(conversationId, isMuted)
+    }
 }
 
 // --- Extension fonksiyonlari: Entity <-> Domain donusumleri ---
