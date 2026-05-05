@@ -26,7 +26,8 @@ data class LocalMessage(
     val isStarred: Boolean = false,
     val expiresAt: Long? = null,
     val editedAt: Long? = null,
-    val editHistory: String? = null // Onceki iceriklerin JSON dizisi
+    val editHistory: String? = null, // Onceki iceriklerin JSON dizisi
+    val reactions: String? = null // Emoji reaksiyonlari JSON: {"👍":["userId1"],"❤️":["userId2"]}
 ) {
     /** Bu mesaj duzenlenmis mi. */
     val isEdited: Boolean
@@ -60,6 +61,10 @@ data class LocalMessage(
     /** Bu mesaj bir anket mesaji mi. */
     val isPollMessage: Boolean
         get() = contentType == MessageContentType.POLL
+
+    /** Bu mesaj bir sistem mesaji mi (grup olaylari, arama bilgileri vb.). */
+    val isSystemMessage: Boolean
+        get() = contentType == MessageContentType.SYSTEM
 
     /** Dosya mesaji ise resim mi kontrol eder. */
     val isImageFile: Boolean

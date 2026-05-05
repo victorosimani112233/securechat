@@ -27,7 +27,7 @@ class P2PMessageTransport @Inject constructor(
     private val messageEncryptor: MessageEncryptor
 ) {
     private val _incomingMessages = MutableSharedFlow<DecryptedMessage>(
-        extraBufferCapacity = 64
+        extraBufferCapacity = 512
     )
     val incomingMessages: SharedFlow<DecryptedMessage> = _incomingMessages.asSharedFlow()
 

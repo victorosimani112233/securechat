@@ -20,5 +20,6 @@ data class Conversation(
     val customNotificationUri: String? = null,
     val isArchived: Boolean = false,
     val disappearingDuration: Long = 0,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val isLocked: Boolean = false
 )

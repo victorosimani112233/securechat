@@ -16,6 +16,9 @@ import com.securechat.app.data.AppLifecycleObserver
 import com.securechat.app.data.DisappearingMessageWorker
 import com.securechat.app.data.IncomingMessageHandler
 import com.securechat.app.data.UserSession
+import com.securechat.media.IncomingCallHandler
+import com.securechat.media.telecom.PhoneAccountRegistrar
+import com.securechat.media.telecom.TelecomBridge
 import com.securechat.app.BuildConfig
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -27,6 +30,9 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
     @Inject lateinit var incomingMessageHandler: dagger.Lazy<IncomingMessageHandler>
     @Inject lateinit var userSession: UserSession
     @Inject lateinit var appLifecycleObserver: dagger.Lazy<AppLifecycleObserver>
+    @Inject lateinit var incomingCallHandler: IncomingCallHandler
+    @Inject lateinit var phoneAccountRegistrar: PhoneAccountRegistrar
+    @Inject lateinit var telecomBridge: TelecomBridge
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
     override val workManagerConfiguration: Configuration
@@ -62,11 +68,25 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
         // Uygulama guncelleme sonrasi uyumsuz onbellegi temizle
         clearCacheOnVersionUpdate()
 
-        // FCM notification kanali — hizli, UI thread'de olabilir
+        // Notification kanallari — hizli, UI thread'de olabilir
         createNotificationChannel()
+        incomingCallHandler.initialize()
 
         // Agir bagimliliklari arka planda baslat — cold start hizini arttirir
         val bgThread = Thread {
+            // Telecom Framework PhoneAccount kaydi (SELF_MANAGED).
+            // Basarisiz olursa IncomingCallHandler (CallStyle notification) fallback
+            // olarak devreye girer. Hata yutulur — app kalkmaya devam eder.
+            try {
+                phoneAccountRegistrar.register()
+            } catch (t: Throwable) {
+                Log.w("SecureChatApp", "PhoneAccount kayit beklenmedik hata", t)
+            }
+
+            // Telecom Bridge'in onShowIncomingCallUi callback'i icin app modulunden
+            // Activity referansi inject ediliyor — media modulu app'i bilemez.
+            telecomBridge.setIncomingActivityClass(IncomingCallActivity::class.java)
+
             // Gelen mesajlari dinle
             incomingMessageHandler.get().start()
 

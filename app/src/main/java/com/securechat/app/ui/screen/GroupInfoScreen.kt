@@ -1,6 +1,7 @@
 package com.securechat.app.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -120,6 +123,7 @@ fun GroupInfoScreen(
     val documentMessages by viewModel.documentMessages.collectAsStateWithLifecycle()
     val starredMessages by viewModel.starredMessages.collectAsStateWithLifecycle()
     val disappearingDuration by viewModel.disappearingDuration.collectAsStateWithLifecycle()
+    val isLocked by viewModel.isLocked.collectAsStateWithLifecycle()
 
     var currentTab by remember { mutableStateOf(GroupInfoTab.MAIN) }
     var showEditGroupDialog by remember { mutableStateOf(false) }
@@ -254,9 +258,15 @@ fun GroupInfoScreen(
                                 isCurrentUser = member.isCurrentUser,
                                 isAdmin = member.isAdmin,
                                 canRemove = isAdmin && !member.isCurrentUser,
-                                canPromote = isAdmin && !member.isAdmin && !member.isCurrentUser,
+                                canToggleAdmin = isAdmin && !member.isCurrentUser,
                                 onRemoveClick = { showRemoveMemberDialog = member.userId },
-                                onPromoteClick = { viewModel.promoteToAdmin(groupId, member.userId) },
+                                onToggleAdminClick = {
+                                    if (member.isAdmin) {
+                                        viewModel.demoteFromAdmin(groupId, member.userId)
+                                    } else {
+                                        viewModel.promoteToAdmin(groupId, member.userId)
+                                    }
+                                },
                                 onViewProfile = { onMemberClick(member.userId) }
                             )
                         }
@@ -319,6 +329,17 @@ fun GroupInfoScreen(
                                 }
                                 // Admin degil ise tiklama etkisiz
                             }
+                        )
+                    }
+
+                    // Biyometrik kilit
+                    item {
+                        GroupInfoMenuItem(
+                            icon = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                            iconTint = if (isLocked) MaterialTheme.colorScheme.primary else Color(0xFF78909C),
+                            title = if (isLocked) "Sohbet Kilitli" else "Sohbet Kilidi",
+                            subtitle = if (isLocked) "Biyometrik doğrulama açık" else "Biyometrik kilit ekle",
+                            onClick = { viewModel.toggleLocked(groupId) }
                         )
                     }
 
@@ -511,9 +532,9 @@ private fun MemberItem(
     isCurrentUser: Boolean,
     isAdmin: Boolean,
     canRemove: Boolean,
-    canPromote: Boolean = false,
+    canToggleAdmin: Boolean = false,
     onRemoveClick: () -> Unit,
-    onPromoteClick: () -> Unit = {},
+    onToggleAdminClick: () -> Unit = {},
     onViewProfile: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -593,21 +614,26 @@ private fun MemberItem(
                             )
                         }
                     )
-                    if (canPromote || canRemove) {
+                    if (canToggleAdmin || canRemove) {
                         HorizontalDivider()
                     }
-                    if (canPromote) {
+                    if (canToggleAdmin) {
                         DropdownMenuItem(
-                            text = { Text("Yönetici Yap", color = MaterialTheme.colorScheme.primary) },
+                            text = {
+                                Text(
+                                    if (isAdmin) "Yöneticilikten Al" else "Yönetici Yap",
+                                    color = if (isAdmin) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                )
+                            },
                             onClick = {
                                 showMenu = false
-                                onPromoteClick()
+                                onToggleAdminClick()
                             },
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.Security,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = if (isAdmin) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                                 )
                             }
                         )
@@ -759,14 +785,21 @@ private fun GroupMediaThumbnail(
     Card(
         modifier = Modifier
             .size(110.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(8.dp)
+            )
             .clickable { onClick() },
-        shape = RoundedCornerShape(4.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
         )
     ) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -822,11 +855,18 @@ private fun GroupDocumentItem(
     message: MessageEntity,
     onClick: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .glass(dark, shape = RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(vertical = 12.dp),
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(

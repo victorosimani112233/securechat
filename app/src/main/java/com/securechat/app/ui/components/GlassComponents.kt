@@ -4,12 +4,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalMinimumInteractiveComponentEnforcement
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -99,6 +105,7 @@ fun GlassPopup(
  * @param offset Menu konumu icin offset
  * @param content Menu icerigi (DropdownMenuItem'lar)
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GlassDropdownMenu(
     expanded: Boolean,
@@ -108,6 +115,9 @@ fun GlassDropdownMenu(
 ) {
     val dark = LocalDarkTheme.current
 
+    CompositionLocalProvider(
+        LocalMinimumInteractiveComponentEnforcement provides false
+    ) {
     MaterialTheme(
         colorScheme = MaterialTheme.colorScheme.copy(
             surface = if (dark) Color(0xFF0D1014).copy(alpha = 0.92f)
@@ -121,13 +131,16 @@ fun GlassDropdownMenu(
             onDismissRequest = onDismissRequest,
             offset = offset,
             modifier = Modifier
+                .heightIn(max = 320.dp)
                 .border(
                     1.dp,
                     if (dark) Color.White.copy(alpha = 0.12f)
                     else Color(0xFF13161B).copy(alpha = 0.10f),
                     RoundedCornerShape(12.dp)
                 ),
+            scrollState = rememberScrollState(),
             content = content
         )
     }
+    } // CompositionLocalProvider
 }

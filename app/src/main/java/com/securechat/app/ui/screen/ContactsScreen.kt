@@ -471,7 +471,7 @@ fun ContactsScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     )
                 }
-                items(contacts, key = { "reg_${it.userId}" }) { contact ->
+                items(contacts.distinctBy { it.userId }, key = { "reg_${it.userId}" }) { contact ->
                     ContactItem(
                         contact = contact,
                         onClick = { onContactClick(contact.userId) }

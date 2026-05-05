@@ -1,0 +1,9 @@
+general: {
+	json = "indented"
+	ws = true
+	ws_port = 8188
+	ws_logging = "err,warn"
+	# Admin WebSocket
+	admin_ws = true
+	admin_ws_port = 7188
+}

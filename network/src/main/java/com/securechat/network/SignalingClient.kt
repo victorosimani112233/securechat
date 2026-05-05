@@ -55,7 +55,7 @@ class SignalingClient @Inject constructor(
 
     private val _incomingSignals = MutableSharedFlow<SignalMessage>(
         replay = 0,
-        extraBufferCapacity = 64,
+        extraBufferCapacity = 512,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val incomingSignals: SharedFlow<SignalMessage> = _incomingSignals.asSharedFlow()
@@ -67,6 +67,9 @@ class SignalingClient @Inject constructor(
     private var currentAuthToken: String? = null
     /** Yeniden baglanti sirasinda ayni anda birden fazla connect() cagrilmasini onler */
     private var isConnecting = false
+    /** Server shutdown bildirimi alindi — reconnect oncesi ek bekleme */
+    @Volatile
+    private var serverShutdownDelay = false
 
     /** Baglanti kopunca cagirilir — presence state'lerini sifirlamak icin */
     var onConnectionLostListener: (() -> Unit)? = null
@@ -156,6 +159,11 @@ class SignalingClient @Inject constructor(
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val signal = json.decodeFromString<SignalMessage>(text)
+                    // Server shutdown: reconnect oncesi bekleme suresi ayarla
+                    if (signal is SignalMessage.ServerShutdown) {
+                        Log.w("SecureChat", "Server shutdown bildirimi alindi — 5sn sonra reconnect")
+                        serverShutdownDelay = true
+                    }
                     _incomingSignals.tryEmit(signal)
                 } catch (e: Exception) {
                     Log.w("SecureChat", "Failed to parse WebSocket message: ${e.message}")
@@ -209,6 +217,11 @@ class SignalingClient @Inject constructor(
         val authToken = currentAuthToken ?: return
         reconnectJob = reconnectScope.launch {
             var currentDelay = INITIAL_RECONNECT_DELAY_MS
+            // Server shutdown bildirimi alindiysa ilk denemede 5sn ekle
+            if (serverShutdownDelay) {
+                delay(SERVER_SHUTDOWN_WAIT_MS)
+                serverShutdownDelay = false
+            }
             while (isActive && _connectionState.value !is ConnectionState.Connected) {
                 // Jitter ekle — ayni anda birden fazla client'in reconnect etmesini onle
                 val jitter = (currentDelay * 0.2 * Math.random()).toLong()
@@ -365,5 +378,7 @@ class SignalingClient @Inject constructor(
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
         /** SENDING durumunda takili kalan mesajlar icin timeout suresi (milisaniye) */
         const val STUCK_MESSAGE_TIMEOUT_MS = 30_000L
+        /** Server shutdown sonrasi reconnect oncesi bekleme suresi */
+        private const val SERVER_SHUTDOWN_WAIT_MS = 5_000L
     }
 }

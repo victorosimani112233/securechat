@@ -46,6 +46,7 @@ import com.securechat.app.ui.screen.BulkMessageScreen
 import com.securechat.app.ui.screen.AddGroupMemberScreen
 import com.securechat.app.ui.screen.CreateGroupScreen
 import com.securechat.app.ui.screen.GroupInfoScreen
+import com.securechat.app.ui.screen.EmailOtpScreen
 import com.securechat.app.ui.screen.OtpVerificationScreen
 import com.securechat.app.ui.screen.PhoneVerificationScreen
 import com.securechat.app.ui.screen.ScheduledMessagesScreen
@@ -87,7 +88,8 @@ fun SecureChatNavHost(
     navController: NavHostController = rememberNavController(),
     startDestination: String = "conversations",
     skipSplash: Boolean = false,
-    onUserRegistered: (name: String, phone: String) -> Unit = { _, _ -> }
+    onUserRegistered: (name: String, phone: String, registrationToken: String?) -> Unit = { _, _, _ -> },
+    apiBaseUrl: String = ""
 ) {
     val actualStartDestination = if (skipSplash) startDestination else "splash"
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -124,11 +126,35 @@ fun SecureChatNavHost(
             composable("auth/phone") {
                 PhoneVerificationScreen(
                     onVerified = { name, phone ->
-                        onUserRegistered(name, phone)
-                        navController.navigate("conversations") {
+                        // Telefon + isim girildi — sonraki ekran e-posta OTP
+                        // (Server SMTP yapilandirilmamissa "Atla" ile direk register)
+                        navController.navigate("auth/email_otp/${java.net.URLEncoder.encode(name, "UTF-8")}/${java.net.URLEncoder.encode(phone, "UTF-8")}") {
                             popUpTo("auth/phone") { inclusive = true }
                         }
                     }
+                )
+            }
+
+            composable("auth/email_otp/{name}/{phone}") { backStackEntry ->
+                val name = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("name") ?: "", "UTF-8")
+                val phone = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("phone") ?: "", "UTF-8")
+                EmailOtpScreen(
+                    onVerified = { regToken ->
+                        // OTP dogrulandi — registrationToken ile register cagir
+                        onUserRegistered(name, phone, regToken)
+                        navController.navigate("conversations") {
+                            popUpTo("auth/phone") { inclusive = true }
+                        }
+                    },
+                    onSkip = {
+                        // SMTP devre disi — registrationToken'siz register
+                        onUserRegistered(name, phone, null)
+                        navController.navigate("conversations") {
+                            popUpTo("auth/phone") { inclusive = true }
+                        }
+                    },
+                    onBackClick = { navController.popBackStack() },
+                    apiBaseUrl = apiBaseUrl
                 )
             }
 

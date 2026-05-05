@@ -1,0 +1,9 @@
+general: {
+	# VideoRoom genel ayarlari
+	admin_key = "securechat_videoroom_admin"
+	# Odalarin kaydedilecegi dizin (opsiyonel)
+	# record_tmp = "/tmp/janus-videoroom"
+	events = true
+}
+
+# Varsayilan oda yok — JanusOrchestrator dinamik olarak olusturur

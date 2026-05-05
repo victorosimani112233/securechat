@@ -15,8 +15,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
@@ -93,6 +96,19 @@
             android:name="com.securechat.media.CallForegroundService"
             android:exported="false"
             android:foregroundServiceType="phoneCall" />
+
+        <!-- Telecom Framework (SELF_MANAGED) ConnectionService.
+             Sistem tarafindan TelecomManager.placeCall / addNewIncomingCall
+             cagrilarinda instantiate edilir. BIND_TELECOM_CONNECTION_SERVICE
+             permission ile sadece sistem bind edebilir. -->
+        <service
+            android:name="com.securechat.media.telecom.SecureChatConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
 
         <!-- FCM push notification servisi -->
         <service

@@ -60,9 +60,15 @@ class AppLifecycleObserver @Inject constructor(
                 }
             }
 
+            // GUVENLIK: JWT access token zorunlu — sunucu eski "token_<id>" sahte token'larini reddediyor
+            val token = userSession.accessToken
+            if (token.isNullOrBlank()) {
+                Log.w("AppLifecycle", "Access token yok — sunucuya kayit gerekli, baglanti atlandi")
+                return
+            }
             signalingClient.connect(
                 userId = userId,
-                authToken = "token_$userId",
+                authToken = token,
                 customUrl = BuildConfig.SIGNALING_URL
             )
 
@@ -71,9 +77,14 @@ class AppLifecycleObserver @Inject constructor(
                 Log.d("AppLifecycle", "Network available — reconnecting SignalingClient")
                 if (userSession.isLoggedIn) {
                     val uid = userSession.userId ?: return@onNetworkAvailable
+                    val tk = userSession.accessToken
+                    if (tk.isNullOrBlank()) {
+                        Log.w("AppLifecycle", "Access token yok, reconnect atlandi")
+                        return@onNetworkAvailable
+                    }
                     signalingClient.connect(
                         userId = uid,
-                        authToken = "token_$uid",
+                        authToken = tk,
                         customUrl = BuildConfig.SIGNALING_URL
                     )
                 }

@@ -41,6 +41,9 @@ class RingtonePlayer @Inject constructor(
      * Titresim deseni: 0ms bekle, 1000ms titre, 1000ms bekle (tekrarli)
      */
     fun startRinging() {
+        // Onceki zil sesini durdur (double-ring onlemi — FCM + WS ayni anda tetikleyebilir)
+        stopRinging()
+
         // Zil sesini cal
         try {
             val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
@@ -49,6 +52,9 @@ class RingtonePlayer @Inject constructor(
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                ringtone?.isLooping = true
+            }
             ringtone?.play()
         } catch (e: Exception) {
             android.util.Log.e("RingtonePlayer", "Zil sesi calinamadi", e)

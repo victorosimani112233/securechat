@@ -1,0 +1,21 @@
+FROM eclipse-temurin:17-jre-alpine
+
+# wget healthcheck icin
+RUN apk add --no-cache wget tini
+
+WORKDIR /app
+
+# Log dizini
+RUN mkdir -p /app/logs && chown -R nobody:nobody /app/logs
+
+# Fat JAR kopyala
+COPY build/libs/signaling-server-all.jar app.jar
+
+EXPOSE 8080
+
+# JAVA_OPTS env ile override edilebilir (compose'tan ayarlaniyor)
+# Default: container limitine gore otomatik heap (UseContainerSupport)
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75 -XX:InitialRAMPercentage=25"
+
+# tini: PID 1 zombie process onlemi + sinyal iletimi
+ENTRYPOINT ["/sbin/tini", "--", "sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

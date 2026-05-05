@@ -32,6 +32,10 @@ class UserDiscoveryService @Inject constructor(
     private val client = OkHttpClient()
     private val jsonMediaType = "application/json".toMediaType()
 
+    /** Auth token saglayici callback — UserSession'dan bagimsiz, app modulu set eder. */
+    @Volatile
+    var accessTokenProvider: () -> String? = { null }
+
     /**
      * Sunucuya hash listesi gonderip eslesen kullanicilari dondurur.
      * Retrofit/Gson yerine OkHttp + JSONObject kullanir — type erasure sorununu onler.
@@ -39,12 +43,21 @@ class UserDiscoveryService @Inject constructor(
     private suspend fun checkRegisteredUsersHttp(
         hashes: List<String>
     ): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+        val token = accessTokenProvider()
+        if (token.isNullOrBlank()) {
+            Log.w(TAG, "Access token yok — checkUsers atlandi")
+            return@withContext emptyList()
+        }
         val json = JSONObject().apply {
             put("hashes", JSONArray(hashes))
         }
         val body = json.toString().toRequestBody(jsonMediaType)
         val url = "${apiBaseUrl.trimEnd('/')}/api/v1/users/check"
-        val request = Request.Builder().url(url).post(body).build()
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .post(body)
+            .build()
 
         client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string()

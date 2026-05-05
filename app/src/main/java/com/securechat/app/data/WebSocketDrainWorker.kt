@@ -2,14 +2,17 @@ package com.securechat.app.data
 
 import android.content.Context
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.securechat.app.BuildConfig
+import com.securechat.app.R
 import com.securechat.network.SignalingClient
 import com.securechat.network.model.ConnectionState
 import dagger.assisted.Assisted
@@ -39,6 +42,17 @@ class WebSocketDrainWorker @AssistedInject constructor(
     private val userSession: UserSession
 ) : CoroutineWorker(appContext, workerParams) {
 
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        val notification = NotificationCompat.Builder(applicationContext, "elcim_messages_v4")
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Elçim")
+            .setContentText("Mesajlar senkronize ediliyor…")
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        return ForegroundInfo(FOREGROUND_NOTIFICATION_ID, notification)
+    }
+
     override suspend fun doWork(): Result {
         val userId = userSession.userId ?: return Result.failure()
 
@@ -58,10 +72,16 @@ class WebSocketDrainWorker @AssistedInject constructor(
         Log.d("DrainWorker", "WS drain basladi: $userId")
 
         try {
+            // GUVENLIK: JWT access token zorunlu
+            val token = userSession.accessToken
+            if (token.isNullOrBlank()) {
+                Log.w("DrainWorker", "Access token yok — drain atlandi")
+                return Result.failure()
+            }
             // WebSocket baglan
             signalingClient.connect(
                 userId = userId,
-                authToken = "token_$userId",
+                authToken = token,
                 customUrl = BuildConfig.SIGNALING_URL
             )
 
@@ -100,6 +120,7 @@ class WebSocketDrainWorker @AssistedInject constructor(
         private const val CONNECTION_TIMEOUT_MS = 10_000L
         private const val DRAIN_WINDOW_MS = 5_000L
         private const val WORK_NAME = "ws_drain"
+        private const val FOREGROUND_NOTIFICATION_ID = 9901
 
         /**
          * Drain worker'i tetikler. Ayni anda tek instance calisir (KEEP).

@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.padding
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CameraAlt
@@ -130,6 +132,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -239,18 +242,45 @@ fun ChatScreen(
     var editingMessageId by remember { mutableStateOf<String?>(null) }
     var editingMessageContent by remember { mutableStateOf("") }
 
+    // Medya onizleme state — secilen dosyalar burada tutulur, onizleme ekrani acilir
+    var pendingPreviewItems by remember { mutableStateOf<List<MediaPreviewItem>>(emptyList()) }
+    val showMediaPreview = pendingPreviewItems.isNotEmpty()
+
+    val chatContext = LocalContext.current
+
+    // URI'den MediaPreviewItem olusturan yardimci fonksiyon
+    fun uriToPreviewItem(uri: Uri): MediaPreviewItem {
+        val cr = chatContext.contentResolver
+        var name = "dosya"
+        var size = 0L
+        try {
+            cr.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                val sizeIdx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                if (cursor.moveToFirst()) {
+                    if (nameIdx >= 0) name = cursor.getString(nameIdx) ?: "dosya"
+                    if (sizeIdx >= 0) size = cursor.getLong(sizeIdx)
+                }
+            }
+        } catch (_: Exception) {}
+        val mime = cr.getType(uri) ?: ""
+        return MediaPreviewItem(uri = uri, fileName = name, mimeType = mime, fileSize = size)
+    }
+
     // Dosya seçici launcher
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { viewModel.sendFile(it) }
+        uri?.let { pendingPreviewItems = listOf(uriToPreviewItem(it)) }
     }
 
     // Galeri secici launcher — coklu dosya secimi destekler
     val galleryPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> ->
-        uris.forEach { uri -> viewModel.sendFile(uri) }
+        if (uris.isNotEmpty()) {
+            pendingPreviewItems = uris.map { uriToPreviewItem(it) }
+        }
     }
 
     // Kamera launcher
@@ -259,7 +289,7 @@ fun ChatScreen(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
         if (success) {
-            cameraPhotoUri?.let { viewModel.sendFile(it) }
+            cameraPhotoUri?.let { pendingPreviewItems = listOf(uriToPreviewItem(it)) }
         }
     }
 
@@ -276,6 +306,20 @@ fun ChatScreen(
     LaunchedEffect(Unit) {
         viewModel.fileTransferEvent.collect { message ->
             snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    // Sohbet disa aktarma — metin hazir oldugunda paylasim sayfasini ac
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) {
+        viewModel.exportText.collect { text ->
+            val sendIntent = android.content.Intent().apply {
+                action = android.content.Intent.ACTION_SEND
+                putExtra(android.content.Intent.EXTRA_TEXT, text)
+                type = "text/plain"
+            }
+            val shareIntent = android.content.Intent.createChooser(sendIntent, "Sohbeti Paylaş")
+            context.startActivity(shareIntent)
         }
     }
 
@@ -408,6 +452,7 @@ fun ChatScreen(
                     onSearchClick = { isSearchMode = true },
                     onDisappearingClick = { showDisappearingDialog = true },
                     onMuteToggle = { viewModel.toggleMuted() },
+                    onExportClick = { viewModel.exportConversation() },
                     onChatInfoClick = {
                         if (conversationInfo?.isGroup == true) {
                             onGroupInfoClick(conversationId)
@@ -488,6 +533,18 @@ fun ChatScreen(
                             DateSeparator(dateLabel = dateLabel)
                         }
                         items(dayMessages, key = { it.id }) { message ->
+                            // Sistem mesajlari (grup olaylari, arama bilgileri) ortada bilgilendirme olarak gosterilir
+                            if (message.isSystemMessage) {
+                                SystemMessageBanner(
+                                    message = message,
+                                    onCallBack = { callType ->
+                                        if (callType == "VIDEO") onVideoCallClick(conversationId)
+                                        else onVoiceCallClick(conversationId)
+                                    }
+                                )
+                                return@items
+                            }
+
                             // Yanıtlanan mesajı O(1) ile bul
                             val replyToMsg = if (message.replyToId != null) {
                                 replyToMap[message.replyToId]
@@ -519,7 +576,8 @@ fun ChatScreen(
                                             uploadPercent = uploadProgress[message.id],
                                             onReplyClick = { replyId ->
                                                 viewModel.navigateToMessage(replyId)
-                                            }
+                                            },
+                                            onPollVote = { msgId, idx -> viewModel.votePoll(msgId, idx) }
                                         )
                                     }
                                 }
@@ -561,7 +619,9 @@ fun ChatScreen(
                                         onInfoClick = if (conversationInfo?.isGroup == true && message.isOutgoing) {
                                             { messageInfoTarget = message }
                                         } else null,
-                                        onReplyToMessage = { replyingToMessage = message }
+                                        onReplyToMessage = { replyingToMessage = message },
+                                        onReactionClick = { emoji -> viewModel.toggleReaction(message.id, emoji) },
+                                        onPollVote = { msgId, idx -> viewModel.votePoll(msgId, idx) }
                                     )
                                 }
                             }
@@ -639,7 +699,6 @@ fun ChatScreen(
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        val chatContext = LocalContext.current
                         AttachOption(
                             icon = Icons.Default.CameraAlt,
                             label = "Kamera",
@@ -720,6 +779,28 @@ fun ChatScreen(
         }
     }
     } // Box wrapper
+
+    // Medya onizleme ekrani — dosya secildikten sonra full-screen overlay olarak gosterilir
+    if (showMediaPreview) {
+        MediaPreviewScreen(
+            items = pendingPreviewItems,
+            onSend = { items, caption ->
+                // Onizlemeyi kapat
+                pendingPreviewItems = emptyList()
+                // Caption varsa once mesaj olarak gonder
+                if (caption.isNotBlank()) {
+                    viewModel.sendMessage(caption)
+                }
+                // Dosyalari gonder
+                items.forEach { item ->
+                    viewModel.sendFile(item.uri)
+                }
+            },
+            onDismiss = {
+                pendingPreviewItems = emptyList()
+            }
+        )
+    }
 }
 
 /**
@@ -967,6 +1048,94 @@ private fun DateSeparator(dateLabel: String) {
 }
 
 /**
+ * Sistem mesajlarini (grup olaylari, arama bilgileri) ortada bilgilendirme olarak gosterir.
+ * WhatsApp'taki gibi mesaj balonu yerine kucuk, ortalanmis metin.
+ */
+@Composable
+private fun SystemMessageBanner(
+    message: LocalMessage,
+    onCallBack: ((callType: String) -> Unit)? = null
+) {
+    val dark = LocalDarkTheme.current
+    val content = message.content
+    val isCallMessage = content.startsWith("CALL|")
+
+    // Arama mesaji formatini parse et: "CALL|direction|callType|status|duration|displayText"
+    val displayText: String
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+    val iconTint: Color
+    var callType = ""
+    var isCallbackable = false
+
+    if (isCallMessage) {
+        val parts = content.split("|", limit = 6)
+        callType = parts.getOrNull(2) ?: ""
+        val direction = parts.getOrNull(1) ?: ""
+        val status = parts.getOrNull(3) ?: ""
+        displayText = parts.getOrNull(5) ?: content
+        isCallbackable = status in listOf("MISSED", "REJECTED", "FAILED")
+
+        icon = if (callType == "VIDEO") Icons.Default.Videocam else Icons.Default.Call
+        iconTint = when (status) {
+            "MISSED", "REJECTED", "FAILED" -> MaterialTheme.colorScheme.error
+            else -> if (direction == "OUTGOING") MaterialTheme.colorScheme.primary
+                    else Color(0xFF4CAF50)
+        }
+    } else {
+        displayText = content
+        icon = Icons.Default.Info
+        iconTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .glass(dark = dark, shape = RoundedCornerShape(100.dp))
+                .then(
+                    if (isCallbackable && onCallBack != null) {
+                        Modifier.clickable { onCallBack(callType) }
+                    } else Modifier
+                )
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = iconTint
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = displayText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isCallbackable)
+                        MaterialTheme.colorScheme.error
+                    else if (dark) Color(0xFFECEEF2) else Color(0xFF13161B),
+                    fontSize = 12.sp
+                )
+                if (isCallbackable) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        Icons.Default.Call,
+                        contentDescription = "Geri Ara",
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * Mesajları tarih bazında gruplar.
  * Bugün, Dün, bu haftanın günleri veya tarih olarak etiketler.
  */
@@ -1050,6 +1219,7 @@ fun ChatTopBar(
     onSearchClick: (() -> Unit)? = null,
     onDisappearingClick: (() -> Unit)? = null,
     onMuteToggle: (() -> Unit)? = null,
+    onExportClick: (() -> Unit)? = null,
     onChatInfoClick: (() -> Unit)? = null
 ) {
     val dark = LocalDarkTheme.current
@@ -1228,6 +1398,22 @@ fun ChatTopBar(
                             }
                         )
                     }
+                    if (onExportClick != null) {
+                        DropdownMenuItem(
+                            text = { Text("Sohbeti Dışa Aktar") },
+                            onClick = {
+                                showMenu = false
+                                onExportClick()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Share,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1385,7 +1571,9 @@ fun MessageBubble(
     onForwardMessage: (() -> Unit)? = null,
     onReplyClick: ((String) -> Unit)? = null,
     onInfoClick: (() -> Unit)? = null,
-    onReplyToMessage: (() -> Unit)? = null
+    onReplyToMessage: (() -> Unit)? = null,
+    onReactionClick: ((String) -> Unit)? = null,
+    onPollVote: ((String, Int) -> Unit)? = null
 ) {
     val isOutgoing = message.isOutgoing
     val dark = LocalDarkTheme.current
@@ -1432,7 +1620,8 @@ fun MessageBubble(
             ),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
-        Box {
+        Column(horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start) {
+            Box {
             Box(
                 modifier = Modifier
                     .widthIn(max = 300.dp)
@@ -1563,7 +1752,8 @@ fun MessageBubble(
                         message.isPollMessage -> {
                             PollMessageContent(
                                 message = message,
-                                isOutgoing = isOutgoing
+                                isOutgoing = isOutgoing,
+                                onVote = { optionIndex -> onPollVote?.invoke(message.id, optionIndex) }
                             )
                         }
                         else -> TextMessageContent(
@@ -1637,10 +1827,38 @@ fun MessageBubble(
                 expanded = showPopupMenu,
                 onDismissRequest = { showPopupMenu = false }
             ) {
+                // Hizli emoji reaksiyon satiri
+                if (onReactionClick != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        listOf("👍", "❤️", "😂", "😮", "😢", "🙏").forEach { emoji ->
+                            Text(
+                                text = emoji,
+                                fontSize = 18.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        showPopupMenu = false
+                                        onReactionClick(emoji)
+                                    }
+                                    .padding(2.dp)
+                            )
+                        }
+                    }
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                    )
+                }
+
                 // Yanitla
                 if (onReplyToMessage != null) {
                     DropdownMenuItem(
-                        text = { Text("Yanıtla") },
+                        text = { Text("Yanıtla", style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             onReplyToMessage()
@@ -1650,9 +1868,11 @@ fun MessageBubble(
                                 Icons.AutoMirrored.Filled.Send,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.graphicsLayer(rotationZ = 180f)
+                                modifier = Modifier.size(20.dp).graphicsLayer(rotationZ = 180f)
                             )
-                        }
+                        },
+                        modifier = Modifier.heightIn(max = 38.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                     )
                 }
 
@@ -1662,7 +1882,8 @@ fun MessageBubble(
                         text = {
                             Text(
                                 "Tekrar Gönder",
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.bodyMedium
                             )
                         },
                         onClick = {
@@ -1673,9 +1894,12 @@ fun MessageBubble(
                             Icon(
                                 Icons.Default.Refresh,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
                             )
-                        }
+                        },
+                        modifier = Modifier.heightIn(max = 38.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                     )
                 }
 
@@ -1685,7 +1909,7 @@ fun MessageBubble(
                     val clipContext = LocalContext.current
                     val coroutineScope = rememberCoroutineScope()
                     DropdownMenuItem(
-                        text = { Text("Kopyala") },
+                        text = { Text("Kopyala", style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(message.content))
@@ -1704,9 +1928,12 @@ fun MessageBubble(
                             Icon(
                                 Icons.Default.ContentCopy,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurface
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
                             )
-                        }
+                        },
+                        modifier = Modifier.heightIn(max = 38.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                     )
                 }
 
@@ -1715,7 +1942,7 @@ fun MessageBubble(
                     val canEdit = (System.currentTimeMillis() - message.timestamp) < 15 * 60 * 1000L
                     if (canEdit) {
                         DropdownMenuItem(
-                            text = { Text("Düzenle") },
+                            text = { Text("Düzenle", style = MaterialTheme.typography.bodyMedium) },
                             onClick = {
                                 showPopupMenu = false
                                 onEditMessage(message.content)
@@ -1724,9 +1951,12 @@ fun MessageBubble(
                                 Icon(
                                     Icons.Default.Edit,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                            }
+                            },
+                            modifier = Modifier.heightIn(max = 38.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                         )
                     }
                 }
@@ -1734,7 +1964,7 @@ fun MessageBubble(
                 // Duzenleme gecmisi (duzenlenmis mesajlarda gosterilir)
                 if (message.isEdited && !message.editHistory.isNullOrBlank()) {
                     DropdownMenuItem(
-                        text = { Text("Düzenleme Geçmişi") },
+                        text = { Text("Düzenleme Geçmişi", style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             showEditHistoryDialog = true
@@ -1743,16 +1973,19 @@ fun MessageBubble(
                             Icon(
                                 Icons.Default.Edit,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurface
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
                             )
-                        }
+                        },
+                        modifier = Modifier.heightIn(max = 38.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                     )
                 }
 
                 // Bilgi seçeneği (sadece grup giden mesajlarında)
                 if (onInfoClick != null) {
                     DropdownMenuItem(
-                        text = { Text("Bilgi") },
+                        text = { Text("Bilgi", style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             onInfoClick()
@@ -1761,9 +1994,12 @@ fun MessageBubble(
                             Icon(
                                 Icons.Default.Info,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
                             )
-                        }
+                        },
+                        modifier = Modifier.heightIn(max = 38.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                     )
                 }
 
@@ -1773,7 +2009,8 @@ fun MessageBubble(
                         text = {
                             Text(
                                 if (message.isStarred) "Yıldızdan Çıkar" else "Yıldızla",
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodyMedium
                             )
                         },
                         onClick = {
@@ -1784,16 +2021,19 @@ fun MessageBubble(
                             Icon(
                                 if (message.isStarred) Icons.Default.Star else Icons.Default.StarBorder,
                                 contentDescription = null,
-                                tint = if (message.isStarred) Color(0xFFFFD700) else MaterialTheme.colorScheme.onSurface
+                                tint = if (message.isStarred) Color(0xFFFFD700) else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
                             )
-                        }
+                        },
+                        modifier = Modifier.heightIn(max = 38.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                     )
                 }
 
                 // İlet
                 if (onForwardMessage != null) {
                     DropdownMenuItem(
-                        text = { Text("İlet") },
+                        text = { Text("İlet", style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             onForwardMessage()
@@ -1802,15 +2042,18 @@ fun MessageBubble(
                             Icon(
                                 Icons.AutoMirrored.Filled.Send,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
                             )
-                        }
+                        },
+                        modifier = Modifier.heightIn(max = 38.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                     )
                 }
 
                 // Benden sil
                 DropdownMenuItem(
-                    text = { Text("Benden Sil") },
+                    text = { Text("Benden Sil", style = MaterialTheme.typography.bodyMedium) },
                     onClick = {
                         showPopupMenu = false
                         onDeleteMessage?.invoke()
@@ -1819,9 +2062,12 @@ fun MessageBubble(
                         Icon(
                             Icons.Default.Delete,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurface
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
                         )
-                    }
+                    },
+                    modifier = Modifier.heightIn(max = 38.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                 )
 
                 // Herkesten sil (sadece kendi mesajları için)
@@ -1830,7 +2076,8 @@ fun MessageBubble(
                         text = {
                             Text(
                                 "Herkesten Sil",
-                                color = MaterialTheme.colorScheme.error
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium
                             )
                         },
                         onClick = {
@@ -1841,9 +2088,12 @@ fun MessageBubble(
                             Icon(
                                 Icons.Default.DeleteForever,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
                             )
-                        }
+                        },
+                        modifier = Modifier.heightIn(max = 38.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                     )
                 }
 
@@ -1854,7 +2104,8 @@ fun MessageBubble(
                         text = {
                             Text(
                                 "Birlikte Aç",
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodyMedium
                             )
                         },
                         onClick = {
@@ -1871,9 +2122,12 @@ fun MessageBubble(
                             Icon(
                                 Icons.Default.Share,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
                             )
-                        }
+                        },
+                        modifier = Modifier.heightIn(max = 38.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                     )
                 }
             }
@@ -1933,7 +2187,46 @@ fun MessageBubble(
                     }
                 )
             }
-        }
+        } // Box end
+
+            // Reaksiyon gosterimi — balon altinda emoji chip'leri
+            if (!message.reactions.isNullOrBlank()) {
+                val reactionsMap = remember(message.reactions) {
+                    com.securechat.app.ui.viewmodel.parseReactions(message.reactions)
+                }
+                if (reactionsMap.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .offset(y = (-4).dp)
+                            .background(
+                                if (dark) Color(0xFF1A1F27).copy(alpha = 0.9f)
+                                else Color.White.copy(alpha = 0.95f),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .border(
+                                0.5.dp,
+                                if (dark) Color.White.copy(alpha = 0.1f)
+                                else Color.Black.copy(alpha = 0.08f),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        reactionsMap.forEach { (emoji, users) ->
+                            Text(
+                                text = "$emoji ${users.size}",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onReactionClick?.invoke(emoji) }
+                                    .padding(horizontal = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        } // Column end
     }
 }
 
@@ -2300,9 +2593,8 @@ private fun AttachOption(
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = if (dark) 0.2f else 0.12f))
-                .border(1.dp, color.copy(alpha = 0.3f), CircleShape),
+                .border(1.dp, color.copy(alpha = 0.3f), CircleShape)
+                .background(color.copy(alpha = if (dark) 0.2f else 0.12f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -2735,67 +3027,167 @@ private fun CreatePollDialog(
     var options by remember { mutableStateOf(listOf("", "")) }
     var singleChoice by remember { mutableStateOf(true) }
 
+    val accentColor = Color(0xFF3E7BFA)
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Anket Olustur") },
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Poll,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Anket Oluştur",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
         text = {
             Column {
+                // Soru alani
+                Text(
+                    "Soru",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
                 OutlinedTextField(
                     value = question,
                     onValueChange = { question = it },
-                    label = { Text("Soru") },
+                    placeholder = { Text("Sorunuzu yazın…", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF3E7BFA),
-                        cursorColor = Color(0xFF3E7BFA)
+                        focusedBorderColor = accentColor,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                        cursorColor = accentColor
                     )
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                options.forEachIndexed { index, option ->
-                    OutlinedTextField(
-                        value = option,
-                        onValueChange = { newValue ->
-                            options = options.toMutableList().apply { this[index] = newValue }
-                        },
-                        label = { Text("Secenek ${index + 1}") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF3E7BFA),
-                            cursorColor = Color(0xFF3E7BFA)
+                // Secenekler baslik
+                Text(
+                    "Seçenekler",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+
+                // Secenekler — her biri ayri OutlinedTextField ile belirgin border
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    options.forEachIndexed { index, option ->
+                        OutlinedTextField(
+                            value = option,
+                            onValueChange = { newValue ->
+                                options = options.toMutableList().apply { this[index] = newValue }
+                            },
+                            placeholder = { Text("Seçenek ${index + 1}") },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .background(
+                                            color = accentColor.copy(alpha = 0.12f),
+                                            shape = CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "${index + 1}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = accentColor,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            },
+                            trailingIcon = if (options.size > 2) {
+                                {
+                                    IconButton(
+                                        onClick = { options = options.toMutableList().apply { removeAt(index) } },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Kaldır",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                            } else null,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = accentColor,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                cursorColor = accentColor
+                            )
                         )
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
-
-                if (options.size < 4) {
-                    TextButton(onClick = {
-                        options = options + ""
-                    }) {
-                        Text("+ Secenek Ekle", color = Color(0xFF3E7BFA))
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                // Secenek ekle butonu
+                if (options.size < 4) {
+                    TextButton(
+                        onClick = { options = options + "" },
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = accentColor
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Seçenek Ekle", color = accentColor, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Tek/coklu secim toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { singleChoice = !singleChoice }
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = if (singleChoice) Icons.Default.RadioButtonChecked else Icons.Default.CheckBox,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = accentColor
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (singleChoice) "Tek secim" else "Coklu secim",
+                        text = if (singleChoice) "Tek seçim" else "Çoklu seçim",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = { singleChoice = !singleChoice }) {
-                        Text(
-                            if (singleChoice) "Coklu secime gec" else "Tek secime gec",
-                            color = Color(0xFF3E7BFA),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
+                    Text(
+                        text = "Değiştir",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accentColor
+                    )
                 }
             }
         },
@@ -2815,12 +3207,12 @@ private fun CreatePollDialog(
                 },
                 enabled = question.isNotBlank() && options.count { it.isNotBlank() } >= 2
             ) {
-                Text("Olustur", color = Color(0xFF3E7BFA))
+                Text("Oluştur", color = accentColor, fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Iptal")
+                Text("İptal")
             }
         }
     )
@@ -2834,7 +3226,8 @@ private fun CreatePollDialog(
 @Composable
 private fun PollMessageContent(
     message: LocalMessage,
-    isOutgoing: Boolean
+    isOutgoing: Boolean,
+    onVote: (Int) -> Unit = {}
 ) {
     val textColor = if (isOutgoing)
         MaterialTheme.colorScheme.onSurface
@@ -2913,42 +3306,53 @@ private fun PollMessageContent(
         Spacer(modifier = Modifier.height(4.dp))
 
         // Secenekler
-        pollData.options.forEachIndexed { index, option ->
-            val voteCount = pollData.votes[index]?.size ?: 0
-            val percentage = if (totalVotes > 0) (voteCount * 100) / totalVotes else 0
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            pollData.options.forEachIndexed { index, option ->
+                val voteCount = pollData.votes[index]?.size ?: 0
+                val percentage = if (totalVotes > 0) (voteCount * 100) / totalVotes else 0
+                val hasVotes = voteCount > 0
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 2.dp)
-            ) {
-                // Secim ikonu — tek secim: radyo, coklu: checkbox
-                Icon(
-                    imageVector = if (pollData.singleChoice)
-                        if (voteCount > 0) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked
-                    else
-                        if (voteCount > 0) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = if (voteCount > 0) Color(0xFF3E7BFA) else textColor.copy(alpha = 0.4f)
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Text(
-                    text = option,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = textColor,
-                    modifier = Modifier.weight(1f)
-                )
-
-                if (totalVotes > 0) {
-                    Text(
-                        text = "$voteCount ($percentage%)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = textColor.copy(alpha = 0.5f)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            width = 1.dp,
+                            color = if (hasVotes) Color(0xFF3E7BFA).copy(alpha = 0.5f)
+                                    else textColor.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onVote(index) }
+                        .padding(horizontal = 10.dp, vertical = 10.dp)
+                ) {
+                    // Secim ikonu
+                    Icon(
+                        imageVector = if (pollData.singleChoice)
+                            if (hasVotes) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked
+                        else
+                            if (hasVotes) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = if (hasVotes) Color(0xFF3E7BFA) else textColor.copy(alpha = 0.4f)
                     )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = option,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = textColor,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    if (totalVotes > 0) {
+                        Text(
+                            text = "$voteCount ($percentage%)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = textColor.copy(alpha = 0.5f)
+                        )
+                    }
                 }
             }
         }

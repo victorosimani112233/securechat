@@ -93,15 +93,21 @@ class PeerConnectionManager @Inject constructor(
     /** Grup aramasi ICE baglanti durumu callback — peerId ile birlikte bildirilir. */
     var onGroupConnectionStateChanged: ((String, PeerConnection.IceConnectionState) -> Unit)? = null
 
-    /** ICE sunucu listesi — STUN + TURN */
-    private val iceServers = listOf(
+    /** ICE sunucu listesi — sunucudan dinamik cekilir, fallback olarak STUN kullanilir */
+    @Volatile
+    private var iceServers: List<PeerConnection.IceServer> = listOf(
         PeerConnection.IceServer.builder("stun:185.48.182.124:3478")
-            .createIceServer(),
-        PeerConnection.IceServer.builder("turn:185.48.182.124:3478")
-            .setUsername("securechat")
-            .setPassword("securechat123")
             .createIceServer()
     )
+
+    /**
+     * Sunucudan dinamik TURN credential alip ICE sunucu listesini gunceller.
+     * Her arama baslatilmadan once cagirilmali.
+     */
+    fun updateIceServers(servers: List<PeerConnection.IceServer>) {
+        iceServers = servers
+        Log.d(TAG, "ICE sunuculari guncellendi: ${servers.size} sunucu")
+    }
 
     fun initialize() {
         if (initialized) return
@@ -652,15 +658,38 @@ class PeerConnectionManager @Inject constructor(
 
     /** Tum grup PeerConnection'larini kapatir ve yerel medyayi temizler. */
     fun disposeAllGroupPeerConnections() {
-        groupPeerConnections.forEach { (peerId, pc) ->
+        closeGroupPeerConnectionsOnly()
+
+        // Paylasimli yerel medyayi temizle
+        disposeSharedLocalMedia()
+
+        onGroupIceCandidateGenerated = null
+        onGroupConnectionStateChanged = null
+        Log.d(TAG, "Tum grup PeerConnection'lari ve medya temizlendi")
+    }
+
+    /**
+     * Sadece mesh PeerConnection'lari kapatir, paylasimli yerel medyaya DOKUNMAZ.
+     * SFU'ya gecis sirasinda kullanilir — SFU publisher ayni medya track'lerini kullanir.
+     */
+    fun closeGroupPeerConnectionsOnly() {
+        groupPeerConnections.forEach { (_, pc) ->
             try { pc.close() } catch (_: Exception) {}
         }
         groupPeerConnections.clear()
         groupRemoteDescSet.clear()
         groupPendingIce.clear()
         _remoteVideoTracks.value = emptyMap()
+        onGroupIceCandidateGenerated = null
+        onGroupConnectionStateChanged = null
+        Log.d(TAG, "Grup PeerConnection'lari kapatildi (medya korundu)")
+    }
 
-        // Paylasimli yerel medyayi temizle
+    /**
+     * Paylasimli yerel medya kaynaklarini (audio/video track, capturer) serbest birakir.
+     * Tum PeerConnection'lar kapandiktan sonra cagirilmali.
+     */
+    private fun disposeSharedLocalMedia() {
         try { videoCapturer?.stopCapture() } catch (_: Exception) {}
         videoCapturer?.dispose()
         videoCapturer = null
@@ -674,11 +703,238 @@ class PeerConnectionManager @Inject constructor(
         localAudioTrack = null
         localAudioSource?.dispose()
         localAudioSource = null
-
         _localVideoTrack.value = null
-        onGroupIceCandidateGenerated = null
-        onGroupConnectionStateChanged = null
-        Log.d(TAG, "Tum grup PeerConnection'lari temizlendi")
+        Log.d(TAG, "Paylasimli yerel medya kaynaklari serbest birakildi")
+    }
+
+    // ---- SFU (Janus VideoRoom) PeerConnection Yonetimi ----
+
+    /** SFU publisher PeerConnection — yerel medya Janus'a yayinlanir. */
+    private var sfuPublisherPc: PeerConnection? = null
+
+    /** SFU subscriber PeerConnection'lari: feedId -> PeerConnection */
+    private val sfuSubscriberPcs = ConcurrentHashMap<Long, PeerConnection>()
+
+    /** SFU subscriber remote video track'leri: feedId -> VideoTrack */
+    private val _sfuRemoteVideoTracks = MutableStateFlow<Map<Long, VideoTrack>>(emptyMap())
+    val sfuRemoteVideoTracksFlow: StateFlow<Map<Long, VideoTrack>> = _sfuRemoteVideoTracks.asStateFlow()
+
+    /**
+     * SFU publisher PeerConnection olusturur.
+     * Yerel audio/video track'leri Janus VideoRoom'a yayinlamak icin tek PeerConnection.
+     * Mesh'ten farkli olarak sadece BIR PC gerekir (N-1 yerine).
+     */
+    fun createSfuPublisherConnection(enableVideo: Boolean): PeerConnection? {
+        if (!initialized) initialize()
+        val factory = peerConnectionFactory ?: return null
+
+        sfuPublisherPc?.close()
+        sfuPublisherPc = null
+
+        val config = PeerConnection.RTCConfiguration(iceServers).apply {
+            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+            iceTransportsType = PeerConnection.IceTransportsType.ALL
+        }
+
+        val observer = object : PeerConnection.Observer {
+            override fun onIceCandidate(candidate: IceCandidate) {
+                // SFU modunda ICE candidate Janus tarafindan trickle edilir (otomatik)
+                Log.d(TAG, "SFU Publisher ICE candidate: ${candidate.sdpMid}")
+            }
+            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+                Log.d(TAG, "SFU Publisher ICE state: $state")
+            }
+            override fun onAddTrack(receiver: RtpReceiver, streams: Array<out MediaStream>) {}
+            override fun onSignalingChange(state: PeerConnection.SignalingState) {}
+            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
+            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
+            override fun onAddStream(stream: MediaStream) {}
+            override fun onRemoveStream(stream: MediaStream) {}
+            override fun onDataChannel(channel: DataChannel) {}
+            override fun onRenegotiationNeeded() {}
+        }
+
+        val pc = factory.createPeerConnection(config, observer) ?: return null
+
+        // Audio track
+        ensureLocalMedia(factory, enableVideo)
+        localAudioTrack?.let { pc.addTrack(it, listOf("stream0")) }
+        if (enableVideo) {
+            localVideoTrack?.let { pc.addTrack(it, listOf("stream0")) }
+        }
+
+        sfuPublisherPc = pc
+        Log.d(TAG, "SFU Publisher PeerConnection olusturuldu, video=$enableVideo")
+        return pc
+    }
+
+    /** SFU publisher icin SDP Offer olusturur. */
+    suspend fun createSfuPublisherOffer(): SessionDescription = suspendCoroutine { cont ->
+        val pc = sfuPublisherPc
+            ?: throw IllegalStateException("SFU Publisher PeerConnection bulunamadi")
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+        }
+        pc.createOffer(object : SdpObserver {
+            override fun onCreateSuccess(sdp: SessionDescription) {
+                pc.setLocalDescription(object : SdpObserver {
+                    override fun onSetSuccess() {
+                        Log.d(TAG, "SFU Publisher Offer olusturuldu (${sdp.description.length} byte)")
+                        cont.resume(sdp)
+                    }
+                    override fun onSetFailure(error: String) {
+                        cont.resumeWithException(RuntimeException("setLocalDescription failed: $error"))
+                    }
+                    override fun onCreateSuccess(s: SessionDescription) {}
+                    override fun onCreateFailure(e: String) {}
+                }, sdp)
+            }
+            override fun onCreateFailure(error: String) {
+                cont.resumeWithException(RuntimeException(error))
+            }
+            override fun onSetSuccess() {}
+            override fun onSetFailure(error: String) {}
+        }, constraints)
+    }
+
+    /** SFU publisher icin remote SDP answer ayarlar. */
+    suspend fun setSfuPublisherRemoteAnswer(sdp: SessionDescription) = suspendCoroutine<Unit> { cont ->
+        val pc = sfuPublisherPc
+            ?: throw IllegalStateException("SFU Publisher PeerConnection bulunamadi")
+        pc.setRemoteDescription(object : SdpObserver {
+            override fun onSetSuccess() {
+                Log.d(TAG, "SFU Publisher remote answer set edildi")
+                cont.resume(Unit)
+            }
+            override fun onSetFailure(error: String) {
+                cont.resumeWithException(RuntimeException("setRemoteDescription failed: $error"))
+            }
+            override fun onCreateSuccess(sdp: SessionDescription) {}
+            override fun onCreateFailure(error: String) {}
+        }, sdp)
+    }
+
+    /**
+     * SFU subscriber PeerConnection olusturur.
+     * Janus'tan gelen her remote publisher icin ayri PeerConnection.
+     * Sadece medya alir (recvonly).
+     */
+    fun createSfuSubscriberConnection(feedId: Long): PeerConnection? {
+        if (!initialized) initialize()
+        val factory = peerConnectionFactory ?: return null
+
+        val config = PeerConnection.RTCConfiguration(iceServers).apply {
+            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+            iceTransportsType = PeerConnection.IceTransportsType.ALL
+        }
+
+        val observer = object : PeerConnection.Observer {
+            override fun onIceCandidate(candidate: IceCandidate) {
+                Log.d(TAG, "SFU Subscriber ICE candidate: feedId=$feedId ${candidate.sdpMid}")
+            }
+            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+                Log.d(TAG, "SFU Subscriber ICE state: feedId=$feedId -> $state")
+            }
+            override fun onAddTrack(receiver: RtpReceiver, streams: Array<out MediaStream>) {
+                val track = receiver.track()
+                when (track) {
+                    is VideoTrack -> {
+                        track.setEnabled(true)
+                        _sfuRemoteVideoTracks.value = _sfuRemoteVideoTracks.value + (feedId to track)
+                        Log.d(TAG, "SFU Subscriber remote video track: feedId=$feedId")
+                    }
+                    is AudioTrack -> {
+                        track.setEnabled(true)
+                        Log.d(TAG, "SFU Subscriber remote audio track: feedId=$feedId")
+                    }
+                }
+            }
+            override fun onSignalingChange(state: PeerConnection.SignalingState) {}
+            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
+            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
+            override fun onAddStream(stream: MediaStream) {}
+            override fun onRemoveStream(stream: MediaStream) {}
+            override fun onDataChannel(channel: DataChannel) {}
+            override fun onRenegotiationNeeded() {}
+        }
+
+        val pc = factory.createPeerConnection(config, observer) ?: return null
+        sfuSubscriberPcs[feedId] = pc
+        Log.d(TAG, "SFU Subscriber PeerConnection olusturuldu: feedId=$feedId")
+        return pc
+    }
+
+    /** SFU subscriber icin Janus'tan gelen SDP offer'i ayarlar ve answer uretir. */
+    suspend fun handleSfuSubscriberOffer(feedId: Long, remoteSdp: SessionDescription): SessionDescription {
+        val pc = sfuSubscriberPcs[feedId]
+            ?: throw IllegalStateException("SFU Subscriber PeerConnection bulunamadi: feedId=$feedId")
+
+        // Remote offer'i set et
+        suspendCoroutine<Unit> { cont ->
+            pc.setRemoteDescription(object : SdpObserver {
+                override fun onSetSuccess() { cont.resume(Unit) }
+                override fun onSetFailure(error: String) { cont.resumeWithException(RuntimeException(error)) }
+                override fun onCreateSuccess(sdp: SessionDescription) {}
+                override fun onCreateFailure(error: String) {}
+            }, remoteSdp)
+        }
+
+        // Answer olustur
+        return suspendCoroutine { cont ->
+            val constraints = MediaConstraints().apply {
+                mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+                mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+            }
+            pc.createAnswer(object : SdpObserver {
+                override fun onCreateSuccess(sdp: SessionDescription) {
+                    pc.setLocalDescription(object : SdpObserver {
+                        override fun onSetSuccess() {
+                            Log.d(TAG, "SFU Subscriber answer olusturuldu: feedId=$feedId")
+                            cont.resume(sdp)
+                        }
+                        override fun onSetFailure(error: String) {
+                            cont.resumeWithException(RuntimeException(error))
+                        }
+                        override fun onCreateSuccess(s: SessionDescription) {}
+                        override fun onCreateFailure(e: String) {}
+                    }, sdp)
+                }
+                override fun onCreateFailure(error: String) {
+                    cont.resumeWithException(RuntimeException(error))
+                }
+                override fun onSetSuccess() {}
+                override fun onSetFailure(error: String) {}
+            }, constraints)
+        }
+    }
+
+    /** SFU subscriber PeerConnection'ini kapatir. */
+    fun disposeSfuSubscriber(feedId: Long) {
+        sfuSubscriberPcs.remove(feedId)?.close()
+        _sfuRemoteVideoTracks.value = _sfuRemoteVideoTracks.value - feedId
+        Log.d(TAG, "SFU Subscriber dispose: feedId=$feedId")
+    }
+
+    /** Tum SFU kaynaklarini temizler (publisher + tum subscriber'lar). */
+    fun disposeAllSfuConnections() {
+        sfuPublisherPc?.close()
+        sfuPublisherPc = null
+
+        sfuSubscriberPcs.forEach { (_, pc) ->
+            try { pc.close() } catch (_: Exception) {}
+        }
+        sfuSubscriberPcs.clear()
+        _sfuRemoteVideoTracks.value = emptyMap()
+
+        // Paylasimli yerel medyayi temizle (tek noktadan)
+        disposeSharedLocalMedia()
+
+        Log.d(TAG, "Tum SFU PeerConnection'lari temizlendi")
     }
 
     // ---- Temizlik ----

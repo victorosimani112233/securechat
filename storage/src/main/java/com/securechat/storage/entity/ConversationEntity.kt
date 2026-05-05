@@ -10,7 +10,12 @@ import androidx.room.PrimaryKey
  */
 @Entity(
     tableName = "conversations",
-    indices = [Index(value = ["last_message_timestamp"])]
+    indices = [
+        Index(value = ["last_message_timestamp"]),
+        Index(value = ["peer_id"]),
+        Index(value = ["is_archived"]),
+        Index(value = ["is_pinned", "last_message_timestamp"])
+    ]
 )
 data class ConversationEntity(
     @PrimaryKey val id: String,
@@ -29,5 +34,6 @@ data class ConversationEntity(
     @ColumnInfo(name = "is_archived") val isArchived: Boolean = false,
     @ColumnInfo(name = "disappearing_duration") val disappearingDuration: Long = 0, // milisaniye, 0 = kapali
     @ColumnInfo(name = "group_admins") val groupAdmins: String? = null, // virgul ile ayrilmis admin userId listesi
-    @ColumnInfo(name = "is_favorite") val isFavorite: Boolean = false
+    @ColumnInfo(name = "is_favorite") val isFavorite: Boolean = false,
+    @ColumnInfo(name = "is_locked") val isLocked: Boolean = false // Biyometrik kilit
 )

@@ -1,0 +1,178 @@
+package com.securechat.signaling
+
+import com.securechat.signaling.db.Database
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger("PreKeyStore")
+
+/**
+ * Signal Protocol PreKey bundle server-side store.
+ *
+ * Akis:
+ *   1. Kayit sirasinda client identity_public_key + registration_id + signed_prekey + 100 one_time_prekey upload eder.
+ *   2. Baska bir client `/api/v1/users/{userId}/prekeys` cagirinca:
+ *      - identity_public_key (sabit)
+ *      - signed_prekey (rotation gerekirse client guncelleyebilir)
+ *      - bir tane one_time_prekey (consumed_at set edilir, bir daha verilmez)
+ *   3. one_time_prekey havuzu azalinca client yenilerini upload eder.
+ *
+ * Buradaki sema sadece SUNUCU SIDE STORAGE — gercek Signal Protocol algoritmasi client'ta.
+ */
+object PreKeyStore {
+
+    data class IdentityKey(val publicKey: ByteArray, val registrationId: Int)
+    data class SignedPreKey(val keyId: Int, val publicKey: ByteArray, val signature: ByteArray)
+    data class OneTimePreKey(val keyId: Int, val publicKey: ByteArray)
+    data class PreKeyBundle(
+        val identityKey: IdentityKey,
+        val signedPreKey: SignedPreKey,
+        val oneTimePreKey: OneTimePreKey?
+    )
+
+    /** Identity key ve registration_id kaydeder/gunceller. */
+    fun setIdentityKey(userId: String, publicKey: ByteArray, registrationId: Int) {
+        try {
+            Database.getConnection().use { conn ->
+                conn.prepareStatement(
+                    "UPDATE users SET identity_public_key = ?, registration_id = ? WHERE user_id = ?::uuid"
+                ).use { stmt ->
+                    stmt.setBytes(1, publicKey)
+                    stmt.setInt(2, registrationId)
+                    stmt.setString(3, userId)
+                    stmt.executeUpdate()
+                }
+            }
+        } catch (e: Exception) {
+            log.error("[PreKey] Identity key kaydedilemedi: {}", e.message)
+            throw e
+        }
+    }
+
+    fun setSignedPreKey(userId: String, key: SignedPreKey) {
+        try {
+            Database.getConnection().use { conn ->
+                conn.autoCommit = false
+                try {
+                    // Eski signed prekey'leri sil (sadece bir tane aktif)
+                    conn.prepareStatement("DELETE FROM signed_prekeys WHERE user_id = ?::uuid").use { stmt ->
+                        stmt.setString(1, userId)
+                        stmt.executeUpdate()
+                    }
+                    conn.prepareStatement(
+                        "INSERT INTO signed_prekeys (user_id, key_id, public_key, signature) VALUES (?::uuid, ?, ?, ?)"
+                    ).use { stmt ->
+                        stmt.setString(1, userId)
+                        stmt.setInt(2, key.keyId)
+                        stmt.setBytes(3, key.publicKey)
+                        stmt.setBytes(4, key.signature)
+                        stmt.executeUpdate()
+                    }
+                    conn.commit()
+                } catch (e: Exception) {
+                    conn.rollback(); throw e
+                } finally {
+                    conn.autoCommit = true
+                }
+            }
+        } catch (e: Exception) {
+            log.error("[PreKey] Signed prekey kaydedilemedi: {}", e.message)
+            throw e
+        }
+    }
+
+    fun addOneTimePreKeys(userId: String, keys: List<OneTimePreKey>) {
+        if (keys.isEmpty()) return
+        try {
+            Database.getConnection().use { conn ->
+                conn.prepareStatement(
+                    "INSERT INTO one_time_prekeys (user_id, key_id, public_key) VALUES (?::uuid, ?, ?) ON CONFLICT (user_id, key_id) DO NOTHING"
+                ).use { stmt ->
+                    for (k in keys) {
+                        stmt.setString(1, userId)
+                        stmt.setInt(2, k.keyId)
+                        stmt.setBytes(3, k.publicKey)
+                        stmt.addBatch()
+                    }
+                    stmt.executeBatch()
+                }
+            }
+            log.info("[PreKey] {} adet one-time prekey eklendi: {}", keys.size, userId)
+        } catch (e: Exception) {
+            log.error("[PreKey] One-time prekey eklenemedi: {}", e.message)
+            throw e
+        }
+    }
+
+    /**
+     * Diger bir client baska bir kullanicinin bundle'ini ister.
+     * One-time prekey atomik olarak consume edilir (CTE ile race-condition guvenli).
+     */
+    fun fetchBundle(userId: String): PreKeyBundle? {
+        try {
+            Database.getConnection().use { conn ->
+                // Identity key
+                val (idKey, regId) = conn.prepareStatement(
+                    "SELECT identity_public_key, registration_id FROM users WHERE user_id = ?::uuid"
+                ).use { stmt ->
+                    stmt.setString(1, userId)
+                    val rs = stmt.executeQuery()
+                    if (!rs.next()) return null
+                    val key = rs.getBytes("identity_public_key") ?: return null
+                    val rid = rs.getInt("registration_id")
+                    if (rs.wasNull()) return null
+                    Pair(key, rid)
+                }
+
+                // Signed prekey
+                val signedKey = conn.prepareStatement(
+                    "SELECT key_id, public_key, signature FROM signed_prekeys WHERE user_id = ?::uuid LIMIT 1"
+                ).use { stmt ->
+                    stmt.setString(1, userId)
+                    val rs = stmt.executeQuery()
+                    if (!rs.next()) return null
+                    SignedPreKey(rs.getInt("key_id"), rs.getBytes("public_key"), rs.getBytes("signature"))
+                }
+
+                // One-time prekey — atomic consume (CTE ile FOR UPDATE SKIP LOCKED)
+                val otpk = conn.prepareStatement(
+                    """WITH next_key AS (
+                           SELECT id FROM one_time_prekeys
+                           WHERE user_id = ?::uuid AND consumed_at IS NULL
+                           ORDER BY id LIMIT 1
+                           FOR UPDATE SKIP LOCKED
+                       )
+                       UPDATE one_time_prekeys SET consumed_at = NOW()
+                       FROM next_key
+                       WHERE one_time_prekeys.id = next_key.id
+                       RETURNING one_time_prekeys.key_id, one_time_prekeys.public_key"""
+                ).use { stmt ->
+                    stmt.setString(1, userId)
+                    val rs = stmt.executeQuery()
+                    if (rs.next()) {
+                        OneTimePreKey(rs.getInt("key_id"), rs.getBytes("public_key"))
+                    } else null
+                }
+
+                return PreKeyBundle(IdentityKey(idKey, regId), signedKey, otpk)
+            }
+        } catch (e: Exception) {
+            log.error("[PreKey] Bundle fetch hatasi: {}", e.message)
+            return null
+        }
+    }
+
+    /** Kalan tuketilmemis one-time prekey sayisi — client'a gosterilir, az kalmissa yenisini upload eder. */
+    fun unconsumedCount(userId: String): Int {
+        return try {
+            Database.getConnection().use { conn ->
+                conn.prepareStatement(
+                    "SELECT COUNT(*) FROM one_time_prekeys WHERE user_id = ?::uuid AND consumed_at IS NULL"
+                ).use { stmt ->
+                    stmt.setString(1, userId)
+                    val rs = stmt.executeQuery()
+                    if (rs.next()) rs.getInt(1) else 0
+                }
+            }
+        } catch (_: Exception) { 0 }
+    }
+}

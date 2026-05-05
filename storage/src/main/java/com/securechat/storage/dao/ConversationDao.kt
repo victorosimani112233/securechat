@@ -1,5 +1,6 @@
 package com.securechat.storage.dao
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -7,6 +8,15 @@ import androidx.room.Query
 import androidx.room.Update
 import com.securechat.storage.entity.ConversationEntity
 import kotlinx.coroutines.flow.Flow
+
+/**
+ * Son mesaj bilgisi — tek sorguda content + timestamp dondurur.
+ */
+data class LastMessageInfo(
+    @ColumnInfo(name = "content") val content: String,
+    @ColumnInfo(name = "timestamp") val timestamp: Long,
+    @ColumnInfo(name = "content_type") val contentType: String? = null
+)
 
 /**
  * Konuşma veri erisim nesnesi. Konuşma listesi reaktif olarak guncellenir.
@@ -25,6 +35,9 @@ interface ConversationDao {
 
     @Query("SELECT * FROM conversations WHERE peer_id = :peerId LIMIT 1")
     suspend fun getByPeerId(peerId: String): ConversationEntity?
+
+    @Query("SELECT * FROM conversations WHERE peer_id IN (:peerIds)")
+    suspend fun getByPeerIds(peerIds: List<String>): List<ConversationEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(conversation: ConversationEntity)
@@ -74,6 +87,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET is_muted = :isMuted WHERE id = :conversationId")
     suspend fun updateMuted(conversationId: String, isMuted: Boolean)
 
+    @Query("UPDATE conversations SET is_locked = :isLocked WHERE id = :conversationId")
+    suspend fun updateLocked(conversationId: String, isLocked: Boolean)
+
     /**
      * Belirtilen konusmadaki en son mesajin icerigini dondurur.
      * Mesaj silme veya duzenleme sonrasi lastMessage alanini yeniden hesaplamak icin kullanilir.
@@ -87,6 +103,12 @@ interface ConversationDao {
      */
     @Query("SELECT timestamp FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLastMessageTimestamp(conversationId: String): Long?
+
+    /**
+     * Son mesaj icerik ve zaman damgasini tek sorguda dondurur (N+1 fix).
+     */
+    @Query("SELECT content, timestamp, content_type FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLastMessageInfo(conversationId: String): LastMessageInfo?
 
     /**
      * Konusmadaki son mesaji ID ile gunceller.

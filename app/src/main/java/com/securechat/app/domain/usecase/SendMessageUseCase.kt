@@ -33,7 +33,12 @@ class SendMessageUseCase @Inject constructor(
         const val RETRY_DELAY_MS = 2000L
     }
 
-    suspend operator fun invoke(conversationId: String, content: String, replyToId: String? = null) {
+    suspend operator fun invoke(
+        conversationId: String,
+        content: String,
+        replyToId: String? = null,
+        contentType: MessageContentType = MessageContentType.TEXT
+    ) {
         val senderId = userSession.userId ?: "unknown"
         val timestamp = System.currentTimeMillis()
 
@@ -51,7 +56,7 @@ class SendMessageUseCase @Inject constructor(
             senderId = senderId,
             peerId = conversationId,
             content = content,
-            contentType = MessageContentType.TEXT,
+            contentType = contentType,
             timestamp = timestamp,
             status = MessageStatus.SENDING,
             isOutgoing = true,
@@ -63,7 +68,9 @@ class SendMessageUseCase @Inject constructor(
         // Mesaj icerigi MSGID prefix'i ile gonderilir — alici taraf delivery receipt gonderebilsin
         // REPLY prefix eklenir — alici taraf reply mesajini gorebilsin
         val replyPrefix = if (replyToId != null) "REPLY:$replyToId:" else ""
-        val envelopeContent = "MSGID:${message.id}:${replyPrefix}$content"
+        // POLL mesajlari POLL: prefix'i ile isaretlenir — alici taraf POLL olarak ayirt edebilsin
+        val typePrefix = if (contentType == MessageContentType.POLL) "POLL:" else ""
+        val envelopeContent = "MSGID:${message.id}:${replyPrefix}${typePrefix}$content"
 
         // Ilk deneme
         val sent = attemptSend(senderId, conversationId, timestamp, envelopeContent, isGroup, conversation)
@@ -107,19 +114,16 @@ class SendMessageUseCase @Inject constructor(
         return if (isGroup) {
             val groupName = conversation?.peerName ?: ""
             val members = conversation?.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
-            var allSent = true
-            for (memberId in members) {
-                val memberSent = signalingClient.sendSignal(
-                    SignalMessage.EncryptedMessage(
-                        senderId = senderId,
-                        recipientId = memberId,
-                        timestamp = timestamp,
-                        envelope = "GROUP:$conversationId:$groupName:$envelopeContent"
-                    )
+            // Server-side fanout: tek mesajda tum uyelerin payloadini gonder
+            val payloads = members.associateWith { "GROUP:$conversationId:$groupName:$envelopeContent" }
+            signalingClient.sendSignal(
+                SignalMessage.GroupMessageFanout(
+                    senderId = senderId,
+                    timestamp = timestamp,
+                    groupId = conversationId,
+                    recipientPayloads = payloads
                 )
-                if (!memberSent) allSent = false
-            }
-            allSent
+            )
         } else {
             signalingClient.sendSignal(
                 SignalMessage.EncryptedMessage(

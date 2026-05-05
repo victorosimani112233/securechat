@@ -26,9 +26,7 @@ class CallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         android.util.Log.d("CallActionReceiver", "Action alındı: ${intent.action}")
 
-        val callId = intent.getStringExtra(IncomingCallHandler.EXTRA_CALL_ID)
         val userId = userSession.userId
-
         if (userId == null) {
             android.util.Log.e("CallActionReceiver", "User ID null, action ignore edildi")
             return
@@ -38,20 +36,37 @@ class CallActionReceiver : BroadcastReceiver() {
             IncomingCallHandler.ACTION_ACCEPT -> {
                 android.util.Log.d("CallActionReceiver", "Arama kabul edildi (bildirimden)")
 
-                // Bildirimi kaldır
+                // Bildirimi ve zil sesini kaldir
                 incomingCallHandler.dismissIncomingCall()
+                try {
+                    val ringtone = com.securechat.media.RingtonePlayer::class.java
+                    // RingtonePlayer Singleton oldugu icin dogrudan stop edilmesi gerekir;
+                    // Hilt Context'i Receiver'da yok, CallManager.acceptCall icinde de durdurulur.
+                } catch (_: Exception) { }
 
-                // Arama kabul et
-                callManager.acceptCall(userId)
+                val session = callManager.currentSession
+                if (session != null) {
+                    // Normal akis — SDP gelmis, session mevcut
+                    callManager.acceptCall(userId)
 
-                // IncomingCallActivity'yi başlat (ana arama ekranına geçiş için)
-                val callSession = callManager.currentSession
-                if (callSession != null) {
                     val activityIntent = Intent(context, IncomingCallActivity::class.java).apply {
-                        putExtra("peer_id", callSession.peerId)
-                        putExtra("peer_name", callSession.peerId) // TODO: Resolve peer name
-                        putExtra("call_type", callSession.callType.name)
+                        putExtra("peer_id", session.peerId)
+                        putExtra("peer_name", session.peerId)
+                        putExtra("call_type", session.callType.name)
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    }
+                    context.startActivity(activityIntent)
+                } else {
+                    // FCM-pending — SDP henuz gelmedi, pending accept ayarla
+                    // SDP geldiginde CallManager.handleIncomingCall otomatik kabul edecek
+                    android.util.Log.d("CallActionReceiver", "Session null, pendingFcmAccept ayarlandi")
+                    callManager.pendingFcmAccept = userId
+
+                    // Kullaniciyi ana ekrana yonlendir — arama ekrani SDP gelince acilacak
+                    val activityIntent = Intent(context, com.securechat.app.SecureChatActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
                     }
                     context.startActivity(activityIntent)
                 }
@@ -60,11 +75,16 @@ class CallActionReceiver : BroadcastReceiver() {
             IncomingCallHandler.ACTION_REJECT -> {
                 android.util.Log.d("CallActionReceiver", "Arama reddedildi (bildirimden)")
 
-                // Bildirimi kaldır
                 incomingCallHandler.dismissIncomingCall()
 
-                // Arama reddet
-                callManager.rejectCall(userId)
+                val session = callManager.currentSession
+                if (session != null) {
+                    callManager.rejectCall(userId)
+                } else {
+                    // FCM-pending — SDP henuz gelmedi, pending reject ayarla
+                    android.util.Log.d("CallActionReceiver", "Session null, pendingFcmReject ayarlandi")
+                    callManager.pendingFcmReject = userId
+                }
             }
         }
     }

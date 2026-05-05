@@ -624,6 +624,52 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // === Arama ===
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .glass(dark = dark, shape = RoundedCornerShape(16.dp))
+                ) {
+                    Column {
+                        SectionHeader("Arama")
+
+                        val canDrawOverlays = remember {
+                            android.provider.Settings.canDrawOverlays(context)
+                        }
+
+                        ListItem(
+                            headlineContent = { Text("Gelen arama ekranı") },
+                            supportingContent = {
+                                Text(
+                                    if (canDrawOverlays) "Arama geldiğinde tam ekran açılır"
+                                    else "İzin ver — arama geldiğinde ekran açılsın"
+                                )
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            trailingContent = {
+                                if (!canDrawOverlays) {
+                                    Icon(Icons.Default.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            },
+                            modifier = Modifier.clickable {
+                                if (!canDrawOverlays) {
+                                    val intent = android.content.Intent(
+                                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        android.net.Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(intent)
+                                }
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 // === Planlı Mesajlar ===
                 Box(
                     modifier = Modifier
@@ -944,7 +990,8 @@ fun SettingsScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                // Alt navigasyon barinin arkasinda kalmamasi icin ekstra bosluk
+                Spacer(modifier = Modifier.height(100.dp))
             }
         }
     }

@@ -1,23 +1,31 @@
 package com.securechat.signaling
 
+import com.securechat.signaling.db.RedisManager
 import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
+
+private val log = LoggerFactory.getLogger(ConnectionManager::class.java)
 
 /**
  * WebSocket baglantilarini, mesaj yonlendirmesini ve presence yonetimini saglayan sinif.
  *
- * Presence sistemi subscription-based calisir:
- * - Sunucu her kullanicinin online/offline durumunu ve lastSeen zamanini tutar
- * - Istemci bir sohbet actiginda o kisi icin presence_subscribe gonderir
- * - Sunucu yalnizca subscribe olan kullanicilara presence degisikliklerini bildirir
- * - Broadcast YAPILMAZ — binlerce kullanicida olceklenir
+ * Offline mesaj kuyrugu Redis Sorted Set ile persist edilir.
+ * Presence sistemi subscription-based calisir — broadcast YAPILMAZ.
  */
 class ConnectionManager(
     private val fcmPushSender: FcmPushSender? = null
@@ -26,111 +34,83 @@ class ConnectionManager(
     // userId -> aktif WebSocket session
     private val connections = ConcurrentHashMap<String, WebSocketSession>()
 
-    // Offline mesaj kuyrugu: recipientId -> mesaj listesi
-    private val offlineQueue = ConcurrentHashMap<String, ConcurrentLinkedQueue<String>>()
-
     private val mutex = Mutex()
 
     // --- Presence State ---
-    // userId -> son cevrimdisi zamani
     private val lastSeenMap = ConcurrentHashMap<String, Long>()
-
-    // Uygulama on planda olan kullanicilar (WS bagli + foreground)
     private val foregroundUsers = ConcurrentHashMap.newKeySet<String>()
-
-    // targetUserId -> bu kullanicinin durumunu izleyen subscriber'lar
     private val presenceSubscribers = ConcurrentHashMap<String, MutableSet<String>>()
-
-    // Son gorulmesini gizleyen kullanicilar
     private val hideLastSeenUsers = ConcurrentHashMap.newKeySet<String>()
 
     suspend fun addConnection(userId: String, session: WebSocketSession) {
+        // Connection limit kontrolu
+        if (connections.size >= MAX_CONNECTIONS) {
+            session.close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Sunucu kapasitesi doldu"))
+            log.warn("[!] Baglanti reddedildi — limit asildi: $userId (${connections.size}/$MAX_CONNECTIONS)")
+            return
+        }
+        // Shutdown sirasinda yeni baglanti kabul etme
+        if (isShuttingDown.get()) {
+            session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Sunucu kapatiliyor"))
+            return
+        }
         mutex.withLock {
-            // Eski baglanti varsa kapat
             connections[userId]?.close(CloseReason(CloseReason.Codes.NORMAL, "Yeni baglanti"))
             connections[userId] = session
-            println("[+] Kullanici baglandi: $userId (toplam: ${connections.size})")
+            log.info("[+] Kullanici baglandi: $userId (toplam: ${connections.size})")
         }
-
-        // Offline mesajlari ilet
+        Metrics.wsConnections.increment()
+        // Redis'ten offline mesajlari ilet
         deliverOfflineMessages(userId, session)
     }
 
     suspend fun removeConnection(userId: String) {
         mutex.withLock {
             connections.remove(userId)
-            println("[-] Kullanici ayrildi: $userId (toplam: ${connections.size})")
+            log.info("[-] Kullanici ayrildi: $userId (toplam: ${connections.size})")
         }
-
-        // Foreground'dan cikar ve lastSeen guncelle
         foregroundUsers.remove(userId)
         val now = System.currentTimeMillis()
         lastSeenMap[userId] = now
-
-        // Gizlilik aktifse subscriber'lara bildirim GONDERME
         if (!hideLastSeenUsers.contains(userId)) {
             notifyPresenceChange(userId, isOnline = false, lastSeen = now)
         }
-
-        // Bu kullanicinin subscribe'larini temizle
         cleanupSubscriptions(userId)
     }
 
     // --- Presence Subscription ---
 
-    /**
-     * Istemci bir sohbet actiginda cagirilir.
-     * Subscriber listesine ekler ve aninda mevcut durumu doner.
-     */
     suspend fun subscribePresence(subscriberId: String, targetUserId: String) {
         presenceSubscribers.getOrPut(targetUserId) { ConcurrentHashMap.newKeySet() }.add(subscriberId)
-        // Aninda mevcut durumu gonder
         sendPresenceResponse(subscriberId, targetUserId)
-        println("[S+] Presence subscribe: $subscriberId -> $targetUserId")
+        log.info("[S+] Presence subscribe: $subscriberId -> $targetUserId")
     }
 
-    /**
-     * Istemci sohbetten ciktiginda cagirilir.
-     */
     fun unsubscribePresence(subscriberId: String, targetUserId: String) {
         presenceSubscribers[targetUserId]?.remove(subscriberId)
-        println("[S-] Presence unsubscribe: $subscriberId -> $targetUserId")
+        log.info("[S-] Presence unsubscribe: $subscriberId -> $targetUserId")
     }
 
-    /**
-     * Istemciden gelen presence_update mesajini isler.
-     * Broadcast YAPMAZ — sadece sunucu state'ini gunceller ve subscriber'lara bildirir.
-     */
     suspend fun handlePresenceUpdate(userId: String, isOnline: Boolean, hideLastSeen: Boolean = false) {
-        // Gizlilik tercihini kaydet
         if (hideLastSeen) hideLastSeenUsers.add(userId) else hideLastSeenUsers.remove(userId)
-
         if (isOnline) {
             foregroundUsers.add(userId)
         } else {
             foregroundUsers.remove(userId)
             lastSeenMap[userId] = System.currentTimeMillis()
         }
-
-        // Gizlilik aktifken subscriber'lara "gizli" bildirimi gonder
-        // Boylece istemci eski "az once" verisini temizler
         if (hideLastSeen) {
             notifyPresenceChange(userId, isOnline = false, lastSeen = 0, hideLastSeen = true)
-            println("[P] Presence guncellendi: $userId online=$isOnline (GIZLI — subscriber'lara temizleme gonderildi)")
+            log.info("[P] Presence guncellendi: $userId online=$isOnline (GIZLI)")
             return
         }
-
         val lastSeen = if (isOnline) System.currentTimeMillis() else (lastSeenMap[userId] ?: System.currentTimeMillis())
         notifyPresenceChange(userId, isOnline, lastSeen)
-        println("[P] Presence guncellendi: $userId online=$isOnline (subscriber: ${presenceSubscribers[userId]?.size ?: 0})")
+        log.info("[P] Presence guncellendi: $userId online=$isOnline (subscriber: ${presenceSubscribers[userId]?.size ?: 0})")
     }
 
-    /**
-     * Belirli bir kullanicinin mevcut durumunu talep edene gonderir.
-     */
     private suspend fun sendPresenceResponse(requesterId: String, targetUserId: String) {
         val session = connections[requesterId] ?: return
-        // Hedef kullanici gizlilik aktifse hideLastSeen=true ile bos presence gonder
         if (hideLastSeenUsers.contains(targetUserId)) {
             val json = buildPresenceJson(targetUserId, requesterId, isOnline = false, lastSeen = 0, hideLastSeen = true)
             try { session.send(Frame.Text(json)) } catch (_: Exception) { }
@@ -139,26 +119,16 @@ class ConnectionManager(
         val isOnline = foregroundUsers.contains(targetUserId)
         val lastSeen = if (isOnline) System.currentTimeMillis() else (lastSeenMap[targetUserId] ?: 0)
         val json = buildPresenceJson(targetUserId, requesterId, isOnline, lastSeen)
-        try {
-            session.send(Frame.Text(json))
-        } catch (e: Exception) {
-            println("[!] Presence response gonderilemedi: $targetUserId -> $requesterId: ${e.message}")
-        }
+        try { session.send(Frame.Text(json)) } catch (_: Exception) { }
     }
 
-    /**
-     * Durum degisikligini yalnizca subscribe olmus kullanicilara bildirir.
-     * Broadcast YAPMAZ — O(subscriber) karmasiklik.
-     */
     private suspend fun notifyPresenceChange(userId: String, isOnline: Boolean, lastSeen: Long, hideLastSeen: Boolean = false) {
         val subscribers = presenceSubscribers[userId] ?: return
         if (subscribers.isEmpty()) return
         val json = buildPresenceJson(userId, "subscriber", isOnline, lastSeen, hideLastSeen)
         for (subscriberId in subscribers) {
             val session = connections[subscriberId] ?: continue
-            try {
-                session.send(Frame.Text(json))
-            } catch (_: Exception) { }
+            try { session.send(Frame.Text(json)) } catch (_: Exception) { }
         }
     }
 
@@ -167,114 +137,282 @@ class ConnectionManager(
         return """{"type":"presence_update","senderId":"$senderId","recipientId":"$recipientId","timestamp":$now,"isOnline":$isOnline,"lastSeen":$lastSeen,"hideLastSeen":$hideLastSeen}"""
     }
 
-    /**
-     * Kullanici disconnect olunca, onun tum subscription'larini temizler.
-     */
     private fun cleanupSubscriptions(userId: String) {
-        // Bu kullaniciyi tum subscriber listelerinden cikar
-        presenceSubscribers.values.forEach { subscribers ->
-            subscribers.remove(userId)
-        }
-        // Kendi subscriber listesini de temizle (kimse bu kullaniciyi izlemiyor artik)
-        // NOT: Bunu silmeyelim — diger kullanicilar hala izliyor olabilir
+        presenceSubscribers.values.forEach { subscribers -> subscribers.remove(userId) }
     }
 
     // --- Mesaj Yonlendirme ---
 
-    /**
-     * Mesaji aliciya yonlendirir.
-     * Online ise WebSocket ile aninda iletir.
-     * Offline ise kuyruga ekler ve FCM push ile cihazi uyandirir.
-     */
     suspend fun routeMessage(senderId: String, recipientId: String, messageJson: String) {
         val recipientSession = connections[recipientId]
-
         if (recipientSession != null) {
             try {
                 recipientSession.send(Frame.Text(messageJson))
-                println("[>] Mesaj iletildi: $senderId -> $recipientId")
+                Metrics.messagesRouted.increment()
+                log.info("[>] Mesaj iletildi: $senderId -> $recipientId")
             } catch (e: Exception) {
-                println("[!] Mesaj gonderilemedi: $senderId -> $recipientId: ${e.message}")
+                log.warn("[!] Mesaj gonderilemedi: $senderId -> $recipientId: ${e.message}")
                 queueAndNotify(senderId, recipientId, messageJson)
             }
         } else {
-            println("[Q] Alici cevrimdisi, kuyruga eklendi: $senderId -> $recipientId")
+            log.info("[Q] Alici cevrimdisi, kuyruga eklendi: $senderId -> $recipientId")
             queueAndNotify(senderId, recipientId, messageJson)
         }
     }
 
     fun isOnline(userId: String): Boolean = connections.containsKey(userId)
-
     fun getOnlineUsers(): Set<String> = connections.keys.toSet()
-
     fun getOnlineCount(): Int = connections.size
+    fun connections(): Map<String, WebSocketSession> = connections
 
-    /**
-     * Broadcast mesaji gonderenin disindaki tum online kullanicilara iletir.
-     * Yalnizca typing_indicator icin kullanilir — presence icin KULLANILMAZ.
-     */
     suspend fun broadcastMessage(senderId: String, messageJson: String) {
         connections.forEach { (userId, session) ->
             if (userId != senderId) {
-                try {
-                    session.send(Frame.Text(messageJson))
-                } catch (_: Exception) { }
+                try { session.send(Frame.Text(messageJson)) } catch (_: Exception) { }
             }
         }
     }
-
-    // FCM push'lari asenkron gondermek icin ayri scope — mesaj iletimini bloklamaz
-    private val fcmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * Mesaji kuyruga ekler ve FCM push'i ASENKRON gonderir.
-     * Gecici sinyaller (typing, presence) FCM'den gecmez — FcmPushSender filtreliyor.
-     * FCM call mesaj yonlendirmesini BLOKLAMAZ — fire-and-forget.
+     * Grup mesajini sunucu tarafinda fan-out eder.
+     * Sender tek mesaj gonderir, sunucu her uye icin ayri mesaj olusturur.
+     *
+     * @param senderId Gonderen kullanici
+     * @param groupId Grup ID'si
+     * @param recipientPayloads Her alici icin ayri sifrelenmis payload: {userId -> envelope}
+     * @param timestamp Mesaj zaman damgasi
      */
-    private fun queueAndNotify(senderId: String, recipientId: String, messageJson: String) {
-        val messageType = fcmPushSender?.extractMessageType(messageJson)
-
-        // Gecici sinyaller offline kuyruga da eklenmez
-        val transientTypes = setOf("typing_indicator", "presence_update", "presence_subscribe", "presence_unsubscribe", "audio_data", "video_data")
-        if (messageType in transientTypes) {
+    suspend fun handleGroupMessageFanout(
+        senderId: String,
+        groupId: String,
+        recipientPayloads: Map<String, String>,
+        timestamp: Long
+    ) {
+        // GUVENLIK: Sender grubun gercek uyesi mi? Authorization kontrolu.
+        // Onceden hicbir kontrol yoktu — saldirgan herhangi bir gruba mesaj enjekte edebiliyordu.
+        val members = GroupMemberStore.getMembers(groupId)
+        if (members.isNotEmpty() && senderId !in members) {
+            log.warn("[!] Yetkisiz grup fanout girisimi: $senderId -> $groupId (uye degil)")
             return
         }
+        // GUVENLIK: Recipient'lar da gercek uye olmali — sender grup uye listesi degistirmemeli.
+        val validRecipients = if (members.isNotEmpty()) {
+            recipientPayloads.filterKeys { it in members }
+        } else {
+            // Grup uye listesi henuz sunucuda yoksa (yeni grup), tum recipient'lara izin ver.
+            // group_notification mesaji ile uye listesi sync edilince siki kontrol baslar.
+            recipientPayloads
+        }
+        if (validRecipients.size != recipientPayloads.size) {
+            log.warn("[!] Grup fanout: ${recipientPayloads.size - validRecipients.size} yetkisiz alici filtrelendi")
+        }
 
-        queueOfflineMessage(recipientId, messageJson)
+        // PERF: Recipient'lara concurrent gonder — slow consumer tum grubu bloklamasin.
+        // Her bir send icin 2sn timeout — yavas client'in mesaji offline kuyruga atilir.
+        var onlineCount = 0
+        var offlineCount = 0
 
-        // FCM push'i arka planda gonder — mesaj iletimini bekletmez
-        if (fcmPushSender != null && messageType != null) {
-            fcmScope.launch {
-                fcmPushSender.sendWakeUpPush(recipientId, senderId, messageType)
+        coroutineScope {
+            val deferreds = validRecipients.mapNotNull { (recipientId, envelope) ->
+                if (recipientId == senderId) return@mapNotNull null
+
+                val individualMessage = buildJsonObject {
+                    put("type", "encrypted_message")
+                    put("senderId", senderId)
+                    put("recipientId", recipientId)
+                    put("timestamp", timestamp)
+                    put("envelope", envelope)
+                }.toString()
+
+                async {
+                    val session = connections[recipientId]
+                    if (session != null) {
+                        // 2sn timeout: yavas client'in send'i tum fanout'u bloklamasin
+                        val sent = withTimeoutOrNull(2000L) {
+                            try {
+                                session.send(Frame.Text(individualMessage))
+                                true
+                            } catch (e: Exception) {
+                                false
+                            }
+                        } ?: false
+                        if (sent) {
+                            Triple(recipientId, individualMessage, true)
+                        } else {
+                            queueAndNotify(senderId, recipientId, individualMessage)
+                            Triple(recipientId, individualMessage, false)
+                        }
+                    } else {
+                        queueAndNotify(senderId, recipientId, individualMessage)
+                        Triple(recipientId, individualMessage, false)
+                    }
+                }
             }
+            val results = deferreds.awaitAll()
+            onlineCount = results.count { it.third }
+            offlineCount = results.count { !it.third }
         }
+
+        // GUVENLIK: setMembers cagrisi KALDIRILDI.
+        // Onceden sender'in payload key'leri ile grup uye listesi DELETE+INSERT yapiliyordu —
+        // saldirgan istedigi gibi grup uyeligini degistirebiliyordu (grup hijack acigi).
+        // Uye listesi yalnizca group_notification mesajlari uzerinden guncellenir.
+
+        Metrics.groupFanouts.increment()
+        log.info("[GF] Grup fanout: $senderId -> $groupId (online:$onlineCount, offline:$offlineCount)")
     }
 
-    private fun queueOfflineMessage(recipientId: String, message: String) {
-        offlineQueue.getOrPut(recipientId) { ConcurrentLinkedQueue() }.add(message)
-        // Kuyruk boyutunu sinirla (maks 1000 mesaj)
-        val queue = offlineQueue[recipientId]
-        if (queue != null && queue.size > 1000) {
-            queue.poll()
-        }
-    }
-
-    private suspend fun deliverOfflineMessages(userId: String, session: WebSocketSession) {
-        val queue = offlineQueue.remove(userId) ?: return
+    /**
+     * Typing indicator'i grup uyelerine fan-out eder.
+     * Sadece online uyelere gonderilir (transient mesaj, offline queue'ya girmez).
+     */
+    suspend fun handleGroupTypingIndicator(senderId: String, groupId: String, messageJson: String) {
+        val members = GroupMemberStore.getMembers(groupId)
         var count = 0
-        while (queue.isNotEmpty()) {
-            val message = queue.poll() ?: break
+        for (memberId in members) {
+            if (memberId == senderId) continue
+            val session = connections[memberId] ?: continue
             try {
-                session.send(Frame.Text(message))
+                session.send(Frame.Text(messageJson))
                 count++
-            } catch (e: Exception) {
-                // Geri kuyruga ekle
-                queueOfflineMessage(userId, message)
-                break
-            }
+            } catch (_: Exception) { }
         }
         if (count > 0) {
-            println("[D] $count offline mesaj iletildi: $userId")
+            log.info("[T] Typing fanout: $senderId -> $groupId ($count uye)")
         }
+    }
+
+    private val fcmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private fun queueAndNotify(senderId: String, recipientId: String, messageJson: String) {
+        val messageType = fcmPushSender?.extractMessageType(messageJson)
+        val transientTypes = setOf("typing_indicator", "presence_update", "presence_subscribe", "presence_unsubscribe", "audio_data", "video_data")
+        if (messageType in transientTypes) return
+
+        // Redis Sorted Set'e ekle
+        queueOfflineMessage(recipientId, messageJson)
+        Metrics.messagesQueued.increment()
+
+        if (fcmPushSender != null && messageType != null) {
+            fcmScope.launch {
+                val ok = fcmPushSender.sendWakeUpPush(recipientId, senderId, messageType)
+                if (ok) Metrics.fcmPushes.increment() else Metrics.fcmPushFailures.increment()
+            }
+        }
+    }
+
+    /**
+     * Offline mesaji Redis Sorted Set'e ekler.
+     * Key: offline_queue:{userId}, Score: timestamp, Value: mesaj JSON
+     * Max 1000 mesaj — en eski silinir. TTL: 14 gun.
+     */
+    private fun queueOfflineMessage(recipientId: String, message: String) {
+        try {
+            val key = "offline_queue:$recipientId"
+            val score = System.currentTimeMillis().toDouble()
+            RedisManager.use { jedis ->
+                jedis.zadd(key, score, message)
+                // Max 1000 mesaj — en eskileri sil
+                val size = jedis.zcard(key)
+                if (size > 1000) {
+                    jedis.zremrangeByRank(key, 0, size - 1001)
+                }
+                // 14 gun TTL
+                jedis.expire(key, 14 * 24 * 3600)
+            }
+        } catch (e: Exception) {
+            log.warn("[!] Redis offline queue hatasi: ${e.message}")
+        }
+    }
+
+    /**
+     * Kullanici baglandiginda Redis'ten tum offline mesajlari iletir ve siler.
+     *
+     * Stale SDP Offer filtresi: 60sn'den eski sdp_offer mesajlari teslim EDILMEZ.
+     * Sebep: Arayan vazgecmistir, eski offer ile arama baslatmak yanlis.
+     * Diger mesaj tipleri (encrypted_message, file_transfer vb.) yas filtresi disinda.
+     */
+    private suspend fun deliverOfflineMessages(userId: String, session: WebSocketSession) {
+        try {
+            val key = "offline_queue:$userId"
+            val messages = RedisManager.use { jedis ->
+                val msgs = jedis.zrangeByScore(key, "-inf", "+inf")
+                if (msgs.isNotEmpty()) {
+                    jedis.del(key)
+                }
+                msgs
+            }
+            if (messages.isNullOrEmpty()) return
+
+            val now = System.currentTimeMillis()
+            val sdpOfferMaxAgeMs = 60_000L
+            var count = 0
+            var droppedStale = 0
+            for (message in messages) {
+                // Stale SDP Offer filtresi: timestamp regex ile cek
+                val msgType = fcmPushSender?.extractMessageType(message)
+                if (msgType == "sdp_offer") {
+                    val ts = extractTimestamp(message)
+                    if (ts != null && (now - ts) > sdpOfferMaxAgeMs) {
+                        droppedStale++
+                        continue
+                    }
+                }
+                try {
+                    session.send(Frame.Text(message))
+                    count++
+                } catch (e: Exception) {
+                    queueOfflineMessage(userId, message)
+                    break
+                }
+            }
+            if (count > 0) {
+                log.info("[D] $count offline mesaj iletildi (Redis): $userId" +
+                    if (droppedStale > 0) " — $droppedStale stale SDP atildi" else "")
+            }
+        } catch (e: Exception) {
+            log.warn("[!] Redis offline delivery hatasi: ${e.message}")
+        }
+    }
+
+    /** Mesaj JSON'undan timestamp alanini cek (regex ile, full parse maliyetinden kacin). */
+    private fun extractTimestamp(messageJson: String): Long? {
+        return try {
+            val regex = """"timestamp"\s*:\s*(\d+)""".toRegex()
+            regex.find(messageJson)?.groupValues?.get(1)?.toLong()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // --- Graceful Shutdown ---
+
+    /**
+     * Tum aktif client'lara SERVER_SHUTDOWN mesaji gonderir.
+     * Client bu mesaji alinca 5sn sonra reconnect dener.
+     */
+    suspend fun broadcastServerShutdown() {
+        val shutdownMsg = """{"type":"server_shutdown","timestamp":${System.currentTimeMillis()},"message":"Sunucu yeniden baslatiliyor"}"""
+        var count = 0
+        connections.forEach { (_, session) ->
+            try {
+                session.send(Frame.Text(shutdownMsg))
+                count++
+            } catch (_: Exception) { }
+        }
+        log.info("[SHUTDOWN] $count client'a SERVER_SHUTDOWN mesaji gonderildi")
+    }
+
+    /**
+     * Tum WebSocket baglantilarini kapatir.
+     */
+    suspend fun closeAllConnections() {
+        connections.forEach { (_, session) ->
+            try {
+                session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Sunucu kapatiliyor"))
+            } catch (_: Exception) { }
+        }
+        log.info("[SHUTDOWN] ${connections.size} baglanti kapatildi")
+        connections.clear()
     }
 }

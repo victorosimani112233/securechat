@@ -1,6 +1,7 @@
 package com.securechat.app.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.MoreVert
@@ -126,6 +128,7 @@ fun ConversationsScreen(
     val archivedConversations by viewModel.archivedConversations.collectAsStateWithLifecycle()
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val typingStates by com.securechat.app.data.IncomingMessageHandler.typingStates.collectAsStateWithLifecycle()
+    val globalSearchResults by viewModel.globalSearchResults.collectAsStateWithLifecycle()
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchVisible by remember { mutableStateOf(false) }
@@ -134,7 +137,86 @@ fun ConversationsScreen(
     var activeFilter by remember { mutableStateOf(ConversationFilter.NONE) }
     var conversationToDelete by remember { mutableStateOf<Conversation?>(null) }
 
+    // Biyometrik kilit — kilitli sohbet tiklandiginda dogrulama iste
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Context ContextThemeWrapper olabilir — FragmentActivity'yi unwrap et
+    val activity = remember(context) {
+        var ctx: android.content.Context = context
+        while (ctx is android.content.ContextWrapper) {
+            if (ctx is androidx.fragment.app.FragmentActivity) return@remember ctx
+            ctx = ctx.baseContext
+        }
+        null
+    }
+
+    // Kilitli sohbet kontrolu ile navigate
+    val handleConversationClick: (Conversation) -> Unit = { conversation ->
+        if (conversation.isLocked && activity != null) {
+            val convId = conversation.id
+            val biometricManager = androidx.biometric.BiometricManager.from(context)
+            val canBiometric = biometricManager.canAuthenticate(
+                androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+            ) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+            val canDeviceCredential = biometricManager.canAuthenticate(
+                androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            ) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+
+            if (!canBiometric && !canDeviceCredential) {
+                // Telefonda hicbir kilit yontemi yok — direkt gir
+                onConversationClick(convId)
+            } else {
+                val authenticators = when {
+                    canBiometric && canDeviceCredential ->
+                        androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                        androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    canDeviceCredential ->
+                        androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    else ->
+                        androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+                }
+
+                val builder = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+                    .setTitle("Kilitli Sohbet")
+                    .setSubtitle("Bu sohbete erişmek için kimliğinizi doğrulayın")
+                    .setAllowedAuthenticators(authenticators)
+                // DEVICE_CREDENTIAL varsa negativeButtonText kullanilamaz
+                if (!canDeviceCredential) {
+                    builder.setNegativeButtonText("İptal")
+                }
+                val promptInfo = builder.build()
+
+                val biometricPrompt = androidx.biometric.BiometricPrompt(
+                    activity,
+                    androidx.core.content.ContextCompat.getMainExecutor(context),
+                    object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                            onConversationClick(convId)
+                        }
+                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                            // Kullanici iptal etti
+                        }
+                        override fun onAuthenticationFailed() {
+                            // Tekrar deneme — prompt kapanmaz
+                        }
+                    }
+                )
+                biometricPrompt.authenticate(promptInfo)
+            }
+        } else {
+            onConversationClick(conversation.id)
+        }
+    }
+
     LaunchedEffect(Unit) { viewModel.updateContactNames() }
+
+    // Arama sorgusunu global arama icin tetikle
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.length >= 2) {
+            viewModel.searchGlobal(searchQuery)
+        } else {
+            viewModel.clearGlobalSearch()
+        }
+    }
 
     // Silme onay diyalogu
     conversationToDelete?.let { conversation ->
@@ -339,7 +421,12 @@ fun ConversationsScreen(
                         }
                     }
 
-                    if (filtered.isEmpty() && archivedConversations.isEmpty() && searchQuery.isBlank() && activeFilter == ConversationFilter.NONE) {
+                    // Konusma ID -> isim esleme — global arama sonuclari icin
+                    val convNameMap = remember(conversations, archivedConversations) {
+                        (conversations + archivedConversations).associate { it.id to it.peerName }
+                    }
+
+                    if (filtered.isEmpty() && archivedConversations.isEmpty() && searchQuery.isBlank() && activeFilter == ConversationFilter.NONE && globalSearchResults.isEmpty()) {
                         EmptyConversationsState(isSearching = false)
                     } else {
                         LazyColumn(
@@ -357,24 +444,70 @@ fun ConversationsScreen(
                                 }
                             }
 
-                            if (filtered.isEmpty()) {
+                            if (filtered.isEmpty() && globalSearchResults.isEmpty()) {
                                 item {
                                     EmptyConversationsState(
                                         isSearching = searchQuery.isNotBlank() || activeFilter != ConversationFilter.NONE
                                     )
                                 }
                             } else {
-                                items(filtered, key = { it.id }) { conversation ->
-                                    SwipeableConversationItem(
-                                        conversation = conversation,
-                                        isTyping = typingStates[conversation.peerId] == true,
-                                        onClick = { onConversationClick(conversation.id) },
-                                        onInfoClick = { onConversationInfoClick(conversation) },
-                                        onDeleteRequest = { conversationToDelete = conversation },
-                                        onArchiveRequest = { viewModel.archiveConversation(conversation.id) },
-                                        onFavoriteToggle = { viewModel.toggleFavorite(conversation.id, !conversation.isFavorite) },
-                                        onMuteToggle = { viewModel.toggleMuted(conversation.id, !conversation.isMuted) }
-                                    )
+                                if (filtered.isNotEmpty()) {
+                                    items(filtered, key = { it.id }) { conversation ->
+                                        SwipeableConversationItem(
+                                            conversation = conversation,
+                                            isTyping = typingStates[conversation.peerId] == true,
+                                            onClick = { handleConversationClick(conversation) },
+                                            onInfoClick = { onConversationInfoClick(conversation) },
+                                            onDeleteRequest = { conversationToDelete = conversation },
+                                            onArchiveRequest = { viewModel.archiveConversation(conversation.id) },
+                                            onFavoriteToggle = { viewModel.toggleFavorite(conversation.id, !conversation.isFavorite) },
+                                            onMuteToggle = { viewModel.toggleMuted(conversation.id, !conversation.isMuted) }
+                                        )
+                                    }
+                                }
+
+                                // Global mesaj arama sonuclari
+                                if (globalSearchResults.isNotEmpty() && searchQuery.length >= 2) {
+                                    item(key = "global_search_header") {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 4.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Forum,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                "Mesajlarda",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                                contentColor = MaterialTheme.colorScheme.primary
+                                            ) {
+                                                Text("${globalSearchResults.size}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                    items(globalSearchResults, key = { "msg_${it.id}" }) { message ->
+                                        GlobalSearchResultItem(
+                                            message = message,
+                                            conversationName = convNameMap[message.conversationId] ?: message.conversationId,
+                                            searchQuery = searchQuery,
+                                            onClick = { onConversationClick(message.conversationId) }
+                                        )
+                                    }
+                                    item(key = "global_search_spacer") {
+                                        Spacer(modifier = Modifier.height(80.dp))
+                                    }
                                 }
                             }
                         }
@@ -717,6 +850,16 @@ fun ConversationItem(
                             .padding(start = 4.dp)
                     )
                 }
+                if (conversation.isLocked) {
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = "Kilitli",
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        modifier = Modifier
+                            .size(16.dp)
+                            .padding(start = 4.dp)
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(2.dp))
             if (isTyping) {
@@ -726,9 +869,21 @@ fun ConversationItem(
                     maxLines = 1,
                     color = MaterialTheme.colorScheme.primary
                 )
-            } else {
+            } else if (conversation.isLocked) {
                 Text(
-                    text = conversation.lastMessage ?: "",
+                    text = "Bu sohbet gizlendi",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            } else {
+                val rawLastMessage = conversation.lastMessage ?: ""
+                // CALL| ile baslayan sistem mesajlarinda okunabilir metni goster
+                val displayLastMessage = if (rawLastMessage.startsWith("CALL|")) {
+                    rawLastMessage.split("|", limit = 6).getOrNull(5) ?: rawLastMessage
+                } else rawLastMessage
+                Text(
+                    text = displayLastMessage,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1105,6 +1260,88 @@ private fun EmptyConversationsState(isSearching: Boolean) {
                 textAlign = TextAlign.Center
             )
         }
+    }
+}
+
+// ─── Global arama sonuc satiri ──────────────────────────────────────
+
+@Composable
+private fun GlobalSearchResultItem(
+    message: com.securechat.storage.domain.LocalMessage,
+    conversationName: String,
+    searchQuery: String,
+    onClick: () -> Unit
+) {
+    val dark = LocalDarkTheme.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .glass(dark = dark, shape = RoundedCornerShape(14.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        GeneratedAvatar(name = conversationName, size = 40.dp)
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = conversationName,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            // Mesaj snippet'i — arama terimini vurgula
+            val content = message.content
+            val idx = content.lowercase().indexOf(searchQuery.lowercase())
+            if (idx >= 0) {
+                val start = (idx - 20).coerceAtLeast(0)
+                val end = (idx + searchQuery.length + 30).coerceAtMost(content.length)
+                val prefix = if (start > 0) "..." else ""
+                val suffix = if (end < content.length) "..." else ""
+                val snippet = prefix + content.substring(start, end) + suffix
+                val annotated = androidx.compose.ui.text.buildAnnotatedString {
+                    val queryStart = snippet.lowercase().indexOf(searchQuery.lowercase())
+                    if (queryStart >= 0) {
+                        append(snippet.substring(0, queryStart))
+                        pushStyle(androidx.compose.ui.text.SpanStyle(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        ))
+                        append(snippet.substring(queryStart, queryStart + searchQuery.length))
+                        pop()
+                        append(snippet.substring(queryStart + searchQuery.length))
+                    } else {
+                        append(snippet)
+                    }
+                }
+                Text(
+                    text = annotated,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else {
+                Text(
+                    text = content,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = formatTimestamp(message.timestamp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp
+        )
     }
 }
 

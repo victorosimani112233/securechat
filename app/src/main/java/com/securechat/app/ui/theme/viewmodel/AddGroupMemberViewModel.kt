@@ -203,7 +203,13 @@ class AddGroupMemberViewModel @Inject constructor(
             try {
                 val digits = PhoneNumberNormalizer.normalizeDigits(phone)
                 val hash = UserDiscoveryService.hashPhoneNumber(digits)
+                val token = userSession.accessToken
+                if (token.isNullOrBlank()) {
+                    _error.value = "Oturum suresi doldu, lutfen tekrar giris yapin"
+                    return@launch
+                }
                 val response = discoveryApiService.checkRegisteredUsers(
+                    "Bearer $token",
                     CheckUsersRequest(hashes = listOf(hash))
                 )
                 val match = response.users.firstOrNull()

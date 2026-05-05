@@ -6,6 +6,7 @@ import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Person
@@ -119,6 +122,7 @@ fun ChatInfoScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val disappearingDuration by viewModel.disappearingDuration.collectAsStateWithLifecycle()
     val isMuted by viewModel.isMuted.collectAsStateWithLifecycle()
+    val isLocked by viewModel.isLocked.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(ChatInfoTab.MAIN) }
@@ -245,6 +249,8 @@ fun ChatInfoScreen(
                     },
                     isMuted = isMuted,
                     onMuteToggle = { viewModel.toggleMuted() },
+                    isLocked = isLocked,
+                    onLockToggle = { viewModel.toggleLocked() },
                     onAddContactClick = {
                         val addContactIntent = Intent(ContactsContract.Intents.Insert.ACTION).apply {
                             type = ContactsContract.RawContacts.CONTENT_TYPE
@@ -368,6 +374,8 @@ private fun MainInfoContent(
     onNotificationClick: () -> Unit,
     isMuted: Boolean = false,
     onMuteToggle: () -> Unit = {},
+    isLocked: Boolean = false,
+    onLockToggle: () -> Unit = {},
     onAddContactClick: () -> Unit = {}
 ) {
     LazyColumn(
@@ -455,6 +463,17 @@ private fun MainInfoContent(
                 title = if (isMuted) "Sessizde" else "Sesli",
                 subtitle = if (isMuted) "Bildirimler kapalı" else "Bildirimler açık",
                 onClick = onMuteToggle
+            )
+        }
+
+        // Biyometrik kilit
+        item {
+            InfoMenuItem(
+                icon = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                iconTint = if (isLocked) MaterialTheme.colorScheme.primary else Color(0xFF78909C),
+                title = if (isLocked) "Sohbet Kilitli" else "Sohbet Kilidi",
+                subtitle = if (isLocked) "Biyometrik doğrulama açık" else "Biyometrik kilit ekle",
+                onClick = onLockToggle
             )
         }
 
@@ -768,14 +787,21 @@ private fun MediaThumbnail(
     Card(
         modifier = Modifier
             .size(110.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(8.dp)
+            )
             .clickable { onClick() },
-        shape = RoundedCornerShape(4.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
         )
     ) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -831,11 +857,18 @@ private fun DocumentItem(
     message: MessageEntity,
     onClick: () -> Unit
 ) {
+    val dark = LocalDarkTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .glass(dark, shape = RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(vertical = 12.dp),
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(

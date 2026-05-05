@@ -7,7 +7,9 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import com.securechat.media.model.CallSession
+import com.securechat.network.model.CallType
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,28 +37,42 @@ class IncomingCallHandler @Inject constructor(
 
     /**
      * Gelen arama notification channel'ini olusturur.
-     * Uygulama baslatildiginda bir kere cagrilmalidir.
+     * Idempotent — birden fazla cagri guvenli, kanali silmez.
+     *
+     * NOT: deleteNotificationChannel ASLA cagrilmaz cunku FCM push akisinda
+     * SecureChatFcmService her gelen aramada initialize() cagriyor; kanal silinince
+     * o anda yapilmis olan full-screen intent'li bildirim de iptal oluyordu.
      */
     fun initialize() {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        // Kanal zaten varsa yeniden olusturma — Android idempotent gibi davransa da
+        // yeni instance ses/titresim gibi ayarlari guncellemez, sadece create_or_no_op
+        if (nm.getNotificationChannel(INCOMING_CALL_CHANNEL_ID) != null) return
+
         val channel = NotificationChannel(
             INCOMING_CALL_CHANNEL_ID,
             "Gelen Arama",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
+            // Ses ve titresim RingtonePlayer tarafindan yonetilir — kanal sessiz olmali
             setSound(null, null)
-            // Kritik: Bu kanal full-screen intent'leri destekler
             enableLights(true)
-            enableVibration(true)
+            enableVibration(false)
             description = "Gelen arama bildirimleri - kilit ekranında görünür"
             lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
         }
-        val nm = context.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(channel)
     }
 
     /**
      * Gelen arama bildirimi gosterir.
-     * Full-screen intent ile kilit ekrani uzerinde IncomingCallActivity'yi acar.
+     *
+     * NotificationCompat.CallStyle kullanir (Android 12+ icin native, daha eski versiyonlar
+     * icin compat fallback). WhatsApp benzeri arama UI'i:
+     * - Buyuk arayan ismi/avatar
+     * - Yesil "Kabul Et" / kirmizi "Reddet" butonlari
+     * - Android otomatik full-screen tetikler (kilit ekraninda + non-interactive durumda)
+     * - SYSTEM_ALERT_WINDOW iznine ihtiyac duymaz
      *
      * @param session Gelen arama oturumu bilgileri
      * @param peerName Arayan kisinin gorunen adi
@@ -81,28 +97,38 @@ class IncomingCallHandler @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val isVideo = session.callType == CallType.VIDEO
+
+        // Arayan kisiyi Person olarak tanimla — CallStyle bu sayede WhatsApp-tarzi avatar/isim gosterir
+        val caller = Person.Builder()
+            .setName(peerName)
+            .setImportant(true)
+            .build()
+
+        // CallStyle.forIncomingCall: sistem otomatik yesil-kabul/kirmizi-reddet butonlari ekler
+        val callStyle = NotificationCompat.CallStyle.forIncomingCall(
+            caller,
+            rejectPi,   // declineIntent (kirmizi buton)
+            acceptPi    // answerIntent (yesil buton)
+        ).setIsVideo(isVideo)
+
         val builder = NotificationCompat.Builder(context, INCOMING_CALL_CHANNEL_ID)
-            .setContentTitle("Gelen Arama")
-            .setContentText("$peerName ariyor...")
+            .setStyle(callStyle)
             .setSmallIcon(android.R.drawable.ic_menu_call)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .addAction(android.R.drawable.ic_menu_call, "Kabul Et", acceptPi)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Reddet", rejectPi)
             .setOngoing(true)
             .setAutoCancel(false)
-            // Kritik: Bu bildirim heads-up olarak gösterilmeli
-            .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
-            .setVibrate(longArrayOf(0, 1000, 500, 1000))
-            .setSound(null) // Zil sesi RingtonePlayer'dan çalacak
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setTimeoutAfter(30_000) // 30 saniye sonra otomatik kaybolsun
+            .setTimeoutAfter(30_000) // 30sn sonra otomatik kaybolsun
 
-        // Full-screen intent ekle — kilit ekraninda dogrudan Activity acar
+        // Full-screen intent ekle — Android otomatik launch eder (kilit ekrani + non-interactive)
         if (fullScreenActivityClass != null) {
             val fullScreenIntent = Intent(context, fullScreenActivityClass).apply {
                 putExtra("peer_id", session.peerId)
                 putExtra("peer_name", peerName)
+                putExtra("call_type", session.callType.name)
+                putExtra("fcm_pending", session.callId.startsWith("fcm_pending_"))
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION
             }
             val fullScreenPi = PendingIntent.getActivity(
@@ -110,6 +136,7 @@ class IncomingCallHandler @Inject constructor(
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             builder.setFullScreenIntent(fullScreenPi, true)
+            builder.setContentIntent(fullScreenPi)
         }
 
         try {

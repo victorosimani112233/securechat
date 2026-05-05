@@ -4,13 +4,18 @@ import android.content.Context
 import com.securechat.media.model.CallDirection
 import com.securechat.media.model.CallSession
 import com.securechat.media.model.CallState
+import com.securechat.network.JanusClient
 import com.securechat.network.PeerConnectionManager
 import com.securechat.network.SignalingClient
 import com.securechat.network.SignalMessage
 import com.securechat.network.model.CallAction
 import com.securechat.network.model.CallType
 import com.securechat.storage.dao.CallLogDao
+import com.securechat.storage.domain.LocalMessage
 import com.securechat.storage.entity.CallLogEntity
+import com.securechat.storage.model.MessageContentType
+import com.securechat.storage.model.MessageStatus
+import com.securechat.storage.repository.MessageRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +29,7 @@ import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,10 +54,13 @@ class CallManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val signalingClient: SignalingClient,
     private val peerConnectionManager: PeerConnectionManager,
+    private val iceServerFetcher: com.securechat.network.IceServerFetcher,
     private val audioManager: CallAudioManager,
     private val ringtonePlayer: RingtonePlayer,
     private val incomingCallHandler: IncomingCallHandler,
-    private val callLogDao: CallLogDao
+    private val callLogDao: CallLogDao,
+    private val messageRepository: MessageRepository,
+    private val telecomBridge: com.securechat.media.telecom.TelecomBridge
 ) {
     private val _callSession = MutableStateFlow<CallSession?>(null)
 
@@ -106,6 +115,61 @@ class CallManager @Inject constructor(
     /** Grup aramasi SDP Offer bekleyen peerler (ringing sirasinda). */
     private val pendingGroupSdpOffers = mutableMapOf<String, String>()
 
+    // --- SFU (Janus VideoRoom) state ---
+    /** SFU modu esik degeri — bu ve ustundeki katilimci sayisinda SFU aktif olur. */
+    companion object {
+        const val SFU_THRESHOLD = 4
+    }
+
+    /** Janus client — SFU modunda VideoRoom ile iletisim kurar. */
+    private var janusClient: JanusClient? = null
+
+    /** SFU modunda bekleyen room bilgisi (henuz arama aktif degilse). */
+    @Volatile
+    private var pendingSfuRoomInfo: SignalMessage.SfuRoomCreated? = null
+
+    /** Janus publisher feedId'leri: displayName (userId) -> feedId eslemesi. */
+    private val sfuFeedMap = ConcurrentHashMap<String, Long>()
+
+    /**
+     * FCM push'tan gelen aramayi kullanici kabul ettiyse (SDP henuz gelmeden),
+     * SDP geldiginde otomatik kabul icin userId saklanir.
+     * 90sn icinde SDP gelmezse otomatik temizlenir — eski pending state
+     * sonraki gercek aramayi yanlislikla kabul etmesin diye.
+     */
+    @Volatile
+    var pendingFcmAccept: String? = null
+        set(value) {
+            field = value
+            if (value != null) schedulePendingFcmCleanup()
+        }
+
+    /**
+     * FCM push'tan gelen aramayi kullanici reddettiyse (SDP henuz gelmeden),
+     * SDP geldiginde otomatik reddet icin userId saklanir.
+     * 90sn icinde SDP gelmezse otomatik temizlenir.
+     */
+    @Volatile
+    var pendingFcmReject: String? = null
+        set(value) {
+            field = value
+            if (value != null) schedulePendingFcmCleanup()
+        }
+
+    private var pendingFcmCleanupJob: kotlinx.coroutines.Job? = null
+
+    private fun schedulePendingFcmCleanup() {
+        pendingFcmCleanupJob?.cancel()
+        pendingFcmCleanupJob = scope.launch {
+            kotlinx.coroutines.delay(90_000L)
+            if (pendingFcmAccept != null || pendingFcmReject != null) {
+                android.util.Log.w("CallManager", "pendingFcm timeout — temizleniyor")
+                pendingFcmAccept = null
+                pendingFcmReject = null
+            }
+        }
+    }
+
     // ---- Giden arama ----
 
     /**
@@ -154,9 +218,26 @@ class CallManager @Inject constructor(
             audioManager.setSpeakerOn(true)
         }
 
+        // Telecom Framework (SELF_MANAGED) outgoing kayit denemesi.
+        // Basarisiz olursa (PhoneAccount yok / izin yok / placeCall hatasi) sadece
+        // log atilir; mevcut WebRTC akisi etkilenmez. Bridge attemptOutgoing()
+        // sirasinda CallManager.callSession StateFlow'unu collect etmeye baslar
+        // ve sonraki state'leri (ACTIVE/ENDED/...) Connection'a push eder.
+        try {
+            telecomBridge.attemptOutgoing(session)
+        } catch (t: Throwable) {
+            android.util.Log.w("CallManager", "telecomBridge.attemptOutgoing hatasi", t)
+        }
+
         // PeerConnection olustur ve SDP Offer uret
         scope.launch(Dispatchers.Main) {
             try {
+                // Sunucudan dinamik TURN credential al
+                val iceServers = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    iceServerFetcher.fetch(userId)
+                }
+                peerConnectionManager.updateIceServers(iceServers)
+
                 peerConnectionManager.initialize()
 
                 // ICE candidate callback'ini ayarla
@@ -256,6 +337,23 @@ class CallManager @Inject constructor(
 
         // Zil sesi ve titresimi baslat
         ringtonePlayer.startRinging()
+
+        // FCM pending aksiyonlarini kontrol et
+        val rejectUserId = pendingFcmReject
+        val acceptUserId = pendingFcmAccept
+        pendingFcmReject = null
+        pendingFcmAccept = null
+
+        if (rejectUserId != null) {
+            android.util.Log.d("CallManager", "FCM pending reject uygulanıyor: $rejectUserId")
+            rejectCall(rejectUserId)
+            return
+        }
+        if (acceptUserId != null) {
+            android.util.Log.d("CallManager", "FCM pending accept uygulanıyor: $acceptUserId")
+            acceptCall(acceptUserId)
+            return
+        }
     }
 
     // ---- Arama kabul ----
@@ -313,6 +411,12 @@ class CallManager @Inject constructor(
         // PeerConnection olustur, remote SDP set et, answer uret
         scope.launch(Dispatchers.Main) {
             try {
+                // Sunucudan dinamik TURN credential al
+                val iceServers = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    iceServerFetcher.fetch(userId)
+                }
+                peerConnectionManager.updateIceServers(iceServers)
+
                 peerConnectionManager.initialize()
 
                 // ICE candidate callback'ini ayarla
@@ -565,7 +669,10 @@ class CallManager @Inject constructor(
         isGroupCallCoordinator = true
         groupConnectedPeers.clear()
 
-        val isVideo = callType == CallType.VIDEO
+        // Toplam katilimci sayisi (arayan dahil)
+        val totalParticipants = peerIds.size + 1
+        val willUseSfu = totalParticipants >= SFU_THRESHOLD
+
         val callId = UUID.randomUUID().toString()
         val session = CallSession(
             callId = callId,
@@ -578,9 +685,14 @@ class CallManager @Inject constructor(
             isGroupCall = true,
             groupId = groupId,
             peerIds = peerIds,
-            connectedPeerIds = emptyList()
+            connectedPeerIds = emptyList(),
+            isSfuMode = willUseSfu // Sunucu ≥4 katilimcida SFU room olusturacak
         )
         _callSession.value = session
+
+        if (willUseSfu) {
+            android.util.Log.d("CallManager", "SFU modu aktif: $totalParticipants katilimci (esik: $SFU_THRESHOLD)")
+        }
 
         audioManager.setSpeakerOn(true)
         audioManager.setCallMode()
@@ -682,6 +794,23 @@ class CallManager @Inject constructor(
 
         ringtonePlayer.startRinging()
         android.util.Log.d("CallManager", "Gelen grup aramasi: ${signal.groupId} from ${signal.senderId}")
+
+        // FCM pending aksiyonlarini kontrol et
+        val rejectUserId = pendingFcmReject
+        val acceptUserId = pendingFcmAccept
+        pendingFcmReject = null
+        pendingFcmAccept = null
+
+        if (rejectUserId != null) {
+            android.util.Log.d("CallManager", "FCM pending reject (grup) uygulanıyor")
+            rejectCall(rejectUserId)
+            return
+        }
+        if (acceptUserId != null) {
+            android.util.Log.d("CallManager", "FCM pending accept (grup) uygulanıyor")
+            acceptGroupCall(acceptUserId)
+            return
+        }
     }
 
     /**
@@ -756,6 +885,15 @@ class CallManager @Inject constructor(
                 }
 
                 android.util.Log.d("CallManager", "Grup aramasi kabul edildi, ${pendingOffers.size} bekleyen offer islendi")
+
+                // Bekleyen SFU room bilgisi varsa simdi isle
+                val pendingSfu = pendingSfuRoomInfo
+                if (pendingSfu != null) {
+                    pendingSfuRoomInfo = null
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        handleSfuRoomCreated(pendingSfu)
+                    }
+                }
             } catch (e: Exception) {
                 android.util.Log.e("CallManager", "acceptGroupCall hatasi: ${e.message}")
                 onCallFailed()
@@ -955,6 +1093,158 @@ class CallManager @Inject constructor(
         }
     }
 
+    // ---- SFU Mode ----
+
+    /**
+     * Sunucudan gelen SFU room bilgisini isler.
+     * Grup aramasi SFU esigini (≥4 katilimci) astiysa sunucu Janus VideoRoom olusturur
+     * ve tum katilimcilara bu bilgiyi gonderir.
+     *
+     * Akis:
+     * 1. Janus WS'ye baglan
+     * 2. Session olustur + VideoRoom plugin'ine attach
+     * 3. Odaya publisher olarak katil
+     * 4. Yerel medyayi publish et (SDP offer -> Janus -> SDP answer)
+     * 5. Mevcut publisher'lara subscribe ol
+     * 6. Yeni publisher event'lerini dinle
+     */
+    fun handleSfuRoomCreated(signal: SignalMessage.SfuRoomCreated) {
+        val session = _callSession.value
+        if (session == null || !session.isGroupCall) {
+            // Henuz session yoksa (ringing sirasinda gelebilir) — sakla
+            pendingSfuRoomInfo = signal
+            android.util.Log.d("CallManager", "SFU room info saklandi (session henuz yok): ${signal.groupId}")
+            return
+        }
+
+        // Session'i SFU moduna gecir
+        _callSession.value = session.copy(isSfuMode = true, sfuRoomId = signal.roomId)
+
+        android.util.Log.d("CallManager", "SFU room alindi: groupId=${signal.groupId}, roomId=${signal.roomId}")
+
+        scope.launch {
+            try {
+                connectToSfuRoom(signal.janusWsUrl, signal.roomId)
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "SFU baglanti hatasi: ${e.message}")
+                // SFU basarisiz olursa mesh'e fallback — mevcut mesh baglantilari korunur
+                _callSession.value = _callSession.value?.copy(isSfuMode = false, sfuRoomId = 0)
+            }
+        }
+    }
+
+    /**
+     * Janus VideoRoom'a baglanir, publisher olarak katilir ve mevcut publisher'lara subscribe olur.
+     */
+    private suspend fun connectToSfuRoom(janusWsUrl: String, roomId: Long) {
+        val client = JanusClient()
+        janusClient = client
+
+        // 1. Janus WS'ye baglan
+        val connected = client.connect(janusWsUrl)
+        if (!connected) throw RuntimeException("Janus WS baglantisi basarisiz")
+
+        // 2. Session olustur
+        client.createSession()
+
+        // 3. VideoRoom plugin'ine attach
+        client.attachVideoRoom()
+
+        // 4. Odaya publisher olarak katil
+        val existingPublishers = client.joinAsPublisher(roomId, localUserId)
+
+        // 5. Publisher PeerConnection olustur ve SDP offer ile publish et
+        kotlinx.coroutines.withContext(Dispatchers.Main) {
+            peerConnectionManager.initialize()
+            val session = _callSession.value ?: return@withContext
+            val enableVideo = session.callType == CallType.VIDEO
+            peerConnectionManager.createSfuPublisherConnection(enableVideo)
+            val offer = peerConnectionManager.createSfuPublisherOffer()
+
+            // Janus'a SDP offer gonder, answer al
+            val answerSdp = client.publishSdp(offer.description)
+            val answer = org.webrtc.SessionDescription(
+                org.webrtc.SessionDescription.Type.ANSWER, answerSdp
+            )
+            peerConnectionManager.setSfuPublisherRemoteAnswer(answer)
+        }
+
+        android.util.Log.d("CallManager", "SFU publisher olarak yayina basladi")
+
+        // 6. Mevcut publisher'lara subscribe ol
+        for ((feedId, display) in existingPublishers) {
+            subscribeToSfuFeed(client, roomId, feedId, display)
+        }
+
+        // 7. Yeni publisher event callback'lerini ayarla
+        client.onPublisherJoined = { feedId, display ->
+            scope.launch {
+                subscribeToSfuFeed(client, roomId, feedId, display)
+            }
+        }
+
+        client.onPublisherLeft = { feedId ->
+            scope.launch(Dispatchers.Main) {
+                peerConnectionManager.disposeSfuSubscriber(feedId)
+                val displayName = sfuFeedMap.entries.find { it.value == feedId }?.key
+                if (displayName != null) sfuFeedMap.remove(displayName)
+                android.util.Log.d("CallManager", "SFU publisher ayrildi: feedId=$feedId")
+            }
+        }
+
+        // Mesh PeerConnection'lari artik gereksiz — SFU aktif
+        // ONEMLI: closeGroupPeerConnectionsOnly() kullan — paylasimli medya track'lerine DOKUNMA
+        // SFU publisher ayni localAudioTrack/localVideoTrack'i kullaniyor
+        peerConnectionManager.closeGroupPeerConnectionsOnly()
+        android.util.Log.d("CallManager", "Mesh PeerConnection'lar kapatildi (medya korundu), SFU aktif")
+    }
+
+    /**
+     * Belirli bir SFU publisher'a subscribe olur.
+     * Janus'tan SDP offer alir, subscriber PeerConnection olusturur, SDP answer gonderir.
+     */
+    private suspend fun subscribeToSfuFeed(
+        client: JanusClient,
+        roomId: Long,
+        feedId: Long,
+        displayName: String?
+    ) {
+        try {
+            if (displayName != null) sfuFeedMap[displayName] = feedId
+
+            // Janus'tan subscriber SDP offer al
+            val offerSdp = client.subscribeToFeed(roomId, feedId)
+
+            // Subscriber PeerConnection olustur ve answer uret
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                peerConnectionManager.createSfuSubscriberConnection(feedId)
+                val remoteSdp = org.webrtc.SessionDescription(
+                    org.webrtc.SessionDescription.Type.OFFER, offerSdp
+                )
+                val answer = peerConnectionManager.handleSfuSubscriberOffer(feedId, remoteSdp)
+
+                // Answer'i Janus'a gonder
+                client.answerSubscription(feedId, answer.description)
+            }
+
+            android.util.Log.d("CallManager", "SFU subscriber baglandi: feedId=$feedId, display=$displayName")
+        } catch (e: Exception) {
+            android.util.Log.e("CallManager", "SFU subscribe hatasi (feedId=$feedId): ${e.message}")
+        }
+    }
+
+    /** SFU kaynaklarini temizler. */
+    private fun cleanupSfu() {
+        janusClient?.disconnect()
+        janusClient = null
+        peerConnectionManager.disposeAllSfuConnections()
+        sfuFeedMap.clear()
+        pendingSfuRoomInfo = null
+    }
+
+    /** SFU remote video track'leri. */
+    val sfuRemoteVideoTracksFlow get() = peerConnectionManager.sfuRemoteVideoTracksFlow
+
     /** connectedPeerIds listesini gunceller. */
     private fun updateGroupConnectedPeers() {
         val session = _callSession.value ?: return
@@ -1019,10 +1309,22 @@ class CallManager @Inject constructor(
             saveCallLog(session, duration)
 
             incomingCallHandler.dismissIncomingCall()
+            // "Arama devam ediyor" foreground bildirimini de kaldir
+            CallForegroundService.stop(context)
             ringtonePlayer.stopRinging()
             ringtonePlayer.stopRingbackTone()
 
-            peerConnectionManager.disposeAllGroupPeerConnections()
+            // SFU modundaysa Janus + SFU PC'lerini temizle (medya dahil)
+            // Mesh modundaysa mesh PC'lerini temizle (medya dahil)
+            // Ikisi birden cagirilmaz — double-dispose onlenir
+            if (session.isSfuMode) {
+                cleanupSfu()
+                // Mesh PC'ler SFU gecisinde zaten kapatildi (medyasiz)
+                // Ama hala referanslari varsa temizle (sadece PC, medya zaten SFU tarafindan temizlendi)
+                peerConnectionManager.closeGroupPeerConnectionsOnly()
+            } else {
+                peerConnectionManager.disposeAllGroupPeerConnections()
+            }
             audioManager.resetAudioMode()
 
             isGroupCallCoordinator = false
@@ -1204,6 +1506,11 @@ class CallManager @Inject constructor(
             // Gelen arama bildirimini kaldir
             incomingCallHandler.dismissIncomingCall()
 
+            // Aktif arama foreground service'ini durdur — "Arama devam ediyor"
+            // bildirimi calisma bittikten sonra ekranda kalmasin. stopService
+            // idempotent: service zaten durmussa no-op.
+            CallForegroundService.stop(context)
+
             // Guvenlik icin tum sesleri durdur (idempotent)
             ringtonePlayer.stopRinging()
             ringtonePlayer.stopRingbackTone()
@@ -1261,9 +1568,62 @@ class CallManager @Inject constructor(
                         duration = duration ?: 0
                     )
                 )
+
+                // Arama bilgisini sohbette SYSTEM mesaji olarak kaydet
+                saveCallSystemMessage(session, status, duration)
             } catch (e: Exception) {
                 android.util.Log.e("CallManager", "Call log kayit hatasi: ${e.message}")
             }
         }
+    }
+
+    /**
+     * Arama bilgisini sohbette sistem mesaji olarak kaydeder.
+     * WhatsApp'taki gibi arama bilgileri sohbet icinde gorunur.
+     */
+    private suspend fun saveCallSystemMessage(session: CallSession, status: String, duration: Long?) {
+        try {
+            val callTypeLabel = if (session.callType == CallType.VOICE) "Sesli arama" else "Görüntülü arama"
+            val isOutgoing = session.direction == CallDirection.OUTGOING
+
+            val content = when (status) {
+                "ANSWERED" -> {
+                    val durationStr = formatCallDuration(duration ?: 0)
+                    if (isOutgoing) "$callTypeLabel · $durationStr"
+                    else "$callTypeLabel · $durationStr"
+                }
+                "MISSED" -> "Kaçırılan $callTypeLabel"
+                "REJECTED" -> if (isOutgoing) "$callTypeLabel · Reddedildi" else "Kaçırılan $callTypeLabel"
+                "FAILED" -> "$callTypeLabel · Bağlanılamadı"
+                else -> callTypeLabel
+            }
+
+            // Arama bilgisi: "CALL|direction|callType|status|duration"
+            // Bu formati ChatScreen'de parse ederek ikon ve stil belirleriz
+            val systemContent = "CALL|${session.direction.name}|${session.callType.name}|$status|${duration ?: 0}|$content"
+
+            val conversationId = session.peerId // 1-on-1 icin peerId = conversationId
+            val message = LocalMessage(
+                id = UUID.randomUUID().toString(),
+                conversationId = conversationId,
+                senderId = if (isOutgoing) localUserId else session.peerId,
+                peerId = session.peerId,
+                content = systemContent,
+                contentType = MessageContentType.SYSTEM,
+                timestamp = System.currentTimeMillis(),
+                status = MessageStatus.DELIVERED,
+                isOutgoing = isOutgoing
+            )
+            messageRepository.saveMessage(message)
+        } catch (e: Exception) {
+            android.util.Log.e("CallManager", "Call system message kayit hatasi: ${e.message}")
+        }
+    }
+
+    private fun formatCallDuration(durationMs: Long): String {
+        val totalSeconds = durationMs / 1000
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return if (minutes > 0) "${minutes}dk ${seconds}sn" else "${seconds}sn"
     }
 }

@@ -23,6 +23,9 @@ enum class GroupAction {
     /** Grup ismi değiştirildi */
     UPDATE_NAME,
 
-    /** Grup admin listesi güncellendi */
-    UPDATE_ADMIN
+    /** Grup admin listesi güncellendi (yükseltme) */
+    UPDATE_ADMIN,
+
+    /** Grup admin yetkisi alındı (düşürme) */
+    DEMOTE_ADMIN
 }

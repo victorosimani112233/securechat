@@ -159,7 +159,7 @@ fun CallScreen(
     // Arama sonlaninca geri don — her iki taraf icin de calisir
     LaunchedEffect(callSession?.state) {
         val state = callSession?.state
-        if (state == CallState.ENDED || state == CallState.FAILED) {
+        if (state == CallState.ENDED || state == CallState.FAILED || state == CallState.REJECTED) {
             delay(1500)
             onCallEnded()
         }
@@ -291,7 +291,7 @@ fun CallScreen(
                             val newTrack = mainVideoTrack
                             if (prevTrack != newTrack) {
                                 prevTrack?.removeSink(renderer)
-                                newTrack?.addSink(renderer)
+                                try { newTrack?.addSink(renderer) } catch (_: Exception) {}
                                 currentMainTrack.value = newTrack
                             }
                         },
@@ -409,8 +409,8 @@ fun CallScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 textAlign = TextAlign.Center
                             )
-                            val connectedCount = callSession?.connectedPeerIds?.size ?: 0
-                            val totalCount = callSession?.peerIds?.size ?: 0
+                            val connectedCount = (callSession?.connectedPeerIds?.size ?: 0) + 1 // +1 kendisi dahil
+                            val totalCount = (callSession?.peerIds?.size ?: 0) + 1 // +1 kendisi dahil
                             Text(
                                 text = "$connectedCount / $totalCount katilimci",
                                 style = MaterialTheme.typography.bodyMedium,
@@ -538,7 +538,7 @@ fun CallScreen(
                             val newTrack = pipVideoTrack
                             if (prevTrack != newTrack) {
                                 prevTrack?.removeSink(renderer)
-                                newTrack?.addSink(renderer)
+                                try { newTrack?.addSink(renderer) } catch (_: Exception) {}
                                 currentPipTrack.value = newTrack
                             }
                         },
@@ -636,7 +636,7 @@ private fun GroupVideoGrid(
                         val next = localVideoTrack
                         if (prev != next) {
                             prev?.removeSink(renderer)
-                            next?.addSink(renderer)
+                            try { next?.addSink(renderer) } catch (_: Exception) {}
                             currentLocalTrack.value = next
                         }
                     },
@@ -678,7 +678,7 @@ private fun GroupVideoCell(
                 val prev = currentTrack.value
                 if (prev != videoTrack) {
                     prev?.removeSink(renderer)
-                    videoTrack.addSink(renderer)
+                    try { videoTrack.addSink(renderer) } catch (_: Exception) {}
                     currentTrack.value = videoTrack
                 }
             },

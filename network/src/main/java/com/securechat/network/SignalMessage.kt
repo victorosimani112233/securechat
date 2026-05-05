@@ -230,6 +230,68 @@ sealed class SignalMessage {
         val conversationId: String = "" // bos ise senderId kullanilir (geriye uyumluluk)
     ) : SignalMessage()
 
+    /**
+     * Mesaj reaksiyonu (emoji).
+     * Kullanici bir mesaja emoji ile tepki verdiginde karsi tarafa iletilir.
+     * remove=true ise mevcut reaksiyon kaldirilir.
+     */
+    @Serializable
+    @SerialName("message_reaction")
+    data class MessageReaction(
+        override val senderId: String,
+        override val recipientId: String,
+        override val timestamp: Long,
+        val messageId: String,
+        val emoji: String,
+        val remove: Boolean = false,
+        val groupId: String? = null
+    ) : SignalMessage()
+
+    /**
+     * Sunucu tarafinda grup mesaj dagitimi (fan-out).
+     * Sender tek mesaj gonderir, sunucu her uye icin ayri mesaj olusturur.
+     * recipientPayloads: {userId -> sifrelenmis envelope} seklinde her uyenin payloadi.
+     */
+    @Serializable
+    @SerialName("group_message_fanout")
+    data class GroupMessageFanout(
+        override val senderId: String,
+        override val recipientId: String = "server", // Sunucu isleyecek
+        override val timestamp: Long,
+        val groupId: String,
+        val recipientPayloads: Map<String, String> // userId -> envelope
+    ) : SignalMessage()
+
+    /**
+     * SFU room olusturuldu bildirimi.
+     * 4+ katilimcili grup aramasinda sunucu Janus VideoRoom olusturur ve bu bilgiyi gonderir.
+     * Client bu bilgiyle mesh yerine Janus SFU'ya baglanir.
+     */
+    @Serializable
+    @SerialName("sfu_room_created")
+    data class SfuRoomCreated(
+        override val senderId: String = "server",
+        override val recipientId: String = "broadcast",
+        override val timestamp: Long,
+        val groupId: String,
+        val roomId: Long,
+        val janusWsUrl: String,
+        val apiSecret: String = ""
+    ) : SignalMessage()
+
+    /**
+     * Sunucu kapanma bildirimi. Graceful shutdown sirasinda gonderilir.
+     * Client bu mesaji alinca reconnect oncesi 5sn bekler.
+     */
+    @Serializable
+    @SerialName("server_shutdown")
+    data class ServerShutdown(
+        override val senderId: String = "server",
+        override val recipientId: String = "broadcast",
+        override val timestamp: Long,
+        val message: String = ""
+    ) : SignalMessage()
+
     /** Cevrimici durum bildirimi. Sunucu tarafindan subscribe olan istemcilere gonderilir. */
     @Serializable
     @SerialName("presence_update")

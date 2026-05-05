@@ -19,6 +19,9 @@ interface MessageRepository {
     /** Belirli bir konuşmadaki son N mesaji reaktif olarak getir (sayfalama icin). */
     fun getRecentMessages(conversationId: String, limit: Int): Flow<List<LocalMessage>>
 
+    /** Cursor-based sayfalama: belirtilen zaman damgasindan onceki mesajlari getirir. */
+    suspend fun getOlderMessages(conversationId: String, beforeTimestamp: Long, limit: Int): List<LocalMessage>
+
     /** Tum konuşmalari reaktif olarak getir. */
     fun getConversations(): Flow<List<Conversation>>
 
@@ -75,6 +78,18 @@ interface MessageRepository {
 
     /** Konuşmanın sessiz modunu güncelle. */
     suspend fun updateConversationMuted(conversationId: String, isMuted: Boolean)
+
+    /** Tum sohbetlerde mesaj ara. */
+    suspend fun searchAllMessages(query: String): List<LocalMessage>
+
+    /** Belirli bir sohbetin tum mesajlarini kronolojik sirada getir (export icin). */
+    suspend fun getAllMessagesForConversation(conversationId: String): List<LocalMessage>
+
+    /** Mesajin reaksiyon verisini guncelle. */
+    suspend fun updateMessageReactions(messageId: String, reactions: String?)
+
+    /** Konuşmanın biyometrik kilit durumunu güncelle. */
+    suspend fun updateConversationLocked(conversationId: String, isLocked: Boolean)
 
     /**
      * SENDING durumunda takilmis mesajlari FAILED olarak isaretler.

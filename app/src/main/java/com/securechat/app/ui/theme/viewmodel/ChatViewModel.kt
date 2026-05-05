@@ -306,18 +306,21 @@ class ChatViewModel @Inject constructor(
         val entity = conversationDao.getById(conversationId)
         if (entity != null) {
             val members = entity.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
-            // Grup uyelerinin goruntuleme adlarini mevcut konusmalardan coz
+            // Grup uyelerinin goruntuleme adlarini tek sorguda coz (N+1 fix)
             val memberNames = mutableMapOf<String, String>()
-            for (memberId in members) {
-                val memberConv = conversationDao.getByPeerId(memberId)
-                if (memberConv != null && memberConv.peerName.isNotBlank() && memberConv.peerName != memberId) {
-                    memberNames[memberId] = memberConv.peerName
-                } else {
-                    // Konusmada bulunamazsa contactNameResolver ile coz
-                    try {
-                        val resolved = contactNameResolver.resolveDisplayName(memberId)
-                        if (resolved != memberId) memberNames[memberId] = resolved
-                    } catch (_: Exception) { }
+            if (members.isNotEmpty()) {
+                val memberConvs = conversationDao.getByPeerIds(members)
+                val convByPeerId = memberConvs.associateBy { it.peerId }
+                for (memberId in members) {
+                    val memberConv = convByPeerId[memberId]
+                    if (memberConv != null && memberConv.peerName.isNotBlank() && memberConv.peerName != memberId) {
+                        memberNames[memberId] = memberConv.peerName
+                    } else {
+                        try {
+                            val resolved = contactNameResolver.resolveDisplayName(memberId)
+                            if (resolved != memberId) memberNames[memberId] = resolved
+                        } catch (_: Exception) { }
+                    }
                 }
             }
 
@@ -440,26 +443,91 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Anket mesaji gonderir. POLL contentType ile kaydeder.
-     *
-     * @param pollJson Anket JSON icerik stringi
+     * Anket mesaji gonderir. SendMessageUseCase uzerinden retry destekli gonderim yapar.
      */
     fun sendPollMessage(pollJson: String) {
         viewModelScope.launch {
+            sendMessageUseCase(conversationId, pollJson, contentType = MessageContentType.POLL)
+        }
+    }
+
+    /**
+     * Ankete oy verir. Lokal mesaji gunceller ve karsi tarafa POLLVOTE iletir.
+     *
+     * Envelope formati: MSGID:<voteId>:POLLVOTE:<pollMsgId>:<optionIndex>
+     */
+    fun votePoll(pollMessageId: String, optionIndex: Int) {
+        viewModelScope.launch {
             val senderId = userSession.userId ?: "unknown"
+            val pollMessage = messageRepository.getMessageById(pollMessageId) ?: return@launch
+
+            // Mevcut poll JSON'unu parse et ve oyu ekle
+            val json = try { JSONObject(pollMessage.content) } catch (_: Exception) { return@launch }
+            val votesObj = json.optJSONObject("votes") ?: JSONObject()
+            val singleChoice = json.optBoolean("singleChoice", true)
+
+            // Tek secimde onceki oyu kaldir
+            if (singleChoice) {
+                val keys = votesObj.keys().asSequence().toList()
+                for (key in keys) {
+                    val arr = votesObj.optJSONArray(key) ?: continue
+                    val filtered = JSONArray()
+                    for (i in 0 until arr.length()) {
+                        if (arr.getString(i) != senderId) filtered.put(arr.getString(i))
+                    }
+                    votesObj.put(key, filtered)
+                }
+            }
+
+            // Secilen secenege oyu ekle (toggle — zaten varsa kaldir)
+            val optKey = optionIndex.toString()
+            val optArr = votesObj.optJSONArray(optKey) ?: JSONArray()
+            val voters = (0 until optArr.length()).map { optArr.getString(it) }
+            if (senderId in voters) {
+                // Oy geri cek
+                val filtered = JSONArray()
+                voters.filter { it != senderId }.forEach { filtered.put(it) }
+                votesObj.put(optKey, filtered)
+            } else {
+                optArr.put(senderId)
+                votesObj.put(optKey, optArr)
+            }
+
+            json.put("votes", votesObj)
+            val updatedContent = json.toString()
+
+            // Lokal mesaji guncelle
+            messageRepository.updateMessageContent(pollMessageId, updatedContent, MessageContentType.POLL.name)
+
+            // Karsi tarafa oy bilgisini gonder
             val timestamp = System.currentTimeMillis()
-            val message = LocalMessage(
-                id = UUID.randomUUID().toString(),
-                conversationId = conversationId,
-                senderId = senderId,
-                peerId = conversationId,
-                content = pollJson,
-                contentType = MessageContentType.POLL,
-                timestamp = timestamp,
-                status = MessageStatus.SENT,
-                isOutgoing = true
-            )
-            messageRepository.saveMessage(message)
+            val voteEnvelope = "MSGID:${UUID.randomUUID()}:POLLVOTE:$pollMessageId:$optionIndex"
+
+            val conversation = conversationDao.getById(conversationId)
+            val isGroup = conversation?.isGroup == true
+
+            if (isGroup) {
+                val groupName = conversation?.peerName ?: ""
+                val members = conversation?.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                val payloads = members.associateWith { "GROUP:$conversationId:$groupName:$voteEnvelope" }
+                signalingClient.sendSignal(
+                    SignalMessage.GroupMessageFanout(
+                        senderId = senderId,
+                        timestamp = timestamp,
+                        groupId = conversationId,
+                        recipientPayloads = payloads
+                    )
+                )
+            } else {
+                signalingClient.sendSignal(
+                    SignalMessage.EncryptedMessage(
+                        senderId = senderId,
+                        recipientId = conversationId,
+                        timestamp = timestamp,
+                        envelope = voteEnvelope
+                    )
+                )
+            }
         }
     }
 
@@ -913,6 +981,121 @@ class ChatViewModel @Inject constructor(
      */
     fun getConversationsFlow() = messageRepository.getConversations()
 
+    // --- Sohbet disa aktarma ---
+
+    private val _exportText = MutableSharedFlow<String>()
+    val exportText: SharedFlow<String> = _exportText.asSharedFlow()
+
+    /**
+     * Tum sohbet mesajlarini metin formatinda disa aktarir.
+     * Sonuc exportText SharedFlow uzerinden yayilir.
+     */
+    fun exportConversation() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val messages = messageRepository.getAllMessagesForConversation(conversationId)
+            val info = _conversationInfo.value
+            val peerName = info?.name ?: conversationId
+            val memberNames = info?.memberNames ?: emptyMap()
+            val dateFormat = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale("tr"))
+
+            val sb = StringBuilder()
+            sb.appendLine("elçim — Sohbet Dışa Aktarımı")
+            sb.appendLine("Sohbet: $peerName")
+            sb.appendLine("Tarih: ${dateFormat.format(java.util.Date())}")
+            sb.appendLine("Mesaj sayısı: ${messages.size}")
+            sb.appendLine("─".repeat(40))
+            sb.appendLine()
+
+            messages.forEach { msg ->
+                val time = dateFormat.format(java.util.Date(msg.timestamp))
+                val sender = when {
+                    msg.isOutgoing -> "Ben"
+                    msg.senderId.isNotBlank() -> memberNames[msg.senderId] ?: msg.senderId
+                    else -> peerName
+                }
+                val content = when {
+                    msg.isSystemMessage -> "[${msg.content}]"
+                    msg.isDeleted -> "[Silinen mesaj]"
+                    msg.isFileMessage -> "[Dosya: ${msg.fileName ?: "dosya"}]"
+                    msg.contentType == com.securechat.storage.model.MessageContentType.VOICE_NOTE -> "[Sesli mesaj]"
+                    msg.contentType == com.securechat.storage.model.MessageContentType.POLL -> "[Anket]"
+                    else -> msg.content
+                }
+                sb.appendLine("[$time] $sender: $content")
+            }
+
+            _exportText.emit(sb.toString())
+        }
+    }
+
+    // --- Mesaj reaksiyonlari ---
+
+    /**
+     * Mesaja emoji reaksiyonu ekler veya kaldirir.
+     * Ayni emoji zaten varsa kaldirir (toggle), yoksa ekler.
+     * Karsi tarafa SignalMessage.MessageReaction gonderir.
+     */
+    fun toggleReaction(messageId: String, emoji: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val userId = userSession.userId ?: return@launch
+            val message = messageRepository.getMessageById(messageId) ?: return@launch
+
+            // Mevcut reaksiyonlari parse et
+            val reactionsMap = parseReactions(message.reactions)
+            val usersForEmoji = reactionsMap.getOrDefault(emoji, mutableListOf())
+            val isRemoving = userId in usersForEmoji
+
+            if (isRemoving) {
+                usersForEmoji.remove(userId)
+                if (usersForEmoji.isEmpty()) reactionsMap.remove(emoji)
+            } else {
+                usersForEmoji.add(userId)
+                reactionsMap[emoji] = usersForEmoji
+            }
+
+            // JSON'a cevir ve kaydet
+            val json = if (reactionsMap.isEmpty()) null else {
+                val obj = org.json.JSONObject()
+                reactionsMap.forEach { (e, users) ->
+                    obj.put(e, org.json.JSONArray(users))
+                }
+                obj.toString()
+            }
+            messageRepository.updateMessageReactions(messageId, json)
+
+            // Karsi tarafa gonder
+            val conv = conversationDao.getById(conversationId) ?: return@launch
+            if (conv.isGroup) {
+                val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                for (memberId in members) {
+                    if (memberId == userId) continue
+                    signalingClient.sendSignal(
+                        SignalMessage.MessageReaction(
+                            senderId = userId,
+                            recipientId = memberId,
+                            timestamp = System.currentTimeMillis(),
+                            messageId = messageId,
+                            emoji = emoji,
+                            remove = isRemoving,
+                            groupId = conversationId
+                        )
+                    )
+                }
+            } else {
+                signalingClient.sendSignal(
+                    SignalMessage.MessageReaction(
+                        senderId = userId,
+                        recipientId = conv.peerId,
+                        timestamp = System.currentTimeMillis(),
+                        messageId = messageId,
+                        emoji = emoji,
+                        remove = isRemoving
+                    )
+                )
+            }
+        }
+    }
+
     /**
      * Belirtilen mesaja scroll eder ve kisa sure highlight eder.
      * Reply bubble tiklandiginda kullanilir.
@@ -927,6 +1110,24 @@ class ChatViewModel @Inject constructor(
                 _highlightedMessageId.value = null
             }
         }
+    }
+}
+
+/** Reaksiyon JSON stringini parse eder. */
+fun parseReactions(json: String?): MutableMap<String, MutableList<String>> {
+    if (json.isNullOrBlank()) return mutableMapOf()
+    return try {
+        val obj = org.json.JSONObject(json)
+        val map = mutableMapOf<String, MutableList<String>>()
+        obj.keys().forEach { emoji ->
+            val arr = obj.getJSONArray(emoji)
+            val users = mutableListOf<String>()
+            for (i in 0 until arr.length()) users.add(arr.getString(i))
+            map[emoji] = users
+        }
+        map
+    } catch (_: Exception) {
+        mutableMapOf()
     }
 }
 

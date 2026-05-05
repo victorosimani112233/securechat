@@ -1,0 +1,58 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "securechat-system",
+    "title": "SecureChat Sistem",
+    "tags": ["securechat", "system"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "CPU Kullanimi",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [{"expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "legendFormat": "CPU %"}]
+      },
+      {
+        "id": 2,
+        "title": "RAM Kullanimi",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {"expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes", "legendFormat": "Kullanilan"},
+          {"expr": "node_memory_MemTotal_bytes", "legendFormat": "Toplam"}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Disk Kullanimi",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 8},
+        "targets": [{"expr": "100 - ((node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"}) * 100)", "legendFormat": "Disk %"}]
+      },
+      {
+        "id": 4,
+        "title": "PostgreSQL Aktif Baglantilar",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 8},
+        "targets": [{"expr": "pg_stat_activity_count", "legendFormat": "Baglanti"}]
+      },
+      {
+        "id": 5,
+        "title": "Redis Bellek",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+        "targets": [{"expr": "redis_memory_used_bytes", "legendFormat": "Kullanilan"}]
+      },
+      {
+        "id": 6,
+        "title": "Redis Ops/sn",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+        "targets": [{"expr": "rate(redis_commands_processed_total[1m])", "legendFormat": "Komut/sn"}]
+      }
+    ],
+    "time": {"from": "now-1h", "to": "now"},
+    "refresh": "10s"
+  }
+}

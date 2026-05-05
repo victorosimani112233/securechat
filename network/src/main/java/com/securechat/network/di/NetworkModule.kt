@@ -4,6 +4,8 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.ElementsIntoSet
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Named
@@ -17,20 +19,27 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
+    /** Default empty interceptor set — app module @IntoSet ile interceptor ekleyebilir. */
+    @Provides
+    @ElementsIntoSet
+    fun provideDefaultInterceptors(): Set<@JvmSuppressWildcards Interceptor> = emptySet()
+
     /**
-     * OkHttpClient instance'i olusturur.
-     * WebSocket baglantilari icin optimize edilmis timeout ve ping ayarlari icerir.
+     * OkHttpClient instance'i — app modulundeki interceptor'lari (AuthInterceptor gibi) entegre eder.
      */
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder()
+    fun provideOkHttpClient(
+        interceptors: Set<@JvmSuppressWildcards Interceptor>
+    ): OkHttpClient {
+        val builder = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.SECONDS)   // WebSocket icin timeout yok — ping/pong kontrol eder
+            .readTimeout(0, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
-            .pingInterval(30, TimeUnit.SECONDS)  // 30 saniyede bir ping — baglanti canliligini kontrol et
+            .pingInterval(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
-            .build()
+        interceptors.forEach { builder.addInterceptor(it) }
+        return builder.build()
     }
 
     /**

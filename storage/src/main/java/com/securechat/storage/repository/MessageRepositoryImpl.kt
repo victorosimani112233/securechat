@@ -6,6 +6,7 @@ import com.securechat.storage.domain.Conversation
 import com.securechat.storage.domain.LocalMessage
 import com.securechat.storage.entity.ConversationEntity
 import com.securechat.storage.entity.MessageEntity
+import com.securechat.storage.model.MessageContentType
 import com.securechat.storage.model.MessageStatus
 import com.securechat.storage.resolver.ContactNameResolver
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +30,19 @@ class MessageRepositoryImpl @Inject constructor(
         val conv = conversationDao.getById(message.conversationId)
             ?: conversationDao.getByPeerId(message.peerId)
 
+        // Ozel mesaj tipleri icin konusma onizlemesinde okunabilir metin goster
+        val lastMessagePreview = when (message.contentType) {
+            MessageContentType.POLL -> "📊 Anket"
+            MessageContentType.SYSTEM -> {
+                // CALL|OUTGOING|VOICE|FAILED|0|Sesli arama · Bağlanılamadı formatini parse et
+                val parts = message.content.split("|")
+                if (parts.size >= 6 && parts[0] == "CALL") "📞 ${parts[5]}" else message.content
+            }
+            else -> message.content
+        }
+        // SYSTEM mesajlari unread count artirmaz (arama kayitlari bildirim gostermemeli)
+        val shouldIncrementUnread = !message.isOutgoing && message.contentType != MessageContentType.SYSTEM
+
         // Konusma yoksa once olustur (FK kisitlamasi icin mesajdan once olmali)
         if (conv == null) {
             // Kisi adini ve telefon numarasini resolve et
@@ -41,9 +55,9 @@ class MessageRepositoryImpl @Inject constructor(
                     peerId = message.peerId,
                     peerName = displayName,
                     peerPhone = phoneNumber,
-                    lastMessage = message.content,
+                    lastMessage = lastMessagePreview,
                     lastMessageTimestamp = message.timestamp,
-                    unreadCount = if (!message.isOutgoing) 1 else 0,
+                    unreadCount = if (shouldIncrementUnread) 1 else 0,
                     isMuted = false,
                     isPinned = false
                 )
@@ -58,9 +72,9 @@ class MessageRepositoryImpl @Inject constructor(
         if (conv != null) {
             conversationDao.update(
                 conv.copy(
-                    lastMessage = message.content,
+                    lastMessage = lastMessagePreview,
                     lastMessageTimestamp = message.timestamp,
-                    unreadCount = if (!message.isOutgoing) conv.unreadCount + 1 else conv.unreadCount
+                    unreadCount = if (shouldIncrementUnread) conv.unreadCount + 1 else conv.unreadCount
                 )
             )
         }
@@ -77,6 +91,12 @@ class MessageRepositoryImpl @Inject constructor(
             // getRecentMessages DESC siralama doner, kronolojik sira icin ters cevir
             entities.reversed().map { it.toDomain() }
         }
+    }
+
+    override suspend fun getOlderMessages(conversationId: String, beforeTimestamp: Long, limit: Int): List<LocalMessage> {
+        return messageDao.getOlderMessages(conversationId, beforeTimestamp, limit)
+            .reversed()
+            .map { it.toDomain() }
     }
 
     override fun getConversations(): Flow<List<Conversation>> {
@@ -108,12 +128,12 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun recalculateLastMessage(conversationId: String) {
-        val lastContent = conversationDao.getLastMessageContent(conversationId)
-        val lastTimestamp = conversationDao.getLastMessageTimestamp(conversationId)
+        val info = conversationDao.getLastMessageInfo(conversationId)
+        val preview = if (info?.contentType == MessageContentType.POLL.name) "📊 Anket" else info?.content ?: ""
         conversationDao.updateLastMessageById(
             conversationId,
-            lastContent ?: "",
-            lastTimestamp ?: 0L
+            preview,
+            info?.timestamp ?: 0L
         )
     }
 
@@ -152,16 +172,15 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateMessageContent(messageId: String, content: String, contentType: String) {
-        // Guncelleme oncesi mesajin hangi konusmaya ait oldugunu bul
         val messageEntity = messageDao.getById(messageId)
         messageDao.updateContent(messageId, content, contentType)
 
         // "Herkesten silme" sonrasi konusma onizlemesini guncelle
         if (messageEntity != null) {
-            val conversationId = messageEntity.conversationId
-            val lastTimestamp = conversationDao.getLastMessageTimestamp(conversationId)
-            if (lastTimestamp != null && lastTimestamp == messageEntity.timestamp) {
-                conversationDao.updateLastMessageById(conversationId, content, lastTimestamp)
+            val info = conversationDao.getLastMessageInfo(messageEntity.conversationId)
+            if (info != null && info.timestamp == messageEntity.timestamp) {
+                val preview = if (contentType == MessageContentType.POLL.name) "📊 Anket" else content
+                conversationDao.updateLastMessageById(messageEntity.conversationId, preview, info.timestamp)
             }
         }
     }
@@ -195,10 +214,9 @@ class MessageRepositoryImpl @Inject constructor(
 
         // Duzenlenen mesaj konusmanin en son mesaji ise, konusma onizlemesini guncelle
         if (messageEntity != null) {
-            val conversationId = messageEntity.conversationId
-            val lastTimestamp = conversationDao.getLastMessageTimestamp(conversationId)
-            if (lastTimestamp != null && lastTimestamp == messageEntity.timestamp) {
-                conversationDao.updateLastMessageById(conversationId, newContent, lastTimestamp)
+            val info = conversationDao.getLastMessageInfo(messageEntity.conversationId)
+            if (info != null && info.timestamp == messageEntity.timestamp) {
+                conversationDao.updateLastMessageById(messageEntity.conversationId, newContent, info.timestamp)
             }
         }
     }
@@ -229,8 +247,26 @@ class MessageRepositoryImpl @Inject constructor(
         conversationDao.updateMuted(conversationId, isMuted)
     }
 
+    override suspend fun updateMessageReactions(messageId: String, reactions: String?) {
+        messageDao.updateReactions(messageId, reactions)
+    }
+
+    override suspend fun updateConversationLocked(conversationId: String, isLocked: Boolean) {
+        conversationDao.updateLocked(conversationId, isLocked)
+    }
+
     override suspend fun markStuckMessagesAsFailed(cutoff: Long): Int {
         return messageDao.markStuckMessagesAsFailed(cutoff)
+    }
+
+    override suspend fun searchAllMessages(query: String): List<LocalMessage> {
+        return messageDao.searchAllMessages("%$query%").map { it.toDomain() }
+    }
+
+    override suspend fun getAllMessagesForConversation(conversationId: String): List<LocalMessage> {
+        return messageDao.getMessagesPaginated(conversationId, limit = 100_000, offset = 0)
+            .sortedBy { it.timestamp }
+            .map { it.toDomain() }
     }
 }
 
@@ -250,7 +286,8 @@ internal fun LocalMessage.toEntity(): MessageEntity = MessageEntity(
     isStarred = isStarred,
     expiresAt = expiresAt,
     editedAt = editedAt,
-    editHistory = editHistory
+    editHistory = editHistory,
+    reactions = reactions
 )
 
 /**
@@ -272,7 +309,8 @@ internal fun MessageEntity.toDomain(): LocalMessage = LocalMessage(
     isStarred = isStarred,
     expiresAt = expiresAt,
     editedAt = editedAt,
-    editHistory = editHistory
+    editHistory = editHistory,
+    reactions = reactions
 )
 
 /** ConversationEntity'yi Conversation domain modeline donusturur. */
@@ -293,5 +331,6 @@ internal fun ConversationEntity.toDomain(): Conversation = Conversation(
     customNotificationUri = customNotificationUri,
     isArchived = isArchived,
     disappearingDuration = disappearingDuration,
-    isFavorite = isFavorite
+    isFavorite = isFavorite,
+    isLocked = isLocked
 )

@@ -35,5 +35,9 @@ data class CallSession(
     /** Tum grup uyeleri (kendisi haric). */
     val peerIds: List<String> = emptyList(),
     /** Su an baglanmis olan grup uyeleri. */
-    val connectedPeerIds: List<String> = emptyList()
+    val connectedPeerIds: List<String> = emptyList(),
+    /** SFU modu aktif mi (≥4 katilimci). false ise mesh WebRTC. */
+    val isSfuMode: Boolean = false,
+    /** Janus VideoRoom ID'si (SFU modunda). */
+    val sfuRoomId: Long = 0
 )

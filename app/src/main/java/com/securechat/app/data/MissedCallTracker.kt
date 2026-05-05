@@ -148,11 +148,11 @@ class MissedCallTracker @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val callTypeLabel = if (session.callType.name == "VIDEO") "Görüntülü Arama" else "Sesli Arama"
         val notification = NotificationCompat.Builder(context, MISSED_CALL_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_missed_call)
-            .setContentTitle("Kaçırılan Arama")
+            .setContentTitle("Kaçırılan $callTypeLabel")
             .setContentText("$peerName tarafından")
-            .setSubText(if (session.callType.name == "VIDEO") "Görüntülü arama" else "Sesli arama")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(openChatPi)
             .setAutoCancel(true)

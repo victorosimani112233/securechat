@@ -58,6 +58,14 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
     suspend fun getMessagesPaginated(conversationId: String, limit: Int, offset: Int): List<MessageEntity>
 
+    /**
+     * Cursor-based sayfalama: belirtilen zaman damgasindan onceki mesajlari getirir.
+     * OFFSET/LIMIT yerine timestamp cursor kullanir — buyuk veri setlerinde daha verimli.
+     * Paging 3 entegrasyonu yapilana kadar manual sayfalama icin kullanilir.
+     */
+    @Query("SELECT * FROM messages WHERE conversation_id = :conversationId AND timestamp < :beforeTimestamp ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getOlderMessages(conversationId: String, beforeTimestamp: Long, limit: Int): List<MessageEntity>
+
     @Query("SELECT COUNT(*) FROM messages WHERE conversation_id = :conversationId")
     suspend fun getMessageCount(conversationId: String): Int
 
@@ -83,6 +91,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversation_id = :conversationId AND content LIKE :searchQuery ORDER BY timestamp DESC")
     fun searchMessages(conversationId: String, searchQuery: String): Flow<List<MessageEntity>>
 
+    @Query("SELECT * FROM messages WHERE content LIKE :searchQuery AND content_type IN ('TEXT', 'VOICE_NOTE') ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun searchAllMessages(searchQuery: String, limit: Int = 100): List<MessageEntity>
+
     // 📱 Medya/Doküman özellikleri
     @Query("SELECT * FROM messages WHERE conversation_id = :conversationId AND content_type IN ('IMAGE', 'VIDEO', 'AUDIO') ORDER BY timestamp DESC")
     fun getMediaMessages(conversationId: String): Flow<List<MessageEntity>>
@@ -101,4 +112,8 @@ interface MessageDao {
     // Takilmis SENDING mesajlari toplu olarak FAILED olarak isaretle
     @Query("UPDATE messages SET status = 'FAILED' WHERE status = 'SENDING' AND timestamp < :cutoff")
     suspend fun markStuckMessagesAsFailed(cutoff: Long): Int
+
+    // Emoji reaksiyon guncelleme
+    @Query("UPDATE messages SET reactions = :reactions WHERE id = :messageId")
+    suspend fun updateReactions(messageId: String, reactions: String?)
 }

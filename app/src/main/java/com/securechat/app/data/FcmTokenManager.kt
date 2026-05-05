@@ -61,6 +61,11 @@ class FcmTokenManager @Inject constructor(
      */
     suspend fun unregisterTokenOnServer() {
         val userId = userSession.userId ?: return
+        val accessToken = userSession.accessToken
+        if (accessToken.isNullOrBlank()) {
+            Log.w("FcmTokenManager", "Access token yok — unregister atlandi")
+            return
+        }
         try {
             val json = JSONObject().apply {
                 put("userId", userId)
@@ -68,6 +73,7 @@ class FcmTokenManager @Inject constructor(
             val body = json.toString().toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
                 .url("$apiBaseUrl/api/v1/fcm/unregister")
+                .addHeader("Authorization", "Bearer $accessToken")
                 .post(body)
                 .build()
 
@@ -83,6 +89,11 @@ class FcmTokenManager @Inject constructor(
     }
 
     private suspend fun sendTokenToServer(userId: String, token: String) {
+        val accessToken = userSession.accessToken
+        if (accessToken.isNullOrBlank()) {
+            Log.w("FcmTokenManager", "Access token yok — sunucuya FCM register atlandi")
+            return
+        }
         val json = JSONObject().apply {
             put("userId", userId)
             put("fcmToken", token)
@@ -90,6 +101,7 @@ class FcmTokenManager @Inject constructor(
         val body = json.toString().toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
             .url("$apiBaseUrl/api/v1/fcm/register")
+            .addHeader("Authorization", "Bearer $accessToken")
             .post(body)
             .build()
 

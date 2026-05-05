@@ -72,6 +72,9 @@ class ChatInfoViewModel @Inject constructor(
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
 
+    private val _isLocked = MutableStateFlow(false)
+    val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
+
     /** Sureli mesaj suresi (ms). 0 = kapali. */
     private val _disappearingDuration = MutableStateFlow(0L)
     val disappearingDuration: StateFlow<Long> = _disappearingDuration.asStateFlow()
@@ -135,6 +138,7 @@ class ChatInfoViewModel @Inject constructor(
                     _customNotificationUri.value = conversation.customNotificationUri
                     _isGroup.value = conversation.isGroup
                     _isMuted.value = conversation.isMuted
+                    _isLocked.value = conversation.isLocked
                     _disappearingDuration.value = conversation.disappearingDuration
                 } else {
                     _conversationName.value = conversationId
@@ -233,6 +237,18 @@ class ChatInfoViewModel @Inject constructor(
             val newMuted = !_isMuted.value
             conversationDao.updateMuted(conversationId, newMuted)
             _isMuted.value = newMuted
+        }
+    }
+
+    /**
+     * Sohbetin biyometrik kilit durumunu degistirir.
+     */
+    fun toggleLocked() {
+        val conversationId = currentConversationId ?: return
+        viewModelScope.launch {
+            val newLocked = !_isLocked.value
+            conversationDao.updateLocked(conversationId, newLocked)
+            _isLocked.value = newLocked
         }
     }
 

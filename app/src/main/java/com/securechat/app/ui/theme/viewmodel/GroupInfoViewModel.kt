@@ -58,6 +58,9 @@ class GroupInfoViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _isLocked = MutableStateFlow(false)
+    val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
+
     /** Sureli mesaj suresi (ms). 0 = kapali. */
     private val _disappearingDuration = MutableStateFlow(0L)
     val disappearingDuration: StateFlow<Long> = _disappearingDuration.asStateFlow()
@@ -102,10 +105,14 @@ class GroupInfoViewModel @Inject constructor(
                     )
                 }
 
-                // Uye isimlerini cozumle: 1) mevcut kullanici, 2) conversation, 3) rehber (ContactDao)
+                // Uye isimlerini cozumle: batch query ile (N+1 fix)
                 val memberNames = mutableMapOf<String, String>()
+                val otherMemberIds = memberIds.filter { it != currentUserId }
+                val memberConvs = if (otherMemberIds.isNotEmpty()) {
+                    conversationDao.getByPeerIds(otherMemberIds).associateBy { it.peerId }
+                } else emptyMap()
+
                 for (memberId in memberIds) {
-                    // Mevcut kullanici icin kayitli ismi kullan
                     if (memberId == currentUserId) {
                         val displayName = userSession.displayName
                         if (!displayName.isNullOrBlank()) {
@@ -113,13 +120,11 @@ class GroupInfoViewModel @Inject constructor(
                         }
                         continue
                     }
-                    // Birebir sohbetten isim bul
-                    val memberConv = conversationDao.getByPeerId(memberId)
+                    val memberConv = memberConvs[memberId]
                     if (memberConv != null && memberConv.peerName.isNotBlank() && memberConv.peerName != memberId) {
                         memberNames[memberId] = memberConv.peerName
                         continue
                     }
-                    // Rehberden (ContactDao) isim bul
                     val contact = contactDao.getById(memberId)
                     if (contact != null && contact.displayName.isNotBlank() && contact.displayName != memberId) {
                         memberNames[memberId] = contact.displayName
@@ -127,7 +132,7 @@ class GroupInfoViewModel @Inject constructor(
                     }
                 }
 
-                // Uye telefon numaralarini cozumle: conversation veya rehberden
+                // Uye telefon numaralarini cozumle: batch query ile (N+1 fix)
                 val memberPhones = mutableMapOf<String, String>()
                 for (memberId in memberIds) {
                     if (memberId == currentUserId) {
@@ -137,7 +142,7 @@ class GroupInfoViewModel @Inject constructor(
                         }
                         continue
                     }
-                    val memberConv = conversationDao.getByPeerId(memberId)
+                    val memberConv = memberConvs[memberId]
                     if (memberConv != null && !memberConv.peerPhone.isNullOrBlank()) {
                         memberPhones[memberId] = memberConv.peerPhone!!
                         continue
@@ -158,6 +163,7 @@ class GroupInfoViewModel @Inject constructor(
                 )
                 _isAdmin.value = isCurrentUserAdmin
                 _disappearingDuration.value = conversation.disappearingDuration
+                _isLocked.value = conversation.isLocked
 
                 // Medya mesajlarini yukle
                 messageDao.getMediaMessages(groupId)
@@ -256,6 +262,67 @@ class GroupInfoViewModel @Inject constructor(
     }
 
     /**
+     * Bir grup uyesinin admin yetkisini alir (sadece mevcut admin yapabilir).
+     * DEMOTE_ADMIN bildirimi tum uyelere gonderilir.
+     */
+    fun demoteFromAdmin(groupId: String, memberId: String) {
+        viewModelScope.launch {
+            try {
+                val currentUserId = userSession.userId ?: throw IllegalStateException("Kullanici giris yapmamis")
+                val conversation = conversationDao.getById(groupId)
+                    ?: throw IllegalArgumentException("Grup bulunamadi")
+
+                val currentMembers = conversation.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                val currentAdmins = conversation.groupAdmins?.split(",")?.filter { it.isNotBlank() }
+                    ?: listOf(currentMembers.firstOrNull() ?: "")
+
+                if (currentUserId !in currentAdmins) {
+                    _error.value = "Sadece admin bu islemi yapabilir"
+                    return@launch
+                }
+                if (memberId !in currentAdmins) {
+                    _error.value = "Kullanici zaten admin degil"
+                    return@launch
+                }
+
+                // Admin listesinden cikar
+                val updatedAdmins = currentAdmins.filter { it != memberId }
+                if (updatedAdmins.isEmpty()) {
+                    _error.value = "Grupta en az bir admin olmalidir"
+                    return@launch
+                }
+
+                conversationDao.updateGroupAdmins(groupId, updatedAdmins.joinToString(","))
+
+                // Tum grup uyelerine DEMOTE_ADMIN bildirimi gonder
+                for (member in currentMembers) {
+                    if (member != currentUserId) {
+                        signalingClient.sendSignal(
+                            SignalMessage.GroupNotification(
+                                senderId = currentUserId,
+                                recipientId = member,
+                                timestamp = System.currentTimeMillis(),
+                                groupId = groupId,
+                                groupName = conversation.peerName,
+                                action = GroupAction.DEMOTE_ADMIN,
+                                groupMembers = currentMembers,
+                                targetMemberId = memberId
+                            )
+                        )
+                    }
+                }
+
+                android.util.Log.d("GroupInfoVM", "Admin yetkisi alindi: $memberId -> $groupId")
+                // UI'yi guncelle
+                loadGroupInfo(groupId)
+            } catch (e: Exception) {
+                android.util.Log.e("GroupInfoVM", "Admin dusurme hatasi", e)
+                _error.value = e.message ?: "Yonetici yetkisi alinamadi"
+            }
+        }
+    }
+
+    /**
      * Mesaji yildizli olarak isaretler veya yildizdan cikarir.
      */
     fun toggleMessageStarred(messageId: String, isStarred: Boolean) {
@@ -316,6 +383,17 @@ class GroupInfoViewModel @Inject constructor(
      */
     fun clearError() {
         _error.value = null
+    }
+
+    /**
+     * Grubun biyometrik kilit durumunu degistirir.
+     */
+    fun toggleLocked(groupId: String) {
+        viewModelScope.launch {
+            val newLocked = !_isLocked.value
+            conversationDao.updateLocked(groupId, newLocked)
+            _isLocked.value = newLocked
+        }
     }
 
     /**

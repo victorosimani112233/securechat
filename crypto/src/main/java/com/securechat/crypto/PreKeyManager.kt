@@ -74,6 +74,45 @@ class PreKeyManager @Inject constructor(
     }
 
     /**
+     * Sunucuya gonderilecek serialized prekey bundle. libsignal tipleri sizdirmayacak sekilde
+     * base64 encoded byte array'ler dondurur.
+     */
+    data class SerializedBundle(
+        val identityPublicKey: ByteArray,
+        val registrationId: Int,
+        val signedPreKeyId: Int,
+        val signedPreKey: ByteArray,
+        val signedPreKeySignature: ByteArray,
+        val oneTimePreKeys: List<SerializedOtpk>
+    )
+    data class SerializedOtpk(val keyId: Int, val publicKey: ByteArray)
+
+    /**
+     * Initial keys uretir (yoksa) ve sunucuya gonderim icin serialize eder.
+     * Identity key store'da varsa tekrar uretmez — idempotent.
+     */
+    suspend fun generateAndSerializeInitialBundle(): SerializedBundle {
+        val bundle = generateInitialKeys()
+        return SerializedBundle(
+            identityPublicKey = bundle.identityKey.serialize(),
+            registrationId = bundle.registrationId,
+            signedPreKeyId = bundle.signedPreKey.id,
+            signedPreKey = bundle.signedPreKey.keyPair.publicKey.serialize(),
+            signedPreKeySignature = bundle.signedPreKey.signature,
+            oneTimePreKeys = bundle.preKeys.map { SerializedOtpk(it.id, it.keyPair.publicKey.serialize()) }
+        )
+    }
+
+    /** Mevcut OTPK havuzu durumunu doner. */
+    suspend fun availablePreKeyCount(): Int = protocolStore.getAvailablePreKeyCount()
+
+    /** Yalnizca sunucuya yuklenecek yeni OTPK batch'ini serialize eder (replenish sonrasi). */
+    suspend fun buildSerializedReplenishBatch(): List<SerializedOtpk>? {
+        val newKeys = replenishPreKeysIfNeeded() ?: return null
+        return newKeys.map { SerializedOtpk(it.id, it.keyPair.publicKey.serialize()) }
+    }
+
+    /**
      * Signed PreKey'i rotate eder. Yeni signed PreKey uretir ve store'a kaydeder.
      * Eski signed PreKey'ler bir sure daha tutulur (gec gelen mesajlar icin).
      */

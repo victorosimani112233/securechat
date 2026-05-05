@@ -1,5 +1,6 @@
 package com.securechat.app.resolver
 
+import com.securechat.app.data.UserSession
 import com.securechat.contacts.ContactRepository
 import com.securechat.contacts.PhoneEncryptor
 import com.securechat.storage.dao.ContactDao
@@ -16,6 +17,7 @@ import javax.inject.Singleton
 class ContactNameResolverImpl @Inject constructor(
     private val contactRepository: ContactRepository,
     private val contactDao: ContactDao,
+    private val userSession: UserSession,
     @Named("apiBaseUrl") private val apiBaseUrl: String
 ) : ContactNameResolver {
 
@@ -59,10 +61,15 @@ class ContactNameResolverImpl @Inject constructor(
     }
 
     private suspend fun fetchAndDecryptPhone(userId: String): String? {
+        val accessToken = userSession.accessToken ?: return null
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val url = "$apiBaseUrl/api/v1/users/$userId/phone"
-                val request = okhttp3.Request.Builder().url(url).get().build()
+                val request = okhttp3.Request.Builder()
+                    .url(url)
+                    .addHeader("Authorization", "Bearer $accessToken")
+                    .get()
+                    .build()
                 okhttp3.OkHttpClient().newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val body = response.body?.string() ?: return@use null

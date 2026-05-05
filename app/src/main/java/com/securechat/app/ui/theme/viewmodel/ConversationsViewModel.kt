@@ -12,8 +12,10 @@ import com.securechat.storage.model.MessageContentType
 import com.securechat.storage.model.MessageStatus
 import com.securechat.storage.repository.MessageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -99,6 +101,30 @@ class ConversationsViewModel @Inject constructor(
         viewModelScope.launch {
             messageRepository.updateConversationMuted(conversationId, isMuted)
         }
+    }
+
+    // --- Global mesaj arama ---
+
+    private val _globalSearchResults = MutableStateFlow<List<LocalMessage>>(emptyList())
+    val globalSearchResults: StateFlow<List<LocalMessage>> = _globalSearchResults.asStateFlow()
+
+    private val _isGlobalSearching = MutableStateFlow(false)
+    val isGlobalSearching: StateFlow<Boolean> = _isGlobalSearching.asStateFlow()
+
+    fun searchGlobal(query: String) {
+        if (query.length < 2) {
+            _globalSearchResults.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            _isGlobalSearching.value = true
+            _globalSearchResults.value = messageRepository.searchAllMessages(query)
+            _isGlobalSearching.value = false
+        }
+    }
+
+    fun clearGlobalSearch() {
+        _globalSearchResults.value = emptyList()
     }
 
     /** DEBUG: Test sohbeti olusturur. */

@@ -71,10 +71,13 @@ class CallManagerTest {
             context = context,
             signalingClient = signalingClient,
             peerConnectionManager = peerConnectionManager,
+            iceServerFetcher = mockk(relaxed = true),
             audioManager = audioManager,
             ringtonePlayer = ringtonePlayer,
             incomingCallHandler = incomingCallHandler,
-            callLogDao = callLogDao
+            callLogDao = callLogDao,
+            messageRepository = mockk(relaxed = true),
+            telecomBridge = mockk(relaxed = true)
         )
     }
 

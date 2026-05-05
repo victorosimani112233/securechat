@@ -50,6 +50,35 @@ class UserSession @Inject constructor(
         get() = prefs.getString("fcm_token", null)
         set(value) = prefs.edit().putString("fcm_token", value).apply()
 
+    /**
+     * Sunucudan alinan JWT access token (1 saat TTL).
+     * 401 alinca AuthInterceptor refreshToken ile yenisini alir.
+     */
+    var accessToken: String?
+        get() = prefs.getString("access_token", null)
+        set(value) = prefs.edit().putString("access_token", value).apply()
+
+    /**
+     * Refresh token (60 gun TTL). Sadece /auth/refresh icin kullanilir.
+     * Token rotation: her refresh'te yeni refresh token gelir, eskisi blacklist'lenir.
+     */
+    var refreshToken: String?
+        get() = prefs.getString("refresh_token", null)
+        set(value) = prefs.edit().putString("refresh_token", value).apply()
+
+    /** Tek atomic islemde access+refresh token guncelle. */
+    fun saveTokens(access: String, refresh: String) {
+        prefs.edit()
+            .putString("access_token", access)
+            .putString("refresh_token", refresh)
+            .apply()
+    }
+
+    /** Token'lari temizle — logout veya refresh fail durumunda. */
+    fun clearTokens() {
+        prefs.edit().remove("access_token").remove("refresh_token").apply()
+    }
+
     val isLoggedIn: Boolean get() = userId != null
 
     fun login(name: String, phone: String) {
@@ -67,7 +96,8 @@ class UserSession @Inject constructor(
     suspend fun logout() {
         // Sunucuya logout istegi gonder — JWT token invalidasyonu
         val currentUserId = userId
-        if (currentUserId != null) {
+        val token = accessToken
+        if (currentUserId != null && !token.isNullOrBlank()) {
             try {
                 val json = JSONObject().apply {
                     put("userId", currentUserId)
@@ -75,6 +105,7 @@ class UserSession @Inject constructor(
                 val body = json.toString().toRequestBody("application/json".toMediaType())
                 val request = Request.Builder()
                     .url("$apiBaseUrl/api/v1/auth/logout")
+                    .addHeader("Authorization", "Bearer $token")
                     .post(body)
                     .build()
 
@@ -88,7 +119,7 @@ class UserSession @Inject constructor(
             }
         }
 
-        // Tum yerel oturum verilerini temizle
+        // Tum yerel oturum verilerini temizle (access token dahil)
         prefs.edit().clear().apply()
     }
 
@@ -97,6 +128,11 @@ class UserSession @Inject constructor(
      * @param userId Silinecek hesabin kullanici ID'si
      */
     suspend fun sendDeleteAccountRequest(userId: String) {
+        val token = accessToken
+        if (token.isNullOrBlank()) {
+            Log.w("UserSession", "Access token yok — hesap silme atlandi")
+            return
+        }
         try {
             val json = JSONObject().apply {
                 put("userId", userId)
@@ -104,6 +140,7 @@ class UserSession @Inject constructor(
             val body = json.toString().toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
                 .url("$apiBaseUrl/api/v1/account/delete")
+                .addHeader("Authorization", "Bearer $token")
                 .post(body)
                 .build()
 

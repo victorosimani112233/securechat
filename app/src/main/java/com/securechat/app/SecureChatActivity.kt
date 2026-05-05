@@ -47,6 +47,9 @@ class SecureChatActivity : AppCompatActivity() {
     @Inject lateinit var callManager: CallManager
     @Inject lateinit var themeManager: com.securechat.app.ui.components.ThemeManager
     @Inject lateinit var fcmTokenManager: FcmTokenManager
+    @Inject lateinit var iceServerFetcher: com.securechat.network.IceServerFetcher
+    @Inject lateinit var userDiscoveryService: com.securechat.contacts.UserDiscoveryService
+    @Inject lateinit var preKeyUploader: com.securechat.app.data.PreKeyUploader
 
     private var presenceJob: Job? = null
 
@@ -74,6 +77,12 @@ class SecureChatActivity : AppCompatActivity() {
         )
 
         enableEdgeToEdge()
+
+        // ICE server fetcher'a API base URL'i set et
+        iceServerFetcher.apiBaseUrl = BuildConfig.API_BASE_URL
+        iceServerFetcher.accessTokenProvider = { userSession.accessToken }
+        // User discovery'ye de auth token saglayicisi ver
+        userDiscoveryService.accessTokenProvider = { userSession.accessToken }
 
         // Tema tercihini SharedPreferences'tan senkron oku — DataStore'dan runBlocking YAPMA
         // DataStore cold-read eski cihazlarda main thread'i bloklar ve ANR'a yol acar
@@ -149,6 +158,7 @@ class SecureChatActivity : AppCompatActivity() {
         // Izinleri iste
         requestRecordAudioPermissionIfNeeded()
         requestNotificationPermissionIfNeeded()
+        requestBatteryOptimizationExemption()
 
         val startDest = if (userSession.isLoggedIn) "conversations" else "auth/phone"
         // Bildirimden veya intent'ten geliyorsa splash'i atla
@@ -199,24 +209,37 @@ class SecureChatActivity : AppCompatActivity() {
                     navController = navController,
                     startDestination = startDest,
                     skipSplash = skipSplash,
-                    onUserRegistered = { name, phone ->
-                        Log.d("SecureChat", "onUserRegistered")
+                    apiBaseUrl = BuildConfig.API_BASE_URL,
+                    onUserRegistered = { name, phone, registrationToken ->
+                        Log.d("SecureChat", "onUserRegistered (regToken=${if (registrationToken != null) "yes" else "no"})")
 
                         userSession.login(name, phone)
 
-                        // Sunucuya UUID + phoneHash kaydi
-                        // Sunucu ayni telefon icin mevcut userId dondururse onu kullan
                         lifecycleScope.launch {
-                            registerUserOnServer(userSession.userId!!, phone)
+                            registerUserOnServer(userSession.userId!!, phone, registrationToken)
 
-                            // WebSocket baglantisi (sunucu kaydindan sonra — userId degismis olabilir)
-                            signalingClient.connect(
-                                userId = userSession.userId!!,
-                                authToken = "token_${userSession.userId}",
-                                customUrl = BuildConfig.SIGNALING_URL
-                            )
+                            val token = userSession.accessToken
+                            if (!token.isNullOrBlank()) {
+                                signalingClient.connect(
+                                    userId = userSession.userId!!,
+                                    authToken = token,
+                                    customUrl = BuildConfig.SIGNALING_URL
+                                )
+                            } else {
+                                Log.e("SecureChat", "Access token alinamadi, WS baglanti atlandi")
+                            }
 
                             fcmTokenManager.registerTokenOnServer()
+
+                            // Signal Protocol PreKey bundle'i yukle (yalnizca yeni kayit oldugunda)
+                            // Mevcut kullanici icin replenish yeterli
+                            try {
+                                if (!userSession.accessToken.isNullOrBlank()) {
+                                    preKeyUploader.uploadInitialBundle()
+                                }
+                            } catch (e: Exception) {
+                                Log.w("SecureChat", "PreKey upload hatasi: ${e.message}")
+                            }
                         }
                     }
                 )
@@ -258,7 +281,7 @@ class SecureChatActivity : AppCompatActivity() {
      * Sunucu ayni phoneHash icin kayit bulursa mevcut userId'yi dondurur.
      * Bu durumda yerel userId guncellenir — boylece ayni numara her zaman ayni UUID'yi kullanir.
      */
-    private suspend fun registerUserOnServer(userId: String, phone: String) {
+    private suspend fun registerUserOnServer(userId: String, phone: String, registrationToken: String? = null) {
         try {
             val phoneDigits = com.securechat.contacts.PhoneNumberNormalizer.normalizeDigits(phone)
             val phoneHash = com.securechat.contacts.UserDiscoveryService.hashPhoneNumber(phoneDigits)
@@ -268,9 +291,9 @@ class SecureChatActivity : AppCompatActivity() {
                 put("userId", userId)
                 put("phoneHash", phoneHash)
                 put("encryptedPhone", encryptedPhone)
+                if (!registrationToken.isNullOrBlank()) put("registrationToken", registrationToken)
             }
-            val body = json.toString()
-                .toRequestBody("application/json".toMediaType())
+            val body = json.toString().toRequestBody("application/json".toMediaType())
             val request = okhttp3.Request.Builder()
                 .url("${BuildConfig.API_BASE_URL}/api/v1/users/register")
                 .post(body)
@@ -278,17 +301,32 @@ class SecureChatActivity : AppCompatActivity() {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 okhttp3.OkHttpClient().newCall(request).execute().use { response ->
                     val responseBody = response.body?.string()
-                    Log.d("SecureChat", "Sunucu kaydi: ${response.code}, body=$responseBody")
+                    Log.d("SecureChat", "Sunucu kaydi: ${response.code}")
 
+                    if (response.code == 403 && responseBody?.contains("registrationToken") == true) {
+                        Log.e("SecureChat", "registrationToken zorunlu — OTP dogrulamasi gerekli")
+                        return@use
+                    }
                     if (response.isSuccessful && responseBody != null) {
                         val responseJson = org.json.JSONObject(responseBody)
                         val serverUserId = responseJson.optString("userId", "")
                         val isNew = responseJson.optBoolean("isNew", true)
+                        val accessToken = responseJson.optString("accessToken", "")
+                        val refreshToken = responseJson.optString("refreshToken", "")
 
                         if (!isNew && serverUserId.isNotBlank() && serverUserId != userId) {
-                            // Sunucu mevcut kullaniciyi dondurdu — yerel userId'yi guncelle
                             Log.d("SecureChat", "Mevcut kullanici bulundu, userId guncelleniyor: $userId -> $serverUserId")
                             userSession.userId = serverUserId
+                        }
+
+                        // GUVENLIK: Atomic olarak access+refresh token sakla
+                        if (accessToken.isNotBlank() && refreshToken.isNotBlank()) {
+                            userSession.saveTokens(accessToken, refreshToken)
+                            Log.d("SecureChat", "Access+refresh token kaydedildi")
+                        } else if (accessToken.isNotBlank()) {
+                            // Eski API: sadece accessToken
+                            userSession.accessToken = accessToken
+                            Log.w("SecureChat", "Sadece access token alindi, refresh yok")
                         }
                     }
                 }
@@ -373,6 +411,36 @@ class SecureChatActivity : AppCompatActivity() {
             != PackageManager.PERMISSION_GRANTED
         ) {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    /**
+     * Pil optimizasyonu muafiyetini kontrol eder ve kullaniciya bir kez sorar.
+     * Muafiyet olmadan FCM push mesajlari gecikebilir ve aramalar gec ulasir.
+     * Kullanici reddederse bir daha sorulmaz.
+     */
+    private fun requestBatteryOptimizationExemption() {
+        try {
+            if (!userSession.isLoggedIn) return
+
+            val pm = getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager ?: return
+            if (pm.isIgnoringBatteryOptimizations(packageName)) return
+
+            val prefs = getSharedPreferences("user_session", android.content.Context.MODE_PRIVATE)
+            if (prefs.getBoolean("battery_optimization_asked", false)) return
+
+            prefs.edit().putBoolean("battery_optimization_asked", true).apply()
+
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                android.net.Uri.parse("package:$packageName")
+            )
+            // Intent'i handle edecek Activity var mi kontrol et (Oppo/ColorOS uyumlulugu)
+            if (intent.resolveActivity(packageManager) != null) {
+                startActivity(intent)
+            }
+        } catch (_: Exception) {
+            // Oppo, Xiaomi, Huawei gibi ozel ROM'larda bu intent desteklenmeyebilir
         }
     }
 }

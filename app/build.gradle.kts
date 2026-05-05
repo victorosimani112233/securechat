@@ -176,6 +176,9 @@ dependencies {
     // Lifecycle Process — app on plan/arka plan tespiti
     implementation("androidx.lifecycle:lifecycle-process:2.7.0")
 
+    // Biyometrik dogrulama — sohbet kilidi
+    implementation("androidx.biometric:biometric:1.1.0")
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

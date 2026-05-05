@@ -16,9 +16,12 @@ import com.securechat.storage.model.MessageStatus
     tableName = "messages",
     indices = [
         Index(value = ["conversation_id", "timestamp"]),
+        Index(value = ["conversation_id", "is_outgoing", "status"]),
+        Index(value = ["conversation_id", "content_type"]),
         Index(value = ["sender_id"]),
         Index(value = ["status"]),
-        Index(value = ["is_starred"])
+        Index(value = ["is_starred"]),
+        Index(value = ["expires_at"])
     ],
     foreignKeys = [
         ForeignKey(
@@ -42,5 +45,6 @@ data class MessageEntity(
     @ColumnInfo(name = "is_starred") val isStarred: Boolean = false,
     @ColumnInfo(name = "expires_at") val expiresAt: Long? = null, // milisaniye timestamp, null = suresi dolmaz
     @ColumnInfo(name = "edited_at") val editedAt: Long? = null, // duzenleme zamani, null = duzenlenmedi
-    @ColumnInfo(name = "edit_history") val editHistory: String? = null // Onceki iceriklerin JSON dizisi
+    @ColumnInfo(name = "edit_history") val editHistory: String? = null, // Onceki iceriklerin JSON dizisi
+    @ColumnInfo(name = "reactions") val reactions: String? = null // Emoji reaksiyonlari JSON: {"👍":["userId1"],"❤️":["userId2"]}
 )
