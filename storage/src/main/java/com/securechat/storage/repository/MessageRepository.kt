@@ -88,6 +88,9 @@ interface MessageRepository {
     /** Mesajin reaksiyon verisini guncelle. */
     suspend fun updateMessageReactions(messageId: String, reactions: String?)
 
+    /** Tek gosterimlik medya mesajini goruntulendi olarak isaretle. */
+    suspend fun markViewOnceAsViewed(messageId: String)
+
     /** Konuşmanın biyometrik kilit durumunu güncelle. */
     suspend fun updateConversationLocked(conversationId: String, isLocked: Boolean)
 

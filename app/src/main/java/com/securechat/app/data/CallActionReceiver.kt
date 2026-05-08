@@ -3,7 +3,7 @@ package com.securechat.app.data
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.securechat.app.IncomingCallActivity
+import com.securechat.app.SecureChatActivity
 import com.securechat.media.CallManager
 import com.securechat.media.IncomingCallHandler
 import dagger.hilt.android.AndroidEntryPoint
@@ -26,7 +26,9 @@ class CallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         android.util.Log.d("CallActionReceiver", "Action alındı: ${intent.action}")
 
+        val callId = intent.getStringExtra(IncomingCallHandler.EXTRA_CALL_ID)
         val userId = userSession.userId
+
         if (userId == null) {
             android.util.Log.e("CallActionReceiver", "User ID null, action ignore edildi")
             return
@@ -36,34 +38,22 @@ class CallActionReceiver : BroadcastReceiver() {
             IncomingCallHandler.ACTION_ACCEPT -> {
                 android.util.Log.d("CallActionReceiver", "Arama kabul edildi (bildirimden)")
 
-                // Bildirimi ve zil sesini kaldir
+                // Bildirimi kaldır
                 incomingCallHandler.dismissIncomingCall()
-                try {
-                    val ringtone = com.securechat.media.RingtonePlayer::class.java
-                    // RingtonePlayer Singleton oldugu icin dogrudan stop edilmesi gerekir;
-                    // Hilt Context'i Receiver'da yok, CallManager.acceptCall icinde de durdurulur.
-                } catch (_: Exception) { }
 
-                val session = callManager.currentSession
-                if (session != null) {
-                    // Normal akis — SDP gelmis, session mevcut
-                    callManager.acceptCall(userId)
+                // Arama kabul et — session ACTIVE olur
+                callManager.acceptCall(userId)
 
-                    val activityIntent = Intent(context, IncomingCallActivity::class.java).apply {
-                        putExtra("peer_id", session.peerId)
-                        putExtra("peer_name", session.peerId)
-                        putExtra("call_type", session.callType.name)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    }
-                    context.startActivity(activityIntent)
-                } else {
-                    // FCM-pending — SDP henuz gelmedi, pending accept ayarla
-                    // SDP geldiginde CallManager.handleIncomingCall otomatik kabul edecek
-                    android.util.Log.d("CallActionReceiver", "Session null, pendingFcmAccept ayarlandi")
-                    callManager.pendingFcmAccept = userId
-
-                    // Kullaniciyi ana ekrana yonlendir — arama ekrani SDP gelince acilacak
-                    val activityIntent = Intent(context, com.securechat.app.SecureChatActivity::class.java).apply {
+                // KRITIK: IncomingCallActivity'i baslatMA. Cunku DisposableEffect'i
+                // session.state == ACTIVE oldugunda finish() cagirir → activity hemen kapanir
+                // ve kullanici hicbir UI gormez ("kabul ettim, hemen kapandi" sorunu).
+                // Bunun yerine dogrudan SecureChatActivity'i navigate_to_call ile ac —
+                // in-activity accept akisiyla ayni sonuc.
+                val callSession = callManager.currentSession
+                if (callSession != null) {
+                    val activityIntent = Intent(context, SecureChatActivity::class.java).apply {
+                        putExtra("navigate_to_call", callSession.peerId)
+                        putExtra("call_type", callSession.callType.name)
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                             Intent.FLAG_ACTIVITY_CLEAR_TOP or
                             Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -75,16 +65,11 @@ class CallActionReceiver : BroadcastReceiver() {
             IncomingCallHandler.ACTION_REJECT -> {
                 android.util.Log.d("CallActionReceiver", "Arama reddedildi (bildirimden)")
 
+                // Bildirimi kaldır
                 incomingCallHandler.dismissIncomingCall()
 
-                val session = callManager.currentSession
-                if (session != null) {
-                    callManager.rejectCall(userId)
-                } else {
-                    // FCM-pending — SDP henuz gelmedi, pending reject ayarla
-                    android.util.Log.d("CallActionReceiver", "Session null, pendingFcmReject ayarlandi")
-                    callManager.pendingFcmReject = userId
-                }
+                // Arama reddet
+                callManager.rejectCall(userId)
             }
         }
     }

@@ -122,7 +122,8 @@ fun ConversationsScreen(
     onBulkMessage: () -> Unit = {},
     onSettingsClick: () -> Unit,
     onCallHistoryClick: () -> Unit = {},
-    onContactsClick: () -> Unit = onNewChat
+    onContactsClick: () -> Unit = onNewChat,
+    onCallReadinessClick: () -> Unit = onSettingsClick
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     val archivedConversations by viewModel.archivedConversations.collectAsStateWithLifecycle()
@@ -434,6 +435,13 @@ fun ConversationsScreen(
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
+                            // Call readiness banner — eksik izin varsa goster
+                            item(key = "call_readiness_banner") {
+                                com.securechat.app.ui.components.CallReadinessBanner(
+                                    onClick = onCallReadinessClick
+                                )
+                            }
+
                             // Arsiv banner
                             if (archivedConversations.isNotEmpty() && searchQuery.isBlank() && activeFilter == ConversationFilter.NONE) {
                                 item(key = "archive_banner") {

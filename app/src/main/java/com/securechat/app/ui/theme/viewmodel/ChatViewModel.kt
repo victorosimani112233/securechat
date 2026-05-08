@@ -62,6 +62,9 @@ class ChatViewModel @Inject constructor(
     /** Navigation argument'inden alinan konusma kimlik numarasi. */
     val conversationId: String = savedStateHandle.get<String>("conversationId") ?: ""
 
+    /** Yerel kullanicinin kimligi — anket UI'inda hangi secenegi kendisinin oyladigini bulmak icin gerekli. */
+    val currentUserId: String = userSession.userId ?: ""
+
     /** Sayfalama icin her seferde yuklenen mesaj sayisi. */
     private val PAGE_SIZE = 50
 
@@ -443,6 +446,17 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * Tek gosterimlik medyayi goruntulendi olarak isaretler.
+     * Yerel DB guncellenir ve gondericiye karsi tarafin gordugu bilgisi
+     * delivery receipt mantigiyla iletilir.
+     */
+    fun markViewOnceAsViewed(messageId: String) {
+        viewModelScope.launch {
+            messageRepository.markViewOnceAsViewed(messageId)
+        }
+    }
+
+    /**
      * Anket mesaji gonderir. SendMessageUseCase uzerinden retry destekli gonderim yapar.
      */
     fun sendPollMessage(pollJson: String) {
@@ -543,12 +557,12 @@ class ChatViewModel @Inject constructor(
      *
      * @param uri Gonderilecek dosyanin content URI'si
      */
-    fun sendFile(uri: Uri) {
+    fun sendFile(uri: Uri, caption: String? = null, isViewOnce: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             // Esanli gonderim siniri — maks 3 dosya ayni anda (UI donmasini onler)
             fileUploadSemaphore.acquire()
             try {
-                android.util.Log.d("ChatVM", "sendFile basladi: $uri")
+                android.util.Log.d("ChatVM", "sendFile basladi: $uri caption=${caption?.take(20)} viewOnce=$isViewOnce")
                 val senderId = userSession.userId ?: "unknown"
                 val fileName = fileTransferManager.getFileName(uri) ?: "dosya"
                 val fileSize = fileTransferManager.getFileSize(uri) ?: 0L
@@ -585,6 +599,7 @@ class ChatViewModel @Inject constructor(
 
                 // Onceden yerel mesaj kaydet (SENDING durumunda)
                 val messageId = UUID.randomUUID().toString()
+                val trimmedCaption = caption?.trim()?.takeIf { it.isNotBlank() }
                 val message = LocalMessage(
                     id = messageId,
                     conversationId = conversationId,
@@ -595,7 +610,9 @@ class ChatViewModel @Inject constructor(
                     timestamp = fileTimestamp,
                     status = MessageStatus.SENDING,
                     isOutgoing = true,
-                    expiresAt = fileExpiresAt
+                    expiresAt = fileExpiresAt,
+                    caption = trimmedCaption,
+                    isViewOnce = isViewOnce
                 )
                 messageRepository.saveMessage(message)
 
@@ -620,7 +637,10 @@ class ChatViewModel @Inject constructor(
                     uri = uri,
                     isGroup = isGroup,
                     groupMembers = members,
-                    groupName = if (isGroup) conversation?.peerName else null
+                    groupName = if (isGroup) conversation?.peerName else null,
+                    caption = trimmedCaption,
+                    isViewOnce = isViewOnce,
+                    originalMessageId = messageId
                 )
 
                 // Progress izlemeyi durdur ve temizle

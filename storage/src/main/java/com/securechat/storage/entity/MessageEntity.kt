@@ -46,5 +46,11 @@ data class MessageEntity(
     @ColumnInfo(name = "expires_at") val expiresAt: Long? = null, // milisaniye timestamp, null = suresi dolmaz
     @ColumnInfo(name = "edited_at") val editedAt: Long? = null, // duzenleme zamani, null = duzenlenmedi
     @ColumnInfo(name = "edit_history") val editHistory: String? = null, // Onceki iceriklerin JSON dizisi
-    @ColumnInfo(name = "reactions") val reactions: String? = null // Emoji reaksiyonlari JSON: {"👍":["userId1"],"❤️":["userId2"]}
+    @ColumnInfo(name = "reactions") val reactions: String? = null, // Emoji reaksiyonlari JSON: {"👍":["userId1"],"❤️":["userId2"]}
+    // WhatsApp tarzi medya altyazisi — resim/video ile ayni baloncukta gosterilir
+    @ColumnInfo(name = "caption") val caption: String? = null,
+    // Tek gosterimlik medya — bir kez goruntulendiginde icerik silinir
+    @ColumnInfo(name = "is_view_once") val isViewOnce: Boolean = false,
+    // Tek gosterimlik medya goruntulendi mi (alici tarafinda izlenince true)
+    @ColumnInfo(name = "is_viewed") val isViewed: Boolean = false
 )

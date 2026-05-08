@@ -3,6 +3,7 @@ package com.securechat.media
 import android.content.Context
 import com.securechat.media.model.CallDirection
 import com.securechat.media.model.CallState
+import com.securechat.network.IceServerFetcher
 import com.securechat.network.PeerConnectionManager
 import com.securechat.network.SignalingClient
 import com.securechat.network.SignalMessage
@@ -36,6 +37,7 @@ class CallManagerTest {
     private lateinit var callManager: CallManager
     private lateinit var context: Context
     private lateinit var signalingClient: SignalingClient
+    private lateinit var iceServerFetcher: IceServerFetcher
     private lateinit var peerConnectionManager: PeerConnectionManager
     private lateinit var audioManager: CallAudioManager
     private lateinit var ringtonePlayer: RingtonePlayer
@@ -52,6 +54,9 @@ class CallManagerTest {
 
         context = mockk(relaxed = true)
         signalingClient = mockk(relaxed = true)
+        iceServerFetcher = mockk(relaxed = true) {
+            every { fetch(any()) } returns emptyList()
+        }
         peerConnectionManager = mockk(relaxed = true) {
             every { createPeerConnection(any(), any()) } returns mockk(relaxed = true)
             coEvery { createOffer() } returns SessionDescription(
@@ -70,14 +75,12 @@ class CallManagerTest {
         callManager = CallManager(
             context = context,
             signalingClient = signalingClient,
+            iceServerFetcher = iceServerFetcher,
             peerConnectionManager = peerConnectionManager,
-            iceServerFetcher = mockk(relaxed = true),
             audioManager = audioManager,
             ringtonePlayer = ringtonePlayer,
             incomingCallHandler = incomingCallHandler,
-            callLogDao = callLogDao,
-            messageRepository = mockk(relaxed = true),
-            telecomBridge = mockk(relaxed = true)
+            callLogDao = callLogDao
         )
     }
 

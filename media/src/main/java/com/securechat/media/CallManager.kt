@@ -4,18 +4,14 @@ import android.content.Context
 import com.securechat.media.model.CallDirection
 import com.securechat.media.model.CallSession
 import com.securechat.media.model.CallState
-import com.securechat.network.JanusClient
+import com.securechat.network.IceServerFetcher
 import com.securechat.network.PeerConnectionManager
 import com.securechat.network.SignalingClient
 import com.securechat.network.SignalMessage
 import com.securechat.network.model.CallAction
 import com.securechat.network.model.CallType
 import com.securechat.storage.dao.CallLogDao
-import com.securechat.storage.domain.LocalMessage
 import com.securechat.storage.entity.CallLogEntity
-import com.securechat.storage.model.MessageContentType
-import com.securechat.storage.model.MessageStatus
-import com.securechat.storage.repository.MessageRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,12 +20,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.webrtc.EglBase
 import org.webrtc.IceCandidate
+import org.webrtc.PeerConnection
 import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -53,14 +50,13 @@ import javax.inject.Singleton
 class CallManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val signalingClient: SignalingClient,
+    private val iceServerFetcher: IceServerFetcher,
     private val peerConnectionManager: PeerConnectionManager,
-    private val iceServerFetcher: com.securechat.network.IceServerFetcher,
     private val audioManager: CallAudioManager,
     private val ringtonePlayer: RingtonePlayer,
     private val incomingCallHandler: IncomingCallHandler,
     private val callLogDao: CallLogDao,
-    private val messageRepository: MessageRepository,
-    private val telecomBridge: com.securechat.media.telecom.TelecomBridge
+    private val messageRepository: com.securechat.storage.repository.MessageRepository
 ) {
     private val _callSession = MutableStateFlow<CallSession?>(null)
 
@@ -107,6 +103,14 @@ class CallManager @Inject constructor(
      */
     private val pendingRemoteIceCandidates = mutableListOf<SignalMessage.IceCandidate>()
 
+    /**
+     * Caller-side ringback timeout job. 60 saniye icinde peer ACCEPT/REJECT/BUSY
+     * sinyali gondermezse session FAILED olarak kapatilir — boylece kayip sinyaller
+     * yuzunden hayalet ringback (sonsuz dıt-dıt sesi) olusmaz.
+     */
+    private var callerRingbackTimeoutJob: kotlinx.coroutines.Job? = null
+    private val CALLER_RINGBACK_TIMEOUT_MS = 60_000L
+
     // --- Grup arama state ---
     /** Arayan (koordinator) mi? Yeni uye bildirimlerini bu kisi gonderir. */
     private var isGroupCallCoordinator = false
@@ -114,61 +118,6 @@ class CallManager @Inject constructor(
     private val groupConnectedPeers = mutableSetOf<String>()
     /** Grup aramasi SDP Offer bekleyen peerler (ringing sirasinda). */
     private val pendingGroupSdpOffers = mutableMapOf<String, String>()
-
-    // --- SFU (Janus VideoRoom) state ---
-    /** SFU modu esik degeri — bu ve ustundeki katilimci sayisinda SFU aktif olur. */
-    companion object {
-        const val SFU_THRESHOLD = 4
-    }
-
-    /** Janus client — SFU modunda VideoRoom ile iletisim kurar. */
-    private var janusClient: JanusClient? = null
-
-    /** SFU modunda bekleyen room bilgisi (henuz arama aktif degilse). */
-    @Volatile
-    private var pendingSfuRoomInfo: SignalMessage.SfuRoomCreated? = null
-
-    /** Janus publisher feedId'leri: displayName (userId) -> feedId eslemesi. */
-    private val sfuFeedMap = ConcurrentHashMap<String, Long>()
-
-    /**
-     * FCM push'tan gelen aramayi kullanici kabul ettiyse (SDP henuz gelmeden),
-     * SDP geldiginde otomatik kabul icin userId saklanir.
-     * 90sn icinde SDP gelmezse otomatik temizlenir — eski pending state
-     * sonraki gercek aramayi yanlislikla kabul etmesin diye.
-     */
-    @Volatile
-    var pendingFcmAccept: String? = null
-        set(value) {
-            field = value
-            if (value != null) schedulePendingFcmCleanup()
-        }
-
-    /**
-     * FCM push'tan gelen aramayi kullanici reddettiyse (SDP henuz gelmeden),
-     * SDP geldiginde otomatik reddet icin userId saklanir.
-     * 90sn icinde SDP gelmezse otomatik temizlenir.
-     */
-    @Volatile
-    var pendingFcmReject: String? = null
-        set(value) {
-            field = value
-            if (value != null) schedulePendingFcmCleanup()
-        }
-
-    private var pendingFcmCleanupJob: kotlinx.coroutines.Job? = null
-
-    private fun schedulePendingFcmCleanup() {
-        pendingFcmCleanupJob?.cancel()
-        pendingFcmCleanupJob = scope.launch {
-            kotlinx.coroutines.delay(90_000L)
-            if (pendingFcmAccept != null || pendingFcmReject != null) {
-                android.util.Log.w("CallManager", "pendingFcm timeout — temizleniyor")
-                pendingFcmAccept = null
-                pendingFcmReject = null
-            }
-        }
-    }
 
     // ---- Giden arama ----
 
@@ -218,27 +167,12 @@ class CallManager @Inject constructor(
             audioManager.setSpeakerOn(true)
         }
 
-        // Telecom Framework (SELF_MANAGED) outgoing kayit denemesi.
-        // Basarisiz olursa (PhoneAccount yok / izin yok / placeCall hatasi) sadece
-        // log atilir; mevcut WebRTC akisi etkilenmez. Bridge attemptOutgoing()
-        // sirasinda CallManager.callSession StateFlow'unu collect etmeye baslar
-        // ve sonraki state'leri (ACTIVE/ENDED/...) Connection'a push eder.
-        try {
-            telecomBridge.attemptOutgoing(session)
-        } catch (t: Throwable) {
-            android.util.Log.w("CallManager", "telecomBridge.attemptOutgoing hatasi", t)
-        }
-
         // PeerConnection olustur ve SDP Offer uret
         scope.launch(Dispatchers.Main) {
             try {
-                // Sunucudan dinamik TURN credential al
-                val iceServers = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    iceServerFetcher.fetch(userId)
-                }
-                peerConnectionManager.updateIceServers(iceServers)
-
+                refreshIceServers(userId)
                 peerConnectionManager.initialize()
+                attachSingleCallConnectionObserver()
 
                 // ICE candidate callback'ini ayarla
                 peerConnectionManager.onIceCandidateGenerated = { candidate ->
@@ -287,6 +221,31 @@ class CallManager @Inject constructor(
                 // Arayan taraf icin ringback tonu baslat
                 ringtonePlayer.startRingbackTone()
                 _callSession.value = session.copy(state = CallState.RINGING)
+
+                // Caller-side timeout: 60sn icinde peer cevap vermezse hayalet ringback'i durdur
+                callerRingbackTimeoutJob?.cancel()
+                callerRingbackTimeoutJob = scope.launch {
+                    kotlinx.coroutines.delay(CALLER_RINGBACK_TIMEOUT_MS)
+                    val current = _callSession.value
+                    if (current != null && current.callId == session.callId &&
+                        current.state == CallState.RINGING &&
+                        current.direction == CallDirection.OUTGOING) {
+                        android.util.Log.w("CallManager",
+                            "Caller ringback timeout (${CALLER_RINGBACK_TIMEOUT_MS}ms) — hayalet ringback temizleniyor: ${session.callId}")
+                        // Karsi tarafa HANGUP gonder (varsa) ve session'i kapat
+                        try {
+                            signalingClient.sendSignal(
+                                SignalMessage.CallControl(
+                                    senderId = userId,
+                                    recipientId = peerId,
+                                    timestamp = System.currentTimeMillis(),
+                                    action = CallAction.HANGUP
+                                )
+                            )
+                        } catch (_: Exception) { /* sinyal gonderilemese de cleanup yap */ }
+                        cleanupCall(CallState.FAILED)
+                    }
+                }
             } catch (e: Exception) {
                 android.util.Log.e("CallManager", "initiateCall hatasi: ${e.message}")
                 onCallFailed()
@@ -306,8 +265,21 @@ class CallManager @Inject constructor(
      * @param signal Gelen SDP Offer sinyali
      * @param localUserId Yerel kullanicinin ID'si
      */
+    /** Idempotency: ayni SDP Offer'in 2 kez islenmesini engeller (offline queue + WS race). */
+    @Volatile private var lastHandledOfferKey: String? = null
+
     fun handleIncomingCall(signal: SignalMessage.SdpOffer, localUserId: String) {
-        // CRITICAL FIX: Mevcut aktif/ringing call varsa yeni SdpOffer'i ignore et
+        // Idempotency: senderId + timestamp + sdp hash — ayni offer kac kez gelirse gelsin
+        // sadece ilkinde session yarat. (FCM-WS double trigger ve queue replay onlemi.)
+        val offerKey = "${signal.senderId}:${signal.timestamp}:${signal.sdp.hashCode()}"
+        if (offerKey == lastHandledOfferKey) {
+            android.util.Log.w("CallManager", "Ayni SDP Offer 2. kez geldi — IGNORE (key=$offerKey)")
+            return
+        }
+
+        // Mevcut aktif/ringing call varsa yeni SdpOffer'i ignore et.
+        // ENDED/REJECTED/FAILED/BUSY/CONNECTING gibi terminal/transitional state'lerde
+        // yeni aramaya izin ver — eski session "askida kalmis" olabilir.
         val existingSession = _callSession.value
         if (existingSession != null && (
             existingSession.state == CallState.ACTIVE ||
@@ -317,6 +289,15 @@ class CallManager @Inject constructor(
             android.util.Log.w("CallManager", "handleIncomingCall IGNORE edildi - mevcut call var: state=${existingSession.state}, direction=${existingSession.direction}")
             return
         }
+        // Terminal state'deki eski session'i temizle — yeni arama icin yer ac
+        if (existingSession != null) {
+            android.util.Log.d("CallManager", "Eski terminal session temizleniyor: state=${existingSession.state}")
+            _callSession.value = null
+            isCleaningUp.set(false)
+        }
+
+        // Idempotency anahtarini kaydet — bu offer iki kez islenmeyecek
+        lastHandledOfferKey = offerKey
 
         // Race condition önlemi: null yapmak yerine direkt yeni session set et
         this.localUserId = localUserId
@@ -335,25 +316,8 @@ class CallManager @Inject constructor(
         )
         _callSession.value = session
 
-        // Zil sesi ve titresimi baslat
+        // Zil sesi ve titresimi baslat (RingtonePlayer @Synchronized — duplicate korumali)
         ringtonePlayer.startRinging()
-
-        // FCM pending aksiyonlarini kontrol et
-        val rejectUserId = pendingFcmReject
-        val acceptUserId = pendingFcmAccept
-        pendingFcmReject = null
-        pendingFcmAccept = null
-
-        if (rejectUserId != null) {
-            android.util.Log.d("CallManager", "FCM pending reject uygulanıyor: $rejectUserId")
-            rejectCall(rejectUserId)
-            return
-        }
-        if (acceptUserId != null) {
-            android.util.Log.d("CallManager", "FCM pending accept uygulanıyor: $acceptUserId")
-            acceptCall(acceptUserId)
-            return
-        }
     }
 
     // ---- Arama kabul ----
@@ -411,13 +375,9 @@ class CallManager @Inject constructor(
         // PeerConnection olustur, remote SDP set et, answer uret
         scope.launch(Dispatchers.Main) {
             try {
-                // Sunucudan dinamik TURN credential al
-                val iceServers = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    iceServerFetcher.fetch(userId)
-                }
-                peerConnectionManager.updateIceServers(iceServers)
-
+                refreshIceServers(userId)
                 peerConnectionManager.initialize()
+                attachSingleCallConnectionObserver()
 
                 // ICE candidate callback'ini ayarla
                 peerConnectionManager.onIceCandidateGenerated = { candidate ->
@@ -588,6 +548,9 @@ class CallManager @Inject constructor(
 
         // Ringback tonunu durdur (arayan tarafta caliyordu)
         ringtonePlayer.stopRingbackTone()
+        // Caller timeout iptal — peer cevap verdi
+        callerRingbackTimeoutJob?.cancel()
+        callerRingbackTimeoutJob = null
         audioManager.setCallMode()
 
         // Baglanti kuruldugunu belirten kisa sinyal sesi
@@ -609,8 +572,7 @@ class CallManager @Inject constructor(
      * Temizlik yapar ve durumu FAILED'e gecirir.
      */
     fun onCallFailed() {
-        cleanupCall()
-        _callSession.value = _callSession.value?.copy(state = CallState.FAILED)
+        cleanupCall(CallState.FAILED)
     }
 
     /**
@@ -619,23 +581,21 @@ class CallManager @Inject constructor(
     fun onRemoteHangup() {
         // Zil sesi ve titresimi durdur (henuz cevaplanmamis aramada olabilir)
         ringtonePlayer.stopRinging()
-        cleanupCall()
+        cleanupCall(CallState.ENDED)
     }
 
     /**
      * Karsi taraf aramayi reddetti callback'i.
      */
     fun onRemoteReject() {
-        cleanupCall()
-        _callSession.value = _callSession.value?.copy(state = CallState.REJECTED)
+        cleanupCall(CallState.REJECTED)
     }
 
     /**
      * Karsi taraf mesgul callback'i.
      */
     fun onRemoteBusy() {
-        cleanupCall()
-        _callSession.value = _callSession.value?.copy(state = CallState.BUSY)
+        cleanupCall(CallState.BUSY)
     }
 
     // ---- Grup Arama ----
@@ -669,10 +629,7 @@ class CallManager @Inject constructor(
         isGroupCallCoordinator = true
         groupConnectedPeers.clear()
 
-        // Toplam katilimci sayisi (arayan dahil)
-        val totalParticipants = peerIds.size + 1
-        val willUseSfu = totalParticipants >= SFU_THRESHOLD
-
+        val isVideo = callType == CallType.VIDEO
         val callId = UUID.randomUUID().toString()
         val session = CallSession(
             callId = callId,
@@ -685,14 +642,9 @@ class CallManager @Inject constructor(
             isGroupCall = true,
             groupId = groupId,
             peerIds = peerIds,
-            connectedPeerIds = emptyList(),
-            isSfuMode = willUseSfu // Sunucu ≥4 katilimcida SFU room olusturacak
+            connectedPeerIds = emptyList()
         )
         _callSession.value = session
-
-        if (willUseSfu) {
-            android.util.Log.d("CallManager", "SFU modu aktif: $totalParticipants katilimci (esik: $SFU_THRESHOLD)")
-        }
 
         audioManager.setSpeakerOn(true)
         audioManager.setCallMode()
@@ -700,6 +652,7 @@ class CallManager @Inject constructor(
         // PeerConnectionManager'i baslat ve ICE callback'ini ayarla
         scope.launch(Dispatchers.Main) {
             try {
+                refreshIceServers(userId)
                 peerConnectionManager.initialize()
 
                 peerConnectionManager.onGroupIceCandidateGenerated = { peerId, candidate ->
@@ -794,23 +747,6 @@ class CallManager @Inject constructor(
 
         ringtonePlayer.startRinging()
         android.util.Log.d("CallManager", "Gelen grup aramasi: ${signal.groupId} from ${signal.senderId}")
-
-        // FCM pending aksiyonlarini kontrol et
-        val rejectUserId = pendingFcmReject
-        val acceptUserId = pendingFcmAccept
-        pendingFcmReject = null
-        pendingFcmAccept = null
-
-        if (rejectUserId != null) {
-            android.util.Log.d("CallManager", "FCM pending reject (grup) uygulanıyor")
-            rejectCall(rejectUserId)
-            return
-        }
-        if (acceptUserId != null) {
-            android.util.Log.d("CallManager", "FCM pending accept (grup) uygulanıyor")
-            acceptGroupCall(acceptUserId)
-            return
-        }
     }
 
     /**
@@ -844,6 +780,7 @@ class CallManager @Inject constructor(
         // PeerConnectionManager'i baslat ve ICE callback'ini ayarla
         scope.launch(Dispatchers.Main) {
             try {
+                refreshIceServers(userId)
                 peerConnectionManager.initialize()
 
                 peerConnectionManager.onGroupIceCandidateGenerated = { peerId, candidate ->
@@ -885,15 +822,6 @@ class CallManager @Inject constructor(
                 }
 
                 android.util.Log.d("CallManager", "Grup aramasi kabul edildi, ${pendingOffers.size} bekleyen offer islendi")
-
-                // Bekleyen SFU room bilgisi varsa simdi isle
-                val pendingSfu = pendingSfuRoomInfo
-                if (pendingSfu != null) {
-                    pendingSfuRoomInfo = null
-                    kotlinx.coroutines.withContext(Dispatchers.IO) {
-                        handleSfuRoomCreated(pendingSfu)
-                    }
-                }
             } catch (e: Exception) {
                 android.util.Log.e("CallManager", "acceptGroupCall hatasi: ${e.message}")
                 onCallFailed()
@@ -1093,158 +1021,6 @@ class CallManager @Inject constructor(
         }
     }
 
-    // ---- SFU Mode ----
-
-    /**
-     * Sunucudan gelen SFU room bilgisini isler.
-     * Grup aramasi SFU esigini (≥4 katilimci) astiysa sunucu Janus VideoRoom olusturur
-     * ve tum katilimcilara bu bilgiyi gonderir.
-     *
-     * Akis:
-     * 1. Janus WS'ye baglan
-     * 2. Session olustur + VideoRoom plugin'ine attach
-     * 3. Odaya publisher olarak katil
-     * 4. Yerel medyayi publish et (SDP offer -> Janus -> SDP answer)
-     * 5. Mevcut publisher'lara subscribe ol
-     * 6. Yeni publisher event'lerini dinle
-     */
-    fun handleSfuRoomCreated(signal: SignalMessage.SfuRoomCreated) {
-        val session = _callSession.value
-        if (session == null || !session.isGroupCall) {
-            // Henuz session yoksa (ringing sirasinda gelebilir) — sakla
-            pendingSfuRoomInfo = signal
-            android.util.Log.d("CallManager", "SFU room info saklandi (session henuz yok): ${signal.groupId}")
-            return
-        }
-
-        // Session'i SFU moduna gecir
-        _callSession.value = session.copy(isSfuMode = true, sfuRoomId = signal.roomId)
-
-        android.util.Log.d("CallManager", "SFU room alindi: groupId=${signal.groupId}, roomId=${signal.roomId}")
-
-        scope.launch {
-            try {
-                connectToSfuRoom(signal.janusWsUrl, signal.roomId)
-            } catch (e: Exception) {
-                android.util.Log.e("CallManager", "SFU baglanti hatasi: ${e.message}")
-                // SFU basarisiz olursa mesh'e fallback — mevcut mesh baglantilari korunur
-                _callSession.value = _callSession.value?.copy(isSfuMode = false, sfuRoomId = 0)
-            }
-        }
-    }
-
-    /**
-     * Janus VideoRoom'a baglanir, publisher olarak katilir ve mevcut publisher'lara subscribe olur.
-     */
-    private suspend fun connectToSfuRoom(janusWsUrl: String, roomId: Long) {
-        val client = JanusClient()
-        janusClient = client
-
-        // 1. Janus WS'ye baglan
-        val connected = client.connect(janusWsUrl)
-        if (!connected) throw RuntimeException("Janus WS baglantisi basarisiz")
-
-        // 2. Session olustur
-        client.createSession()
-
-        // 3. VideoRoom plugin'ine attach
-        client.attachVideoRoom()
-
-        // 4. Odaya publisher olarak katil
-        val existingPublishers = client.joinAsPublisher(roomId, localUserId)
-
-        // 5. Publisher PeerConnection olustur ve SDP offer ile publish et
-        kotlinx.coroutines.withContext(Dispatchers.Main) {
-            peerConnectionManager.initialize()
-            val session = _callSession.value ?: return@withContext
-            val enableVideo = session.callType == CallType.VIDEO
-            peerConnectionManager.createSfuPublisherConnection(enableVideo)
-            val offer = peerConnectionManager.createSfuPublisherOffer()
-
-            // Janus'a SDP offer gonder, answer al
-            val answerSdp = client.publishSdp(offer.description)
-            val answer = org.webrtc.SessionDescription(
-                org.webrtc.SessionDescription.Type.ANSWER, answerSdp
-            )
-            peerConnectionManager.setSfuPublisherRemoteAnswer(answer)
-        }
-
-        android.util.Log.d("CallManager", "SFU publisher olarak yayina basladi")
-
-        // 6. Mevcut publisher'lara subscribe ol
-        for ((feedId, display) in existingPublishers) {
-            subscribeToSfuFeed(client, roomId, feedId, display)
-        }
-
-        // 7. Yeni publisher event callback'lerini ayarla
-        client.onPublisherJoined = { feedId, display ->
-            scope.launch {
-                subscribeToSfuFeed(client, roomId, feedId, display)
-            }
-        }
-
-        client.onPublisherLeft = { feedId ->
-            scope.launch(Dispatchers.Main) {
-                peerConnectionManager.disposeSfuSubscriber(feedId)
-                val displayName = sfuFeedMap.entries.find { it.value == feedId }?.key
-                if (displayName != null) sfuFeedMap.remove(displayName)
-                android.util.Log.d("CallManager", "SFU publisher ayrildi: feedId=$feedId")
-            }
-        }
-
-        // Mesh PeerConnection'lari artik gereksiz — SFU aktif
-        // ONEMLI: closeGroupPeerConnectionsOnly() kullan — paylasimli medya track'lerine DOKUNMA
-        // SFU publisher ayni localAudioTrack/localVideoTrack'i kullaniyor
-        peerConnectionManager.closeGroupPeerConnectionsOnly()
-        android.util.Log.d("CallManager", "Mesh PeerConnection'lar kapatildi (medya korundu), SFU aktif")
-    }
-
-    /**
-     * Belirli bir SFU publisher'a subscribe olur.
-     * Janus'tan SDP offer alir, subscriber PeerConnection olusturur, SDP answer gonderir.
-     */
-    private suspend fun subscribeToSfuFeed(
-        client: JanusClient,
-        roomId: Long,
-        feedId: Long,
-        displayName: String?
-    ) {
-        try {
-            if (displayName != null) sfuFeedMap[displayName] = feedId
-
-            // Janus'tan subscriber SDP offer al
-            val offerSdp = client.subscribeToFeed(roomId, feedId)
-
-            // Subscriber PeerConnection olustur ve answer uret
-            kotlinx.coroutines.withContext(Dispatchers.Main) {
-                peerConnectionManager.createSfuSubscriberConnection(feedId)
-                val remoteSdp = org.webrtc.SessionDescription(
-                    org.webrtc.SessionDescription.Type.OFFER, offerSdp
-                )
-                val answer = peerConnectionManager.handleSfuSubscriberOffer(feedId, remoteSdp)
-
-                // Answer'i Janus'a gonder
-                client.answerSubscription(feedId, answer.description)
-            }
-
-            android.util.Log.d("CallManager", "SFU subscriber baglandi: feedId=$feedId, display=$displayName")
-        } catch (e: Exception) {
-            android.util.Log.e("CallManager", "SFU subscribe hatasi (feedId=$feedId): ${e.message}")
-        }
-    }
-
-    /** SFU kaynaklarini temizler. */
-    private fun cleanupSfu() {
-        janusClient?.disconnect()
-        janusClient = null
-        peerConnectionManager.disposeAllSfuConnections()
-        sfuFeedMap.clear()
-        pendingSfuRoomInfo = null
-    }
-
-    /** SFU remote video track'leri. */
-    val sfuRemoteVideoTracksFlow get() = peerConnectionManager.sfuRemoteVideoTracksFlow
-
     /** connectedPeerIds listesini gunceller. */
     private fun updateGroupConnectedPeers() {
         val session = _callSession.value ?: return
@@ -1273,7 +1049,7 @@ class CallManager @Inject constructor(
             )
         }
 
-        cleanupGroupCall()
+        cleanupGroupCall(CallState.ENDED)
     }
 
     /**
@@ -1294,37 +1070,25 @@ class CallManager @Inject constructor(
         // Kimse kalmadiysa aramayi sonlandir
         if (groupConnectedPeers.isEmpty()) {
             android.util.Log.d("CallManager", "Grup aramasinda kimse kalmadi, sonlandiriliyor")
-            cleanupGroupCall()
+            cleanupGroupCall(CallState.ENDED)
         }
     }
 
     /** Grup aramasi kaynaklarini temizler. */
-    private fun cleanupGroupCall() {
+    private fun cleanupGroupCall(finalState: CallState) {
         if (!isCleaningUp.compareAndSet(false, true)) return
 
         try {
             val session = _callSession.value ?: return
             val duration = session.startTime?.let { System.currentTimeMillis() - it }
 
-            saveCallLog(session, duration)
+            saveCallLog(session, duration, finalState)
 
             incomingCallHandler.dismissIncomingCall()
-            // "Arama devam ediyor" foreground bildirimini de kaldir
-            CallForegroundService.stop(context)
             ringtonePlayer.stopRinging()
             ringtonePlayer.stopRingbackTone()
 
-            // SFU modundaysa Janus + SFU PC'lerini temizle (medya dahil)
-            // Mesh modundaysa mesh PC'lerini temizle (medya dahil)
-            // Ikisi birden cagirilmaz — double-dispose onlenir
-            if (session.isSfuMode) {
-                cleanupSfu()
-                // Mesh PC'ler SFU gecisinde zaten kapatildi (medyasiz)
-                // Ama hala referanslari varsa temizle (sadece PC, medya zaten SFU tarafindan temizlendi)
-                peerConnectionManager.closeGroupPeerConnectionsOnly()
-            } else {
-                peerConnectionManager.disposeAllGroupPeerConnections()
-            }
+            peerConnectionManager.disposeAllGroupPeerConnections()
             audioManager.resetAudioMode()
 
             isGroupCallCoordinator = false
@@ -1332,17 +1096,11 @@ class CallManager @Inject constructor(
             synchronized(pendingGroupSdpOffers) { pendingGroupSdpOffers.clear() }
 
             _callSession.value = session.copy(
-                state = CallState.ENDED,
+                state = finalState,
                 duration = duration
             )
 
-            scope.launch {
-                kotlinx.coroutines.delay(2000)
-                if (_callSession.value?.state == CallState.ENDED) {
-                    _callSession.value = null
-                }
-                isCleaningUp.set(false)
-            }
+            scheduleTerminalStateCleanup(finalState)
         } catch (e: Exception) {
             android.util.Log.e("CallManager", "cleanupGroupCall hatasi: ${e.message}")
             isCleaningUp.set(false)
@@ -1379,7 +1137,7 @@ class CallManager @Inject constructor(
                     action = CallAction.REJECT
                 )
             )
-            cleanupGroupCall()
+            cleanupGroupCall(CallState.REJECTED)
         } else {
             signalingClient.sendSignal(
                 SignalMessage.CallControl(
@@ -1389,9 +1147,8 @@ class CallManager @Inject constructor(
                     action = CallAction.REJECT
                 )
             )
-            cleanupCall()
+            cleanupCall(CallState.REJECTED)
         }
-        _callSession.value = _callSession.value?.copy(state = CallState.REJECTED)
     }
 
     /**
@@ -1400,20 +1157,29 @@ class CallManager @Inject constructor(
      * @param userId Sonlandiran kullanicinin ID'si
      */
     fun endCall(userId: String) {
-        val session = _callSession.value ?: return
+        val session = _callSession.value
+        if (session == null) {
+            android.util.Log.w("CallManager", "endCall: session zaten null — bos hangup gonderilmiyor")
+            return
+        }
         if (session.isGroupCall) {
             endGroupCall(userId)
             return
         }
-        signalingClient.sendSignal(
-            SignalMessage.CallControl(
-                senderId = userId,
-                recipientId = session.peerId,
-                timestamp = System.currentTimeMillis(),
-                action = CallAction.HANGUP
+        // HANGUP signal gonder — exception olsa bile cleanup'a devam
+        try {
+            signalingClient.sendSignal(
+                SignalMessage.CallControl(
+                    senderId = userId,
+                    recipientId = session.peerId,
+                    timestamp = System.currentTimeMillis(),
+                    action = CallAction.HANGUP
+                )
             )
-        )
-        cleanupCall()
+        } catch (e: Exception) {
+            android.util.Log.e("CallManager", "HANGUP signal gonderilemedi: ${e.message}")
+        }
+        cleanupCall(CallState.ENDED)
     }
 
     // ---- Medya kontrolleri ----
@@ -1465,6 +1231,23 @@ class CallManager @Inject constructor(
     }
 
     /**
+     * Telecom Framework audio routing degisikligi bildirimi.
+     *
+     * SELF_MANAGED ConnectionService aktif olduğunda sistem ses yönlendirmesini
+     * (BT/SPEAKER/EARPIECE/WIRED_HEADSET) kendisi uygular — biz yalnız UI durumunu
+     * senkronize ederiz. Hoparlor durumu sistem route'una göre güncellenir, böylece
+     * kullanıcı sistem volume HUD'unda hoparloru kapatınca CallScreen butonunu da
+     * doğru gösteririz.
+     *
+     * @param isSpeaker Sistem hoparlore yonlendirdi mi?
+     */
+    fun notifyAudioRouteChanged(isSpeaker: Boolean) {
+        val session = _callSession.value ?: return
+        if (session.isSpeakerOn == isSpeaker) return
+        _callSession.value = session.copy(isSpeakerOn = isSpeaker)
+    }
+
+    /**
      * On/arka kamera arasinda gecis yapar.
      * PeerConnectionManager uzerinden kamera degistirilir.
      */
@@ -1490,7 +1273,7 @@ class CallManager @Inject constructor(
      * Gelen arama bildirimini de kaldirir.
      * Race condition'lari onlemek icin atomik olarak calisir.
      */
-    private fun cleanupCall() {
+    private fun cleanupCall(finalState: CallState) {
         // Ayni anda birden fazla cleanupCall cagrisini onle
         if (!isCleaningUp.compareAndSet(false, true)) {
             return // Zaten cleanup yapiliyor
@@ -1501,15 +1284,10 @@ class CallManager @Inject constructor(
             val duration = session.startTime?.let { System.currentTimeMillis() - it }
 
             // Arama gecmisine kaydet
-            saveCallLog(session, duration)
+            saveCallLog(session, duration, finalState)
 
             // Gelen arama bildirimini kaldir
             incomingCallHandler.dismissIncomingCall()
-
-            // Aktif arama foreground service'ini durdur — "Arama devam ediyor"
-            // bildirimi calisma bittikten sonra ekranda kalmasin. stopService
-            // idempotent: service zaten durmussa no-op.
-            CallForegroundService.stop(context)
 
             // Guvenlik icin tum sesleri durdur (idempotent)
             ringtonePlayer.stopRinging()
@@ -1520,25 +1298,26 @@ class CallManager @Inject constructor(
 
             audioManager.resetAudioMode()
 
+            // Caller-side ringback timeout timer'i iptal et — session sona erdi
+            callerRingbackTimeoutJob?.cancel()
+            callerRingbackTimeoutJob = null
+
             // Saklanan SDP ve ICE bilgilerini temizle
             pendingRemoteSdpOffer = null
             pendingCallType = null
             synchronized(pendingRemoteIceCandidates) { pendingRemoteIceCandidates.clear() }
+            // NOT: lastHandledOfferKey BURADA SIFIRLANMAZ.
+            // Hangup sonrasi FCM/queue replay ile ayni SDP Offer tekrar gelirse
+            // yeni bir hayalet aramayi tetiklemesin diye anahtar islem boyu korunur.
+            // Yeni gelen gercek arama farkli senderId/timestamp/sdp uretir, otomatik
+            // olarak yeni anahtar olarak isenir.
 
             _callSession.value = session.copy(
-                state = CallState.ENDED,
+                state = finalState,
                 duration = duration
             )
 
-            // 2 saniye sonra session'i temizle ki yeni arama yapilabilsin
-            scope.launch {
-                kotlinx.coroutines.delay(2000)
-                if (_callSession.value?.state == CallState.ENDED) {
-                    _callSession.value = null
-                }
-                // Cleanup flag'ini sifirla
-                isCleaningUp.set(false)
-            }
+            scheduleTerminalStateCleanup(finalState)
         } catch (e: Exception) {
             android.util.Log.e("CallManager", "cleanupCall hatasi: ${e.message}")
             // Cleanup flag'ini sifirla
@@ -1546,10 +1325,11 @@ class CallManager @Inject constructor(
         }
     }
 
-    private fun saveCallLog(session: CallSession, duration: Long?) {
-        val status = when (session.state) {
+    private fun saveCallLog(session: CallSession, duration: Long?, finalState: CallState) {
+        val status = when (finalState) {
             CallState.REJECTED -> "REJECTED"
             CallState.FAILED -> "FAILED"
+            CallState.BUSY -> "BUSY"
             CallState.ENDED -> if (duration != null && duration > 0) "ANSWERED" else "MISSED"
             CallState.RINGING -> if (session.direction == CallDirection.INCOMING) "MISSED" else "FAILED"
             else -> if (duration != null && duration > 0) "ANSWERED" else "MISSED"
@@ -1569,8 +1349,12 @@ class CallManager @Inject constructor(
                     )
                 )
 
-                // Arama bilgisini sohbette SYSTEM mesaji olarak kaydet
-                saveCallSystemMessage(session, status, duration)
+                // WhatsApp tarzi: arama bilgisini sohbette SYSTEM mesaji olarak da kaydet
+                // boylece kullanici sohbet icinde "Sesli arama · 01:48" gibi gorebilir.
+                // Grup aramalarinda yapma (her uye icin ayri kayit anlamli degil).
+                if (!session.isGroupCall) {
+                    saveCallSystemMessage(session, status, duration)
+                }
             } catch (e: Exception) {
                 android.util.Log.e("CallManager", "Call log kayit hatasi: ${e.message}")
             }
@@ -1578,8 +1362,9 @@ class CallManager @Inject constructor(
     }
 
     /**
-     * Arama bilgisini sohbette sistem mesaji olarak kaydeder.
-     * WhatsApp'taki gibi arama bilgileri sohbet icinde gorunur.
+     * Arama bilgisini sohbette SYSTEM mesaji olarak kaydeder — WhatsApp tarzi.
+     * Format: "CALL|direction|callType|status|durationMs|displayText"
+     * ChatScreen.SystemMessageBanner bu formati parse edip okunabilir gosterir.
      */
     private suspend fun saveCallSystemMessage(session: CallSession, status: String, duration: Long?) {
         try {
@@ -1589,29 +1374,27 @@ class CallManager @Inject constructor(
             val content = when (status) {
                 "ANSWERED" -> {
                     val durationStr = formatCallDuration(duration ?: 0)
-                    if (isOutgoing) "$callTypeLabel · $durationStr"
-                    else "$callTypeLabel · $durationStr"
+                    "$callTypeLabel · $durationStr"
                 }
-                "MISSED" -> "Kaçırılan $callTypeLabel"
+                "MISSED" -> if (isOutgoing) "$callTypeLabel · Cevap verilmedi" else "Kaçırılan $callTypeLabel"
                 "REJECTED" -> if (isOutgoing) "$callTypeLabel · Reddedildi" else "Kaçırılan $callTypeLabel"
+                "BUSY" -> "$callTypeLabel · Meşgul"
                 "FAILED" -> "$callTypeLabel · Bağlanılamadı"
                 else -> callTypeLabel
             }
 
-            // Arama bilgisi: "CALL|direction|callType|status|duration"
-            // Bu formati ChatScreen'de parse ederek ikon ve stil belirleriz
             val systemContent = "CALL|${session.direction.name}|${session.callType.name}|$status|${duration ?: 0}|$content"
 
             val conversationId = session.peerId // 1-on-1 icin peerId = conversationId
-            val message = LocalMessage(
+            val message = com.securechat.storage.domain.LocalMessage(
                 id = UUID.randomUUID().toString(),
                 conversationId = conversationId,
                 senderId = if (isOutgoing) localUserId else session.peerId,
                 peerId = session.peerId,
                 content = systemContent,
-                contentType = MessageContentType.SYSTEM,
+                contentType = com.securechat.storage.model.MessageContentType.SYSTEM,
                 timestamp = System.currentTimeMillis(),
-                status = MessageStatus.DELIVERED,
+                status = com.securechat.storage.model.MessageStatus.DELIVERED,
                 isOutgoing = isOutgoing
             )
             messageRepository.saveMessage(message)
@@ -1624,6 +1407,84 @@ class CallManager @Inject constructor(
         val totalSeconds = durationMs / 1000
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
-        return if (minutes > 0) "${minutes}dk ${seconds}sn" else "${seconds}sn"
+        return if (minutes > 0) String.format("%02d:%02d", minutes, seconds)
+               else String.format("00:%02d", seconds)
+    }
+
+    private fun scheduleTerminalStateCleanup(finalState: CallState) {
+        scope.launch {
+            kotlinx.coroutines.delay(2000)
+            // KOSULSUZ null — eski kontrolde state degismis ise null olmuyordu
+            // ve session askida kaliyordu (sonraki gelen aramalar IGNORE).
+            // Cleanup baslamissa session ZORLA temizlenir.
+            val current = _callSession.value
+            if (current == null || current.state in setOf(
+                    CallState.ENDED, CallState.REJECTED, CallState.FAILED, CallState.BUSY)) {
+                _callSession.value = null
+            } else {
+                android.util.Log.w("CallManager",
+                    "Terminal cleanup: beklenmedik state=${current.state} — yine de null'a setleniyor")
+                _callSession.value = null
+            }
+            isCleaningUp.set(false)
+        }
+    }
+
+    private suspend fun refreshIceServers(userId: String) {
+        val servers = withContext(Dispatchers.IO) {
+            iceServerFetcher.fetch(userId)
+        }
+        peerConnectionManager.updateIceServers(servers)
+    }
+
+    /** 30sn DISCONNECTED kalan reconnecting session'lari hangup eder. */
+    private var disconnectTimeoutJob: kotlinx.coroutines.Job? = null
+
+    private fun attachSingleCallConnectionObserver() {
+        peerConnectionManager.onConnectionStateChanged = observer@{ state ->
+            when (state) {
+                PeerConnection.IceConnectionState.DISCONNECTED -> {
+                    val session = _callSession.value ?: return@observer
+                    if (!session.isGroupCall && session.state == CallState.ACTIVE) {
+                        _callSession.value = session.copy(state = CallState.RECONNECTING)
+                        // 30sn icinde reconnect olmazsa hangup
+                        disconnectTimeoutJob?.cancel()
+                        disconnectTimeoutJob = scope.launch {
+                            kotlinx.coroutines.delay(30_000)
+                            val s = _callSession.value
+                            if (s != null && s.state == CallState.RECONNECTING && !isCleaningUp.get()) {
+                                android.util.Log.w("CallManager", "DISCONNECTED 30sn — hangup tetikleniyor")
+                                onRemoteHangup()
+                            }
+                        }
+                    }
+                }
+                PeerConnection.IceConnectionState.CONNECTED,
+                PeerConnection.IceConnectionState.COMPLETED -> {
+                    disconnectTimeoutJob?.cancel()
+                    val session = _callSession.value ?: return@observer
+                    if (!session.isGroupCall && session.state == CallState.RECONNECTING) {
+                        _callSession.value = session.copy(state = CallState.ACTIVE)
+                    }
+                }
+                PeerConnection.IceConnectionState.FAILED,
+                PeerConnection.IceConnectionState.CLOSED -> {
+                    disconnectTimeoutJob?.cancel()
+                    val session = _callSession.value ?: return@observer
+                    val terminal = session.state in setOf(
+                        CallState.ENDED, CallState.REJECTED, CallState.FAILED, CallState.BUSY
+                    )
+                    // Sadece ACTIVE/RECONNECTING state'de cleanup tetikle.
+                    // onRemoteHangup yerine cleanupCall: lokal WebRTC failed iken uzaktan
+                    // HANGUP gelmis gibi davranma (ringtone'u durdurma yan etkisi var ama
+                    // ACTIVE'da zaten ringtone calmiyor).
+                    if (!session.isGroupCall && !isCleaningUp.get() && !terminal &&
+                        session.state in setOf(CallState.ACTIVE, CallState.RECONNECTING)) {
+                        cleanupCall(CallState.ENDED)
+                    }
+                }
+                else -> Unit
+            }
+        }
     }
 }

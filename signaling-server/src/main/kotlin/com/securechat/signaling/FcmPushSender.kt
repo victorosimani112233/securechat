@@ -122,6 +122,7 @@ class FcmPushSender(private val tokenStore: FcmTokenStore) {
                 .putData("type", if (isCallSignal) "incoming_call" else "new_message")
                 .putData("senderId", senderId)
                 .putData("messageType", messageType)
+                .putData("sentAt", System.currentTimeMillis().toString())
                 .setAndroidConfig(
                     AndroidConfig.builder()
                         .setPriority(priority)

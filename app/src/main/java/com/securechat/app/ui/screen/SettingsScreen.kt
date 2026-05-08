@@ -29,6 +29,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.CleaningServices
@@ -117,7 +119,8 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     onScheduledMessages: () -> Unit = {},
     onBackupClick: () -> Unit = {},
-    onAccountDeleted: () -> Unit = {}
+    onAccountDeleted: () -> Unit = {},
+    onNavigateToCallReadiness: () -> Unit = {}
 ) {
     val dark = LocalDarkTheme.current
     val profilePhotoUri by viewModel.profilePhotoUri.collectAsStateWithLifecycle()
@@ -661,6 +664,86 @@ fun SettingsScreen(
                                         android.net.Uri.parse("package:${context.packageName}")
                                     )
                                     context.startActivity(intent)
+                                }
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        // Aramaları kaçırma — kapsamlı izin yönetim ekranı
+                        ListItem(
+                            headlineContent = { Text("Aramaları kaçırma") },
+                            supportingContent = {
+                                val state = remember { com.securechat.app.util.CallReadinessHelper.currentState(context) }
+                                Text(
+                                    if (state.allGranted) "Tüm izinler verildi"
+                                    else "Aramaların gerçek zamanlı gelmesi için ayarları kontrol et"
+                                )
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            trailingContent = {
+                                Icon(Icons.Default.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            modifier = Modifier.clickable {
+                                onNavigateToCallReadiness()
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        // Pil optimizasyonu — uygulama kapaliyken aramalarin gec gelmemesi icin
+                        var batteryOptimized by remember {
+                            mutableStateOf(com.securechat.app.util.BatteryOptimizationHelper.isIgnoring(context))
+                        }
+                        // Settings'ten donunce durumu yenile
+                        androidx.compose.runtime.DisposableEffect(Unit) {
+                            val lifecycleOwner = (context as? androidx.lifecycle.LifecycleOwner)
+                            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                                if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                                    batteryOptimized = com.securechat.app.util.BatteryOptimizationHelper.isIgnoring(context)
+                                }
+                            }
+                            lifecycleOwner?.lifecycle?.addObserver(observer)
+                            onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
+                        }
+                        ListItem(
+                            headlineContent = { Text("Pil optimizasyonu") },
+                            supportingContent = {
+                                Text(
+                                    if (batteryOptimized) "Kapalı — aramalar gerçek zamanlı gelir"
+                                    else "Açık — kapat ki kapalı uygulamada aramalar geç gelmesin"
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    Icons.Default.BatteryFull,
+                                    contentDescription = null,
+                                    tint = if (batteryOptimized) MaterialTheme.colorScheme.primary
+                                           else MaterialTheme.colorScheme.error
+                                )
+                            },
+                            trailingContent = {
+                                if (!batteryOptimized) {
+                                    Icon(Icons.Default.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                } else {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            },
+                            modifier = Modifier.clickable {
+                                if (!batteryOptimized) {
+                                    com.securechat.app.util.BatteryOptimizationHelper.requestExemption(context)
                                 }
                             },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent)

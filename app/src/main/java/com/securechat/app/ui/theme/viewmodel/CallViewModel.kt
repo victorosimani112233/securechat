@@ -28,7 +28,8 @@ class CallViewModel @Inject constructor(
     private val callManager: CallManager,
     private val userSession: UserSession,
     private val conversationDao: ConversationDao,
-    private val contactNameResolver: ContactNameResolver
+    private val contactNameResolver: ContactNameResolver,
+    private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>
 ) : ViewModel() {
 
     private val peerId: String = savedStateHandle.get<String>("peerId") ?: ""
@@ -107,6 +108,7 @@ class CallViewModel @Inject constructor(
                 // Normal 1-to-1 arama
                 android.util.Log.d("CallVM", "Manuel call baslatiliyor: $peerId $callType")
                 callManager.initiateCall(peerId, callType, userSession.userId ?: "unknown")
+                notifyTelecomOutgoing(peerId, callType)
             }
         } else {
             android.util.Log.d("CallVM", "peerId bos, call baslatilmiyor")
@@ -116,6 +118,30 @@ class CallViewModel @Inject constructor(
             while (isActive) {
                 delay(1000)
                 callManager.getCallDuration()?.let { _callDuration.value = it }
+            }
+        }
+    }
+
+    /**
+     * Telecom Framework'e giden arama bildirimi yapar.
+     * Sistem [com.securechat.telecom.SecureChatConnectionService.onCreateOutgoingConnection]
+     * çağrılır → bridge `onConnectionCreated` + `startDialing` → state observer ACCEPT
+     * geldiğinde `setActive` eder. API 26+ koşulu ConnectionService gereği.
+     */
+    private fun notifyTelecomOutgoing(peerId: String, callType: CallType) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+        val session = callManager.currentSession ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val peerName = try { contactNameResolver.resolveDisplayName(peerId) } catch (_: Exception) { peerId }
+            try {
+                phoneAccountRegistrar.get().placeOutgoingCall(
+                    callId = session.callId,
+                    peerId = peerId,
+                    peerName = peerName,
+                    isVideo = callType == CallType.VIDEO
+                )
+            } catch (e: Exception) {
+                android.util.Log.w("CallVM", "Telecom placeOutgoingCall hatasi: ${e.message}")
             }
         }
     }

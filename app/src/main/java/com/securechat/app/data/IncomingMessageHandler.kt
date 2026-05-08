@@ -9,7 +9,6 @@ import com.securechat.app.ui.components.ThemeManager
 import com.securechat.media.CallManager
 import com.securechat.media.FileTransferManager
 import com.securechat.media.IncomingCallHandler
-import com.securechat.media.telecom.TelecomBridge
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
 import com.securechat.network.model.CallAction
@@ -56,9 +55,9 @@ class IncomingMessageHandler @Inject constructor(
     private val fileTransferManager: FileTransferManager,
     private val userSession: UserSession,
     private val incomingCallHandler: IncomingCallHandler,
-    private val telecomBridge: TelecomBridge,
     private val missedCallTracker: MissedCallTracker,
-    private val themeManager: ThemeManager
+    private val themeManager: ThemeManager,
+    private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -155,18 +154,8 @@ class IncomingMessageHandler @Inject constructor(
                     is SignalMessage.PresenceUpdate -> handlePresenceUpdate(signal)
                     is SignalMessage.GroupCallInvite -> handleGroupCallInvite(signal)
                     is SignalMessage.GroupCallMemberJoined -> callManager.handleGroupCallMemberJoined(signal)
-                    is SignalMessage.SfuRoomCreated -> {
-                        android.util.Log.d("IncomingHandler", "SfuRoomCreated: groupId=${signal.groupId}, roomId=${signal.roomId}")
-                        callManager.handleSfuRoomCreated(signal)
-                    }
-                    is SignalMessage.MessageReaction -> handleMessageReaction(signal)
                     is SignalMessage.PresenceSubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.PresenceUnsubscribe -> { /* Sunucu tarafinda islenir */ }
-                    is SignalMessage.ServerShutdown -> {
-                        android.util.Log.d("IncomingHandler", "ServerShutdown alindi: ${signal.message}")
-                        /* SignalingClient reconnect delay'i otomatik handle eder */
-                    }
-                    is SignalMessage.GroupMessageFanout -> { /* Sunucu tarafinda fan-out edilir, client'a gelmez */ }
                     is SignalMessage.AudioData -> { }
                     is SignalMessage.VideoData -> { /* WebRTC P2P — artik kullanilmiyor */ }
                     else -> { }
@@ -290,7 +279,7 @@ class IncomingMessageHandler @Inject constructor(
             val isGroupChatOpen = currentChatId == groupId
 
             val message = LocalMessage(
-                id = UUID.randomUUID().toString(),
+                id = signal.originalMessageId ?: UUID.randomUUID().toString(),
                 conversationId = groupId,
                 senderId = senderId,
                 peerId = senderId,
@@ -299,7 +288,9 @@ class IncomingMessageHandler @Inject constructor(
                 timestamp = fileNow,
                 status = if (isGroupChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
                 isOutgoing = false,
-                expiresAt = groupFileExpiresAt
+                expiresAt = groupFileExpiresAt,
+                caption = signal.caption?.takeIf { it.isNotBlank() },
+                isViewOnce = signal.isViewOnce
             )
             messageRepository.saveMessage(message)
 
@@ -310,7 +301,8 @@ class IncomingMessageHandler @Inject constructor(
                 val senderName = resolvePeerName(senderId)
                 val convForNotif = conversationDao.getById(groupId)
                 val displayGroupName = convForNotif?.peerName ?: "Grup"
-                showMessageNotification("$senderName ($displayGroupName)", "Dosya: ${signal.fileName}", groupId)
+                val notifBody = signal.caption?.takeIf { it.isNotBlank() } ?: "Dosya: ${signal.fileName}"
+                showMessageNotification("$senderName ($displayGroupName)", notifBody, groupId)
             }
         } else {
             // --- Birebir dosya mesaji ---
@@ -340,7 +332,7 @@ class IncomingMessageHandler @Inject constructor(
             val isFileChatOpen = currentChatId == senderId
 
             val message = LocalMessage(
-                id = UUID.randomUUID().toString(),
+                id = signal.originalMessageId ?: UUID.randomUUID().toString(),
                 conversationId = senderId,
                 senderId = senderId,
                 peerId = senderId,
@@ -349,9 +341,17 @@ class IncomingMessageHandler @Inject constructor(
                 timestamp = fileNow,
                 status = if (isFileChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
                 isOutgoing = false,
-                expiresAt = fileExpiresAt
+                expiresAt = fileExpiresAt,
+                caption = signal.caption?.takeIf { it.isNotBlank() },
+                isViewOnce = signal.isViewOnce
             )
             messageRepository.saveMessage(message)
+
+            // Birebir sohbet kapaliysa bildirim goster — caption varsa ozet olarak kullan
+            if (!isFileChatOpen) {
+                val notifBody = signal.caption?.takeIf { it.isNotBlank() } ?: "Dosya: ${signal.fileName}"
+                showMessageNotification(senderName, notifBody, senderId)
+            }
 
             android.util.Log.d("IncomingHandler", "Dosya alindi: ${signal.fileName} (${signal.fileSize} byte)")
         }
@@ -375,20 +375,16 @@ class IncomingMessageHandler @Inject constructor(
         // MSGID ve REPLY prefix'lerini ayristir
         val parsedGroup = parseMessageEnvelope(content)
         val originalMessageId = parsedGroup.messageId
-        var actualContent = parsedGroup.content
+        val actualContent = parsedGroup.content
         val groupReplyToId = parsedGroup.replyToId
 
-        // POLLVOTE prefix — anket oyu isleme
-        if (actualContent.startsWith("POLLVOTE:")) {
-            handlePollVote(senderId, actualContent, groupId)
+        // POLLVOTE: grup ankette oy guncellemesi
+        if (parsedGroup.pollVote != null) {
+            applyRemotePollVote(senderId, parsedGroup.pollVote)
+            if (originalMessageId != null) {
+                sendDeliveryReceipt(senderId, originalMessageId, "DELIVERED")
+            }
             return
-        }
-
-        // POLL prefix — anket mesaji
-        var groupContentType = MessageContentType.TEXT
-        if (actualContent.startsWith("POLL:")) {
-            actualContent = actualContent.removePrefix("POLL:")
-            groupContentType = MessageContentType.POLL
         }
 
         val groupConv = conversationDao.getById(groupId)
@@ -437,7 +433,7 @@ class IncomingMessageHandler @Inject constructor(
             senderId = senderId,
             peerId = senderId,
             content = actualContent,
-            contentType = groupContentType,
+            contentType = parsedGroup.contentType,
             timestamp = now,
             status = if (isGroupChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
             replyToId = groupReplyToId,
@@ -446,11 +442,14 @@ class IncomingMessageHandler @Inject constructor(
         )
         messageRepository.saveMessage(message)
 
-        // Bildirim goster
+        // Bildirim goster — anket icin ozel ozet
         val senderName = resolvePeerName(senderId)
         val displayGroupName = groupConv?.peerName ?: groupName ?: "Grup"
-        val groupNotifContent = if (groupContentType == MessageContentType.POLL) "Anket" else actualContent
-        showMessageNotification("$senderName ($displayGroupName)", groupNotifContent, groupId)
+        val groupNotifPreview = if (parsedGroup.contentType == MessageContentType.POLL) {
+            val q = try { org.json.JSONObject(actualContent).optString("question", "Anket") } catch (_: Exception) { "Anket" }
+            "📊 Anket: $q"
+        } else actualContent
+        showMessageNotification("$senderName ($displayGroupName)", groupNotifPreview, groupId)
 
         // Receipt gonder — sohbet aciksa READ, degilse DELIVERED
         if (originalMessageId != null) {
@@ -466,20 +465,16 @@ class IncomingMessageHandler @Inject constructor(
         // MSGID ve REPLY prefix'lerini ayristir — geriye uyumluluk icin prefix yoksa da calisir
         val parsed = parseMessageEnvelope(content)
         val originalMessageId = parsed.messageId
-        var actualContent = parsed.content
+        val actualContent = parsed.content
         val replyToId = parsed.replyToId
 
-        // POLLVOTE prefix — anket oyu isleme
-        if (actualContent.startsWith("POLLVOTE:")) {
-            handlePollVote(senderId, actualContent, senderId)
+        // POLLVOTE: yeni mesaj kaydedilmez, mevcut anket guncellenir
+        if (parsed.pollVote != null) {
+            applyRemotePollVote(senderId, parsed.pollVote)
+            if (originalMessageId != null) {
+                sendDeliveryReceipt(senderId, originalMessageId, "DELIVERED")
+            }
             return
-        }
-
-        // POLL prefix — anket mesaji
-        var contentType = MessageContentType.TEXT
-        if (actualContent.startsWith("POLL:")) {
-            actualContent = actualContent.removePrefix("POLL:")
-            contentType = MessageContentType.POLL
         }
 
         // Isim cozumle (sunucudan sifreli numara dahil) — bir kez cagir, tekrar kullan
@@ -513,9 +508,6 @@ class IncomingMessageHandler @Inject constructor(
         // Sohbet aciksa mesaj direkt READ, degilse DELIVERED olarak kaydedilir
         val isChatOpen = currentChatId == senderId
 
-        // Bildirim icin icerik
-        val notifContent = if (contentType == MessageContentType.POLL) "Anket" else actualContent
-
         // CRITICAL: Gondericinin orijinal mesaj ID'sini kullan — "herkesten sil" icin gerekli
         val message = LocalMessage(
             id = originalMessageId ?: UUID.randomUUID().toString(),
@@ -523,7 +515,7 @@ class IncomingMessageHandler @Inject constructor(
             senderId = senderId,
             peerId = senderId,
             content = actualContent,
-            contentType = contentType,
+            contentType = parsed.contentType,
             timestamp = now,
             status = if (isChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
             replyToId = replyToId,
@@ -532,62 +524,16 @@ class IncomingMessageHandler @Inject constructor(
         )
         messageRepository.saveMessage(message)
 
-        // Bildirim goster
-        showMessageNotification(senderName, notifContent, senderId)
+        // Bildirim goster — anket icin ozel ozet
+        val notifPreview = if (parsed.contentType == MessageContentType.POLL) {
+            val q = try { org.json.JSONObject(actualContent).optString("question", "Anket") } catch (_: Exception) { "Anket" }
+            "📊 Anket: $q"
+        } else actualContent
+        showMessageNotification(senderName, notifPreview, senderId)
 
         // Receipt gonder — sohbet aciksa READ (mavi cift tik), degilse DELIVERED (gri cift tik)
         if (originalMessageId != null) {
             sendDeliveryReceipt(senderId, originalMessageId, if (isChatOpen) "READ" else "DELIVERED")
-        }
-    }
-
-    /**
-     * Gelen anket oyunu isler. Poll mesajinin votes JSON'unu gunceller.
-     * Format: POLLVOTE:<pollMsgId>:<optionIndex>
-     */
-    private suspend fun handlePollVote(senderId: String, voteContent: String, conversationId: String) {
-        // POLLVOTE:<pollMsgId>:<optionIndex>
-        val parts = voteContent.removePrefix("POLLVOTE:").split(":", limit = 2)
-        if (parts.size < 2) return
-        val pollMsgId = parts[0]
-        val optionIndex = parts[1].toIntOrNull() ?: return
-
-        val pollMessage = messageRepository.getMessageById(pollMsgId) ?: return
-        try {
-            val json = org.json.JSONObject(pollMessage.content)
-            val votesObj = json.optJSONObject("votes") ?: org.json.JSONObject()
-            val singleChoice = json.optBoolean("singleChoice", true)
-
-            // Tek secimde onceki oyu kaldir
-            if (singleChoice) {
-                val keys = votesObj.keys().asSequence().toList()
-                for (key in keys) {
-                    val arr = votesObj.optJSONArray(key) ?: continue
-                    val filtered = org.json.JSONArray()
-                    for (i in 0 until arr.length()) {
-                        if (arr.getString(i) != senderId) filtered.put(arr.getString(i))
-                    }
-                    votesObj.put(key, filtered)
-                }
-            }
-
-            // Secilen secenege oyu ekle (toggle)
-            val optKey = optionIndex.toString()
-            val optArr = votesObj.optJSONArray(optKey) ?: org.json.JSONArray()
-            val voters = (0 until optArr.length()).map { optArr.getString(it) }
-            if (senderId in voters) {
-                val filtered = org.json.JSONArray()
-                voters.filter { it != senderId }.forEach { filtered.put(it) }
-                votesObj.put(optKey, filtered)
-            } else {
-                optArr.put(senderId)
-                votesObj.put(optKey, optArr)
-            }
-
-            json.put("votes", votesObj)
-            messageRepository.updateMessageContent(pollMsgId, json.toString(), MessageContentType.POLL.name)
-        } catch (e: Exception) {
-            android.util.Log.e("IncomingHandler", "Poll vote isleme hatasi: ${e.message}")
         }
     }
 
@@ -599,18 +545,6 @@ class IncomingMessageHandler @Inject constructor(
      * kullanici aramayi gorebilir.
      */
     private suspend fun handleIncomingCall(signal: SignalMessage.SdpOffer) {
-        // Stale SDP kontrolu — sadece cok eski SDP Offer'leri ignore et (30dk+)
-        // - 60sn/120sn cok dardi: FCM gecikmesi (Doze) + WorkManager + WS handshake +
-        //   Redis offline queue + clock skew kolayca asabiliyor → gercek aramalar atildi.
-        // - 30dk: yalnizca saatler/gunler oncesinden gelen gercekten eski offer'lar atilir.
-        // - FCM-pending varsa kullanici zaten kabul/red etmis demektir → bypass et.
-        val ageMs = System.currentTimeMillis() - signal.timestamp
-        val hasPendingFcm = callManager.pendingFcmAccept != null || callManager.pendingFcmReject != null
-        if (ageMs > 1_800_000L && !hasPendingFcm) {
-            android.util.Log.w("IncomingHandler", "Stale SDP Offer ignore edildi: age=${ageMs}ms, sender=${signal.senderId}")
-            return
-        }
-
         val localUserId = userSession.userId ?: "unknown"
         callManager.handleIncomingCall(signal, localUserId)
 
@@ -618,56 +552,58 @@ class IncomingMessageHandler @Inject constructor(
         val session = callManager.currentSession
 
         if (session != null) {
-            android.util.Log.d("IncomingHandler", "INCOMING CALL DETECTED, foreground=$isAppInForeground")
+            android.util.Log.d("IncomingHandler", "INCOMING CALL DETECTED - Background handler aktif")
 
-            // Telecom Framework (SELF_MANAGED) entegrasyonu.
-            // Once: FCM pre-call asamasinda zaten acilmis Connection varsa onu
-            // gercek session.callId'ye remap et — duplicate sistem ringing yok.
-            // Yoksa: yeni addNewIncomingCall yap.
-            val upgraded = telecomBridge.upgradeIncomingCallId(session)
-            val telecomTaken = if (upgraded) {
-                android.util.Log.d("IncomingHandler", "telecomBridge upgrade basarili (FCM-pending devam)")
-                true
-            } else {
-                val attempted = telecomBridge.attemptIncoming(session, peerName)
-                android.util.Log.d("IncomingHandler", "telecomBridge.attemptIncoming = $attempted")
-                attempted
-            }
-
-            if (isAppInForeground) {
-                // FOREGROUND: bildirim ve ayri Activity GOSTERMEZ —
-                // SecureChatActivity'deki LaunchedEffect(callSession) zaten in-app
-                // CallScreen'e navigate ediyor.
-                missedCallTracker.startMissedCallTimer(session, peerName)
-                return
-            }
-
-            // BACKGROUND/LOCKED/KILLED. Telecom basarili ise sistem UI yolu
-            // tek kaynak — CallStyle notification + manuel startActivity atlanir.
-            if (!telecomTaken) {
-                incomingCallHandler.showIncomingCall(
-                    session = session,
-                    peerName = peerName,
-                    fullScreenActivityClass = IncomingCallActivity::class.java
+            // EKRANI UYANDIR: Doze/screen-off durumunda full-screen intent her zaman tetiklenmez.
+            // Wake lock + screen-on flag ile cihaz uyandirilir; sonra notification full-screen
+            // intent IncomingCallActivity'i kilit ekraninda acabilir.
+            try {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                @Suppress("DEPRECATION")
+                val wl = pm.newWakeLock(
+                    android.os.PowerManager.FULL_WAKE_LOCK or
+                    android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    android.os.PowerManager.ON_AFTER_RELEASE,
+                    "SecureChat:IncomingCall"
                 )
+                wl.acquire(10_000) // 10sn — full-screen intent'in tetiklenmesi icin yeterli
+                android.util.Log.d("IncomingHandler", "Wake lock alindi, ekran uyandiriliyor")
+            } catch (e: Exception) {
+                android.util.Log.w("IncomingHandler", "Wake lock alinamadi: ${e.message}")
+            }
 
+            // UI garantisi: notification + full-screen intent HER ZAMAN gosterilir.
+            // setFullScreenIntent IncomingCallActivity'yi kilit ekraninda otomatik baslatir
+            // — ekstra startActivity cagrisina gerek yok (eski kodda redundant idi,
+            // tek aksiyonu duplicate Activity launch'tu).
+            //
+            // Telecom notifyIncomingCall opsiyonel olarak audio routing icin cagirilir.
+            // Cogu cihazda Telecom kendi sistem UI'sini de gosterir; bazi cihazlarda
+            // (SELF_MANAGED PhoneAccount onaylanmamis, ekran kapali vs.) UI sessizce
+            // cikmaz — bu yuzden notification fallback'e GUVENMEK YERINE notification
+            // her zaman gosterilir. Telecom UI cikarsa kullanici iki UI gorebilir
+            // ama onceki "yalnizca ringtone, UI yok" regresyonundan iyidir.
+            incomingCallHandler.showIncomingCall(
+                session = session,
+                peerName = peerName,
+                fullScreenActivityClass = IncomingCallActivity::class.java
+            )
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 try {
-                    val intent = android.content.Intent(context, IncomingCallActivity::class.java).apply {
-                        putExtra("peer_id", signal.senderId)
-                        putExtra("peer_name", peerName)
-                        putExtra("call_type", signal.callType.name)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_NO_USER_ACTION)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
-                    }
-                    context.startActivity(intent)
-                    android.util.Log.d("IncomingHandler", "IncomingCallActivity (fallback) baslatildi")
+                    val isVideo = signal.callType == com.securechat.network.model.CallType.VIDEO
+                    phoneAccountRegistrar.get().notifyIncomingCall(
+                        callId = session.callId,
+                        peerId = signal.senderId,
+                        peerName = peerName,
+                        isVideo = isVideo
+                    )
                 } catch (e: Exception) {
-                    android.util.Log.e("IncomingHandler", "IncomingCallActivity baslatilamadi: ${e.message}")
+                    android.util.Log.w("IncomingHandler", "Telecom notifyIncomingCall hatası: ${e.message}")
                 }
             }
 
+            // Missed call timer'ı başlat
             missedCallTracker.startMissedCallTimer(session, peerName)
         }
     }
@@ -686,41 +622,28 @@ class IncomingMessageHandler @Inject constructor(
         if (session != null) {
             android.util.Log.d("IncomingHandler", "GELEN GRUP ARAMASI: ${signal.groupId} from $peerName")
 
-            // Telecom Framework grup aramasi: once FCM pre-call upgrade dene,
-            // yoksa yeni addNewIncomingCall.
-            val upgraded = telecomBridge.upgradeIncomingCallId(session)
-            val telecomTaken = if (upgraded) {
-                android.util.Log.d("IncomingHandler", "Group telecomBridge upgrade basarili")
-                true
-            } else {
-                val attempted = telecomBridge.attemptIncoming(session, "Grup: $peerName")
-                android.util.Log.d("IncomingHandler", "Group telecomBridge.attemptIncoming = $attempted")
-                attempted
-            }
+            // Gelen arama bildirimini goster
+            incomingCallHandler.showIncomingCall(
+                session = session,
+                peerName = "Grup: $peerName",
+                fullScreenActivityClass = IncomingCallActivity::class.java
+            )
 
-            if (!telecomTaken) {
-                incomingCallHandler.showIncomingCall(
-                    session = session,
-                    peerName = "Grup: $peerName",
-                    fullScreenActivityClass = IncomingCallActivity::class.java
-                )
-
-                try {
-                    val intent = android.content.Intent(context, IncomingCallActivity::class.java).apply {
-                        putExtra("peer_id", signal.senderId)
-                        putExtra("peer_name", "Grup Arama: $peerName")
-                        putExtra("call_type", signal.callType.name)
-                        putExtra("is_group_call", true)
-                        putExtra("group_id", signal.groupId)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_NO_USER_ACTION)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
-                    }
-                    context.startActivity(intent)
-                } catch (e: Exception) {
-                    android.util.Log.e("IncomingHandler", "Grup arama Activity baslatılamadı: ${e.message}")
+            try {
+                val intent = android.content.Intent(context, IncomingCallActivity::class.java).apply {
+                    putExtra("peer_id", signal.senderId)
+                    putExtra("peer_name", "Grup Arama: $peerName")
+                    putExtra("call_type", signal.callType.name)
+                    putExtra("is_group_call", true)
+                    putExtra("group_id", signal.groupId)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
                 }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                android.util.Log.e("IncomingHandler", "Grup arama Activity baslatılamadı: ${e.message}")
             }
 
             missedCallTracker.startMissedCallTimer(session, "Grup: $peerName")
@@ -797,9 +720,6 @@ class IncomingMessageHandler @Inject constructor(
      * Oncelikle mevcut konusmalardan isim aranir, bulunamazsa sunucudan
      * sifreli telefon numarasi cekilip cozumlenir.
      */
-    /** Disaridan erisim icin public wrapper — FCM service de ayni mantigi kullanabilsin. */
-    suspend fun lookupPeerName(userId: String): String = resolvePeerName(userId)
-
     private suspend fun resolvePeerName(userId: String): String {
         // 1. Mevcut konusmada kayitli isim varsa onu kullan
         val existingConv = conversationDao.getByPeerId(userId)
@@ -863,19 +783,10 @@ class IncomingMessageHandler @Inject constructor(
      * Sunucu sifreli veriyi saklar ama cozme anahtarina sahip degildir.
      */
     private suspend fun fetchAndDecryptPhone(userId: String): String? {
-        val accessToken = userSession.accessToken
-        if (accessToken.isNullOrBlank()) {
-            android.util.Log.w("IncomingHandler", "Access token yok — fetchAndDecryptPhone atlandi")
-            return null
-        }
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             try {
                 val url = "${com.securechat.app.BuildConfig.API_BASE_URL}/api/v1/users/$userId/phone"
-                val request = okhttp3.Request.Builder()
-                    .url(url)
-                    .addHeader("Authorization", "Bearer $accessToken")
-                    .get()
-                    .build()
+                val request = okhttp3.Request.Builder().url(url).get().build()
                 okhttp3.OkHttpClient().newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val body = response.body?.string() ?: return@use null
@@ -923,7 +834,15 @@ class IncomingMessageHandler @Inject constructor(
      *
      * @return Triple(originalMessageId, replyToId, actualContent)
      */
-    data class ParsedMessage(val messageId: String?, val replyToId: String?, val content: String)
+    data class PollVoteRef(val pollMessageId: String, val optionIndex: Int)
+
+    data class ParsedMessage(
+        val messageId: String?,
+        val replyToId: String?,
+        val content: String,
+        val contentType: MessageContentType = MessageContentType.TEXT,
+        val pollVote: PollVoteRef? = null
+    )
 
     private fun parseMessageId(content: String): Pair<String?, String> {
         val parsed = parseMessageEnvelope(content)
@@ -955,7 +874,82 @@ class IncomingMessageHandler @Inject constructor(
             }
         }
 
+        // POLLVOTE: prefix — anket oy guncellemesi (yeni mesaj olarak kaydedilmez,
+        // mevcut anket mesajinin votes alanini gunceller)
+        // Format: POLLVOTE:<pollMsgId>:<optionIndex>
+        if (remaining.startsWith("POLLVOTE:")) {
+            val parts = remaining.removePrefix("POLLVOTE:").split(":", limit = 2)
+            if (parts.size == 2) {
+                val pollMsgId = parts[0]
+                val optionIdx = parts[1].toIntOrNull()
+                if (optionIdx != null) {
+                    return ParsedMessage(
+                        messageId = messageId,
+                        replyToId = null,
+                        content = "",
+                        contentType = MessageContentType.TEXT,
+                        pollVote = PollVoteRef(pollMsgId, optionIdx)
+                    )
+                }
+            }
+        }
+
+        // POLL: prefix — anket mesaji
+        if (remaining.startsWith("POLL:")) {
+            return ParsedMessage(
+                messageId = messageId,
+                replyToId = replyToId,
+                content = remaining.removePrefix("POLL:"),
+                contentType = MessageContentType.POLL,
+                pollVote = null
+            )
+        }
+
         return ParsedMessage(messageId, replyToId, remaining)
+    }
+
+    /**
+     * Karsi taraftan gelen oy bilgisini lokal anket mesajina uygular.
+     * Var olan votes JSON'unu gunceller; tek secim modunda eski oyunu kaldirir,
+     * toggle (zaten varsa cikarir) mantigiyla calisir.
+     */
+    private suspend fun applyRemotePollVote(senderId: String, vote: PollVoteRef) {
+        val pollMessage = messageRepository.getMessageById(vote.pollMessageId) ?: return
+        if (pollMessage.contentType != MessageContentType.POLL) return
+        val json = try { org.json.JSONObject(pollMessage.content) } catch (_: Exception) { return }
+        val votesObj = json.optJSONObject("votes") ?: org.json.JSONObject()
+        val singleChoice = json.optBoolean("singleChoice", true)
+
+        if (singleChoice) {
+            val keys = votesObj.keys().asSequence().toList()
+            for (key in keys) {
+                val arr = votesObj.optJSONArray(key) ?: continue
+                val filtered = org.json.JSONArray()
+                for (i in 0 until arr.length()) {
+                    if (arr.getString(i) != senderId) filtered.put(arr.getString(i))
+                }
+                votesObj.put(key, filtered)
+            }
+        }
+
+        val optKey = vote.optionIndex.toString()
+        val optArr = votesObj.optJSONArray(optKey) ?: org.json.JSONArray()
+        val voters = (0 until optArr.length()).map { optArr.getString(it) }
+        if (senderId in voters) {
+            val filtered = org.json.JSONArray()
+            voters.filter { it != senderId }.forEach { filtered.put(it) }
+            votesObj.put(optKey, filtered)
+        } else {
+            optArr.put(senderId)
+            votesObj.put(optKey, optArr)
+        }
+
+        json.put("votes", votesObj)
+        messageRepository.updateMessageContent(
+            vote.pollMessageId,
+            json.toString(),
+            MessageContentType.POLL.name
+        )
     }
 
     /**
@@ -1115,34 +1109,6 @@ class IncomingMessageHandler @Inject constructor(
             android.util.Log.d("IncomingHandler", "Mesaj basariyla duzenlendi: ${signal.messageId}")
         } catch (e: Exception) {
             android.util.Log.e("IncomingHandler", "Mesaj duzenlenirken hata: ${e.message}", e)
-        }
-    }
-
-    private suspend fun handleMessageReaction(signal: SignalMessage.MessageReaction) {
-        android.util.Log.d("IncomingHandler", "MessageReaction: msgId=${signal.messageId} emoji=${signal.emoji} remove=${signal.remove} from=${signal.senderId}")
-        try {
-            val message = messageRepository.getMessageById(signal.messageId) ?: return
-            val reactionsMap = com.securechat.app.ui.viewmodel.parseReactions(message.reactions)
-            val usersForEmoji = reactionsMap.getOrDefault(signal.emoji, mutableListOf())
-
-            if (signal.remove) {
-                usersForEmoji.remove(signal.senderId)
-                if (usersForEmoji.isEmpty()) reactionsMap.remove(signal.emoji)
-            } else {
-                if (signal.senderId !in usersForEmoji) usersForEmoji.add(signal.senderId)
-                reactionsMap[signal.emoji] = usersForEmoji
-            }
-
-            val json = if (reactionsMap.isEmpty()) null else {
-                val obj = org.json.JSONObject()
-                reactionsMap.forEach { (e, users) ->
-                    obj.put(e, org.json.JSONArray(users))
-                }
-                obj.toString()
-            }
-            messageRepository.updateMessageReactions(signal.messageId, json)
-        } catch (e: Exception) {
-            android.util.Log.e("IncomingHandler", "Reaksiyon islenirken hata: ${e.message}", e)
         }
     }
 
@@ -1474,14 +1440,13 @@ class IncomingMessageHandler @Inject constructor(
                 val groupConv = conversationDao.getById(signal.groupId)
                 if (groupConv == null) {
                     android.util.Log.d("IncomingHandler", "Yeni grup olusturuluyor: ${signal.groupId}, isim: ${signal.groupName}")
-                    val creatorName = resolvePeerName(signal.senderId)
                     conversationDao.insert(
                         ConversationEntity(
                             id = signal.groupId,
                             peerId = signal.groupId,
                             peerName = signal.groupName,
                             peerPhone = "",
-                            lastMessage = "$creatorName grubu oluşturdu",
+                            lastMessage = "${signal.senderId} grubu oluşturdu",
                             lastMessageTimestamp = signal.timestamp,
                             unreadCount = if (signal.senderId != localUserId) 1 else 0,
                             isMuted = false,
@@ -1525,9 +1490,7 @@ class IncomingMessageHandler @Inject constructor(
 
                     // Sistem mesajı kaydet
                     val targetMember = signal.targetMemberId ?: "bilinmeyen"
-                    val senderName = resolvePeerName(signal.senderId)
-                    val targetName = resolvePeerName(targetMember)
-                    val systemMessage = "$senderName, $targetName adlı kullanıcıyı gruba ekledi"
+                    val systemMessage = "${signal.senderId}, ${targetMember}'i gruba ekledi"
 
                     val message = com.securechat.storage.domain.LocalMessage(
                         id = UUID.randomUUID().toString(),
@@ -1588,9 +1551,7 @@ class IncomingMessageHandler @Inject constructor(
                         conversationDao.updateGroupMembers(signal.groupId, signal.groupMembers.joinToString(","))
 
                         // Sistem mesaji kaydet
-                        val senderName = resolvePeerName(signal.senderId)
-                        val targetName = resolvePeerName(targetMember)
-                        val systemMessage = "$senderName, $targetName adlı kullanıcıyı gruptan çıkardı"
+                        val systemMessage = "${signal.senderId}, ${targetMember}'i gruptan çıkardı"
                         val message = com.securechat.storage.domain.LocalMessage(
                             id = UUID.randomUUID().toString(),
                             conversationId = signal.groupId,
@@ -1646,40 +1607,7 @@ class IncomingMessageHandler @Inject constructor(
                     conversationDao.updateGroupAdmins(signal.groupId, updatedAdmins)
 
                     // Sistem mesaji kaydet
-                    val senderName = resolvePeerName(signal.senderId)
-                    val targetName = resolvePeerName(targetMember)
-                    val systemMessage = "$senderName, $targetName adlı kullanıcıyı yönetici yaptı"
-                    val message = com.securechat.storage.domain.LocalMessage(
-                        id = UUID.randomUUID().toString(),
-                        conversationId = signal.groupId,
-                        senderId = "SYSTEM",
-                        peerId = signal.groupId,
-                        content = systemMessage,
-                        contentType = MessageContentType.SYSTEM,
-                        timestamp = signal.timestamp,
-                        status = MessageStatus.DELIVERED,
-                        isOutgoing = false
-                    )
-                    messageRepository.saveMessage(message)
-                }
-            }
-
-            com.securechat.network.model.GroupAction.DEMOTE_ADMIN -> {
-                // Admin yetkisi alindi — hedef uye admin listesinden cikarildi
-                val groupConv = conversationDao.getById(signal.groupId)
-                if (groupConv != null) {
-                    val targetMember = signal.targetMemberId ?: "bilinmeyen"
-                    android.util.Log.d("IncomingHandler", "Admin dusurme: $targetMember -> ${signal.groupId}")
-
-                    // Admin listesinden cikar
-                    val currentAdmins = groupConv.groupAdmins?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
-                    val updatedAdmins = currentAdmins.filter { it != targetMember }.joinToString(",")
-                    conversationDao.updateGroupAdmins(signal.groupId, updatedAdmins)
-
-                    // Sistem mesaji kaydet
-                    val senderName = resolvePeerName(signal.senderId)
-                    val targetName = resolvePeerName(targetMember)
-                    val systemMessage = "$senderName, $targetName adli kullanicinin yonetici yetkisini aldi"
+                    val systemMessage = "${signal.senderId}, ${targetMember}'i yonetici yapti"
                     val message = com.securechat.storage.domain.LocalMessage(
                         id = UUID.randomUUID().toString(),
                         conversationId = signal.groupId,

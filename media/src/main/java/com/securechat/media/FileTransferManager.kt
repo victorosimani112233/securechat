@@ -36,8 +36,14 @@ class FileTransferManager @Inject constructor(
     companion object {
         /** WebSocket uzerinden gonderilebilecek maksimum dosya boyutu (1GB). */
         const val MAX_FILE_SIZE = 1024 * 1024 * 1024L
-        /** Chunk boyutu — her parca 512KB (Base64 sonrasi ~682KB WebSocket frame). */
-        const val CHUNK_SIZE = 512 * 1024
+        /**
+         * Chunk boyutu — her parca 128KB.
+         * Base64 sonrasi ~170KB, JSON envelope ile birlikte ~172KB.
+         * Server [maxFrameSize=256KB] limiti altinda guvenli marjla kalir.
+         * NOT: 512KB chunk Base64 sonrasi 682KB oluyordu ve server frame'i drop
+         * ediyordu — dosyalar karsi tarafa hic ulasmiyordu.
+         */
+        const val CHUNK_SIZE = 128 * 1024
     }
 
     /**
@@ -59,7 +65,10 @@ class FileTransferManager @Inject constructor(
         uri: Uri,
         isGroup: Boolean = false,
         groupMembers: List<String> = emptyList(),
-        groupName: String? = null
+        groupName: String? = null,
+        caption: String? = null,
+        isViewOnce: Boolean = false,
+        originalMessageId: String? = null
     ): FileTransferResult {
         val contentResolver = context.contentResolver
         val originalMimeType = contentResolver.getType(uri) ?: "application/octet-stream"
@@ -99,7 +108,7 @@ class FileTransferManager @Inject constructor(
             ?: return FileTransferResult.Error("Dosya okunamadi")
 
         return inputStream.use { stream ->
-            sendFileChunked(stream, totalSize, localUserId, recipientId, fileName, mimeType, isGroup, groupMembers, groupName)
+            sendFileChunked(stream, totalSize, localUserId, recipientId, fileName, mimeType, isGroup, groupMembers, groupName, caption, isViewOnce, originalMessageId)
         }
     }
 
@@ -118,7 +127,10 @@ class FileTransferManager @Inject constructor(
         mimeType: String,
         isGroup: Boolean,
         groupMembers: List<String>,
-        groupName: String?
+        groupName: String?,
+        caption: String?,
+        isViewOnce: Boolean,
+        originalMessageId: String?
     ): FileTransferResult {
         val transferId = UUID.randomUUID().toString()
         val totalChunks = ((totalSize + CHUNK_SIZE - 1) / CHUNK_SIZE).toInt().coerceAtLeast(1)
@@ -146,7 +158,12 @@ class FileTransferManager @Inject constructor(
                 groupName = if (isGroup) groupName else null,
                 transferId = transferId,
                 chunkIndex = chunkIndex,
-                totalChunks = totalChunks
+                totalChunks = totalChunks,
+                // Caption ve view-once meta verisi yalnizca son chunk'ta tasinir,
+                // alici tarafta tum parcalar birlestirildikten sonra mesaj olusturulurken kullanilir.
+                caption = if (chunkIndex == totalChunks - 1) caption else null,
+                isViewOnce = isViewOnce,
+                originalMessageId = if (chunkIndex == totalChunks - 1) originalMessageId else null
             )
 
             val sent = if (isGroup && groupMembers.isNotEmpty()) {

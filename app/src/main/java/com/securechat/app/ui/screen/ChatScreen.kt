@@ -81,6 +81,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -577,7 +579,8 @@ fun ChatScreen(
                                             onReplyClick = { replyId ->
                                                 viewModel.navigateToMessage(replyId)
                                             },
-                                            onPollVote = { msgId, idx -> viewModel.votePoll(msgId, idx) }
+                                            onPollVote = { msgId, idx -> viewModel.votePoll(msgId, idx) },
+                                            currentUserId = viewModel.currentUserId
                                         )
                                     }
                                 }
@@ -600,7 +603,7 @@ fun ChatScreen(
                                         onDeleteForEveryone = if (message.isOutgoing) {
                                             { viewModel.deleteMessageForEveryone(message.id) }
                                         } else null,
-                                        onEditMessage = if (message.isOutgoing && !message.isFileMessage && !message.isDeleted) {
+                                        onEditMessage = if (message.isOutgoing && !message.isFileMessage && !message.isPollMessage && !message.isDeleted) {
                                             { currentContent ->
                                                 editingMessageId = message.id
                                                 editingMessageContent = currentContent
@@ -621,7 +624,9 @@ fun ChatScreen(
                                         } else null,
                                         onReplyToMessage = { replyingToMessage = message },
                                         onReactionClick = { emoji -> viewModel.toggleReaction(message.id, emoji) },
-                                        onPollVote = { msgId, idx -> viewModel.votePoll(msgId, idx) }
+                                        onPollVote = { msgId, idx -> viewModel.votePoll(msgId, idx) },
+                                        onMarkViewOnceViewed = { id -> viewModel.markViewOnceAsViewed(id) },
+                                        currentUserId = viewModel.currentUserId
                                     )
                                 }
                             }
@@ -658,8 +663,7 @@ fun ChatScreen(
                             onClick = {
                                 val selectedMsgs = messages.filter { it.id in selectedMessageIds }
                                 forwardContent = selectedMsgs.joinToString("\n") { msg ->
-                                    if (msg.isFileMessage) "[Dosya: ${msg.content.split("|").firstOrNull() ?: "dosya"}]"
-                                    else msg.content
+                                    if (msg.isFileMessage || msg.isPollMessage) msg.previewText else msg.content
                                 }
                                 showForwardPicker = true
                             },
@@ -784,16 +788,14 @@ fun ChatScreen(
     if (showMediaPreview) {
         MediaPreviewScreen(
             items = pendingPreviewItems,
-            onSend = { items, caption ->
+            onSend = { items, caption, viewOnce ->
                 // Onizlemeyi kapat
                 pendingPreviewItems = emptyList()
-                // Caption varsa once mesaj olarak gonder
-                if (caption.isNotBlank()) {
-                    viewModel.sendMessage(caption)
-                }
-                // Dosyalari gonder
-                items.forEach { item ->
-                    viewModel.sendFile(item.uri)
+                // Caption ilk dosyaya bagli, sonraki dosyalar caption'siz
+                // (WhatsApp tarzi: tek caption ortak, ek dosyalar caption'sizdir)
+                items.forEachIndexed { index, item ->
+                    val itemCaption = if (index == 0) caption else null
+                    viewModel.sendFile(item.uri, itemCaption, viewOnce)
                 }
             },
             onDismiss = {
@@ -1573,7 +1575,9 @@ fun MessageBubble(
     onInfoClick: (() -> Unit)? = null,
     onReplyToMessage: (() -> Unit)? = null,
     onReactionClick: ((String) -> Unit)? = null,
-    onPollVote: ((String, Int) -> Unit)? = null
+    onPollVote: ((String, Int) -> Unit)? = null,
+    onMarkViewOnceViewed: ((String) -> Unit)? = null,
+    currentUserId: String = ""
 ) {
     val isOutgoing = message.isOutgoing
     val dark = LocalDarkTheme.current
@@ -1674,7 +1678,7 @@ fun MessageBubble(
                                         maxLines = 1
                                     )
                                     Text(
-                                        text = if (replyToMessage.isDeleted) "Bu mesaj silindi" else replyToMessage.content,
+                                        text = replyToMessage.previewText,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -1729,6 +1733,10 @@ fun MessageBubble(
                                 isOutgoing = isOutgoing,
                                 uploadPercent = uploadPercent,
                                 onFileClick = {
+                                    // View-once: alici taraf ilk dokunusta goruntulendi olarak isaretle
+                                    if (message.isViewOnce && !message.isOutgoing && !message.isViewed) {
+                                        onMarkViewOnceViewed?.invoke(message.id)
+                                    }
                                     message.filePath?.let { filePath ->
                                         FileOpenHelper.openFile(
                                             context = context,
@@ -1753,6 +1761,8 @@ fun MessageBubble(
                             PollMessageContent(
                                 message = message,
                                 isOutgoing = isOutgoing,
+                                currentUserId = currentUserId,
+                                memberNames = memberNames,
                                 onVote = { optionIndex -> onPollVote?.invoke(message.id, optionIndex) }
                             )
                         }
@@ -1938,7 +1948,7 @@ fun MessageBubble(
                 }
 
                 // Duzenle (sadece kendi TEXT mesajlari, 15 dakika icinde)
-                if (onEditMessage != null && message.isOutgoing && !message.isFileMessage && !message.isDeleted) {
+                if (onEditMessage != null && message.isOutgoing && !message.isFileMessage && !message.isPollMessage && !message.isDeleted) {
                     val canEdit = (System.currentTimeMillis() - message.timestamp) < 15 * 60 * 1000L
                     if (canEdit) {
                         DropdownMenuItem(
@@ -2334,6 +2344,114 @@ private fun FileMessageContent(
         if (dark) Color.White.copy(alpha = 0.7f) else Color(0xFF1E52D9).copy(alpha = 0.7f)
     } else {
         if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570)
+    }
+
+    // Tek gosterimlik medya — ONIZLEME YOK, sadece "1" rozetli placeholder.
+    // Alicida tek tikla acilir, sonra kalici "izlendi" placeholder'i.
+    if (message.isViewOnce && !isUploading) {
+        val isViewedOnceConsumed = message.isViewed && !message.isOutgoing
+        // Gonderici icin de onizleme yok (zaten sadece bir kez gosterilmek uzere gonderdi)
+        val showAsConsumed = isViewedOnceConsumed || message.isOutgoing
+        Box(
+            modifier = Modifier
+                .widthIn(min = 200.dp, max = 240.dp)
+                .heightIn(min = 80.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1E293B))
+                .combinedClickable(
+                    onClick = { if (!showAsConsumed) onFileClick() }
+                )
+                .padding(horizontal = 14.dp, vertical = 14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // "1" yazili dairesel rozet — WhatsApp tarzi
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (showAsConsumed) Color(0xFF475569)
+                            else Color(0xFF3E7BFA).copy(alpha = 0.18f)
+                        )
+                        .border(
+                            width = 1.5.dp,
+                            color = if (showAsConsumed) Color(0xFF64748B) else Color(0xFF3E7BFA),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "1",
+                        color = if (showAsConsumed) Color.White.copy(alpha = 0.7f) else Color(0xFF3E7BFA),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    val title = when {
+                        message.isOutgoing -> "Tek gösterimlik fotoğraf"
+                        isViewedOnceConsumed -> "Açıldı"
+                        else -> "Tek gösterimlik fotoğraf"
+                    }
+                    Text(
+                        text = title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    val subtitle = when {
+                        message.isOutgoing -> "Alıcı bir kez görebilir"
+                        isViewedOnceConsumed -> "Bu medya artık açılamaz"
+                        else -> "Açmak için dokunun"
+                    }
+                    Text(
+                        text = subtitle,
+                        color = Color.White.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    // Resim mesaji ve yerel dosya yolu varsa thumbnail goster (WhatsApp tarzi)
+    val imagePath = message.filePath
+    if (message.isImageFile && !imagePath.isNullOrBlank() && !isUploading) {
+        val ctx = LocalContext.current
+        Column(modifier = Modifier.widthIn(min = 180.dp, max = 260.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 180.dp, max = 260.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .combinedClickable(onClick = { onFileClick() })
+            ) {
+                coil.compose.AsyncImage(
+                    model = coil.request.ImageRequest.Builder(ctx)
+                        .data(java.io.File(imagePath))
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = message.fileName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            }
+            // Caption — WhatsApp tarzi medyanin altinda ayni baloncukta
+            val cap = message.caption
+            if (!cap.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = cap,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textColor,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+        }
+        return
     }
 
     Column {
@@ -2752,7 +2870,7 @@ private fun ReplyPreview(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = message.content,
+                    text = message.previewText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -3157,36 +3275,27 @@ private fun CreatePollDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Tek/coklu secim toggle
+                // Tek/coklu secim toggle — segmented selector
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { singleChoice = !singleChoice }
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(
-                        imageVector = if (singleChoice) Icons.Default.RadioButtonChecked else Icons.Default.CheckBox,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = accentColor
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (singleChoice) "Tek seçim" else "Çoklu seçim",
-                        style = MaterialTheme.typography.bodyMedium,
+                    PollChoiceSegment(
+                        label = "Tekli seçim",
+                        icon = Icons.Default.RadioButtonChecked,
+                        selected = singleChoice,
+                        accentColor = accentColor,
+                        onClick = { singleChoice = true },
                         modifier = Modifier.weight(1f)
                     )
-                    Text(
-                        text = "Değiştir",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = accentColor
+                    PollChoiceSegment(
+                        label = "Çoklu seçim",
+                        icon = Icons.Default.CheckBox,
+                        selected = !singleChoice,
+                        accentColor = accentColor,
+                        onClick = { singleChoice = false },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -3227,6 +3336,8 @@ private fun CreatePollDialog(
 private fun PollMessageContent(
     message: LocalMessage,
     isOutgoing: Boolean,
+    currentUserId: String,
+    memberNames: Map<String, String> = emptyMap(),
     onVote: (Int) -> Unit = {}
 ) {
     val textColor = if (isOutgoing)
@@ -3264,8 +3375,11 @@ private fun PollMessageContent(
         return
     }
 
-    // Toplam oy sayisi
+    // Toplam oy sayisi (TEKIL kullanici sayisi degil — coklu secimde bir kullanici birden fazla oy verebilir)
     val totalVotes = pollData.votes.values.sumOf { it.size }
+    // Anketi en az bir kullanici oyladi mi (oy detayi popup'i icin koşul)
+    val anyoneVoted = totalVotes > 0
+    var showVotersDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
         // Anket ikonu ve soru
@@ -3298,7 +3412,7 @@ private fun PollMessageContent(
 
         // Secim tipi bilgisi
         Text(
-            text = if (pollData.singleChoice) "Tek secim" else "Coklu secim",
+            text = if (pollData.singleChoice) "Tek seçim" else "Çoklu seçim",
             style = MaterialTheme.typography.labelSmall,
             color = textColor.copy(alpha = 0.5f)
         )
@@ -3308,33 +3422,39 @@ private fun PollMessageContent(
         // Secenekler
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             pollData.options.forEachIndexed { index, option ->
-                val voteCount = pollData.votes[index]?.size ?: 0
+                val voters = pollData.votes[index] ?: emptyList()
+                val voteCount = voters.size
                 val percentage = if (totalVotes > 0) (voteCount * 100) / totalVotes else 0
-                val hasVotes = voteCount > 0
+                // KRITIK: "selected" yalnizca KENDI oyumuza gore — diger kullanicilarin secimi degil
+                val userVotedThis = currentUserId.isNotBlank() && currentUserId in voters
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
                         .border(
-                            width = 1.dp,
-                            color = if (hasVotes) Color(0xFF3E7BFA).copy(alpha = 0.5f)
+                            width = if (userVotedThis) 1.5.dp else 1.dp,
+                            color = if (userVotedThis) Color(0xFF3E7BFA)
                                     else textColor.copy(alpha = 0.2f),
                             shape = RoundedCornerShape(10.dp)
                         )
                         .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            if (userVotedThis) Color(0xFF3E7BFA).copy(alpha = 0.10f)
+                            else Color.Transparent
+                        )
                         .clickable { onVote(index) }
                         .padding(horizontal = 10.dp, vertical = 10.dp)
                 ) {
-                    // Secim ikonu
+                    // Secim ikonu — kullanicinin kendi secimine gore boyanir
                     Icon(
                         imageVector = if (pollData.singleChoice)
-                            if (hasVotes) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked
+                            if (userVotedThis) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked
                         else
-                            if (hasVotes) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                            if (userVotedThis) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
-                        tint = if (hasVotes) Color(0xFF3E7BFA) else textColor.copy(alpha = 0.4f)
+                        tint = if (userVotedThis) Color(0xFF3E7BFA) else textColor.copy(alpha = 0.4f)
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
@@ -3346,25 +3466,191 @@ private fun PollMessageContent(
                         modifier = Modifier.weight(1f)
                     )
 
-                    if (totalVotes > 0) {
+                    if (voteCount > 0) {
                         Text(
                             text = "$voteCount ($percentage%)",
                             style = MaterialTheme.typography.labelSmall,
-                            color = textColor.copy(alpha = 0.5f)
+                            color = textColor.copy(alpha = 0.6f)
                         )
                     }
                 }
             }
         }
 
-        if (totalVotes > 0) {
+        if (anyoneVoted) {
             Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Toplam $totalVotes oy",
-                style = MaterialTheme.typography.labelSmall,
-                color = textColor.copy(alpha = 0.4f)
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { showVotersDialog = true }
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "Toplam $totalVotes oy",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = textColor.copy(alpha = 0.5f)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Detayları gör",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF3E7BFA),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
+    }
+
+    if (showVotersDialog) {
+        PollVotersDialog(
+            poll = pollData,
+            currentUserId = currentUserId,
+            memberNames = memberNames,
+            onDismiss = { showVotersDialog = false }
+        )
+    }
+}
+
+/**
+ * Anket oy detaylarini gosteren popup.
+ * Her secenek altinda o secenege oy veren kullanicilarin listesi gosterilir.
+ */
+@Composable
+private fun PollVotersDialog(
+    poll: PollData,
+    currentUserId: String,
+    memberNames: Map<String, String>,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Poll,
+                    contentDescription = null,
+                    tint = Color(0xFF9C27B0),
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Oy Detayları",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = poll.question,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                poll.options.forEachIndexed { idx, optText ->
+                    val voters = poll.votes[idx] ?: emptyList()
+                    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = optText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${voters.size} oy",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (voters.isEmpty()) {
+                            Text(
+                                text = "Henüz oy yok",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.padding(start = 8.dp, top = 2.dp)
+                            )
+                        } else {
+                            voters.forEach { voterId ->
+                                val isMe = voterId == currentUserId
+                                val name = if (isMe) "Sen" else (memberNames[voterId] ?: voterId.take(8))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF3E7BFA))
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isMe) Color(0xFF3E7BFA) else MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+                        if (idx < poll.options.size - 1) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Kapat", color = Color(0xFF3E7BFA), fontWeight = FontWeight.SemiBold)
+            }
+        }
+    )
+}
+
+@Composable
+private fun PollChoiceSegment(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    accentColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = if (selected) accentColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+    val bgColor = if (selected) accentColor.copy(alpha = 0.12f) else Color.Transparent
+    val textColor = if (selected) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = modifier
+            .border(width = if (selected) 1.5.dp else 1.dp, color = borderColor, shape = RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 10.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = textColor
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = textColor,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+        )
     }
 }
 

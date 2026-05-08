@@ -284,6 +284,38 @@ class ConnectionManager(
 
     private val fcmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /**
+     * HANGUP/REJECT/BUSY signal'i geldiginde recipient'in offline kuyrugundaki
+     * AYNI caller'a ait pending call sinyallerini (sdp_offer, ice_candidate, call_control)
+     * temizler. Boylece aranan kullanici cevrimici oldugunda eski/iptal edilmis arama
+     * tekrar tetiklenmez ("phantom incoming call" onleme).
+     */
+    fun purgePendingCallSignals(recipientId: String, callerSenderId: String) {
+        try {
+            val key = "offline_queue:$recipientId"
+            val callTypes = setOf("sdp_offer", "ice_candidate", "call_control")
+            val senderRegex = """"senderId"\s*:\s*"([^"]+)"""".toRegex()
+            var purged = 0
+            RedisManager.use { jedis ->
+                val all = jedis.zrangeByScore(key, "-inf", "+inf") ?: return@use
+                for (msg in all) {
+                    val msgType = fcmPushSender?.extractMessageType(msg) ?: continue
+                    if (msgType !in callTypes) continue
+                    val sid = senderRegex.find(msg)?.groupValues?.get(1)
+                    if (sid == callerSenderId) {
+                        jedis.zrem(key, msg)
+                        purged++
+                    }
+                }
+            }
+            if (purged > 0) {
+                log.info("[purge] $callerSenderId -> $recipientId: $purged pending call sinyali silindi")
+            }
+        } catch (e: Exception) {
+            log.warn("[!] purgePendingCallSignals hatasi: ${e.message}")
+        }
+    }
+
     private fun queueAndNotify(senderId: String, recipientId: String, messageJson: String) {
         val messageType = fcmPushSender?.extractMessageType(messageJson)
         val transientTypes = setOf("typing_indicator", "presence_update", "presence_subscribe", "presence_unsubscribe", "audio_data", "video_data")
@@ -345,7 +377,7 @@ class ConnectionManager(
             if (messages.isNullOrEmpty()) return
 
             val now = System.currentTimeMillis()
-            val sdpOfferMaxAgeMs = 60_000L
+            val sdpOfferMaxAgeMs = 30_000L  // Caller'in ringback toleransi ~30sn
             var count = 0
             var droppedStale = 0
             for (message in messages) {

@@ -50,6 +50,9 @@ class SecureChatActivity : AppCompatActivity() {
     @Inject lateinit var iceServerFetcher: com.securechat.network.IceServerFetcher
     @Inject lateinit var userDiscoveryService: com.securechat.contacts.UserDiscoveryService
     @Inject lateinit var preKeyUploader: com.securechat.app.data.PreKeyUploader
+    @Inject lateinit var phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>
+    @Inject lateinit var contactNameResolver: com.securechat.storage.resolver.ContactNameResolver
+    @Inject lateinit var incomingCallHandler: com.securechat.media.IncomingCallHandler
 
     private var presenceJob: Job? = null
 
@@ -342,6 +345,22 @@ class SecureChatActivity : AppCompatActivity() {
         if (callPeerId != null) {
             pendingCallNavigation.value = Pair(callPeerId, callType)
         }
+
+        // Notification "Kabul Et" akisi: bildirimden gelir, burada accept + navigate yapilir.
+        // Activity launch BroadcastReceiver'da kisitli oldugundan PendingIntent.getActivity
+        // ile dogrudan buraya yonlendirildi.
+        val acceptCall = intent.getBooleanExtra("accept_call", false)
+        if (acceptCall) {
+            val acceptPeerId = intent.getStringExtra("call_peer_id")
+            val acceptCallType = intent.getStringExtra("call_type") ?: "VOICE"
+            val userId = userSession.userId
+            if (!acceptPeerId.isNullOrBlank() && userId != null) {
+                Log.d("SecureChatActivity", "Notification ACCEPT: $acceptPeerId / $acceptCallType")
+                incomingCallHandler.dismissIncomingCall()
+                callManager.acceptCall(userId)
+                pendingCallNavigation.value = Pair(acceptPeerId, acceptCallType)
+            }
+        }
     }
 
     private fun handleCallbackIntent(intent: android.content.Intent) {
@@ -360,7 +379,32 @@ class SecureChatActivity : AppCompatActivity() {
             }
 
             callManager.initiateCall(peerId, callTypeEnum, userId)
+            notifyTelecomOutgoing(peerId, callTypeEnum)
             pendingCallNavigation.value = Pair(peerId, callType)
+        }
+    }
+
+    /**
+     * Telecom Framework'e giden arama bildirimi yapar.
+     * Sistem [com.securechat.telecom.SecureChatConnectionService.onCreateOutgoingConnection]
+     * çağrılır → bridge `onConnectionCreated` + `startDialing` → state observer ACCEPT
+     * geldiğinde `setActive` eder. API 26+ koşulu ConnectionService gereği.
+     */
+    private fun notifyTelecomOutgoing(peerId: String, callType: com.securechat.network.model.CallType) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+        val session = callManager.currentSession ?: return
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val peerName = try { contactNameResolver.resolveDisplayName(peerId) } catch (_: Exception) { peerId }
+            try {
+                phoneAccountRegistrar.get().placeOutgoingCall(
+                    callId = session.callId,
+                    peerId = peerId,
+                    peerName = peerName,
+                    isVideo = callType == com.securechat.network.model.CallType.VIDEO
+                )
+            } catch (e: Exception) {
+                Log.w("SecureChatActivity", "Telecom placeOutgoingCall hatasi: ${e.message}")
+            }
         }
     }
 
@@ -393,6 +437,28 @@ class SecureChatActivity : AppCompatActivity() {
         userSession.userId?.let { signalingClient.sendPresenceUpdate(it, false, hideLastSeen = hide) }
     }
 
+    /**
+     * Madde 7: Home tusu/Recent tusu ile aktif video aramayi PiP moduna gecir.
+     * onUserLeaveHint kullanici home/recents tusuna bastigi anda cagrilir.
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        try {
+            val session = callManager.currentSession
+            val isVideoActive = session != null &&
+                session.callType == com.securechat.network.model.CallType.VIDEO &&
+                session.state == com.securechat.media.model.CallState.ACTIVE
+            if (isVideoActive && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val params = android.app.PictureInPictureParams.Builder()
+                    .setAspectRatio(android.util.Rational(9, 16))
+                    .build()
+                enterPictureInPictureMode(params)
+            }
+        } catch (e: Exception) {
+            Log.w("SecureChat", "PiP gecisi basarisiz: ${e.message}")
+        }
+    }
+
     private fun requestRecordAudioPermissionIfNeeded() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
@@ -420,27 +486,9 @@ class SecureChatActivity : AppCompatActivity() {
      * Kullanici reddederse bir daha sorulmaz.
      */
     private fun requestBatteryOptimizationExemption() {
-        try {
-            if (!userSession.isLoggedIn) return
-
-            val pm = getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager ?: return
-            if (pm.isIgnoringBatteryOptimizations(packageName)) return
-
-            val prefs = getSharedPreferences("user_session", android.content.Context.MODE_PRIVATE)
-            if (prefs.getBoolean("battery_optimization_asked", false)) return
-
-            prefs.edit().putBoolean("battery_optimization_asked", true).apply()
-
-            val intent = android.content.Intent(
-                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                android.net.Uri.parse("package:$packageName")
-            )
-            // Intent'i handle edecek Activity var mi kontrol et (Oppo/ColorOS uyumlulugu)
-            if (intent.resolveActivity(packageManager) != null) {
-                startActivity(intent)
-            }
-        } catch (_: Exception) {
-            // Oppo, Xiaomi, Huawei gibi ozel ROM'larda bu intent desteklenmeyebilir
-        }
+        if (!userSession.isLoggedIn) return
+        if (!com.securechat.app.util.BatteryOptimizationHelper.shouldPromptOnLaunch(this)) return
+        // Sistem dialog'u — tek tap, kullanici Settings'e gitmek zorunda degil
+        com.securechat.app.util.BatteryOptimizationHelper.requestExemption(this)
     }
 }

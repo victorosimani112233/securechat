@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -784,6 +785,13 @@ private fun MediaThumbnail(
     message: MessageEntity,
     onClick: () -> Unit
 ) {
+    val parts = message.content.split("|")
+    val mimeType = parts.getOrNull(1) ?: ""
+    val filePath = parts.getOrNull(3) ?: ""
+    val isImage = mimeType.startsWith("image/")
+    val isVideo = mimeType.startsWith("video/")
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+
     Card(
         modifier = Modifier
             .size(110.dp)
@@ -799,17 +807,43 @@ private fun MediaThumbnail(
         )
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(4.dp),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Image,
-                contentDescription = null,
-                modifier = Modifier.size(32.dp),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-            )
+            if ((isImage || isVideo) && filePath.isNotBlank()) {
+                coil.compose.AsyncImage(
+                    model = coil.request.ImageRequest.Builder(ctx)
+                        .data(java.io.File(filePath))
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = parts.getOrNull(0),
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+                if (isVideo) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            } else {
+                Icon(
+                    Icons.Default.Image,
+                    contentDescription = null,
+                    modifier = Modifier.size(32.dp),
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                )
+            }
         }
     }
 }

@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.EaseInOut
@@ -87,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.securechat.app.ui.components.toCallQuality
 import com.securechat.app.ui.viewmodel.CallViewModel
 import com.securechat.app.util.TimeFormatter
 import com.securechat.media.model.CallDirection
@@ -122,6 +124,23 @@ fun CallScreen(
     val callSession by viewModel.callState.collectAsStateWithLifecycle()
     val callDuration by viewModel.callDuration.collectAsStateWithLifecycle()
     val peerDisplayName by viewModel.peerDisplayName.collectAsStateWithLifecycle()
+
+    // Madde 1: endCall spam koruma — debounce 1sn, art arda tap'lar IGNORE
+    var lastEndCallAt by remember { mutableStateOf(0L) }
+    val safeEndCall = remember(viewModel) {
+        {
+            val now = System.currentTimeMillis()
+            if (now - lastEndCallAt > 1000L) {
+                lastEndCallAt = now
+                viewModel.endCall()
+            } else {
+                Log.d("CallScreen", "endCall debounce — duplicate tap IGNORE")
+            }
+        }
+    }
+
+    // Madde 1: Geri tusu = aramayi bitir (gizleme yerine)
+    BackHandler(enabled = callSession != null) { safeEndCall() }
 
     // RECORD_AUDIO runtime izin istegi
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
@@ -159,7 +178,7 @@ fun CallScreen(
     // Arama sonlaninca geri don — her iki taraf icin de calisir
     LaunchedEffect(callSession?.state) {
         val state = callSession?.state
-        if (state == CallState.ENDED || state == CallState.FAILED || state == CallState.REJECTED) {
+        if (state == CallState.ENDED || state == CallState.FAILED || state == CallState.REJECTED || state == CallState.BUSY) {
             delay(1500)
             onCallEnded()
         }
@@ -332,12 +351,10 @@ fun CallScreen(
             }
         }
 
-        // --- [3] Video aktifken sure pill badge (sol ust kose) — her zaman gorunur ---
+        // --- [3] Video aktifken sure pill badge + kalite indicator (sol ust) ---
+        // Madde 6: pill formatli sure + Madde 2: kalite indicator
         if (isVideoActive) {
-            Text(
-                text = getCallStateText(callSession?.state, callDuration),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.9f),
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(start = 16.dp, top = 16.dp)
@@ -345,9 +362,30 @@ fun CallScreen(
                         Color.Black.copy(alpha = 0.5f),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                     )
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            )
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                com.securechat.app.ui.components.CallQualityIndicator(
+                    quality = callSession?.state.toCallQuality()
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = getCallStateText(callSession?.state, callDuration),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.9f)
+                )
+            }
         }
+
+        // --- Madde 3 + 10: Reconnecting banner (auto-degrade onerisi dahil) ---
+        com.securechat.app.ui.components.ReconnectingBanner(
+            visible = callSession?.state == CallState.RECONNECTING,
+            isVideoCall = callType == CallType.VIDEO && (callSession?.isCameraEnabled ?: false),
+            onDisableVideo = { viewModel.toggleCamera() }, // sesli devam et
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 56.dp)
+        )
 
         // Arama bilgisi ve kontroller — video aktifken AnimatedVisibility ile gizlenebilir
         AnimatedVisibility(
@@ -473,19 +511,27 @@ fun CallScreen(
                         // Gelen arama: Kabul / Reddet butonlari
                         IncomingCallControls(
                             onAccept = { viewModel.acceptCall() },
-                            onReject = { viewModel.endCall() }
+                            onReject = { safeEndCall() }
                         )
                     } else {
+                        // Madde 4: Haptic feedback wrapper
+                        val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+                        val withHaptic = { action: () -> Unit ->
+                            {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                action()
+                            }
+                        }
                         CallControls(
                             isMuted = callSession?.isMuted ?: false,
                             isSpeakerOn = callSession?.isSpeakerOn ?: false,
                             isCameraEnabled = callSession?.isCameraEnabled ?: true,
                             isVideoCall = callType == CallType.VIDEO,
-                            onToggleMute = { viewModel.toggleMute() },
-                            onToggleSpeaker = { viewModel.toggleSpeaker() },
-                            onToggleCamera = { viewModel.toggleCamera() },
-                            onSwitchCamera = { viewModel.switchCamera() },
-                            onEndCall = { viewModel.endCall() }
+                            onToggleMute = withHaptic { viewModel.toggleMute() },
+                            onToggleSpeaker = withHaptic { viewModel.toggleSpeaker() },
+                            onToggleCamera = withHaptic { viewModel.toggleCamera() },
+                            onSwitchCamera = withHaptic { viewModel.switchCamera() },
+                            onEndCall = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); safeEndCall() }
                         )
                     }
                 }

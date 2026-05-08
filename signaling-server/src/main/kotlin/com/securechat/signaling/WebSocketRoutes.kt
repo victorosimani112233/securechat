@@ -167,6 +167,17 @@ private suspend fun handleMessage(
                     }
                 }
             }
+            // 1-1 arama: HANGUP/REJECT/BUSY — HER IKI YONUN offline queue'sundaki
+            // call sinyallerini (sdp_offer, ice_candidate, call_control) temizle.
+            // Senaryo: A->B SDP_OFFER queued. B online geldi, kabul etti, konustu, HANGUP atti.
+            //   Eski purge: SADECE recipient(A)'nin queue'sundaki B sinyallerini siliyordu.
+            //   B'nin queue'sundaki A->B SDP_OFFER ASLA temizlenmiyordu → B reconnect olunca
+            //   queue drain → B'de hayalet incoming call → otomatik geri arama gibi gozukuyordu.
+            // Yeni: hem sender hem recipient queue'su temizlenir → hayalet call kalmaz.
+            if (action in setOf("HANGUP", "REJECT", "BUSY") && !recipientId.isNullOrBlank()) {
+                connectionManager.purgePendingCallSignals(recipientId, senderId)
+                connectionManager.purgePendingCallSignals(senderId, recipientId)
+            }
         }
 
         // --- GroupNotification: grup uyelik bilgisini sunucuya sync et ---

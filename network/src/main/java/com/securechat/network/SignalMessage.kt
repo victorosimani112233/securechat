@@ -140,7 +140,10 @@ sealed class SignalMessage {
         val groupName: String? = null,
         val transferId: String? = null, // Chunk'lari eslestirmek icin benzersiz ID
         val chunkIndex: Int = 0, // Bu parcanin sirasi (0-based)
-        val totalChunks: Int = 1 // Toplam parca sayisi (1 = tek parca)
+        val totalChunks: Int = 1, // Toplam parca sayisi (1 = tek parca)
+        val caption: String? = null, // Medya altyazisi — alici tarafta ayni baloncukta gosterilir
+        val isViewOnce: Boolean = false, // Tek gosterimlik medya bayragi
+        val originalMessageId: String? = null // Gondericinin orijinal mesaj ID'si (delivery receipt + view-once edit icin)
     ) : SignalMessage()
 
     /**

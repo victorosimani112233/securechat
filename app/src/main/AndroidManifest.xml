@@ -15,11 +15,17 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Arka planda gelen aramada IncomingCallActivity'yi acabilmek icin gerekli.
+         Kullanici "Üstte göster" izni verirse Android, app'i overlay listesinde gosterir. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Pil optimizasyonu muafiyet dialog'u acabilmek icin -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- ConnectionService — Android Telecom Framework entegrasyonu.
+         WhatsApp/Signal benzeri native arama UI'i icin gerekli. Bu izin sayesinde
+         TelecomManager.addNewIncomingCall ve placeCall cagirilabilir. -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
@@ -38,8 +44,10 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
             android:screenOrientation="portrait"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
             android:theme="@style/Theme.SecureChat.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -97,12 +105,11 @@
             android:exported="false"
             android:foregroundServiceType="phoneCall" />
 
-        <!-- Telecom Framework (SELF_MANAGED) ConnectionService.
-             Sistem tarafindan TelecomManager.placeCall / addNewIncomingCall
-             cagrilarinda instantiate edilir. BIND_TELECOM_CONNECTION_SERVICE
-             permission ile sadece sistem bind edebilir. -->
+        <!-- Android Telecom Framework ConnectionService.
+             Sistem bu servisi BIND_TELECOM_CONNECTION_SERVICE permission ile baglar.
+             Gelen/giden aramalar icin onCreate*Connection callback'lerini cagirir. -->
         <service
-            android:name="com.securechat.media.telecom.SecureChatConnectionService"
+            android:name="com.securechat.telecom.SecureChatConnectionService"
             android:exported="true"
             android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
             <intent-filter>

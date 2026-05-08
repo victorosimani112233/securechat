@@ -51,6 +51,15 @@ abstract class AppModule {
     @IntoSet
     abstract fun bindAuthInterceptor(impl: AuthInterceptor): Interceptor
 
+    /**
+     * Telecom Framework ConnectionService callback'leri ↔ CallManager köprüsü.
+     */
+    @Binds
+    @Singleton
+    abstract fun bindConnectionBridge(
+        impl: com.securechat.telecom.TelecomCallBridge
+    ): com.securechat.telecom.ConnectionBridge
+
     companion object {
         @Provides
         @Named("apiBaseUrl")

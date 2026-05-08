@@ -30,16 +30,8 @@ class MessageRepositoryImpl @Inject constructor(
         val conv = conversationDao.getById(message.conversationId)
             ?: conversationDao.getByPeerId(message.peerId)
 
-        // Ozel mesaj tipleri icin konusma onizlemesinde okunabilir metin goster
-        val lastMessagePreview = when (message.contentType) {
-            MessageContentType.POLL -> "📊 Anket"
-            MessageContentType.SYSTEM -> {
-                // CALL|OUTGOING|VOICE|FAILED|0|Sesli arama · Bağlanılamadı formatini parse et
-                val parts = message.content.split("|")
-                if (parts.size >= 6 && parts[0] == "CALL") "📞 ${parts[5]}" else message.content
-            }
-            else -> message.content
-        }
+        // Sohbet listesinde ozel mesaj tipleri icin okunabilir onizleme — JSON/pipe-string sizmasin
+        val lastMessagePreview = message.previewText
         // SYSTEM mesajlari unread count artirmaz (arama kayitlari bildirim gostermemeli)
         val shouldIncrementUnread = !message.isOutgoing && message.contentType != MessageContentType.SYSTEM
 
@@ -129,7 +121,20 @@ class MessageRepositoryImpl @Inject constructor(
 
     override suspend fun recalculateLastMessage(conversationId: String) {
         val info = conversationDao.getLastMessageInfo(conversationId)
-        val preview = if (info?.contentType == MessageContentType.POLL.name) "📊 Anket" else info?.content ?: ""
+        // info'dan minimal LocalMessage stub olusturup previewText'i al — okunabilir onizleme
+        val preview = info?.let {
+            val ct = try {
+                MessageContentType.valueOf(it.contentType ?: "TEXT")
+            } catch (_: Exception) { MessageContentType.TEXT }
+            LocalMessage(
+                id = "", conversationId = conversationId, senderId = "", peerId = "",
+                content = it.content, contentType = ct,
+                timestamp = it.timestamp, status = MessageStatus.SENT,
+                isOutgoing = true,
+                caption = it.caption,
+                isViewOnce = it.isViewOnce
+            ).previewText
+        } ?: ""
         conversationDao.updateLastMessageById(
             conversationId,
             preview,
@@ -251,6 +256,10 @@ class MessageRepositoryImpl @Inject constructor(
         messageDao.updateReactions(messageId, reactions)
     }
 
+    override suspend fun markViewOnceAsViewed(messageId: String) {
+        messageDao.markViewOnceAsViewed(messageId)
+    }
+
     override suspend fun updateConversationLocked(conversationId: String, isLocked: Boolean) {
         conversationDao.updateLocked(conversationId, isLocked)
     }
@@ -287,7 +296,10 @@ internal fun LocalMessage.toEntity(): MessageEntity = MessageEntity(
     expiresAt = expiresAt,
     editedAt = editedAt,
     editHistory = editHistory,
-    reactions = reactions
+    reactions = reactions,
+    caption = caption,
+    isViewOnce = isViewOnce,
+    isViewed = isViewed
 )
 
 /**
@@ -310,7 +322,10 @@ internal fun MessageEntity.toDomain(): LocalMessage = LocalMessage(
     expiresAt = expiresAt,
     editedAt = editedAt,
     editHistory = editHistory,
-    reactions = reactions
+    reactions = reactions,
+    caption = caption,
+    isViewOnce = isViewOnce,
+    isViewed = isViewed
 )
 
 /** ConversationEntity'yi Conversation domain modeline donusturur. */

@@ -15,7 +15,9 @@ import kotlinx.coroutines.flow.Flow
 data class LastMessageInfo(
     @ColumnInfo(name = "content") val content: String,
     @ColumnInfo(name = "timestamp") val timestamp: Long,
-    @ColumnInfo(name = "content_type") val contentType: String? = null
+    @ColumnInfo(name = "content_type") val contentType: String? = null,
+    @ColumnInfo(name = "caption") val caption: String? = null,
+    @ColumnInfo(name = "is_view_once") val isViewOnce: Boolean = false
 )
 
 /**
@@ -107,7 +109,7 @@ interface ConversationDao {
     /**
      * Son mesaj icerik ve zaman damgasini tek sorguda dondurur (N+1 fix).
      */
-    @Query("SELECT content, timestamp, content_type FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
+    @Query("SELECT content, timestamp, content_type, caption, is_view_once FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLastMessageInfo(conversationId: String): LastMessageInfo?
 
     /**

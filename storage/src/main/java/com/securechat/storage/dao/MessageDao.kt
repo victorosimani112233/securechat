@@ -77,6 +77,10 @@ interface MessageDao {
     @Query("UPDATE messages SET content = :content, edited_at = :editedAt, edit_history = :editHistory WHERE id = :messageId")
     suspend fun updateContentEdited(messageId: String, content: String, editedAt: Long, editHistory: String?)
 
+    // 👁️ Tek gosterimlik medya — goruntulendi olarak isaretle
+    @Query("UPDATE messages SET is_viewed = 1 WHERE id = :messageId")
+    suspend fun markViewOnceAsViewed(messageId: String)
+
     // ⭐ Yıldızlama özellikleri
     @Query("UPDATE messages SET is_starred = :isStarred WHERE id = :messageId")
     suspend fun updateStarred(messageId: String, isStarred: Boolean)
@@ -95,10 +99,12 @@ interface MessageDao {
     suspend fun searchAllMessages(searchQuery: String, limit: Int = 100): List<MessageEntity>
 
     // 📱 Medya/Doküman özellikleri
-    @Query("SELECT * FROM messages WHERE conversation_id = :conversationId AND content_type IN ('IMAGE', 'VIDEO', 'AUDIO') ORDER BY timestamp DESC")
+    // Resim mesajlari (IMAGE) ve video/ses tipinde FILE mesajlari medya sekmesinde gosterilir.
+    @Query("SELECT * FROM messages WHERE conversation_id = :conversationId AND (content_type = 'IMAGE' OR (content_type = 'FILE' AND (content LIKE '%|video/%' OR content LIKE '%|audio/%' OR content LIKE '%|image/%'))) ORDER BY timestamp DESC")
     fun getMediaMessages(conversationId: String): Flow<List<MessageEntity>>
 
-    @Query("SELECT * FROM messages WHERE conversation_id = :conversationId AND content_type = 'FILE' ORDER BY timestamp DESC")
+    // Dokuman sekmesi: video/ses/resim disindaki FILE mesajlari
+    @Query("SELECT * FROM messages WHERE conversation_id = :conversationId AND content_type = 'FILE' AND content NOT LIKE '%|image/%' AND content NOT LIKE '%|video/%' AND content NOT LIKE '%|audio/%' ORDER BY timestamp DESC")
     fun getDocumentMessages(conversationId: String): Flow<List<MessageEntity>>
 
     // Sureli mesaj — suresi dolan mesajlari sil

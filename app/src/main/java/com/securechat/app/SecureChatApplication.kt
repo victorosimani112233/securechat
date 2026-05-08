@@ -16,9 +16,6 @@ import com.securechat.app.data.AppLifecycleObserver
 import com.securechat.app.data.DisappearingMessageWorker
 import com.securechat.app.data.IncomingMessageHandler
 import com.securechat.app.data.UserSession
-import com.securechat.media.IncomingCallHandler
-import com.securechat.media.telecom.PhoneAccountRegistrar
-import com.securechat.media.telecom.TelecomBridge
 import com.securechat.app.BuildConfig
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -30,9 +27,8 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
     @Inject lateinit var incomingMessageHandler: dagger.Lazy<IncomingMessageHandler>
     @Inject lateinit var userSession: UserSession
     @Inject lateinit var appLifecycleObserver: dagger.Lazy<AppLifecycleObserver>
-    @Inject lateinit var incomingCallHandler: IncomingCallHandler
-    @Inject lateinit var phoneAccountRegistrar: PhoneAccountRegistrar
-    @Inject lateinit var telecomBridge: TelecomBridge
+    @Inject lateinit var contactsObserver: dagger.Lazy<com.securechat.contacts.ContactsObserver>
+    @Inject lateinit var phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
     override val workManagerConfiguration: Configuration
@@ -68,25 +64,11 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
         // Uygulama guncelleme sonrasi uyumsuz onbellegi temizle
         clearCacheOnVersionUpdate()
 
-        // Notification kanallari — hizli, UI thread'de olabilir
+        // FCM notification kanali — hizli, UI thread'de olabilir
         createNotificationChannel()
-        incomingCallHandler.initialize()
 
         // Agir bagimliliklari arka planda baslat — cold start hizini arttirir
         val bgThread = Thread {
-            // Telecom Framework PhoneAccount kaydi (SELF_MANAGED).
-            // Basarisiz olursa IncomingCallHandler (CallStyle notification) fallback
-            // olarak devreye girer. Hata yutulur — app kalkmaya devam eder.
-            try {
-                phoneAccountRegistrar.register()
-            } catch (t: Throwable) {
-                Log.w("SecureChatApp", "PhoneAccount kayit beklenmedik hata", t)
-            }
-
-            // Telecom Bridge'in onShowIncomingCallUi callback'i icin app modulunden
-            // Activity referansi inject ediliyor — media modulu app'i bilemez.
-            telecomBridge.setIncomingActivityClass(IncomingCallActivity::class.java)
-
             // Gelen mesajlari dinle
             incomingMessageHandler.get().start()
 
@@ -99,6 +81,29 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
             // Sureli mesaj temizlik gorevini zamanla (15 dakikada bir)
             android.os.Handler(mainLooper).post {
                 DisappearingMessageWorker.schedule(this@SecureChatApplication)
+            }
+
+            // Rehber degisikliklerini dinle — telefon rehberinde yeni eklenen kisi
+            // Elcim'e kayitliysa otomatik olarak isaretlenir.
+            android.os.Handler(mainLooper).post {
+                try {
+                    contactsObserver.get().startObserving()
+                } catch (e: Exception) {
+                    Log.w("SecureChatApp", "ContactsObserver baslatilamadi: ${e.message}")
+                }
+            }
+
+            // Telecom Framework PhoneAccount'unu sisteme kaydet — gelen aramalarda
+            // sistem native arama UI'ini açabilsin diye gerekli (self-managed mode).
+            // API 26+ ve MANAGE_OWN_CALLS izni ile çalışır.
+            android.os.Handler(mainLooper).post {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    try {
+                        phoneAccountRegistrar.get().register()
+                    } catch (e: Exception) {
+                        Log.w("SecureChatApp", "PhoneAccount kaydı başarısız: ${e.message}")
+                    }
+                }
             }
         }
         bgThread.name = "securechat-init"

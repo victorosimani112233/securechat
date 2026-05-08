@@ -32,18 +32,36 @@ class ContactsObserver @Inject constructor(
      */
     fun startObserving() {
         if (contentObserver != null) return
+        // READ_CONTACTS izni yoksa register etme — SecurityException onlemi
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.READ_CONTACTS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            android.util.Log.d("ContactsObserver", "READ_CONTACTS izni yok, observer baslatilmadi")
+            return
+        }
         contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 scope.launch {
-                    userDiscoveryService.discoverRegisteredUsers()
+                    try {
+                        userDiscoveryService.discoverRegisteredUsers()
+                    } catch (e: Exception) {
+                        android.util.Log.w("ContactsObserver", "Discovery hatasi: ${e.message}")
+                    }
                 }
             }
         }
-        context.contentResolver.registerContentObserver(
-            ContactsContract.Contacts.CONTENT_URI,
-            true,
-            contentObserver!!
-        )
+        try {
+            context.contentResolver.registerContentObserver(
+                ContactsContract.Contacts.CONTENT_URI,
+                true,
+                contentObserver!!
+            )
+            android.util.Log.d("ContactsObserver", "Rehber degisiklikleri dinleniyor")
+        } catch (e: SecurityException) {
+            android.util.Log.w("ContactsObserver", "Observer kayit hatasi: ${e.message}")
+            contentObserver = null
+        }
     }
 
     /**

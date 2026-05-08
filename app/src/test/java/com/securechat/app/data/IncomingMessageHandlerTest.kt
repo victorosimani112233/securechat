@@ -68,7 +68,6 @@ class IncomingMessageHandlerTest {
             fileTransferManager = fileTransferManager,
             userSession = userSession,
             incomingCallHandler = incomingCallHandler,
-            telecomBridge = mockk(relaxed = true),
             missedCallTracker = missedCallTracker,
             themeManager = themeManager
         )

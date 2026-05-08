@@ -46,6 +46,7 @@ import com.securechat.app.ui.screen.BulkMessageScreen
 import com.securechat.app.ui.screen.AddGroupMemberScreen
 import com.securechat.app.ui.screen.CreateGroupScreen
 import com.securechat.app.ui.screen.GroupInfoScreen
+import com.securechat.app.ui.screen.CallReadinessScreen
 import com.securechat.app.ui.screen.EmailOtpScreen
 import com.securechat.app.ui.screen.OtpVerificationScreen
 import com.securechat.app.ui.screen.PhoneVerificationScreen
@@ -142,19 +143,43 @@ fun SecureChatNavHost(
                     onVerified = { regToken ->
                         // OTP dogrulandi — registrationToken ile register cagir
                         onUserRegistered(name, phone, regToken)
-                        navController.navigate("conversations") {
+                        // Onboarding gosterilmediyse permissions ekrani, sonra conversations
+                        navController.navigate("auth/call_readiness") {
                             popUpTo("auth/phone") { inclusive = true }
                         }
                     },
                     onSkip = {
                         // SMTP devre disi — registrationToken'siz register
                         onUserRegistered(name, phone, null)
-                        navController.navigate("conversations") {
+                        navController.navigate("auth/call_readiness") {
                             popUpTo("auth/phone") { inclusive = true }
                         }
                     },
                     onBackClick = { navController.popBackStack() },
                     apiBaseUrl = apiBaseUrl
+                )
+            }
+
+            composable("auth/call_readiness") {
+                CallReadinessScreen(
+                    onContinue = {
+                        navController.navigate("conversations") {
+                            popUpTo("auth/phone") { inclusive = true }
+                        }
+                    },
+                    onSkip = {
+                        navController.navigate("conversations") {
+                            popUpTo("auth/phone") { inclusive = true }
+                        }
+                    }
+                )
+            }
+
+            // Settings'ten erisim — geri butonu ile donulur
+            composable("call_readiness") {
+                CallReadinessScreen(
+                    onContinue = { navController.popBackStack() },
+                    onSkip = null
                 )
             }
 
@@ -220,6 +245,9 @@ fun SecureChatNavHost(
                             launchSingleTop = true
                             restoreState = true
                         }
+                    },
+                    onCallReadinessClick = {
+                        navController.navigate("call_readiness")
                     }
                 )
             }
@@ -364,6 +392,9 @@ fun SecureChatNavHost(
                         navController.navigate("auth/phone") {
                             popUpTo(0) { inclusive = true }
                         }
+                    },
+                    onNavigateToCallReadiness = {
+                        navController.navigate("call_readiness")
                     }
                 )
             }

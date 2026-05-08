@@ -110,9 +110,13 @@ class ContactsViewModel @Inject constructor(
         IncomingMessageHandler.currentChatId = "contacts"
         android.util.Log.d("ContactsViewModel", "Current chat set to: contacts")
 
-        // Izin zaten verilmisse rehberi hemen yukle
+        // Izin zaten verilmisse rehberi hemen yukle + sunucuya hash sorgusu yap
         if (contactPermissionManager.hasPermission()) {
             loadPhoneContacts()
+            // FIX: Otomatik discovery — rehberdeki Elcim kullanicilari
+            // sunucudan eslesmeyle isaretle. Onceden sadece manuel "numara gir" ile
+            // veya createGroup/addMember akisinda calisiyordu.
+            discoverUsers()
         }
 
         // Ilk sayfa kayitli kisileri yukle

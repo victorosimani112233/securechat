@@ -32,14 +32,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +51,6 @@ import com.securechat.app.data.UserSession
 import com.securechat.app.ui.theme.SecureChatTheme
 import com.securechat.media.CallManager
 import com.securechat.media.IncomingCallHandler
-import com.securechat.media.RingtonePlayer
 import com.securechat.media.model.CallDirection
 import com.securechat.media.model.CallState
 import dagger.hilt.android.AndroidEntryPoint
@@ -73,7 +70,6 @@ class IncomingCallActivity : ComponentActivity() {
     @Inject lateinit var callManager: CallManager
     @Inject lateinit var userSession: UserSession
     @Inject lateinit var incomingCallHandler: IncomingCallHandler
-    @Inject lateinit var ringtonePlayer: RingtonePlayer
 
     /** Arama kabul edilmeden once RECORD_AUDIO izni kontrol edilir ve gerekirse istenir. */
     private fun ensureAudioPermissionAndAccept(userId: String, peerId: String, callType: String) {
@@ -175,16 +171,8 @@ class IncomingCallActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
         )
 
-        // NOT: CallForegroundService.start() onStart'a tasindi (asagida).
-        // Sebep: Android 12+'da onCreate'in basinda Activity henuz "started"
-        // durumuna gecmedigi icin bg-activity-launch sayilip
-        // BackgroundServiceStartNotAllowedException firlatabiliyordu.
-
         val peerId = intent.getStringExtra("peer_id") ?: ""
         val peerName = intent.getStringExtra("peer_name") ?: peerId
-        val intentCallType = intent.getStringExtra("call_type") ?: "VOICE"
-
-        val isFcmPending = intent.getBooleanExtra("fcm_pending", false)
 
         setContent {
             SecureChatTheme {
@@ -193,78 +181,35 @@ class IncomingCallActivity : ComponentActivity() {
                 // Arama durumu degistiginde Activity'yi kapat
                 DisposableEffect(callSession) {
                     val session = callSession
-                    when {
-                        // Session null ve FCM'den geldiyse → WS'den SDP bekleniyor, kapatma
-                        session == null && isFcmPending -> { /* bekle */ }
-                        // Session null ve normal akis → kapat
-                        session == null -> finish()
-                        // Terminal durumlar → kapat
+                    // Arama bittiginde, reddedildiginde veya session null olursa kapat
+                    if (session == null ||
                         session.state == CallState.ENDED ||
                         session.state == CallState.REJECTED ||
                         session.state == CallState.FAILED ||
-                        session.state == CallState.BUSY -> finish()
-                        // Arama kabul edildi → kapat (CallScreen'e gecilecek)
-                        session.state == CallState.ACTIVE -> finish()
+                        session.state == CallState.BUSY
+                    ) {
+                        finish()
+                    }
+                    // Arama kabul edildiyse ve aktifse (baska bir yerden kabul edilmis olabilir)
+                    if (session != null && session.state == CallState.ACTIVE) {
+                        finish()
                     }
                     onDispose { }
                 }
 
-                // FCM pending timeout: 30 saniye icinde SDP gelmezse temizle ve kapat
-                if (isFcmPending && callSession == null) {
-                    LaunchedEffect(Unit) {
-                        kotlinx.coroutines.delay(30_000L)
-                        if (callManager.currentSession == null) {
-                            ringtonePlayer.stopRinging()
-                            incomingCallHandler.dismissIncomingCall()
-                            finish()
-                        }
-                    }
-                }
-
-                val isVideo = (callSession?.callType?.name ?: intentCallType) == "VIDEO"
-
                 IncomingCallScreen(
                     peerName = peerName,
-                    isVideoCall = isVideo,
                     onAccept = {
                         val userId = userSession.userId ?: return@IncomingCallScreen
-                        val session = callManager.currentSession
-                        if (session != null) {
-                            // Normal akis — session mevcut, kabul et
-                            val callType = session.callType.name
-                            ensureAudioPermissionAndAccept(userId, peerId, callType)
-                        } else if (isFcmPending) {
-                            // FCM pending — SDP henuz gelmedi, pending accept ayarla
-                            callManager.pendingFcmAccept = userId
-                            incomingCallHandler.dismissIncomingCall()
-                            ringtonePlayer.stopRinging()
-                            // SDP geldiginde CallManager otomatik kabul edecek
-                            // SecureChatActivity'ye yonlendir — arama ekrani acilacak
-                            val navIntent = android.content.Intent(this@IncomingCallActivity, SecureChatActivity::class.java).apply {
-                                putExtra("navigate_to_call", peerId)
-                                putExtra("call_type", "VOICE")
-                                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
-                            }
-                            startActivity(navIntent)
-                            finish()
-                        }
+                        val callType = callSession?.callType?.name ?: "VOICE"
+                        ensureAudioPermissionAndAccept(userId, peerId, callType)
                     },
                     onReject = {
                         val userId = userSession.userId ?: return@IncomingCallScreen
-                        // Her durumda zil sesini ve bildirimi kapat
-                        ringtonePlayer.stopRinging()
+                        // Bildirimi kaldir
                         incomingCallHandler.dismissIncomingCall()
-
-                        val session = callManager.currentSession
-                        if (session != null) {
-                            // Normal akis — session mevcut, reddet
-                            callManager.rejectCall(userId)
-                        } else if (isFcmPending) {
-                            // FCM pending — SDP henuz gelmedi, pending reject ayarla
-                            callManager.pendingFcmReject = userId
-                        }
+                        // Aramayi reddet
+                        callManager.rejectCall(userId)
                         finish()
                     }
                 )
@@ -272,22 +217,25 @@ class IncomingCallActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        // CallForegroundService'i Activity "started" durumuna gectikten sonra baslat
-        // (Android 12+ background service start kisitlamasini bypass etmek icin guvenli yer)
-        try {
-            com.securechat.media.CallForegroundService.start(this)
-        } catch (e: Exception) {
-            android.util.Log.e("IncomingCallActivity", "CallForegroundService baslatilamadi: ${e.message}")
+    /**
+     * Kullanici activity'i swipe/back/sistem ile kapatirsa zil sesi takilmasin.
+     * Eger session hala RINGING ise (yani kabul/reddet akisi tamamlanmadiysa)
+     * zorla reject ile temizlik tetiklenir — bu sayede #13 hayalet arama,
+     * "ekranda UI yok ama ses caliyor" durumu engellenir.
+     */
+    override fun onDestroy() {
+        super.onDestroy()
+        if (isFinishing) {
+            val session = callManager.currentSession
+            if (session != null && session.state == com.securechat.media.model.CallState.RINGING &&
+                session.direction == com.securechat.media.model.CallDirection.INCOMING) {
+                val userId = userSession.userId
+                if (userId != null) {
+                    incomingCallHandler.dismissIncomingCall()
+                    callManager.rejectCall(userId)
+                }
+            }
         }
-
-        // Activity gosteriliyor — heads-up bildirimi gizle (kilit ekraninda duplicate gorunmesin).
-        // Bildirim sadece arka plan/kapali durumda kullanici dikkatini cekmek icin gerekli;
-        // Activity acik iken ekranin kendisi yeterli, ayrica banner gosterme.
-        try {
-            incomingCallHandler.dismissIncomingCall()
-        } catch (_: Exception) { }
     }
 }
 
@@ -299,7 +247,6 @@ class IncomingCallActivity : ComponentActivity() {
 @Composable
 private fun IncomingCallScreen(
     peerName: String,
-    isVideoCall: Boolean = false,
     onAccept: () -> Unit,
     onReject: () -> Unit
 ) {
@@ -352,9 +299,9 @@ private fun IncomingCallScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Alt baslik — sesli/goruntulu ayrimi
+            // Alt baslik
             Text(
-                text = if (isVideoCall) "Gelen Görüntülü Arama" else "Gelen Sesli Arama",
+                text = "Gelen Arama",
                 color = Color(0xFF94A3B8),
                 fontSize = 16.sp
             )
@@ -406,7 +353,7 @@ private fun IncomingCallScreen(
                         )
                     ) {
                         Icon(
-                            imageVector = if (isVideoCall) Icons.Default.Videocam else Icons.Default.Call,
+                            imageVector = Icons.Default.Call,
                             contentDescription = "Kabul Et",
                             tint = Color.White,
                             modifier = Modifier.size(32.dp)

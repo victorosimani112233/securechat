@@ -27,7 +27,10 @@ data class LocalMessage(
     val expiresAt: Long? = null,
     val editedAt: Long? = null,
     val editHistory: String? = null, // Onceki iceriklerin JSON dizisi
-    val reactions: String? = null // Emoji reaksiyonlari JSON: {"👍":["userId1"],"❤️":["userId2"]}
+    val reactions: String? = null, // Emoji reaksiyonlari JSON: {"👍":["userId1"],"❤️":["userId2"]}
+    val caption: String? = null, // Medya altyazisi — resim/video ile ayni baloncukta
+    val isViewOnce: Boolean = false, // Tek gosterimlik medya
+    val isViewed: Boolean = false // Tek gosterimlik medya goruntulendi mi
 ) {
     /** Bu mesaj duzenlenmis mi. */
     val isEdited: Boolean
@@ -70,6 +73,45 @@ data class LocalMessage(
     val isImageFile: Boolean
         get() = contentType == MessageContentType.IMAGE ||
             (isFileMessage && (fileMimeType?.startsWith("image/") == true))
+
+    /**
+     * Mesajin onizleme metni — sohbet listesi, reply preview, forward icin.
+     * Dosya/anket gibi ozel mesajlarda ham JSON/pipe-string yerine okunabilir
+     * etiket dondurur. Caption varsa onu tercih eder (resim caption'lari WhatsApp
+     * gibi tek baloncuk gibi davranir).
+     */
+    val previewText: String
+        get() {
+            // Dosya tipi caption oncelikli — WhatsApp tarzi kisa ozet
+            val cap = caption?.takeIf { it.isNotBlank() }
+            return when {
+                isDeleted -> "Bu mesaj silindi"
+                isViewOnce && contentType == MessageContentType.IMAGE -> "📷 Tek gösterimlik fotoğraf"
+                isViewOnce && contentType == MessageContentType.FILE && fileMimeType?.startsWith("video/") == true -> "🎥 Tek gösterimlik video"
+                contentType == MessageContentType.IMAGE -> cap?.let { "📷 $it" } ?: "📷 Fotoğraf"
+                contentType == MessageContentType.FILE -> {
+                    val mt = fileMimeType ?: ""
+                    val label = when {
+                        mt.startsWith("video/") -> "🎥 Video"
+                        mt.startsWith("audio/") -> "🎵 Ses"
+                        else -> "📎 ${fileName ?: "Dosya"}"
+                    }
+                    cap?.let { "$label · $it" } ?: label
+                }
+                contentType == MessageContentType.VOICE_NOTE -> "🎤 Sesli mesaj"
+                contentType == MessageContentType.POLL -> {
+                    val q = try {
+                        org.json.JSONObject(content).optString("question", "")
+                    } catch (_: Exception) { "" }
+                    if (q.isNotBlank()) "📊 Anket: $q" else "📊 Anket"
+                }
+                contentType == MessageContentType.SYSTEM -> {
+                    val parts = content.split("|")
+                    if (parts.size >= 6 && parts[0] == "CALL") "📞 ${parts[5]}" else content
+                }
+                else -> content
+            }
+        }
 
     companion object {
         /**

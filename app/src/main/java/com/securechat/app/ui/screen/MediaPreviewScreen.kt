@@ -2,6 +2,8 @@ package com.securechat.app.ui.screen
 
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,8 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,10 +71,11 @@ import coil.request.ImageRequest
 @Composable
 fun MediaPreviewScreen(
     items: List<MediaPreviewItem>,
-    onSend: (List<MediaPreviewItem>, String) -> Unit,
+    onSend: (List<MediaPreviewItem>, String, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     var captionText by remember { mutableStateOf("") }
+    var isViewOnce by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     Box(
@@ -149,49 +154,87 @@ fun MediaPreviewScreen(
                 }
             }
 
-            // Alt kisim — caption + gonder butonu
+            // Alt kisim — chat ekranindaki MessageInputBar ile birebir ayni gorunum.
+            // Sol: ataşman placeholder (yok burada), Orta: caption alani, Sag: "1" view-once
+            // toggle (WhatsApp tarzi), en sag: gonder dairesi.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color(0xFF1E293B))
+                    .padding(start = 12.dp, end = 6.dp, top = 4.dp, bottom = 4.dp)
                     .imePadding(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Bottom
             ) {
-                TextField(
+                // Caption alani — chat input gibi BasicTextField
+                androidx.compose.foundation.text.BasicTextField(
                     value = captionText,
                     onValueChange = { captionText = it.take(1000) },
-                    placeholder = { Text("Açıklama ekle...", color = Color(0xFF64748B)) },
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(24.dp)),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color(0xFF1E293B),
-                        unfocusedContainerColor = Color(0xFF1E293B),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = Color(0xFF0EA5E9),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
+                        .padding(vertical = 10.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = Color.White,
+                        fontSize = 16.sp
                     ),
-                    singleLine = false,
-                    maxLines = 3
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFF3E7BFA)),
+                    maxLines = 4,
+                    decorationBox = { inner ->
+                        if (captionText.isEmpty()) {
+                            Text(
+                                "Açıklama ekle...",
+                                color = Color(0xFF64748B),
+                                fontSize = 16.sp
+                            )
+                        }
+                        inner()
+                    }
                 )
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
 
-                FilledIconButton(
-                    onClick = { onSend(items, captionText.trim()) },
-                    modifier = Modifier.size(48.dp),
-                    shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Color(0xFF0EA5E9)
+                // "1" view-once toggle — WhatsApp tarzi dairesel rozet, gonder butonunun solunda
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isViewOnce) Color(0xFF3E7BFA).copy(alpha = 0.18f)
+                            else Color.White.copy(alpha = 0.06f)
+                        )
+                        .border(
+                            width = 1.5.dp,
+                            color = if (isViewOnce) Color(0xFF3E7BFA) else Color.White.copy(alpha = 0.25f),
+                            shape = CircleShape
+                        )
+                        .clickable { isViewOnce = !isViewOnce },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "1",
+                        color = if (isViewOnce) Color(0xFF3E7BFA) else Color.White.copy(alpha = 0.7f),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
                     )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Gonder butonu — chat ekranindaki ile birebir ayni
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF3E7BFA))
+                        .clickable { onSend(items, captionText.trim(), isViewOnce) },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Send,
                         contentDescription = "Gönder",
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }

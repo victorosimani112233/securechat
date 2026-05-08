@@ -108,14 +108,52 @@ class CallForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Elçim Arama")
-            .setContentText("Arama devam ediyor...")
+        // Aktif aramayi gosteren callback intent — bildirime tap → CallScreen acilir
+        val tapIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val tapPi = if (tapIntent != null) {
+            PendingIntent.getActivity(
+                this, 1, tapIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else null
+
+        // Arayan kisi bilgisi (oturum varsa peerName, yoksa "Devam eden arama")
+        val session = callManager.currentSession
+        val peerName = session?.peerId ?: "Bilinmeyen"
+        val callType = if (session?.callType?.name == "VIDEO") "Görüntülü arama" else "Sesli arama"
+        val startTime = session?.startTime
+
+        // Madde 8: NotificationCompat.CallStyle.forOngoingCall — WhatsApp tarzi yesil banner
+        val person = androidx.core.app.Person.Builder()
+            .setName(peerName)
+            .setImportant(true)
+            .build()
+
+        val callStyle = NotificationCompat.CallStyle.forOngoingCall(person, hangupPi)
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setStyle(callStyle)
             .setSmallIcon(android.R.drawable.ic_menu_call)
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Kapat", hangupPi)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .build()
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setShowWhen(false)
+            .setContentText(callType)
+
+        // Sure sayaci — startTime varsa Chronometer goster (canli MM:SS)
+        if (startTime != null) {
+            builder.setUsesChronometer(true)
+            builder.setWhen(startTime)
+        }
+
+        // Bildirime tap → arama ekranina don
+        if (tapPi != null) {
+            builder.setContentIntent(tapPi)
+        }
+
+        return builder.build()
     }
 
     /**
