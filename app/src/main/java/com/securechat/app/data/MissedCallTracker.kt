@@ -100,6 +100,21 @@ class MissedCallTracker @Inject constructor(
     }
 
     /**
+     * Aramayi missed olarak hemen kaydet — caller kullanici cevap vermeden
+     * hangup ettiyse 30sn beklemeden bildirim ve kayit at. UX iyilestirmesi.
+     */
+    fun triggerMissedCallNow(session: CallSession, peerName: String) {
+        // Mevcut timer'i iptal et (cift kayit onlemi)
+        activeCallTimers[session.callId]?.cancel()
+        activeCallTimers.remove(session.callId)
+        scope.launch {
+            recordMissedCall(session, peerName)
+            showMissedCallNotification(session, peerName)
+        }
+        android.util.Log.d("MissedCallTracker", "Missed call hemen tetiklendi: ${session.callId}")
+    }
+
+    /**
      * Missed call kaydını konuşmada saklar.
      * Son mesaj olarak "Kaçırılan arama" metni eklenir.
      */

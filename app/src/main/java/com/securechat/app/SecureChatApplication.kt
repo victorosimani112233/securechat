@@ -15,6 +15,7 @@ import coil.request.CachePolicy
 import com.securechat.app.data.AppLifecycleObserver
 import com.securechat.app.data.DisappearingMessageWorker
 import com.securechat.app.data.IncomingMessageHandler
+import com.securechat.app.data.MissedCallTracker
 import com.securechat.app.data.UserSession
 import com.securechat.app.BuildConfig
 import dagger.hilt.android.HiltAndroidApp
@@ -30,6 +31,8 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
     @Inject lateinit var contactsObserver: dagger.Lazy<com.securechat.contacts.ContactsObserver>
     @Inject lateinit var phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>
     @Inject lateinit var workerFactory: HiltWorkerFactory
+    @Inject lateinit var missedCallTracker: dagger.Lazy<MissedCallTracker>
+    @Inject lateinit var incomingCallHandler: dagger.Lazy<com.securechat.media.IncomingCallHandler>
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -66,6 +69,11 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
 
         // FCM notification kanali — hizli, UI thread'de olabilir
         createNotificationChannel()
+
+        // Kacirilan arama + gelen arama notification channel'larini olustur.
+        // Android 8+ icin channel olmadan notify() sessizce drop edilir.
+        try { missedCallTracker.get().initialize() } catch (_: Exception) {}
+        try { incomingCallHandler.get().initialize() } catch (_: Exception) {}
 
         // Agir bagimliliklari arka planda baslat — cold start hizini arttirir
         val bgThread = Thread {

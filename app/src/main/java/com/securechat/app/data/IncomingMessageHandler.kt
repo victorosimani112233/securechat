@@ -694,9 +694,20 @@ class IncomingMessageHandler @Inject constructor(
                 session?.callId?.let { missedCallTracker.cancelMissedCallTimer(it) }
             }
             CallAction.HANGUP -> {
+                // Caller cevap beklemeden kapatti — B INCOMING+RINGING ise missed call.
+                // Hemen kaydet/bildirim at (30sn timer beklemesin, daha iyi UX).
+                val wasIncomingRinging = session?.direction == com.securechat.media.model.CallDirection.INCOMING &&
+                    session.state == com.securechat.media.model.CallState.RINGING
+                val sessionSnapshot = session
                 callManager.onRemoteHangup()
-                // Timer iptal et - arama sonlandırıldı
-                session?.callId?.let { missedCallTracker.cancelMissedCallTimer(it) }
+                if (wasIncomingRinging && sessionSnapshot != null) {
+                    scope.launch {
+                        val peerName = resolvePeerName(sessionSnapshot.peerId)
+                        missedCallTracker.triggerMissedCallNow(sessionSnapshot, peerName)
+                    }
+                } else {
+                    sessionSnapshot?.callId?.let { missedCallTracker.cancelMissedCallTimer(it) }
+                }
             }
             CallAction.BUSY -> {
                 callManager.onRemoteBusy()

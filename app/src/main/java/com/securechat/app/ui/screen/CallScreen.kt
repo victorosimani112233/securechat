@@ -621,6 +621,16 @@ fun CallScreen(
                                 setMirror(!isVideoSwapped)
                                 currentPipMirror.value = !isVideoSwapped
                                 setZOrderMediaOverlay(true)
+                                // KRITIK: SurfaceView ayri native window'a render eder,
+                                // Compose .clip() etkilemez. Rounded corner icin native
+                                // outlineProvider + clipToOutline kullaniyoruz.
+                                outlineProvider = object : android.view.ViewOutlineProvider() {
+                                    override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                                        val r = 12 * ctx.resources.displayMetrics.density
+                                        outline.setRoundRect(0, 0, view.width, view.height, r)
+                                    }
+                                }
+                                clipToOutline = true
                             }
                         },
                         update = { renderer ->
