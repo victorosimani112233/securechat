@@ -24,13 +24,18 @@ import javax.inject.Inject
 
 @HiltViewModel
 class CallViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val callManager: CallManager,
     private val userSession: UserSession,
     private val conversationDao: ConversationDao,
     private val contactNameResolver: ContactNameResolver,
     private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>
 ) : ViewModel() {
+
+    companion object {
+        /** SavedStateHandle key — bu ViewModel call'i baslattigini hatirlasin. */
+        private const val KEY_CALL_INITIATED = "call_initiated"
+    }
 
     private val peerId: String = savedStateHandle.get<String>("peerId") ?: ""
     private val callTypeStr: String = savedStateHandle.get<String>("callType") ?: "VOICE"
@@ -59,6 +64,28 @@ class CallViewModel @Inject constructor(
     /** Karsi tarafin kamera durumu — false ise overlay gosterilir. */
     val remoteCameraEnabled: StateFlow<Boolean> = IncomingMessageHandler.remoteCameraEnabled
 
+    /** Aktif arama sirasinda gelen ikinci arama — UI banner icin. */
+    val secondaryIncomingCall: StateFlow<CallSession?> = callManager.secondaryIncomingCall
+
+    /** Bekleyen ikinci aramanin gosterim adi (UUID yerine isim). */
+    private val _secondaryPeerDisplayName = MutableStateFlow<String>("")
+    val secondaryPeerDisplayName: StateFlow<String> = _secondaryPeerDisplayName.asStateFlow()
+
+    init {
+        // Secondary call peer ismini her degisiminde coz
+        viewModelScope.launch(Dispatchers.IO) {
+            callManager.secondaryIncomingCall.collect { session ->
+                if (session != null && session.peerId.isNotBlank()) {
+                    _secondaryPeerDisplayName.value = try {
+                        contactNameResolver.resolveDisplayName(session.peerId)
+                    } catch (_: Exception) { session.peerId }
+                } else {
+                    _secondaryPeerDisplayName.value = ""
+                }
+            }
+        }
+    }
+
     init {
         IncomingMessageHandler.currentChatId = "call_$peerId"
         android.util.Log.d("CallViewModel", "Current chat set to: call_$peerId")
@@ -76,15 +103,25 @@ class CallViewModel @Inject constructor(
         }
 
         val current = callManager.currentSession
-        android.util.Log.d("CallVM", "init: peerId=$peerId callType=$callTypeStr currentSession=${current?.state} userId=${userSession.userId}")
+        // GHOST CALL FIX: SavedStateHandle ile re-create'lerde initiateCall'i engelle.
+        // ViewModel her olusturuldugunda init blogu calisirdi — Compose recomposition,
+        // configuration change, navigation re-entry sonrasi currentSession null gorunce
+        // OTOMATIK initiateCall yapip hayalet arama uretirdi. Flag SavedStateHandle Bundle
+        // ile korunur, ayni ViewModel tekrar olusursa true gorulur, atlanir.
+        val alreadyInitiated = savedStateHandle.get<Boolean>(KEY_CALL_INITIATED) ?: false
+        android.util.Log.d("CallVM", "init: peerId=$peerId callType=$callTypeStr currentSession=${current?.state} userId=${userSession.userId} alreadyInitiated=$alreadyInitiated")
 
         val hasIncomingOrActiveCall = current != null && (
             (current.direction == com.securechat.media.model.CallDirection.INCOMING && current.state == com.securechat.media.model.CallState.RINGING) ||
             current.state == com.securechat.media.model.CallState.ACTIVE
         )
 
-        if (hasIncomingOrActiveCall) {
+        if (alreadyInitiated) {
+            android.util.Log.w("CallVM", "ViewModel re-create: initiateCall ATLANDI (call_initiated flag true) — hayalet call onlendi")
+        } else if (hasIncomingOrActiveCall) {
             android.util.Log.d("CallVM", "SMART FIX: incoming/active call var, otomatik call engellendi")
+            // Bu da ilk initiate sayilir — sonraki re-create'lerde otomatik baslama
+            savedStateHandle[KEY_CALL_INITIATED] = true
         } else if (peerId.isNotBlank()) {
             val callType = try { CallType.valueOf(callTypeStr) } catch (_: Exception) { CallType.VOICE }
 
@@ -100,14 +137,16 @@ class CallViewModel @Inject constructor(
                     if (otherMembers.isNotEmpty()) {
                         android.util.Log.d("CallVM", "Grup aramasi baslatiliyor: $peerId, ${otherMembers.size} uye")
                         callManager.initiateGroupCall(peerId, otherMembers, callType, userId)
+                        savedStateHandle[KEY_CALL_INITIATED] = true
                     } else {
                         android.util.Log.e("CallVM", "Grup uyesi bulunamadi: $peerId")
                     }
                 }
             } else {
-                // Normal 1-to-1 arama
+                // Normal 1-to-1 arama — flag set EDEREK, tekrar tetiklenmesin
                 android.util.Log.d("CallVM", "Manuel call baslatiliyor: $peerId $callType")
                 callManager.initiateCall(peerId, callType, userSession.userId ?: "unknown")
+                savedStateHandle[KEY_CALL_INITIATED] = true
                 notifyTelecomOutgoing(peerId, callType)
             }
         } else {
@@ -147,6 +186,13 @@ class CallViewModel @Inject constructor(
     }
 
     fun acceptCall() = callManager.acceptCall(userSession.userId ?: "")
+
+    /** Bekleyen ikinci aramayi kabul et: mevcut kapatilir, yeni acilir. */
+    fun acceptSecondaryCall() = callManager.acceptSecondaryCall(userSession.userId ?: "")
+
+    /** Bekleyen ikinci aramayi reddet: caller'a REJECT, banner kaybolur. */
+    fun rejectSecondaryCall() = callManager.rejectSecondaryCall(userSession.userId ?: "")
+
     fun toggleMute() = callManager.toggleMute()
     fun toggleSpeaker() = callManager.toggleSpeaker()
     fun toggleCamera() = callManager.toggleCamera()

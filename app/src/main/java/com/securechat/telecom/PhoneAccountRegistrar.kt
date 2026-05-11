@@ -41,6 +41,10 @@ class PhoneAccountRegistrar @Inject constructor(
 
     @RequiresApi(Build.VERSION_CODES.O)
     fun register() {
+        if (!TELECOM_ENABLED) {
+            Log.d(TAG, "Telecom devre disi (TELECOM_ENABLED=false) — register atlandi")
+            return
+        }
         val tm = telecomManager ?: return
         val handle = phoneAccountHandle ?: return
 
@@ -81,6 +85,10 @@ class PhoneAccountRegistrar @Inject constructor(
      */
     @RequiresApi(Build.VERSION_CODES.O)
     fun notifyIncomingCall(callId: String, peerId: String, peerName: String, isVideo: Boolean): Boolean {
+        if (!TELECOM_ENABLED) {
+            Log.d(TAG, "Telecom devre disi — notifyIncomingCall atlandi")
+            return false
+        }
         val tm = telecomManager ?: return false
         val handle = phoneAccountHandle ?: return false
         return try {
@@ -111,6 +119,10 @@ class PhoneAccountRegistrar @Inject constructor(
      */
     @RequiresApi(Build.VERSION_CODES.O)
     fun placeOutgoingCall(callId: String, peerId: String, peerName: String, isVideo: Boolean): Boolean {
+        if (!TELECOM_ENABLED) {
+            Log.d(TAG, "Telecom devre disi — placeOutgoingCall atlandi")
+            return false
+        }
         val tm = telecomManager ?: return false
         val handle = phoneAccountHandle ?: return false
         return try {
@@ -138,6 +150,15 @@ class PhoneAccountRegistrar @Inject constructor(
     }
 
     companion object {
+        /**
+         * Telecom Framework entegrasyonu ana feature flag'i.
+         * 2026-05-11: SELF_MANAGED ConnectionService bazi cihazlarda hayalet
+         * call/UI cakismalarina sebep oluyordu. Cihaz testi ile dogrulanana kadar
+         * notification + IncomingCallActivity tek UI kaynagi olarak kullanilir.
+         * Re-enable: bu flag'i true yap.
+         */
+        const val TELECOM_ENABLED = false
+
         const val ACCOUNT_ID = "securechat-self-managed"
         private const val TAG = "PhoneAccountReg"
     }

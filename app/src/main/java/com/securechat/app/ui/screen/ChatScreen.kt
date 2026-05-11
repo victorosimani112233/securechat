@@ -1075,11 +1075,11 @@ private fun SystemMessageBanner(
         val direction = parts.getOrNull(1) ?: ""
         val status = parts.getOrNull(3) ?: ""
         displayText = parts.getOrNull(5) ?: content
-        isCallbackable = status in listOf("MISSED", "REJECTED", "FAILED")
+        isCallbackable = status in listOf("MISSED", "REJECTED", "FAILED", "BUSY")
 
         icon = if (callType == "VIDEO") Icons.Default.Videocam else Icons.Default.Call
         iconTint = when (status) {
-            "MISSED", "REJECTED", "FAILED" -> MaterialTheme.colorScheme.error
+            "MISSED", "REJECTED", "FAILED", "BUSY" -> MaterialTheme.colorScheme.error
             else -> if (direction == "OUTGOING") MaterialTheme.colorScheme.primary
                     else Color(0xFF4CAF50)
         }

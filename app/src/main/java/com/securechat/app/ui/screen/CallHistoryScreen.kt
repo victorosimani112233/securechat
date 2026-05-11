@@ -248,7 +248,7 @@ private fun CallLogRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
-    val isMissed = log.status == "MISSED" || log.status == "REJECTED" || log.status == "FAILED"
+    val isMissed = log.status == "MISSED" || log.status == "REJECTED" || log.status == "FAILED" || log.status == "BUSY"
     val nameColor = if (isMissed) {
         MaterialTheme.colorScheme.error
     } else {
@@ -341,7 +341,7 @@ private fun CallLogRow(
 }
 
 private fun getDirectionIcon(direction: String, status: String): ImageVector {
-    if (status == "MISSED" || status == "FAILED") return Icons.Default.CallMissed
+    if (status == "MISSED" || status == "FAILED" || status == "BUSY") return Icons.Default.CallMissed
     return when (direction) {
         "OUTGOING" -> Icons.Default.CallMade
         "INCOMING" -> Icons.Default.CallReceived
@@ -358,6 +358,7 @@ private fun getCallLabel(log: CallLogItem): String {
         }
         "MISSED" -> "Cevapsız $typeText"
         "REJECTED" -> "Reddedilen $typeText"
+        "BUSY" -> if (log.direction == "INCOMING") "Meşgulken gelen $typeText" else "Meşgul $typeText"
         "FAILED" -> "Başarısız $typeText"
         else -> typeText
     }

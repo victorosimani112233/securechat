@@ -98,6 +98,10 @@ import kotlinx.coroutines.delay
 import org.webrtc.EglBase
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.style.TextOverflow
 import org.webrtc.VideoTrack
 import kotlin.math.abs
 import kotlin.math.sin
@@ -596,6 +600,142 @@ fun CallScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 }
+            }
+        }
+
+        // Call-waiting banner — aktif arama sirasinda 2. arama gelirse en ust katmanda
+        val secondaryCall by viewModel.secondaryIncomingCall.collectAsStateWithLifecycle()
+        val secondaryPeerName by viewModel.secondaryPeerDisplayName.collectAsStateWithLifecycle()
+        androidx.compose.animation.AnimatedVisibility(
+            visible = secondaryCall != null,
+            enter = androidx.compose.animation.slideInVertically(
+                initialOffsetY = { -it },
+                animationSpec = androidx.compose.animation.core.tween(220)
+            ) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
+            exit = androidx.compose.animation.slideOutVertically(
+                targetOffsetY = { -it },
+                animationSpec = androidx.compose.animation.core.tween(180)
+            ) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180)),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            SecondaryCallBanner(
+                peerName = secondaryPeerName.ifBlank { secondaryCall?.peerId ?: "" },
+                callType = secondaryCall?.callType ?: CallType.VOICE,
+                onAccept = { viewModel.acceptSecondaryCall() },
+                onReject = { viewModel.rejectSecondaryCall() }
+            )
+        }
+    }
+}
+
+/**
+ * Aktif arama sirasinda gelen 2. cağrı için üst banner (WhatsApp tarzı).
+ * Slide-in animasyonu ile yukarıdan iner; yeşil "Cevapla" eskiyi kapatıp yeniyi açar,
+ * kırmızı "Reddet" yeniye REJECT gönderip aktif arama korunur.
+ */
+@Composable
+private fun SecondaryCallBanner(
+    peerName: String,
+    callType: CallType,
+    onAccept: () -> Unit,
+    onReject: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xCC0F172A),
+        shadowElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Avatar placeholder + arama tipi ikonu
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF1E293B)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (callType == CallType.VIDEO)
+                        androidx.compose.material.icons.Icons.Default.Videocam
+                    else
+                        androidx.compose.material.icons.Icons.Default.Call,
+                    contentDescription = null,
+                    tint = Color(0xFF3E7BFA),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = peerName,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (callType == CallType.VIDEO) "Görüntülü arama bekliyor"
+                           else "Sesli arama bekliyor",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 11.sp
+                )
+            }
+
+            // Reddet butonu (kırmızı)
+            IconButton(
+                onClick = onReject,
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEF4444))
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Default.CallEnd,
+                    contentDescription = "Reddet",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Cevapla butonu (yeşil) — uyarıcı pulse animasyonu
+            val pulseTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "pulse2")
+            val pulseScale by pulseTransition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.12f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    animation = androidx.compose.animation.core.tween(700, easing = androidx.compose.animation.core.LinearEasing),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                ),
+                label = "pulse2"
+            )
+            IconButton(
+                onClick = onAccept,
+                modifier = Modifier
+                    .size(42.dp)
+                    .scale(pulseScale)
+                    .clip(CircleShape)
+                    .background(Color(0xFF22C55E))
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Default.Call,
+                    contentDescription = "Cevapla",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }

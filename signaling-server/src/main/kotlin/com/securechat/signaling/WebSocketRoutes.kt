@@ -156,6 +156,17 @@ private suspend fun handleMessage(
             }
         }
 
+        // --- SDP_OFFER: aktif call session olustur (Redis), duplicate engelle ---
+        if (type == "sdp_offer" && !recipientId.isNullOrBlank()) {
+            // Mevcut active call session var mi? Varsa duplicate engellenebilir
+            // (ama mesaji yine de route et — eski client'lar bunu beklemiyor;
+            // server-side filtre opsiyonel ek savunma, mesaji bloklamiyoruz).
+            if (connectionManager.hasActiveCallSession(senderId, recipientId)) {
+                logger.info("[call] sdp_offer: aktif session zaten var — yine de route ediliyor (client tarafi idempotent)")
+            }
+            connectionManager.setActiveCallSession(senderId, recipientId)
+        }
+
         // --- SFU: Grup aramasi bittiginde VideoRoom sil ---
         if (type == "call_control") {
             val action = element["action"]?.jsonPrimitive?.contentOrNull
@@ -167,6 +178,13 @@ private suspend fun handleMessage(
                     }
                 }
             }
+            // 1-1 arama: ACCEPT geldigi anda aranan tarafin kuyruğundaki eski
+            // caller->callee offer/ice artik gecersizdir. Sonraki HANGUP server'a
+            // ulasamasa bile reconnect'te ayni offer tekrar drain edilmemeli.
+            if (action == "ACCEPT" && !recipientId.isNullOrBlank()) {
+                connectionManager.purgePendingCallSignals(senderId, recipientId)
+            }
+
             // 1-1 arama: HANGUP/REJECT/BUSY — HER IKI YONUN offline queue'sundaki
             // call sinyallerini (sdp_offer, ice_candidate, call_control) temizle.
             // Senaryo: A->B SDP_OFFER queued. B online geldi, kabul etti, konustu, HANGUP atti.
@@ -177,6 +195,20 @@ private suspend fun handleMessage(
             if (action in setOf("HANGUP", "REJECT", "BUSY") && !recipientId.isNullOrBlank()) {
                 connectionManager.purgePendingCallSignals(recipientId, senderId)
                 connectionManager.purgePendingCallSignals(senderId, recipientId)
+                // Active call session state da temizle — orphan birakma
+                connectionManager.clearActiveCallSession(senderId, recipientId)
+            }
+
+            // ACK gonder — client HANGUP/REJECT/BUSY/ACCEPT'i kaybetmedigini bilsin
+            // (client tarafi gerekirse retry yapar).
+            if (!action.isNullOrBlank()) {
+                val msgId = element["messageId"]?.jsonPrimitive?.contentOrNull
+                if (msgId != null) {
+                    try {
+                        val ackJson = """{"type":"call_control_ack","messageId":"$msgId","action":"$action","timestamp":${System.currentTimeMillis()}}"""
+                        connectionManager.connections()[senderId]?.send(io.ktor.websocket.Frame.Text(ackJson))
+                    } catch (_: Exception) { /* ack opsiyonel */ }
+                }
             }
         }
 

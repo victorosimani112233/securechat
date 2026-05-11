@@ -83,7 +83,23 @@ sealed class SignalMessage {
         override val senderId: String,
         override val recipientId: String,
         override val timestamp: Long,
-        val action: CallAction
+        val action: CallAction,
+        // Server ACK icin benzersiz ID — client retry icin kullanir.
+        val messageId: String? = null
+    ) : SignalMessage()
+
+    /**
+     * Server'dan client'a — HANGUP/REJECT/BUSY/ACCEPT ulastiginin onayi.
+     * Client retry'i durdurmak icin bu mesaji bekler.
+     */
+    @Serializable
+    @SerialName("call_control_ack")
+    data class CallControlAck(
+        override val senderId: String = "server",
+        override val recipientId: String = "",
+        override val timestamp: Long,
+        val messageId: String,
+        val action: String
     ) : SignalMessage()
 
     /**

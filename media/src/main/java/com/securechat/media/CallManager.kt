@@ -111,6 +111,23 @@ class CallManager @Inject constructor(
     private var callerRingbackTimeoutJob: kotlinx.coroutines.Job? = null
     private val CALLER_RINGBACK_TIMEOUT_MS = 60_000L
 
+    // ---- Call waiting (ikinci gelen arama) state ----
+    /**
+     * Aktif bir cağrı varken gelen ikinci aramayı tutar. WhatsApp tarzı "call waiting" —
+     * UI'da küçük banner gösterilir, kullanici Cevapla/Reddet seçebilir.
+     * 3. arama gelirse otomatik BUSY donulur (max 2 paralel arama policy).
+     */
+    private val _secondaryIncomingCall = MutableStateFlow<CallSession?>(null)
+    val secondaryIncomingCall: StateFlow<CallSession?> = _secondaryIncomingCall.asStateFlow()
+
+    /** Secondary aramanin SDP offer'i — acceptSecondaryCall sirasinda kullanilir. */
+    private var pendingSecondaryOffer: String? = null
+    private var pendingSecondaryCallType: CallType? = null
+
+    /** Secondary call icin 30 saniyelik missed-call timer. */
+    private var secondaryMissedTimerJob: kotlinx.coroutines.Job? = null
+    private val SECONDARY_MISSED_TIMEOUT_MS = 30_000L
+
     // --- Grup arama state ---
     /** Arayan (koordinator) mi? Yeni uye bildirimlerini bu kisi gonderir. */
     private var isGroupCallCoordinator = false
@@ -137,6 +154,25 @@ class CallManager @Inject constructor(
      * @param userId Arayan kullanicinin ID'si
      */
     fun initiateCall(peerId: String, callType: CallType, userId: String) {
+        // DIAGNOSTIC: stack trace ile cagri yolu logla — ghost call kaynak takibi.
+        // Eger bu cagri kullanici eyleminden gelmedi ise stack hangi sinif/fonksiyon
+        // oldugunu gosterir. Kalici tutmak guvenli, etkisi sadece log.
+        android.util.Log.w("CallManager", "initiateCall ENTRY peer=$peerId type=$callType",
+            Throwable("CALL_TRACE"))
+
+        // GHOST CALL FIX (cool-down guard): Son 5sn icinde ayni peer'a terminal cleanup
+        // tetiklendiyse OTOMATIK initiateCall'i bloklat. Bu Compose recomposition,
+        // ViewModel re-create, intent replay gibi UNUSER-DRIVEN tetikleyicileri kapsar.
+        // Kullanici 5sn icinde gercekten ayni kisiyi tekrar aramak istiyorsa beklemeli;
+        // bu kabul edilebilir (en rare senaryo, ghost call katlanilmaz).
+        val sinceTerminal = System.currentTimeMillis() - lastTerminalAtMs
+        if (lastTerminalPeerId == peerId && sinceTerminal in 0..CALL_REINITIATE_COOLDOWN_MS) {
+            android.util.Log.w("CallManager",
+                "initiateCall BLOCKED (cool-down) — peer=$peerId, son terminal'den ${sinceTerminal}ms gecti " +
+                "(limit=${CALL_REINITIATE_COOLDOWN_MS}ms). Olasi sebep: Compose re-create / intent replay.")
+            return
+        }
+
         // GÜÇLÜ GUARD: Eğer aktif call varsa, ignore et - ASLA duplicate call yapma
         val currentSession = _callSession.value
         if (currentSession != null && (
@@ -267,27 +303,247 @@ class CallManager @Inject constructor(
      */
     /** Idempotency: ayni SDP Offer'in 2 kez islenmesini engeller (offline queue + WS race). */
     @Volatile private var lastHandledOfferKey: String? = null
+    @Volatile private var lastTerminalPeerId: String? = null
+    @Volatile private var lastTerminalAtMs: Long = 0L
+    private val TERMINAL_OFFER_SUPPRESS_MS = 5_000L
+    /**
+     * Outgoing call cool-down — terminal cleanup'tan sonra ayni peer'a otomatik
+     * initiateCall tetiklenmesin (Compose re-create, intent replay, vs.). 5sn yeterli,
+     * gercek kullanici tekrar aramak isterse bu sure sonunda normal calisir.
+     */
+    private val CALL_REINITIATE_COOLDOWN_MS = 5_000L
+
+    /**
+     * Reliable CallControl gondericisi — server'dan ACK alana kadar retry yapar.
+     * Senaryo: kullanici HANGUP basti ama WebSocket frame paketi yolda kayboldu;
+     * server purge tetiklenmedi → karsi tarafta hayalet call kaliyordu.
+     * Cozum: her CallControl mesajina unique messageId koy; server ACK doner;
+     * client ACK'i 1.5sn icinde almazsa 3 kez retry eder.
+     */
+    private val pendingAcks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<Unit>>()
+
+    init {
+        // Server'dan gelen call_control_ack'lari dinle
+        scope.launch {
+            signalingClient.incomingSignals.collect { signal ->
+                if (signal is SignalMessage.CallControlAck) {
+                    pendingAcks.remove(signal.messageId)?.complete(Unit)
+                }
+            }
+        }
+    }
+
+    private fun sendCallControlReliable(
+        senderId: String,
+        recipientId: String,
+        action: CallAction
+    ) {
+        val messageId = UUID.randomUUID().toString()
+        val control = SignalMessage.CallControl(
+            senderId = senderId,
+            recipientId = recipientId,
+            timestamp = System.currentTimeMillis(),
+            action = action,
+            messageId = messageId
+        )
+
+        val ack = kotlinx.coroutines.CompletableDeferred<Unit>()
+        pendingAcks[messageId] = ack
+
+        scope.launch {
+            var attempt = 0
+            val maxAttempts = 3
+            while (attempt < maxAttempts) {
+                attempt++
+                val sent = try {
+                    signalingClient.sendSignal(control)
+                } catch (e: Exception) {
+                    android.util.Log.w("CallManager", "sendCallControl attempt $attempt hata: ${e.message}")
+                    false
+                }
+                if (sent) {
+                    try {
+                        kotlinx.coroutines.withTimeout(1500) { ack.await() }
+                        android.util.Log.d("CallManager", "$action ACK alindi (attempt $attempt)")
+                        return@launch
+                    } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                        android.util.Log.w("CallManager", "$action ACK timeout — retry $attempt/$maxAttempts")
+                    }
+                } else {
+                    android.util.Log.w("CallManager", "$action sendSignal false — retry $attempt/$maxAttempts")
+                }
+                if (attempt < maxAttempts) kotlinx.coroutines.delay(1000)
+            }
+            // Tum denemeler basarisiz — temizle ve sessizce log
+            pendingAcks.remove(messageId)
+            android.util.Log.e("CallManager", "$action gonderilemedi (max retry, peer=$recipientId)")
+        }
+    }
+
+    /**
+     * Persistent offer keys — process kill sonrasinda da queue replay'i engeller.
+     * SharedPreferences'a son 20 handled offer key + timestamp yazilir.
+     * TTL: 1 saat (eski entry'ler temizlenir; gecek bir call'da gercek yeni offer
+     * timestamp'i farkli oldugu icin engellenmez).
+     */
+    private val offerHistoryPrefs: android.content.SharedPreferences by lazy {
+        context.getSharedPreferences("call_offer_history", android.content.Context.MODE_PRIVATE)
+    }
+    private val OFFER_HISTORY_KEY = "handled_offers"
+    private val OFFER_HISTORY_MAX_SIZE = 20
+    private val OFFER_HISTORY_TTL_MS = 3_600_000L // 1 saat
+
+    /** Verilen offer key persistent gecmiste var mi (ve TTL gecmis degil mi)? */
+    private fun isOfferAlreadyHandled(offerKey: String): Boolean {
+        val now = System.currentTimeMillis()
+        val raw = offerHistoryPrefs.getString(OFFER_HISTORY_KEY, "") ?: ""
+        if (raw.isBlank()) return false
+        // Format: "key1|ts1,key2|ts2,..."
+        return raw.split(",")
+            .asSequence()
+            .mapNotNull {
+                val parts = it.split("|", limit = 2)
+                if (parts.size == 2) parts[0] to (parts[1].toLongOrNull() ?: 0L) else null
+            }
+            .filter { now - it.second < OFFER_HISTORY_TTL_MS }
+            .any { it.first == offerKey }
+    }
+
+    /** Offer key'i persistent gecmise ekle (last-N FIFO + TTL filter). */
+    private fun rememberOffer(offerKey: String) {
+        val now = System.currentTimeMillis()
+        val raw = offerHistoryPrefs.getString(OFFER_HISTORY_KEY, "") ?: ""
+        val existing = raw.split(",")
+            .mapNotNull {
+                val parts = it.split("|", limit = 2)
+                if (parts.size == 2) parts[0] to (parts[1].toLongOrNull() ?: 0L) else null
+            }
+            .filter { now - it.second < OFFER_HISTORY_TTL_MS && it.first != offerKey }
+        val updated = (existing + (offerKey to now))
+            .takeLast(OFFER_HISTORY_MAX_SIZE)
+            .joinToString(",") { "${it.first}|${it.second}" }
+        offerHistoryPrefs.edit().putString(OFFER_HISTORY_KEY, updated).apply()
+    }
 
     fun handleIncomingCall(signal: SignalMessage.SdpOffer, localUserId: String) {
         // Idempotency: senderId + timestamp + sdp hash — ayni offer kac kez gelirse gelsin
         // sadece ilkinde session yarat. (FCM-WS double trigger ve queue replay onlemi.)
         val offerKey = "${signal.senderId}:${signal.timestamp}:${signal.sdp.hashCode()}"
         if (offerKey == lastHandledOfferKey) {
-            android.util.Log.w("CallManager", "Ayni SDP Offer 2. kez geldi — IGNORE (key=$offerKey)")
+            android.util.Log.w("CallManager", "Ayni SDP Offer 2. kez geldi (in-memory) — IGNORE (key=$offerKey)")
+            return
+        }
+        // Persistent check — process kill sonrasi queue replay'i engelle
+        if (isOfferAlreadyHandled(offerKey)) {
+            android.util.Log.w("CallManager", "Ayni SDP Offer 2. kez geldi (persistent) — IGNORE (key=$offerKey)")
             return
         }
 
-        // Mevcut aktif/ringing call varsa yeni SdpOffer'i ignore et.
-        // ENDED/REJECTED/FAILED/BUSY/CONNECTING gibi terminal/transitional state'lerde
-        // yeni aramaya izin ver — eski session "askida kalmis" olabilir.
+        // Mevcut aktif/ringing call varsa: secondary slot mantigi (call waiting)
+        // - Slot bossa: gelen aramayi "ikinci gelen arama" olarak tut, UI'da banner
+        //   gosterilir; kullanici Cevapla (eskiyi kapat, yeniyi ac) / Reddet seçebilir.
+        // - Slot doluysa (3. arama): otomatik BUSY + sohbet kaydi (mevcut davranis)
+        // - Ayni peer ikinci kez offer gonderirse (kendi mevcut call'i): idempotent IGNORE
         val existingSession = _callSession.value
         if (existingSession != null && (
             existingSession.state == CallState.ACTIVE ||
             existingSession.state == CallState.RINGING ||
             existingSession.state == CallState.INITIATING
         )) {
-            android.util.Log.w("CallManager", "handleIncomingCall IGNORE edildi - mevcut call var: state=${existingSession.state}, direction=${existingSession.direction}")
-            return
+            // Ayni peer'dan tekrar offer geldi → mevcut call zaten o peer ile
+            if (existingSession.peerId == signal.senderId) {
+                android.util.Log.w("CallManager", "Ayni peer'dan tekrar SDP Offer — IGNORE")
+                lastHandledOfferKey = offerKey
+                rememberOffer(offerKey)
+                return
+            }
+
+            val secondarySlot = _secondaryIncomingCall.value
+            // Ayni peer ikinci kez ariyorsa (secondary slot'taki ayni peer) ignore
+            if (secondarySlot != null && secondarySlot.peerId == signal.senderId) {
+                android.util.Log.w("CallManager", "Secondary slot'taki peer'dan tekrar offer — IGNORE")
+                lastHandledOfferKey = offerKey
+                rememberOffer(offerKey)
+                return
+            }
+
+            if (secondarySlot == null) {
+                // Slot bos — secondary olarak tut, banner UI'da gosterilecek
+                android.util.Log.d("CallManager", "Call waiting: ${signal.senderId} aktif call sirasinda ariyor")
+                lastHandledOfferKey = offerKey
+                rememberOffer(offerKey)
+                val secondarySession = CallSession(
+                    callId = UUID.randomUUID().toString(),
+                    peerId = signal.senderId,
+                    callType = signal.callType,
+                    direction = CallDirection.INCOMING,
+                    state = CallState.RINGING,
+                    startTime = null
+                )
+                _secondaryIncomingCall.value = secondarySession
+                pendingSecondaryOffer = signal.sdp
+                pendingSecondaryCallType = signal.callType
+                // Kisa call-waiting tonu — kullaniciya isaret
+                ringtonePlayer.playWaitingTone()
+                // 30sn timeout — kullanici cevap vermezse caller'a BUSY don, missed call kaydet
+                secondaryMissedTimerJob?.cancel()
+                secondaryMissedTimerJob = scope.launch {
+                    kotlinx.coroutines.delay(SECONDARY_MISSED_TIMEOUT_MS)
+                    val current = _secondaryIncomingCall.value
+                    if (current != null && current.callId == secondarySession.callId) {
+                        android.util.Log.d("CallManager", "Secondary call timeout — missed olarak isaretleniyor")
+                        // Caller'a BUSY don
+                        try {
+                            signalingClient.sendSignal(
+                                SignalMessage.CallControl(
+                                    senderId = localUserId,
+                                    recipientId = signal.senderId,
+                                    timestamp = System.currentTimeMillis(),
+                                    action = CallAction.BUSY
+                                )
+                            )
+                        } catch (_: Exception) {}
+                        // Cevapsiz olarak kaydet
+                        saveCallLog(secondarySession, duration = null, finalState = CallState.BUSY)
+                        _secondaryIncomingCall.value = null
+                        pendingSecondaryOffer = null
+                        pendingSecondaryCallType = null
+                    }
+                }
+                return
+            } else {
+                // Slot dolu (3. arama) — BUSY + sohbet kaydi
+                android.util.Log.w("CallManager", "3. arama geldi (max 2 paralel) — BUSY donuluyor: ${signal.senderId}")
+                saveBusyIncomingCallAttempt(signal)
+                try {
+                    signalingClient.sendSignal(
+                        SignalMessage.CallControl(
+                            senderId = localUserId,
+                            recipientId = signal.senderId,
+                            timestamp = System.currentTimeMillis(),
+                            action = CallAction.BUSY
+                        )
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.w("CallManager", "BUSY signal gonderilemedi: ${e.message}")
+                }
+                return
+            }
+        }
+        if (existingSession != null &&
+            existingSession.peerId == signal.senderId &&
+            existingSession.state in setOf(CallState.ENDED, CallState.REJECTED, CallState.FAILED, CallState.BUSY)
+        ) {
+            val ageMs = System.currentTimeMillis() - lastTerminalAtMs
+            if (lastTerminalPeerId == signal.senderId && ageMs in 0..TERMINAL_OFFER_SUPPRESS_MS) {
+                lastHandledOfferKey = offerKey
+                rememberOffer(offerKey)
+                android.util.Log.w(
+                    "CallManager",
+                    "Terminal cleanup penceresinde SDP Offer geldi — IGNORE (peer=${signal.senderId}, ageMs=$ageMs, key=$offerKey)"
+                )
+                return
+            }
         }
         // Terminal state'deki eski session'i temizle — yeni arama icin yer ac
         if (existingSession != null) {
@@ -485,6 +741,12 @@ class CallManager @Inject constructor(
                 )
                 peerConnectionManager.setRemoteDescription(remoteDescription)
                 android.util.Log.d("CallManager", "Remote SDP Answer set edildi")
+
+                // KRITIK: SDP Answer geldigi an pratikte peer accept etti demektir.
+                // Bagımsız ACCEPT signal'ine GUVENMEK YERINE burada da onCallConnected'i
+                // tetikle — boylece ACCEPT kaybolur/gecikirse de UI "Araniyor..." takilmaz.
+                // onCallConnected idempotent: state RINGING+OUTGOING degilse no-op.
+                onCallConnected()
             } catch (e: Exception) {
                 android.util.Log.e("CallManager", "handleSdpAnswer hatasi: ${e.message}")
             }
@@ -1100,7 +1362,7 @@ class CallManager @Inject constructor(
                 duration = duration
             )
 
-            scheduleTerminalStateCleanup(finalState)
+            scheduleTerminalStateCleanup(finalState, session.callId)
         } catch (e: Exception) {
             android.util.Log.e("CallManager", "cleanupGroupCall hatasi: ${e.message}")
             isCleaningUp.set(false)
@@ -1128,25 +1390,11 @@ class CallManager @Inject constructor(
         ringtonePlayer.stopRinging()
 
         if (session.isGroupCall) {
-            // Grup aramasinda sadece arayan (peerId) a REJECT gonder
-            signalingClient.sendSignal(
-                SignalMessage.CallControl(
-                    senderId = userId,
-                    recipientId = session.peerId,
-                    timestamp = System.currentTimeMillis(),
-                    action = CallAction.REJECT
-                )
-            )
+            // Grup aramasinda sadece arayan (peerId) a REJECT gonder — reliable retry
+            sendCallControlReliable(userId, session.peerId, CallAction.REJECT)
             cleanupGroupCall(CallState.REJECTED)
         } else {
-            signalingClient.sendSignal(
-                SignalMessage.CallControl(
-                    senderId = userId,
-                    recipientId = session.peerId,
-                    timestamp = System.currentTimeMillis(),
-                    action = CallAction.REJECT
-                )
-            )
+            sendCallControlReliable(userId, session.peerId, CallAction.REJECT)
             cleanupCall(CallState.REJECTED)
         }
     }
@@ -1166,20 +1414,103 @@ class CallManager @Inject constructor(
             endGroupCall(userId)
             return
         }
-        // HANGUP signal gonder — exception olsa bile cleanup'a devam
+        // HANGUP reliable — retry + ACK ile gonder. Hayalet call kritik onlemi:
+        // network drop ile HANGUP kaybi yasanmasin diye server'dan ack bekler.
+        sendCallControlReliable(userId, session.peerId, CallAction.HANGUP)
+        cleanupCall(CallState.ENDED)
+    }
+
+    // ---- Call waiting kontrolleri ----
+
+    /**
+     * Bekleyen ikinci aramayi kabul eder: mevcut aktif arama kapatilir, ardindan
+     * ikinci arama kabul edilir. WhatsApp tarzi "ya/ya" davranisi — hold yok.
+     *
+     * Sira:
+     * 1. Aktif arama varsa HANGUP gonder + cleanupCall(ENDED)
+     * 2. ~300ms audio mode reset icin bekle
+     * 3. Secondary call'i primary slot'a tasi
+     * 4. acceptCall(userId) cagir
+     */
+    fun acceptSecondaryCall(userId: String) {
+        val secondary = _secondaryIncomingCall.value ?: run {
+            android.util.Log.w("CallManager", "acceptSecondaryCall: secondary slot bos")
+            return
+        }
+        val secondaryOffer = pendingSecondaryOffer ?: run {
+            android.util.Log.e("CallManager", "acceptSecondaryCall: pendingSecondaryOffer null")
+            _secondaryIncomingCall.value = null
+            return
+        }
+        val secondaryCT = pendingSecondaryCallType ?: secondary.callType
+
+        secondaryMissedTimerJob?.cancel()
+        secondaryMissedTimerJob = null
+
+        scope.launch {
+            // 1. Mevcut aktif aramaya HANGUP gonder + temizle
+            val primary = _callSession.value
+            if (primary != null) {
+                try {
+                    signalingClient.sendSignal(
+                        SignalMessage.CallControl(
+                            senderId = userId,
+                            recipientId = primary.peerId,
+                            timestamp = System.currentTimeMillis(),
+                            action = CallAction.HANGUP
+                        )
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.w("CallManager", "Primary HANGUP gonderilemedi: ${e.message}")
+                }
+                cleanupCall(CallState.ENDED)
+            }
+
+            // 2. Audio mode reset icin kisa bekleme
+            kotlinx.coroutines.delay(300)
+
+            // 3. Secondary'i primary slot'a tasi
+            _callSession.value = secondary
+            pendingRemoteSdpOffer = secondaryOffer
+            pendingCallType = secondaryCT
+            _secondaryIncomingCall.value = null
+            pendingSecondaryOffer = null
+            pendingSecondaryCallType = null
+
+            // 4. Normal accept akisi
+            acceptCall(userId)
+        }
+    }
+
+    /**
+     * Bekleyen ikinci aramayi reddeder: caller'a REJECT gonderilir, secondary state
+     * temizlenir, B'nin sohbetinde "Kacirilan ..." kaydi olusur. Aktif arama dokunulmaz.
+     */
+    fun rejectSecondaryCall(userId: String) {
+        val secondary = _secondaryIncomingCall.value ?: return
+
+        secondaryMissedTimerJob?.cancel()
+        secondaryMissedTimerJob = null
+
         try {
             signalingClient.sendSignal(
                 SignalMessage.CallControl(
                     senderId = userId,
-                    recipientId = session.peerId,
+                    recipientId = secondary.peerId,
                     timestamp = System.currentTimeMillis(),
-                    action = CallAction.HANGUP
+                    action = CallAction.REJECT
                 )
             )
         } catch (e: Exception) {
-            android.util.Log.e("CallManager", "HANGUP signal gonderilemedi: ${e.message}")
+            android.util.Log.w("CallManager", "Secondary REJECT gonderilemedi: ${e.message}")
         }
-        cleanupCall(CallState.ENDED)
+
+        // Sohbete "Kacirilan / Reddedildi" kaydi at
+        saveCallLog(secondary, duration = null, finalState = CallState.REJECTED)
+
+        _secondaryIncomingCall.value = null
+        pendingSecondaryOffer = null
+        pendingSecondaryCallType = null
     }
 
     // ---- Medya kontrolleri ----
@@ -1274,24 +1605,27 @@ class CallManager @Inject constructor(
      * Race condition'lari onlemek icin atomik olarak calisir.
      */
     private fun cleanupCall(finalState: CallState) {
+        // Bu stop'lar cleanup guard'inin disinda olmali: ikinci cleanup cagrisi
+        // kaynak temizligini atlayabilir ama hayalet sesleri mutlaka susturmali.
+        incomingCallHandler.dismissIncomingCall()
+        ringtonePlayer.stopRinging()
+        ringtonePlayer.stopRingbackTone()
+
         // Ayni anda birden fazla cleanupCall cagrisini onle
         if (!isCleaningUp.compareAndSet(false, true)) {
             return // Zaten cleanup yapiliyor
         }
 
         try {
-            val session = _callSession.value ?: return
+            val session = _callSession.value
+            if (session == null) {
+                isCleaningUp.set(false)
+                return
+            }
             val duration = session.startTime?.let { System.currentTimeMillis() - it }
 
             // Arama gecmisine kaydet
             saveCallLog(session, duration, finalState)
-
-            // Gelen arama bildirimini kaldir
-            incomingCallHandler.dismissIncomingCall()
-
-            // Guvenlik icin tum sesleri durdur (idempotent)
-            ringtonePlayer.stopRinging()
-            ringtonePlayer.stopRingbackTone()
 
             // WebRTC PeerConnection'i kapat
             peerConnectionManager.disposePeerConnection()
@@ -1316,8 +1650,10 @@ class CallManager @Inject constructor(
                 state = finalState,
                 duration = duration
             )
+            lastTerminalPeerId = session.peerId
+            lastTerminalAtMs = System.currentTimeMillis()
 
-            scheduleTerminalStateCleanup(finalState)
+            scheduleTerminalStateCleanup(finalState, session.callId)
         } catch (e: Exception) {
             android.util.Log.e("CallManager", "cleanupCall hatasi: ${e.message}")
             // Cleanup flag'ini sifirla
@@ -1361,6 +1697,18 @@ class CallManager @Inject constructor(
         }
     }
 
+    private fun saveBusyIncomingCallAttempt(signal: SignalMessage.SdpOffer) {
+        val busySession = CallSession(
+            callId = UUID.randomUUID().toString(),
+            peerId = signal.senderId,
+            callType = signal.callType,
+            direction = CallDirection.INCOMING,
+            state = CallState.BUSY,
+            startTime = signal.timestamp
+        )
+        saveCallLog(busySession, duration = null, finalState = CallState.BUSY)
+    }
+
     /**
      * Arama bilgisini sohbette SYSTEM mesaji olarak kaydeder — WhatsApp tarzi.
      * Format: "CALL|direction|callType|status|durationMs|displayText"
@@ -1378,7 +1726,7 @@ class CallManager @Inject constructor(
                 }
                 "MISSED" -> if (isOutgoing) "$callTypeLabel · Cevap verilmedi" else "Kaçırılan $callTypeLabel"
                 "REJECTED" -> if (isOutgoing) "$callTypeLabel · Reddedildi" else "Kaçırılan $callTypeLabel"
-                "BUSY" -> "$callTypeLabel · Meşgul"
+                "BUSY" -> if (isOutgoing) "$callTypeLabel · Meşgul" else "Meşgulken kaçırılan $callTypeLabel"
                 "FAILED" -> "$callTypeLabel · Bağlanılamadı"
                 else -> callTypeLabel
             }
@@ -1411,20 +1759,37 @@ class CallManager @Inject constructor(
                else String.format("00:%02d", seconds)
     }
 
-    private fun scheduleTerminalStateCleanup(finalState: CallState) {
+    /**
+     * Terminal state'deki call'i 2sn sonra null'a temizler.
+     * KRITIK FIX (2026-05-11): callId-based check — bu 2sn'lik pencerede YENI bir call
+     * baslarsa (initiateCall / handleIncomingCall) o yeni session'i yok ETMEZ.
+     * Eski davranis: state RINGING bile olsa null yapardi → ghost call'un tetikleyicisiydi.
+     */
+    private fun scheduleTerminalStateCleanup(finalState: CallState, cleanupCallId: String) {
         scope.launch {
             kotlinx.coroutines.delay(2000)
-            // KOSULSUZ null — eski kontrolde state degismis ise null olmuyordu
-            // ve session askida kaliyordu (sonraki gelen aramalar IGNORE).
-            // Cleanup baslamissa session ZORLA temizlenir.
             val current = _callSession.value
-            if (current == null || current.state in setOf(
-                    CallState.ENDED, CallState.REJECTED, CallState.FAILED, CallState.BUSY)) {
-                _callSession.value = null
-            } else {
-                android.util.Log.w("CallManager",
-                    "Terminal cleanup: beklenmedik state=${current.state} — yine de null'a setleniyor")
-                _callSession.value = null
+            when {
+                current == null -> {
+                    // Zaten temiz, hicbir sey yapma
+                }
+                current.callId == cleanupCallId && current.state in setOf(
+                        CallState.ENDED, CallState.REJECTED, CallState.FAILED, CallState.BUSY) -> {
+                    // Eski session hala terminal state'de — temizle
+                    android.util.Log.d("CallManager",
+                        "Terminal cleanup: ayni callId=$cleanupCallId, temizleniyor (state=${current.state})")
+                    _callSession.value = null
+                }
+                current.callId != cleanupCallId -> {
+                    // YENI session basladi (farkli callId) — DOKUNMA
+                    android.util.Log.w("CallManager",
+                        "Terminal cleanup ATLANDI: yeni session aktif (oldCallId=$cleanupCallId, newCallId=${current.callId}, state=${current.state})")
+                }
+                else -> {
+                    // Ayni callId ama terminal degil → garip, log ve dokunma
+                    android.util.Log.w("CallManager",
+                        "Terminal cleanup ATLANDI: ayni callId ama state=${current.state} (terminal degil)")
+                }
             }
             isCleaningUp.set(false)
         }

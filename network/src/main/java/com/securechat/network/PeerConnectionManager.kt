@@ -940,32 +940,61 @@ class PeerConnectionManager @Inject constructor(
     // ---- Temizlik ----
 
     fun disposePeerConnection() {
-        try { videoCapturer?.stopCapture() } catch (_: Exception) {}
-        videoCapturer?.dispose()
-        videoCapturer = null
-        surfaceTextureHelper?.dispose()
-        surfaceTextureHelper = null
+        // WebRTC best practice sıralaması:
+        // 1) Track'leri SUSTUR (setEnabled=false) — close() async oldugu icin
+        //    dispose esnasinda hala ses paketi gonderiyor olabilir.
+        // 2) PeerConnection.close() — close() asenkrondur, sinyal/ICE'i durdurur.
+        // 3) Kisa delay (close() ICE thread'inin temizlenmesi icin ~150ms yeterli).
+        // 4) Track'leri dispose et — close()'dan sonra olmalı, aksi halde
+        //    close() icindeki audio render hala dispose'lu track'e erisebilir → crash/leak.
+        // 5) Source ve diger native kaynaklar.
+        try {
+            // 1. Track'leri susur — ses paketleri kesilsin, remote tarafta sessizlik
+            try { localAudioTrack?.setEnabled(false) } catch (_: Exception) {}
+            try { localVideoTrack?.setEnabled(false) } catch (_: Exception) {}
+            try { remoteAudioTrack?.setEnabled(false) } catch (_: Exception) {}
 
-        localVideoTrack?.dispose()
-        localVideoTrack = null
-        localVideoSource?.dispose()
-        localVideoSource = null
-        localAudioTrack?.dispose()
-        localAudioTrack = null
-        localAudioSource?.dispose()
-        localAudioSource = null
+            // 2. Video capture'i hemen durdur (kamerayi serbest birak)
+            try { videoCapturer?.stopCapture() } catch (_: Exception) {}
 
-        peerConnection?.close()
-        peerConnection = null
-        currentPeerId = null
+            // 3. PeerConnection close — ICE/DTLS/SCTP shutdown asenkron
+            val pcToClose = peerConnection
+            peerConnection = null
+            currentPeerId = null
+            try { pcToClose?.close() } catch (e: Exception) {
+                Log.w(TAG, "peerConnection.close() hatasi: ${e.message}")
+            }
 
-        isRemoteDescriptionSet = false
-        pendingIceCandidates.clear()
-        _remoteVideoTrack.value = null
-        _localVideoTrack.value = null
-        remoteAudioTrack = null
+            // 4. Kisa delay — close() ICE thread'inin temizlenmesi icin pencere.
+            //    Senkron olarak Thread.sleep guvenli (caller IO scope'unda).
+            try { Thread.sleep(150) } catch (_: InterruptedException) {}
 
-        Log.d(TAG, "PeerConnection ve kaynaklar temizlendi")
+            // 5. Track ve source dispose — close()'dan sonra guvenli
+            try { localVideoTrack?.dispose() } catch (e: Exception) { Log.w(TAG, "localVideoTrack.dispose: ${e.message}") }
+            localVideoTrack = null
+            try { localVideoSource?.dispose() } catch (e: Exception) { Log.w(TAG, "localVideoSource.dispose: ${e.message}") }
+            localVideoSource = null
+            try { localAudioTrack?.dispose() } catch (e: Exception) { Log.w(TAG, "localAudioTrack.dispose: ${e.message}") }
+            localAudioTrack = null
+            try { localAudioSource?.dispose() } catch (e: Exception) { Log.w(TAG, "localAudioSource.dispose: ${e.message}") }
+            localAudioSource = null
+
+            try { videoCapturer?.dispose() } catch (_: Exception) {}
+            videoCapturer = null
+            try { surfaceTextureHelper?.dispose() } catch (_: Exception) {}
+            surfaceTextureHelper = null
+
+            // 6. State flag'leri sifirla
+            isRemoteDescriptionSet = false
+            pendingIceCandidates.clear()
+            _remoteVideoTrack.value = null
+            _localVideoTrack.value = null
+            remoteAudioTrack = null
+
+            Log.d(TAG, "PeerConnection ve kaynaklar temizlendi (best-practice sira)")
+        } catch (e: Exception) {
+            Log.e(TAG, "disposePeerConnection beklenmedik hata: ${e.message}", e)
+        }
     }
 
     fun release() {

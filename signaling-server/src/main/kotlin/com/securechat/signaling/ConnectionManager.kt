@@ -76,6 +76,9 @@ class ConnectionManager(
             notifyPresenceChange(userId, isOnline = false, lastSeen = now)
         }
         cleanupSubscriptions(userId)
+        // Bu kullaniciya ait active call session'lari temizle — orphan call'i engelle.
+        // Network drop sirasinda HANGUP gonderememisse server burada zorla temizler.
+        clearAllCallSessionsFor(userId)
     }
 
     // --- Presence Subscription ---
@@ -290,6 +293,69 @@ class ConnectionManager(
      * temizler. Boylece aranan kullanici cevrimici oldugunda eski/iptal edilmis arama
      * tekrar tetiklenmez ("phantom incoming call" onleme).
      */
+    // ---- Active Call Session State (Redis) ----
+
+    /**
+     * 1-1 arama icin aktif session key'i. A → B SDP_OFFER geldiginde set edilir.
+     * HANGUP/REJECT/BUSY/disconnect ile silinir. TTL 5dk — orphan session'lar
+     * sessizce expire eder, sonraki gercek call'i engellemez.
+     * Boylece ayni cift icin duplicate offer + reconnect-replay senaryolari
+     * server seviyesinde de filtrelenir.
+     */
+    fun setActiveCallSession(callerId: String, recipientId: String) {
+        try {
+            val key = "active_call:${minOf(callerId, recipientId)}:${maxOf(callerId, recipientId)}"
+            RedisManager.use { jedis ->
+                jedis.setex(key, 300, "$callerId>$recipientId|${System.currentTimeMillis()}")
+            }
+            log.info("[call] active session set: $callerId -> $recipientId")
+        } catch (e: Exception) {
+            log.warn("[!] setActiveCallSession hatasi: ${e.message}")
+        }
+    }
+
+    /** Aktif session var mi (her iki yonde de bakar — A→B ve B→A ayni key). */
+    fun hasActiveCallSession(userA: String, userB: String): Boolean {
+        return try {
+            val key = "active_call:${minOf(userA, userB)}:${maxOf(userA, userB)}"
+            RedisManager.use { jedis -> jedis.exists(key) }
+        } catch (e: Exception) {
+            log.warn("[!] hasActiveCallSession hatasi: ${e.message}")
+            false
+        }
+    }
+
+    /** Session'i sil — HANGUP/REJECT/BUSY veya WS disconnect zamani. */
+    fun clearActiveCallSession(userA: String, userB: String) {
+        try {
+            val key = "active_call:${minOf(userA, userB)}:${maxOf(userA, userB)}"
+            RedisManager.use { jedis ->
+                val deleted = jedis.del(key)
+                if (deleted > 0) log.info("[call] active session cleared: $userA <-> $userB")
+            }
+        } catch (e: Exception) {
+            log.warn("[!] clearActiveCallSession hatasi: ${e.message}")
+        }
+    }
+
+    /**
+     * Belirli kullaniciya ait tum aktif call session'lari sil — WS disconnect
+     * zamani cagrilir, peer ile olan call'lar orphan kalmasin diye.
+     */
+    fun clearAllCallSessionsFor(userId: String) {
+        try {
+            RedisManager.use { jedis ->
+                val keys = jedis.keys("active_call:*$userId*")
+                if (!keys.isNullOrEmpty()) {
+                    jedis.del(*keys.toTypedArray())
+                    log.info("[call] WS disconnect ile ${keys.size} active session silindi: $userId")
+                }
+            }
+        } catch (e: Exception) {
+            log.warn("[!] clearAllCallSessionsFor hatasi: ${e.message}")
+        }
+    }
+
     fun purgePendingCallSignals(recipientId: String, callerSenderId: String) {
         try {
             val key = "offline_queue:$recipientId"
