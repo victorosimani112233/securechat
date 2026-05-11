@@ -10,10 +10,19 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Call
@@ -73,30 +82,26 @@ private fun defaultPopEnter(): EnterTransition =
 private fun defaultPopExit(): ExitTransition =
     slideOutHorizontally(tween(ANIM_DURATION)) { it }
 
-/** Alt navigasyon bar sekmeleri. */
-private enum class BottomTab(val route: String, val label: String, val icon: ImageVector) {
-    SOHBET("conversations", "Sohbet", Icons.AutoMirrored.Filled.Chat),
-    ARAMA("call_history", "Arama", Icons.Default.Call),
-    REHBER("contacts", "Rehber", Icons.Default.Contacts),
-    AYARLAR("settings", "Ayarlar", Icons.Default.Settings),
+/** Alt navigasyon bar sekmeleri — pager sayfa siralamasi ile birebir esleser. */
+private enum class BottomTab(val label: String, val icon: ImageVector) {
+    SOHBET("Sohbet", Icons.AutoMirrored.Filled.Chat),
+    ARAMA("Arama", Icons.Default.Call),
+    REHBER("Rehber", Icons.Default.Contacts),
+    AYARLAR("Ayarlar", Icons.Default.Settings),
 }
 
-/** Alt bar'ın gösterileceği route'lar. */
-private val BOTTOM_BAR_ROUTES = BottomTab.entries.map { it.route }.toSet()
+/** "main" tek route — 4 sekme HorizontalPager icinde swipe ile gecilir. */
+private const val MAIN_ROUTE = "main"
 
 @Composable
 fun SecureChatNavHost(
     navController: NavHostController = rememberNavController(),
-    startDestination: String = "conversations",
+    startDestination: String = MAIN_ROUTE,
     skipSplash: Boolean = false,
     onUserRegistered: (name: String, phone: String, registrationToken: String?) -> Unit = { _, _, _ -> },
     apiBaseUrl: String = ""
 ) {
     val actualStartDestination = if (skipSplash) startDestination else "splash"
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
-    val showBottomBar = currentRoute in BOTTOM_BAR_ROUTES
-    val dark = LocalDarkTheme.current
 
     // NavHost tam ekran, bottom bar overlay olarak ustune biner.
     // Boylece bottom bar gizlendiginde NavHost boyutu degismez, animasyon bozulmaz.
@@ -163,12 +168,12 @@ fun SecureChatNavHost(
             composable("auth/call_readiness") {
                 CallReadinessScreen(
                     onContinue = {
-                        navController.navigate("conversations") {
+                        navController.navigate(MAIN_ROUTE) {
                             popUpTo("auth/phone") { inclusive = true }
                         }
                     },
                     onSkip = {
-                        navController.navigate("conversations") {
+                        navController.navigate(MAIN_ROUTE) {
                             popUpTo("auth/phone") { inclusive = true }
                         }
                     }
@@ -188,13 +193,13 @@ fun SecureChatNavHost(
                 OtpVerificationScreen(
                     phoneNumber = phoneNumber,
                     onVerified = {
-                        navController.navigate("conversations") {
+                        navController.navigate(MAIN_ROUTE) {
                             popUpTo("auth/phone") { inclusive = true }
                         }
                     },
                     onBackupRestore = {
                         // Once conversations'a git, sonra backup ekranina yonlendir
-                        navController.navigate("conversations") {
+                        navController.navigate(MAIN_ROUTE) {
                             popUpTo("auth/phone") { inclusive = true }
                         }
                         navController.navigate("backup")
@@ -203,53 +208,8 @@ fun SecureChatNavHost(
                 )
             }
 
-            composable("conversations") {
-                ConversationsScreen(
-                    onConversationClick = { conversationId ->
-                        navController.navigate("chat/$conversationId")
-                    },
-                    onConversationInfoClick = { conversation ->
-                        if (conversation.isGroup) {
-                            navController.navigate("group_info/${conversation.id}")
-                        } else {
-                            navController.navigate("chat_info/${conversation.id}")
-                        }
-                    },
-                    onNewChat = {
-                        navController.navigate("contacts") {
-                            popUpTo("conversations") { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    onNewGroup = { navController.navigate("create_group") },
-                    onBulkMessage = { navController.navigate("bulk_message") },
-                    onScheduledMessages = { navController.navigate("scheduled_messages") },
-                    onSettingsClick = {
-                        navController.navigate("settings") {
-                            popUpTo("conversations") { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    onCallHistoryClick = {
-                        navController.navigate("call_history") {
-                            popUpTo("conversations") { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    onContactsClick = {
-                        navController.navigate("contacts") {
-                            popUpTo("conversations") { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    onCallReadinessClick = {
-                        navController.navigate("call_readiness")
-                    }
-                )
+            composable(MAIN_ROUTE) {
+                MainPagerScreen(navController = navController)
             }
 
             composable(
@@ -344,16 +304,10 @@ fun SecureChatNavHost(
                 )
             }
 
-            composable("contacts") {
-                ContactsScreen(
-                    onContactClick = { userId ->
-                        navController.navigate("chat/$userId") {
-                            popUpTo("conversations")
-                        }
-                    },
-                    onBackClick = { navController.popBackStack() }
-                )
-            }
+            // contacts/call_history/settings artik MAIN_ROUTE pager icinde sayfalar.
+            // Eski direkt navigate cagrilarini koru — herhangi bir yerden navigate
+            // edilirse pager'in ilgili sayfasina kaydir.
+            composable("contacts") { MainPagerScreen(navController, initialTabIndex = 2) }
 
             composable("call/{peerId}/{callType}") { backStackEntry ->
                 val peerId = backStackEntry.arguments?.getString("peerId") ?: ""
@@ -370,34 +324,9 @@ fun SecureChatNavHost(
                 )
             }
 
-            composable("call_history") {
-                CallHistoryScreen(
-                    onBackClick = { navController.popBackStack() },
-                    onCallClick = { peerId, callType ->
-                        navController.navigate("call/$peerId/$callType")
-                    }
-                )
-            }
-
-            composable("settings") {
-                SettingsScreen(
-                    onBackClick = { navController.popBackStack() },
-                    onScheduledMessages = {
-                        navController.navigate("scheduled_messages/1")
-                    },
-                    onBackupClick = {
-                        navController.navigate("backup")
-                    },
-                    onAccountDeleted = {
-                        navController.navigate("auth/phone") {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    },
-                    onNavigateToCallReadiness = {
-                        navController.navigate("call_readiness")
-                    }
-                )
-            }
+            composable("call_history") { MainPagerScreen(navController, initialTabIndex = 1) }
+            composable("settings") { MainPagerScreen(navController, initialTabIndex = 3) }
+            composable("conversations") { MainPagerScreen(navController, initialTabIndex = 0) }
 
             composable("backup") {
                 BackupScreen(
@@ -420,46 +349,106 @@ fun SecureChatNavHost(
             }
         }
 
-        // Bottom bar — NavHost ustune overlay olarak biner
-        AnimatedVisibility(
-            visible = showBottomBar,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = slideInVertically(tween(200)) { it },
-            exit = slideOutVertically(tween(200)) { it }
+    }
+}
+
+/**
+ * Ana 4 sekme (Sohbet / Arama / Rehber / Ayarlar) HorizontalPager icinde.
+ * Yatay swipe ile gecis WhatsApp tarzi. NavigationBar pager state ile senkron;
+ * tab tiklamasi sayfa kaydirir, swipe seciliyi degistirir.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MainPagerScreen(
+    navController: NavHostController,
+    initialTabIndex: Int = 0
+) {
+    val dark = LocalDarkTheme.current
+    val pagerState = rememberPagerState(initialPage = initialTabIndex, pageCount = { BottomTab.entries.size })
+    val scope = rememberCoroutineScope()
+
+    Column(Modifier.fillMaxSize()) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize().weight(1f),
+            key = { it }
+        ) { page ->
+            when (page) {
+                0 -> ConversationsScreen(
+                    onConversationClick = { conversationId ->
+                        navController.navigate("chat/$conversationId")
+                    },
+                    onConversationInfoClick = { conversation ->
+                        if (conversation.isGroup) {
+                            navController.navigate("group_info/${conversation.id}")
+                        } else {
+                            navController.navigate("chat_info/${conversation.id}")
+                        }
+                    },
+                    onNewChat = { scope.launch { pagerState.animateScrollToPage(2) } },
+                    onNewGroup = { navController.navigate("create_group") },
+                    onBulkMessage = { navController.navigate("bulk_message") },
+                    onScheduledMessages = { navController.navigate("scheduled_messages") },
+                    onSettingsClick = { scope.launch { pagerState.animateScrollToPage(3) } },
+                    onCallHistoryClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                    onContactsClick = { scope.launch { pagerState.animateScrollToPage(2) } },
+                    onCallReadinessClick = { navController.navigate("call_readiness") }
+                )
+                1 -> CallHistoryScreen(
+                    onBackClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                    onCallClick = { peerId, callType ->
+                        navController.navigate("call/$peerId/$callType")
+                    }
+                )
+                2 -> ContactsScreen(
+                    onContactClick = { userId ->
+                        navController.navigate("chat/$userId")
+                    },
+                    onBackClick = { scope.launch { pagerState.animateScrollToPage(0) } }
+                )
+                3 -> SettingsScreen(
+                    onBackClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                    onScheduledMessages = { navController.navigate("scheduled_messages/1") },
+                    onBackupClick = { navController.navigate("backup") },
+                    onAccountDeleted = {
+                        navController.navigate("auth/phone") {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    onNavigateToCallReadiness = { navController.navigate("call_readiness") }
+                )
+            }
+        }
+
+        // Bottom NavigationBar — pager state ile senkron
+        NavigationBar(
+            containerColor = if (dark) Color(0xFF0D1014).copy(alpha = 0.95f)
+                             else Color.White.copy(alpha = 0.95f),
+            tonalElevation = 0.dp
         ) {
-            NavigationBar(
-                containerColor = if (dark) Color(0xFF0D1014).copy(alpha = 0.95f)
-                                 else Color.White.copy(alpha = 0.95f),
-                tonalElevation = 0.dp
-            ) {
-                BottomTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = currentRoute == tab.route,
-                        onClick = {
-                            if (currentRoute != tab.route) {
-                                navController.navigate(tab.route) {
-                                    popUpTo("conversations") { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        },
-                        icon = {
-                            Icon(
-                                tab.icon,
-                                contentDescription = tab.label,
-                                modifier = Modifier.padding(vertical = 2.dp)
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+            BottomTab.entries.forEachIndexed { index, tab ->
+                NavigationBarItem(
+                    selected = pagerState.currentPage == index,
+                    onClick = {
+                        if (pagerState.currentPage != index) {
+                            scope.launch { pagerState.animateScrollToPage(index) }
+                        }
+                    },
+                    icon = {
+                        Icon(
+                            tab.icon,
+                            contentDescription = tab.label,
+                            modifier = Modifier.padding(vertical = 2.dp)
                         )
+                    },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
+                )
             }
         }
     }
