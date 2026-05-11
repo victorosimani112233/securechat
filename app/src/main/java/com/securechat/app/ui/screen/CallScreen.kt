@@ -79,6 +79,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -271,14 +277,13 @@ fun CallScreen(
                 }
             )
     ) {
-        // --- Animasyonlu gradient arka plan ---
-        AnimatedGradientBackground(
-            isRinging = isRinging,
-            isActive = isActive
-        )
-
-        // --- Yuzen parcacik efekti ---
-        FloatingParticles()
+        // --- Standart doodle arka plan (tema ile uyumlu) ---
+        if (!isVideoActive) {
+            com.securechat.app.ui.theme.AzureDoodleBackdrop()
+        } else {
+            // Video aktif: bg yerine koyu overlay (video tam ekran)
+            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF050810)))
+        }
 
         // Video arama aktifse: grup video grid VEYA 1-to-1 tam ekran video
         if (isVideoActive && eglBaseContext != null) {
@@ -374,7 +379,7 @@ fun CallScreen(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = getCallStateText(callSession?.state, callDuration),
+                    text = getCallStateText(callSession?.state, callDuration, callSession?.direction),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.9f)
                 )
@@ -404,33 +409,43 @@ fun CallScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Ust kisim: sifreleme gostergesi ve avatar — yalnizca video aktif DEGILSE goster
+                // Ust kisim: sifreleme rozeti, avatar, isim, durum — yalnizca video aktif DEGILSE goster
                 if (!isVideoActive) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(top = 48.dp)
+                        modifier = Modifier.padding(top = 56.dp)
                     ) {
-                        // Sifreleme gostergesi
+                        // Uctan uca sifreli rozeti — pill-shape, ince border, glass effect
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF2979FF).copy(alpha = 0.10f))
+                                .border(
+                                    width = 1.dp,
+                                    color = Color(0xFF2979FF).copy(alpha = 0.25f),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 5.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Lock,
                                 contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = Color(0xFF2979FF).copy(alpha = 0.6f)
+                                modifier = Modifier.size(11.dp),
+                                tint = Color(0xFF60A5FA)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = "Uctan uca sifreli",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF2979FF).copy(alpha = 0.6f),
-                                fontSize = 11.sp
+                                text = "Uçtan uca şifreli",
+                                color = Color(0xFF60A5FA),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                letterSpacing = 0.3.sp
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(40.dp))
+                        Spacer(modifier = Modifier.height(48.dp))
 
                         // Avatar — premium animasyonlu
                         CallAvatar(
@@ -440,64 +455,78 @@ fun CallScreen(
                             isActive = isActive
                         )
 
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(28.dp))
 
-                        // Peer ismi veya grup bilgisi
+                        // Peer ismi veya grup bilgisi — daha buyuk, tipografi vurgulu
                         if (isGroupCall) {
                             Text(
                                 text = "Grup Arama",
-                                style = MaterialTheme.typography.headlineMedium,
                                 color = Color.White,
+                                fontSize = 30.sp,
                                 fontWeight = FontWeight.SemiBold,
+                                letterSpacing = (-0.5).sp,
                                 textAlign = TextAlign.Center
                             )
-                            val connectedCount = (callSession?.connectedPeerIds?.size ?: 0) + 1 // +1 kendisi dahil
-                            val totalCount = (callSession?.peerIds?.size ?: 0) + 1 // +1 kendisi dahil
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val connectedCount = (callSession?.connectedPeerIds?.size ?: 0) + 1
+                            val totalCount = (callSession?.peerIds?.size ?: 0) + 1
                             Text(
-                                text = "$connectedCount / $totalCount katilimci",
+                                text = "$connectedCount / $totalCount katılımcı",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFF2979FF).copy(alpha = 0.8f),
+                                color = Color.White.copy(alpha = 0.65f),
                                 textAlign = TextAlign.Center
                             )
                         } else {
                             Text(
                                 text = peerDisplayName,
-                                style = MaterialTheme.typography.headlineMedium,
                                 color = Color.White,
+                                fontSize = 30.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                textAlign = TextAlign.Center
+                                letterSpacing = (-0.5).sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                        // Arama tipi ikonu ve durum
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = if (callType == CallType.VIDEO) Icons.Default.Videocam else Icons.Default.Phone,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = Color.White.copy(alpha = 0.6f)
+                        // Active iken: buyuk monospace sure. Ringing/initiating: arama tipi + durum.
+                        if (isActive) {
+                            // Buyuk sure metni — telefon uygulamalari standardi
+                            Text(
+                                text = TimeFormatter.formatDuration(callDuration),
+                                color = Color.White.copy(alpha = 0.92f),
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Light,
+                                letterSpacing = 1.sp,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (callType == CallType.VIDEO) Icons.Default.Videocam else Icons.Default.Phone,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = Color.White.copy(alpha = 0.55f)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
 
-                            if (isRinging || callSession?.state == CallState.INITIATING) {
-                                AnimatedCallStateText(
-                                    text = getCallStateText(callSession?.state, callDuration)
-                                )
-                            } else if (isActive) {
-                                AnimatedDurationText(
-                                    text = getCallStateText(callSession?.state, callDuration)
-                                )
-                            } else {
-                                Text(
-                                    text = getCallStateText(callSession?.state, callDuration),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White.copy(alpha = 0.7f)
-                                )
+                                if (isRinging || callSession?.state == CallState.INITIATING) {
+                                    AnimatedCallStateText(
+                                        text = getCallStateText(callSession?.state, callDuration, callSession?.direction)
+                                    )
+                                } else {
+                                    Text(
+                                        text = getCallStateText(callSession?.state, callDuration, callSession?.direction),
+                                        fontSize = 15.sp,
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        letterSpacing = 0.2.sp
+                                    )
+                                }
                             }
                         }
                     }
@@ -509,14 +538,32 @@ fun CallScreen(
                 // Alt kisim: kontrol butonlari
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(bottom = 40.dp)
+                    modifier = Modifier.padding(bottom = 96.dp)
                 ) {
                     if (isIncomingRinging) {
-                        // Gelen arama: Kabul / Reddet butonlari
-                        IncomingCallControls(
-                            onAccept = { viewModel.acceptCall() },
-                            onReject = { safeEndCall() }
-                        )
+                        // Gelen arama: 2 ayri swipe-up buton (Reddet + Cevapla)
+                        val dark = com.securechat.app.ui.theme.LocalDarkTheme.current
+                        val labelColor = if (dark) Color.White.copy(alpha = 0.7f)
+                                         else Color(0xFF13161B).copy(alpha = 0.65f)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(80.dp),
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            SwipeUpActionButton(
+                                label = "Reddet",
+                                icon = Icons.Default.CallEnd,
+                                color = Color(0xFFEF4444),
+                                labelColor = labelColor,
+                                onActivate = { safeEndCall() }
+                            )
+                            SwipeUpActionButton(
+                                label = "Cevapla",
+                                icon = Icons.Default.Call,
+                                color = Color(0xFF22C55E),
+                                labelColor = labelColor,
+                                onActivate = { viewModel.acceptCall() }
+                            )
+                        }
                     } else {
                         // Madde 4: Haptic feedback wrapper
                         val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -1385,18 +1432,20 @@ private fun AnimatedCallStateText(text: String) {
 
 /**
  * Arama durumuna gore gosterilecek metin.
+ * Direction-aware: INCOMING/RINGING aranan kullanici icin "Gelen arama" der —
+ * caller ile callee ayni "Araniyor..." metnini paylasmasin.
  */
-private fun getCallStateText(state: CallState?, durationMs: Long): String {
+private fun getCallStateText(state: CallState?, durationMs: Long, direction: CallDirection? = null): String {
     return when (state) {
-        CallState.INITIATING -> "Baslatiliyor..."
-        CallState.RINGING -> "Araniyor..."
-        CallState.CONNECTING -> "Baglaniyor..."
+        CallState.INITIATING -> "Bağlantı kuruluyor"
+        CallState.RINGING -> if (direction == CallDirection.INCOMING) "Gelen arama" else "Aranıyor"
+        CallState.CONNECTING -> "Bağlanıyor"
         CallState.ACTIVE -> TimeFormatter.formatDuration(durationMs)
-        CallState.RECONNECTING -> "Yeniden baglaniyor..."
+        CallState.RECONNECTING -> "Yeniden bağlanılıyor"
         CallState.ENDED -> "Arama sona erdi"
         CallState.REJECTED -> "Arama reddedildi"
-        CallState.BUSY -> "Mesgul"
-        CallState.FAILED -> "Arama basarisiz"
+        CallState.BUSY -> "Meşgul"
+        CallState.FAILED -> "Arama başarısız"
         CallState.IDLE, null -> ""
     }
 }
@@ -1772,5 +1821,151 @@ fun IncomingCallControls(
                 fontSize = 10.sp
             )
         }
+    }
+}
+
+/**
+ * Gelen arama icin tek tek swipe-up buton — dikey yorunge sinirli, profesyonel UX.
+ * - 64dp dairesel renkli buton, etrafinda track gostergesi (yorunge)
+ * - Sukunette: yukari kayan chevron animasyonu + track + alt label
+ * - Sadece dikey-yukari surukleme; %75 esik gecince onActivate
+ * - Esik gecmeden birakilirsa yumusak spring-back
+ */
+@Composable
+private fun SwipeUpActionButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color,
+    labelColor: Color,
+    onActivate: () -> Unit
+) {
+    val density = LocalDensity.current
+    val maxSwipePx = with(density) { 100.dp.toPx() }
+    val threshold = maxSwipePx * 0.75f
+    val trackHeight = 100.dp + 64.dp + 32.dp
+
+    var offsetY by remember { mutableFloatStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+    val animOffsetY by animateFloatAsState(
+        targetValue = offsetY,
+        animationSpec = if (isDragging) androidx.compose.animation.core.snap()
+                        else androidx.compose.animation.core.spring(
+                            dampingRatio = 0.65f,
+                            stiffness = 500f
+                        ),
+        label = "swipeY"
+    )
+    val progress = ((-offsetY) / maxSwipePx).coerceIn(0f, 1f)
+    val hintFade = 1f - progress * 1.4f
+
+    val arrowTransition = rememberInfiniteTransition(label = "arrow_${label}")
+    val arrowPhase by arrowTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1400, easing = LinearEasing)),
+        label = "arrowPhase"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(64.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(64.dp)
+                .height(trackHeight),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            // Dikey track gostergesi — sukunette ince, drag ilerledikce dolar
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                val centerX = size.width / 2f
+                val bottomY = size.height - 64.dp.toPx() / 2f
+                val topY = bottomY - maxSwipePx
+                drawLine(
+                    color = color.copy(alpha = 0.10f * hintFade.coerceAtLeast(0.3f)),
+                    start = androidx.compose.ui.geometry.Offset(centerX, topY),
+                    end = androidx.compose.ui.geometry.Offset(centerX, bottomY),
+                    strokeWidth = 4f,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+                if (progress > 0f) {
+                    drawLine(
+                        color = color.copy(alpha = 0.55f),
+                        start = androidx.compose.ui.geometry.Offset(centerX, bottomY - maxSwipePx * progress),
+                        end = androidx.compose.ui.geometry.Offset(centerX, bottomY),
+                        strokeWidth = 4f,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                    )
+                }
+            }
+
+            // Yukari kayan chevron hint
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 4.dp)
+                    .height(60.dp)
+                    .width(20.dp)
+            ) {
+                repeat(3) { i ->
+                    val phase = (arrowPhase + i * 0.33f) % 1f
+                    val yPos = 60.dp * (1f - phase)
+                    val a = (1f - kotlin.math.abs(phase - 0.5f) * 2f).coerceIn(0f, 1f) * hintFade.coerceIn(0f, 1f)
+                    Text(
+                        "›",
+                        color = color.copy(alpha = a * 0.85f),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .offset(y = yPos)
+                            .graphicsLayer { rotationZ = -90f }
+                            .align(Alignment.TopCenter)
+                    )
+                }
+            }
+
+            // Buton — alt merkez, drag ile yukari otelenir (sadece dikey, sadece yukari)
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(0, animOffsetY.coerceAtMost(0f).roundToInt()) }
+                    .size(64.dp)
+                    .background(color, androidx.compose.foundation.shape.CircleShape)
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = { isDragging = true },
+                            onDragEnd = {
+                                isDragging = false
+                                if ((-offsetY) >= threshold) {
+                                    offsetY = -maxSwipePx
+                                    onActivate()
+                                } else {
+                                    offsetY = 0f
+                                }
+                            },
+                            onDragCancel = {
+                                isDragging = false
+                                offsetY = 0f
+                            }
+                        ) { change, dragAmount ->
+                            change.consume()
+                            offsetY = (offsetY + dragAmount.y).coerceIn(-maxSwipePx, 0f)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            label,
+            color = labelColor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
