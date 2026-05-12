@@ -4,9 +4,19 @@ import android.content.Context
 import android.util.Log
 import com.securechat.network.model.PeerState
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.ConcurrentHashMap
@@ -35,6 +45,11 @@ class PeerConnectionManager @Inject constructor(
         private const val VIDEO_WIDTH = 640
         private const val VIDEO_HEIGHT = 480
         private const val VIDEO_FPS = 24
+        // Bandwidth cap'leri — agresif bir kullanici toplam server bandwidth'ini yememe.
+        // 1-1: kaliteli (640x480 @ 24fps icin ~500-700 kbps gerekir).
+        // Mesh: her peer ayri encode oldugu icin daha agresif sikistirma. 3 peer × 300 = 900kbps upload.
+        private const val VIDEO_MAX_BITRATE_BPS_P2P = 600_000
+        private const val VIDEO_MAX_BITRATE_BPS_MESH = 300_000
     }
 
     private val _peerStates = MutableStateFlow<Map<String, PeerState>>(emptyMap())
@@ -86,6 +101,18 @@ class PeerConnectionManager @Inject constructor(
     private val groupPendingIce = ConcurrentHashMap<String, ConcurrentLinkedQueue<IceCandidate>>()
     private val _remoteVideoTracks = MutableStateFlow<Map<String, VideoTrack>>(emptyMap())
     val remoteVideoTracksFlow: StateFlow<Map<String, VideoTrack>> = _remoteVideoTracks.asStateFlow()
+
+    // --- Audio level polling (grup arama konusma gostergesi icin) ---
+    // Mesh + SFU her iki dalda da inbound-rtp/audio stat'larindan audioLevel okunur.
+    // Yerel kullanici icin v1'de polling yapilmaz — media-source stat'i WebRTC build
+    // versiyonuna gore eksik olabilir; UX olarak da kendi avatarinda pulse beklenmez.
+    private val internalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var statsJob: Job? = null
+    private val _audioLevels = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val audioLevelsFlow: StateFlow<Map<String, Float>> = _audioLevels.asStateFlow()
+
+    // SFU subscriber feedId -> peerId eslesmesi (Janus 'display' alaninda peerId tasinir).
+    private val sfuFeedToPeer = ConcurrentHashMap<Long, String>()
 
     /** Grup aramasi ICE candidate callback — peerId ile birlikte uretilir. */
     var onGroupIceCandidateGenerated: ((String, IceCandidate) -> Unit)? = null
@@ -268,7 +295,32 @@ class PeerConnectionManager @Inject constructor(
         _localVideoTrack.value = localVideoTrack
         pc.addTrack(localVideoTrack, listOf("stream0"))
 
+        // 1-1: max video bitrate cap — agresif kullanici upload'u sinirla.
+        applyVideoBitrateCap(pc, VIDEO_MAX_BITRATE_BPS_P2P)
+
         Log.d(TAG, "Yerel video baslatildi: ${VIDEO_WIDTH}x${VIDEO_HEIGHT} @ ${VIDEO_FPS}fps")
+    }
+
+    /**
+     * PC uzerindeki video sender'larin maxBitrateBps degerini set eder.
+     * SDP renegotiation gerektirmez — RtpSender.setParameters anlik etkili.
+     */
+    private fun applyVideoBitrateCap(pc: PeerConnection, maxBitrateBps: Int) {
+        try {
+            for (sender in pc.senders) {
+                val track = sender.track() ?: continue
+                if (track.kind() == "video") {
+                    val params = sender.parameters
+                    for (enc in params.encodings) {
+                        enc.maxBitrateBps = maxBitrateBps
+                    }
+                    sender.parameters = params
+                    Log.d(TAG, "Video bitrate cap: ${maxBitrateBps / 1000} kbps")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "applyVideoBitrateCap hatasi: ${e.message}")
+        }
     }
 
     /**
@@ -549,6 +601,8 @@ class PeerConnectionManager @Inject constructor(
         localAudioTrack?.let { pc.addTrack(it, listOf("stream0")) }
         if (enableVideo) {
             localVideoTrack?.let { pc.addTrack(it, listOf("stream0")) }
+            // Mesh: her peer ayri encode, daha agresif bitrate cap (300 kbps).
+            applyVideoBitrateCap(pc, VIDEO_MAX_BITRATE_BPS_MESH)
         }
 
         groupPeerConnections[peerId] = pc
@@ -671,6 +725,9 @@ class PeerConnectionManager @Inject constructor(
 
     /** Tum grup PeerConnection'larini kapatir ve yerel medyayi temizler. */
     fun disposeAllGroupPeerConnections() {
+        // Polling'i ONCE durdur (cancelAndJoin) — in-flight getStats kapali PC'ye dusmesin
+        stopAudioLevelPolling()
+
         closeGroupPeerConnectionsOnly()
 
         // Paylasimli yerel medyayi temizle
@@ -934,11 +991,15 @@ class PeerConnectionManager @Inject constructor(
     fun disposeSfuSubscriber(feedId: Long) {
         sfuSubscriberPcs.remove(feedId)?.close()
         _sfuRemoteVideoTracks.value = _sfuRemoteVideoTracks.value - feedId
+        unregisterSfuFeed(feedId)
         Log.d(TAG, "SFU Subscriber dispose: feedId=$feedId")
     }
 
     /** Tum SFU kaynaklarini temizler (publisher + tum subscriber'lar). */
     fun disposeAllSfuConnections() {
+        // Polling'i ONCE durdur (cancelAndJoin) — in-flight getStats kapali PC'ye dusmesin
+        stopAudioLevelPolling()
+
         sfuPublisherPc?.close()
         sfuPublisherPc = null
 
@@ -947,6 +1008,7 @@ class PeerConnectionManager @Inject constructor(
         }
         sfuSubscriberPcs.clear()
         _sfuRemoteVideoTracks.value = emptyMap()
+        sfuFeedToPeer.clear()
 
         // Paylasimli yerel medyayi temizle (tek noktadan)
         disposeSharedLocalMedia()
@@ -1022,6 +1084,86 @@ class PeerConnectionManager @Inject constructor(
         eglBase = null
         initialized = false
     }
+
+    // =====================================================================
+    // Audio Level Polling (grup arama konusma gostergesi)
+    // =====================================================================
+
+    /**
+     * SFU subscriber feedId -> peerId esleshmesini kaydeder.
+     * subscribeToFeed sirasinda Janus 'display' alani peerId tasir.
+     */
+    fun registerSfuFeed(feedId: Long, peerId: String) {
+        sfuFeedToPeer[feedId] = peerId
+    }
+
+    fun unregisterSfuFeed(feedId: Long) {
+        sfuFeedToPeer.remove(feedId)
+    }
+
+    /**
+     * Tum aktif PC'lerden 500ms araliklarla audioLevel okur ve [audioLevelsFlow]'a yayar.
+     * Mesh dali: groupPeerConnections (peerId -> PC).
+     * SFU dali: sfuSubscriberPcs (feedId -> PC) + sfuFeedToPeer ile peerId cozulur.
+     * Idempotent: iki kere cagirmak guvenli, ikinci cagirma onceki job'u iptal eder.
+     */
+    fun startAudioLevelPolling() {
+        statsJob?.cancel()
+        statsJob = internalScope.launch {
+            while (isActive) {
+                val snapshot = mutableMapOf<String, Float>()
+
+                // Mesh
+                for ((peerId, pc) in groupPeerConnections) {
+                    snapshot[peerId] = readInboundAudioLevel(pc)
+                }
+
+                // SFU
+                for ((feedId, pc) in sfuSubscriberPcs) {
+                    val peerId = sfuFeedToPeer[feedId] ?: continue
+                    snapshot[peerId] = readInboundAudioLevel(pc)
+                }
+
+                _audioLevels.value = snapshot
+                delay(500)
+            }
+        }
+    }
+
+    /**
+     * Polling'i durdurur. dispose noktalarinda PC.close() ONCESI cagirilmali,
+     * cancelAndJoin ile in-flight tick bitirilir — kapali PC'de getStats riskini onler.
+     */
+    fun stopAudioLevelPolling() {
+        val job = statsJob ?: run { _audioLevels.value = emptyMap(); return }
+        statsJob = null
+        try {
+            runBlocking { job.cancelAndJoin() }
+        } catch (_: Exception) {}
+        _audioLevels.value = emptyMap()
+    }
+
+    /**
+     * Tek bir PC icin inbound-rtp/audio audioLevel okur.
+     * suspendCancellableCoroutine: polling job iptal edildiginde callback'in
+     * double-resume riskini engeller (cont.isActive kontrolu).
+     */
+    private suspend fun readInboundAudioLevel(pc: PeerConnection): Float =
+        suspendCancellableCoroutine { cont ->
+            try {
+                pc.getStats { report ->
+                    val level = report.statsMap.values
+                        .firstOrNull {
+                            it.type == "inbound-rtp" &&
+                                (it.members["kind"] as? String) == "audio"
+                        }
+                        ?.let { (it.members["audioLevel"] as? Double)?.toFloat() } ?: 0f
+                    if (cont.isActive) cont.resume(level)
+                }
+            } catch (_: Exception) {
+                if (cont.isActive) cont.resume(0f)
+            }
+        }
 
     fun updatePeerState(peerId: String, state: PeerState) {
         _peerStates.value = _peerStates.value.toMutableMap().apply { put(peerId, state) }

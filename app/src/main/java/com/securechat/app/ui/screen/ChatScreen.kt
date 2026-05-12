@@ -43,6 +43,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -192,6 +194,10 @@ fun ChatScreen(
     var forwardContent by remember { mutableStateOf("") }
     // Mesaj bilgi popup'ı (grup sohbetlerinde iletildi/okundu durumu)
     var messageInfoTarget by remember { mutableStateOf<LocalMessage?>(null) }
+    // View-once foto icin uygulama-ici tam ekran goruntuleyici state.
+    // Sistem galerisine yonlendirme yerine burada gosterilir — SecureChatActivity'nin
+    // FLAG_SECURE'i aktif oldugu icin SS otomatik engellenir.
+    var viewOnceImagePath by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     var initialScrollDone by remember { mutableStateOf(false) }
 
@@ -474,7 +480,14 @@ fun ChatScreen(
                 ) {
                     ActiveGroupCallBanner(
                         callType = activeGroupCall?.callType?.name ?: "VOICE",
-                        onJoinClick = { viewModel.joinActiveGroupCall() }
+                        onJoinClick = {
+                            // Once CallManager state'i ACTIVE'e gec, sonra CallScreen'e navigate.
+                            // Navigation: parent callback'ler SecureChatNavHost'taki "call/.." rotasini acar.
+                            val ct = activeGroupCall?.callType?.name ?: "VOICE"
+                            viewModel.joinActiveGroupCall()
+                            if (ct == "VIDEO") onVideoCallClick(conversationId)
+                            else onVoiceCallClick(conversationId)
+                        }
                     )
                 }
                 AnimatedVisibility(
@@ -640,6 +653,7 @@ fun ChatScreen(
                                         onReactionClick = { emoji -> viewModel.toggleReaction(message.id, emoji) },
                                         onPollVote = { msgId, idx -> viewModel.votePoll(msgId, idx) },
                                         onMarkViewOnceViewed = { id -> viewModel.markViewOnceAsViewed(id) },
+                                        onOpenViewOnceImage = { path -> viewOnceImagePath = path },
                                         currentUserId = viewModel.currentUserId
                                     )
                                 }
@@ -816,6 +830,80 @@ fun ChatScreen(
                 pendingPreviewItems = emptyList()
             }
         )
+    }
+
+    // View-once foto goruntuleyici — Activity FLAG_SECURE oldugu icin SS otomatik engellenir.
+    // Sistem galerisine yonlendirme YOK; bu kritik cunku galeri SS koruma saglamaz.
+    val currentViewOnce = viewOnceImagePath
+    if (currentViewOnce != null) {
+        ViewOnceImageViewer(
+            filePath = currentViewOnce,
+            onDismiss = { viewOnceImagePath = null }
+        )
+    }
+}
+
+/**
+ * Tek gosterimlik fotograf icin uygulama-ici tam ekran goruntuleyici.
+ * SecureChatActivity FLAG_SECURE oldugu icin ekran goruntusu sistem tarafindan engellenir.
+ * Recents karti da bos gosterilir, kayit araclari (Scrcpy gibi) siyah ekran goruntuler.
+ */
+@Composable
+private fun ViewOnceImageViewer(
+    filePath: String,
+    onDismiss: () -> Unit
+) {
+    val ctx = LocalContext.current
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onDismiss() })
+            }
+    ) {
+        coil.compose.AsyncImage(
+            model = coil.request.ImageRequest.Builder(ctx)
+                .data(java.io.File(filePath))
+                .crossfade(true)
+                .build(),
+            contentDescription = "Tek gösterimlik fotoğraf",
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit
+        )
+        // Ust bilgi cubugu — kullanici dokunarak kapatabilir
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.85f),
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Tek gösterimlik · ekran görüntüsü engellendi",
+                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Kapat",
+                    tint = Color.White
+                )
+            }
+        }
     }
 }
 
@@ -1641,6 +1729,7 @@ fun MessageBubble(
     onReactionClick: ((String) -> Unit)? = null,
     onPollVote: ((String, Int) -> Unit)? = null,
     onMarkViewOnceViewed: ((String) -> Unit)? = null,
+    onOpenViewOnceImage: ((path: String) -> Unit)? = null,
     currentUserId: String = ""
 ) {
     val isOutgoing = message.isOutgoing
@@ -1801,12 +1890,19 @@ fun MessageBubble(
                                     if (message.isViewOnce && !message.isOutgoing && !message.isViewed) {
                                         onMarkViewOnceViewed?.invoke(message.id)
                                     }
-                                    message.filePath?.let { filePath ->
-                                        FileOpenHelper.openFile(
-                                            context = context,
-                                            filePath = filePath,
-                                            mimeType = message.fileMimeType ?: "application/octet-stream"
-                                        )
+                                    val filePath = message.filePath
+                                    if (filePath != null) {
+                                        // View-once foto: sistem galerisine yonlendirme — SS engellenebilir.
+                                        // Uygulama-ici viewer'a yonlendir (Activity FLAG_SECURE'a sahip).
+                                        if (message.isViewOnce && message.isImageFile && !message.isOutgoing) {
+                                            onOpenViewOnceImage?.invoke(filePath)
+                                        } else {
+                                            FileOpenHelper.openFile(
+                                                context = context,
+                                                filePath = filePath,
+                                                mimeType = message.fileMimeType ?: "application/octet-stream"
+                                            )
+                                        }
                                     }
                                 },
                                 onShareClick = {

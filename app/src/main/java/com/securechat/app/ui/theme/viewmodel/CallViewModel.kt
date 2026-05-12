@@ -71,6 +71,16 @@ class CallViewModel @Inject constructor(
     private val _secondaryPeerDisplayName = MutableStateFlow<String>("")
     val secondaryPeerDisplayName: StateFlow<String> = _secondaryPeerDisplayName.asStateFlow()
 
+    /** Konusan peer'ler — UI yesil pulse gostergesi icin. peerId -> isSpeaking. */
+    val speakingPeers: StateFlow<Map<String, Boolean>> = callManager.speakingPeers
+
+    /** Yerel kullanici ID'si — grup grid'inde "Sen" etiketi icin. */
+    val localUserId: String get() = userSession.userId ?: ""
+
+    /** Grup arama katilimcilari (yerel + uzak) icin peerId -> displayName eslemesi. */
+    private val _participantNames = MutableStateFlow<Map<String, String>>(emptyMap())
+    val participantNames: StateFlow<Map<String, String>> = _participantNames.asStateFlow()
+
     init {
         // Secondary call peer ismini her degisiminde coz
         viewModelScope.launch(Dispatchers.IO) {
@@ -82,6 +92,27 @@ class CallViewModel @Inject constructor(
                 } else {
                     _secondaryPeerDisplayName.value = ""
                 }
+            }
+        }
+
+        // Grup arama katilimcilarinin isimlerini reaktif olarak coz.
+        // callSession.peerIds her degistiginde (uye katildi/ayrildi) yeniden eslenir.
+        viewModelScope.launch(Dispatchers.IO) {
+            callManager.callSession.collect { session ->
+                if (session?.isGroupCall != true) {
+                    if (_participantNames.value.isNotEmpty()) _participantNames.value = emptyMap()
+                    return@collect
+                }
+                val self = userSession.userId.orEmpty()
+                val ids = (session.peerIds + self).filter { it.isNotBlank() }.distinct()
+                val current = _participantNames.value
+                // Sadece eksik olanlari coz — gereksiz DB hit'ten kacin
+                val resolved = ids.associateWith { id ->
+                    current[id] ?: try {
+                        contactNameResolver.resolveDisplayName(id)
+                    } catch (_: Exception) { id }
+                }
+                if (resolved != current) _participantNames.value = resolved
             }
         }
     }

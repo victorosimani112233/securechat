@@ -15,12 +15,14 @@ import com.securechat.storage.entity.CallLogEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
@@ -83,6 +85,19 @@ class CallManager @Inject constructor(
 
     /** Cleanup isleminin atomik olarak yapildigini garanti eder. */
     private val isCleaningUp = AtomicBoolean(false)
+
+    // ---- Konusma gostergesi (grup arama) ----
+    /** Threshold: 0.05 altinda arka plan gurultusu sayilir. */
+    private val speakingThreshold = 0.05f
+    /** Hold suresi: kelime aralarinda titrememesi icin pulse 800ms yapisik kalir. */
+    private val speakingHoldMs = 800L
+
+    private val _speakingPeers = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    /** Konusan peer'lerin durumu: peerId -> isSpeaking. UI pulse animasyonu icin. */
+    val speakingPeers: StateFlow<Map<String, Boolean>> = _speakingPeers.asStateFlow()
+
+    private val lastSpokeAt = ConcurrentHashMap<String, Long>()
+    private var speakingCollectorJob: Job? = null
 
     /**
      * Gelen SDP Offer'i saklar. acceptCall() sirasinda remote description olarak kullanilir.
@@ -911,6 +926,9 @@ class CallManager @Inject constructor(
         audioManager.setSpeakerOn(true)
         audioManager.setCallMode()
 
+        // Konusma gostergesi polling baslat (idempotent)
+        startGroupSpeakingDetection()
+
         // PeerConnectionManager'i baslat ve ICE callback'ini ayarla
         scope.launch(Dispatchers.Main) {
             try {
@@ -1100,6 +1118,9 @@ class CallManager @Inject constructor(
         )
         _callSession.value = activeSession
 
+        // Konusma gostergesi polling baslat (idempotent)
+        startGroupSpeakingDetection()
+
         // Sohbete "Grup araması başladı" sistem mesaji kaydet (her katilan kendi local kopyasi)
         saveGroupCallStartMessage(activeSession)
     }
@@ -1196,6 +1217,9 @@ class CallManager @Inject constructor(
         audioManager.setSpeakerOn(true)
         audioManager.setCallMode()
 
+        // Konusma gostergesi polling baslat (idempotent) — mesh ve SFU her ikisinde de calisir
+        startGroupSpeakingDetection()
+
         if (sfuRoomInfo != null) {
             // SFU modu — bindSfuRoom Adim 3'te eklenecek; simdilik hook
             bindSfuRoom(userId, session, sfuRoomInfo)
@@ -1246,8 +1270,10 @@ class CallManager @Inject constructor(
 
                     android.util.Log.d("CallManager", "Grup aramasina katilim istegi gonderildi: $groupId -> coord=$coordinatorId")
                 } catch (e: Exception) {
-                    android.util.Log.e("CallManager", "joinGroupCall hatasi: ${e.message}")
-                    onCallFailed()
+                    // Grup arama icin onCallFailed() yanlis cleanup yolu (1-1 cleanupCall)
+                    // — grup state'i temiz birakmaz, late-join bagligi sonra yarim kalir.
+                    android.util.Log.e("CallManager", "joinGroupCall hatasi: ${e.message}", e)
+                    cleanupGroupCall(CallState.FAILED)
                 }
             }
         }
@@ -1428,13 +1454,17 @@ class CallManager @Inject constructor(
         client: com.securechat.network.JanusClient,
         roomId: Long,
         feedId: Long,
-        @Suppress("UNUSED_PARAMETER") display: String?
+        display: String?
     ) {
         try {
             val subscriberOffer = client.subscribeToFeed(roomId, feedId)
             withContext(Dispatchers.Main) {
                 peerConnectionManager.createSfuSubscriberConnection(feedId)
             }
+            // Konusma gostergesi: feedId -> peerId eslesmesini kaydet.
+            // Janus 'display' alani peerId tasir; null durumda fallback uretiriz.
+            peerConnectionManager.registerSfuFeed(feedId, display ?: "feed_$feedId")
+
             val answer = withContext(Dispatchers.Main) {
                 peerConnectionManager.handleSfuSubscriberOffer(
                     feedId,
@@ -1446,7 +1476,7 @@ class CallManager @Inject constructor(
                 groupConnectedPeers.add("sfu_$feedId")
             }
             updateGroupConnectedPeers()
-            android.util.Log.d("CallManager", "SFU feed abone tamamlandi: feedId=$feedId")
+            android.util.Log.d("CallManager", "SFU feed abone tamamlandi: feedId=$feedId display=$display")
         } catch (e: Exception) {
             android.util.Log.e("CallManager", "SFU subscribe hatasi feedId=$feedId: ${e.message}")
         }
@@ -1544,6 +1574,91 @@ class CallManager @Inject constructor(
     }
 
     /**
+     * Grup aramasindan uye ayrildi bildirimi (sunucu WebSocket disconnect tespitiyle).
+     * - Mesh: ilgili PeerConnection dispose edilir
+     * - SFU: feedId tutuluyorsa subscriber dispose (Janus onPublisherLeft ayri yoldan da gelir)
+     * - peerIds + connectedPeerIds guncellenir; kimse kalmazsa cleanup
+     */
+    fun handleGroupCallMemberLeft(signal: SignalMessage.GroupCallMemberLeft) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+
+        val leftId = signal.leftMemberId
+        if (leftId == localUserId) return // kendimizi ignore
+
+        android.util.Log.d("CallManager", "Grup uyesi ayrildi (server disconnect): $leftId")
+
+        // Mesh PC dispose (varsa)
+        scope.launch(Dispatchers.Main) {
+            try {
+                peerConnectionManager.disposeGroupPeerConnection(leftId)
+            } catch (e: Exception) {
+                android.util.Log.w("CallManager", "disposeGroupPeerConnection hatasi ($leftId): ${e.message}")
+            }
+        }
+
+        // Connected/invited listelerini guncelle
+        synchronized(groupConnectedPeers) { groupConnectedPeers.remove(leftId) }
+        val newPeerIds = session.peerIds.filterNot { it == leftId }
+        val newConnected = session.connectedPeerIds.filterNot { it == leftId }
+        _callSession.value = session.copy(peerIds = newPeerIds, connectedPeerIds = newConnected)
+        updateGroupConnectedPeers()
+
+        // Kimse kalmadiysa aramayi bitir
+        if (groupConnectedPeers.isEmpty() && newPeerIds.isEmpty()) {
+            android.util.Log.d("CallManager", "Grup aramasinda kimse kalmadi (server signal), sonlandiriliyor")
+            cleanupGroupCall(CallState.ENDED)
+        }
+    }
+
+    /**
+     * Sunucudan koordinator devri bildirimi.
+     * Eski koordinator disconnect/HANGUP yaptiginda sunucu kalan uyelerden birini
+     * yeni koordinator olarak secer; arama kesilmeden devam eder.
+     *
+     * - Yerel kullanici yeni koordinator ise: isGroupCallCoordinator=true,
+     *   onGroupConnectionStateChanged callback'i ayarlanir (yeni katilimcilari handle)
+     * - CallSession.peerId koordinator referansi olarak guncellenir (late-join akisi)
+     */
+    fun handleGroupCallCoordinatorChanged(signal: SignalMessage.GroupCallCoordinatorChanged) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+
+        val newCoord = signal.newCoordinatorId
+        val prevCoord = signal.previousCoordinatorId
+        android.util.Log.d(
+            "CallManager",
+            "Koordinator devir: $prevCoord → $newCoord (yerel=$localUserId)"
+        )
+
+        // Session referansini guncelle (peerId, koordinator UUID'sini tasir)
+        _callSession.value = session.copy(peerId = newCoord)
+
+        // Yerel kullanici yeni koordinator mu?
+        if (newCoord == localUserId && !isGroupCallCoordinator) {
+            isGroupCallCoordinator = true
+            android.util.Log.d("CallManager", "Yerel kullanici artik koordinator")
+
+            // Yeni gelen uyeleri kabul edebilmek icin connection-state callback'ini
+            // yeniden ayarla — initiateGroupCall'daki ayni mantik (idempotent).
+            peerConnectionManager.onGroupConnectionStateChanged = { peerId, state ->
+                if (state == org.webrtc.PeerConnection.IceConnectionState.CONNECTED ||
+                    state == org.webrtc.PeerConnection.IceConnectionState.COMPLETED) {
+                    synchronized(groupConnectedPeers) { groupConnectedPeers.add(peerId) }
+                    updateGroupConnectedPeers()
+                } else if (state == org.webrtc.PeerConnection.IceConnectionState.DISCONNECTED ||
+                    state == org.webrtc.PeerConnection.IceConnectionState.FAILED) {
+                    synchronized(groupConnectedPeers) { groupConnectedPeers.remove(peerId) }
+                    updateGroupConnectedPeers()
+                }
+            }
+        } else if (newCoord != localUserId && isGroupCallCoordinator) {
+            // Defansif: server farkli birini koordinator yaptiysa yerel flag'i sustur
+            isGroupCallCoordinator = false
+        }
+    }
+
+    /**
      * Grup aramasinda SDP Offer alindi.
      * Eger grup aramasi ringing durumundaysa tamponlar,
      * aktifse direkt PeerConnection kurar.
@@ -1621,9 +1736,10 @@ class CallManager @Inject constructor(
         if (!session.isGroupCall) return
 
         val sessionGroupId = session.groupId
-        // Tum peer'lere HANGUP gonder. Koordinator (initiateGroupCall ile baslatan) ise
-        // groupId set edilir — server bu sayede GroupCallSessionStore + SFU room temizler.
-        val isCoordinator = isGroupCallCoordinator
+
+        // Eski client compat: peer-peer HANGUP fan-out. Yeni server bu HANGUP'lari
+        // sadece routing icin gorur (recipientId="server" degil → devir/broadcast yok).
+        // Eski client'lar bu mesajla ilgili peer'in PC'sini dispose eder.
         for (peerId in session.peerIds) {
             signalingClient.sendSignal(
                 SignalMessage.CallControl(
@@ -1631,13 +1747,15 @@ class CallManager @Inject constructor(
                     recipientId = peerId,
                     timestamp = System.currentTimeMillis(),
                     action = CallAction.HANGUP,
-                    groupId = if (isCoordinator) sessionGroupId else null
+                    groupId = sessionGroupId
                 )
             )
         }
 
-        // Koordinator ise server'a da bilgi gec (recipientId="server" ile)
-        if (isCoordinator && sessionGroupId != null) {
+        // Server'a tek HANGUP — koordinator olsun veya olmasin, devir/temizlik logic'ini
+        // tetikler: participant cikarilir, koordinatorse devredilir, herkese member_left
+        // (gerekirse coordinator_changed) broadcast edilir.
+        if (sessionGroupId != null) {
             signalingClient.sendSignal(
                 SignalMessage.CallControl(
                     senderId = userId,
@@ -1674,6 +1792,43 @@ class CallManager @Inject constructor(
         }
     }
 
+    /**
+     * Grup arama konusma gostergesi icin polling + collector baslat.
+     * Idempotent: 3 grup arama girisinde (initiate/accept/join) cagirilabilir.
+     */
+    private fun startGroupSpeakingDetection() {
+        peerConnectionManager.startAudioLevelPolling()
+
+        // Collector idempotency: onceki job iptal et, yenisini baslat
+        speakingCollectorJob?.cancel()
+        speakingCollectorJob = scope.launch {
+            peerConnectionManager.audioLevelsFlow.collect { levels ->
+                val now = System.currentTimeMillis()
+                // Konusma threshold'unu gecen peer'ler icin son konusma zamanini guncelle
+                for ((peerId, level) in levels) {
+                    if (level > speakingThreshold) lastSpokeAt[peerId] = now
+                }
+                // Artik aktif PC'lerde olmayan eski peer'leri temizle
+                val activePeers = levels.keys
+                (lastSpokeAt.keys - activePeers).forEach { lastSpokeAt.remove(it) }
+
+                // Hold penceresi icindeki peer'ler "konusuyor" sayilir
+                _speakingPeers.value = levels.mapValues { (peerId, _) ->
+                    (now - (lastSpokeAt[peerId] ?: 0L)) < speakingHoldMs
+                }
+            }
+        }
+    }
+
+    /** Polling ve collector'i durdurur, state'i sifirlar. */
+    private fun stopGroupSpeakingDetection() {
+        peerConnectionManager.stopAudioLevelPolling()
+        speakingCollectorJob?.cancel()
+        speakingCollectorJob = null
+        lastSpokeAt.clear()
+        _speakingPeers.value = emptyMap()
+    }
+
     /** Grup aramasi kaynaklarini temizler. */
     private fun cleanupGroupCall(finalState: CallState) {
         if (!isCleaningUp.compareAndSet(false, true)) return
@@ -1692,6 +1847,9 @@ class CallManager @Inject constructor(
             incomingCallHandler.dismissIncomingCall()
             ringtonePlayer.stopRinging()
             ringtonePlayer.stopRingbackTone()
+
+            // Konusma gostergesi: PCM dispose'larindan ONCE (cancelAndJoin ile in-flight tick biter)
+            stopGroupSpeakingDetection()
 
             peerConnectionManager.disposeAllGroupPeerConnections()
             peerConnectionManager.disposeAllSfuConnections()

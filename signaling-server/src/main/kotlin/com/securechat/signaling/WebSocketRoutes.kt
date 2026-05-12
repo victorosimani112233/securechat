@@ -40,6 +40,14 @@ fun Application.configureWebSocket(connectionManager: ConnectionManager) {
                 return@webSocket
             }
 
+            // GUVENLIK: yeni WS baglanti rate limit — IP basina 10/sn.
+            // Tek IP'den DoS aciligini engeller (bot floodu, reconnect storm).
+            if (!RateLimiter.allow("ws_connect", ip)) {
+                AuditLog.log(userId = claimedUserId, eventType = "WS_CONNECT_RATE_LIMIT", ipAddress = ip)
+                close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Cok hizli baglanti"))
+                return@webSocket
+            }
+
             // GUVENLIK: Token'in sub claim'i userId ile eslesmeli — kimlik taklidi onlemi
             val tokenSub = AuthService.verifyToken(token)
             if (tokenSub == null) {
@@ -88,10 +96,95 @@ fun Application.configureWebSocket(connectionManager: ConnectionManager) {
             } catch (e: Exception) {
                 logger.warn("[!] WebSocket hatasi ($userId): ${e.message}")
             } finally {
+                // Aktif grup aramalarinda participant ise digerlerine ayrildigini bildir.
+                // Kullanici explicit HANGUP gondermeden app'i kapatirsa peer'lar bu yolla temizlenir.
+                handleUserDisconnectFromGroupCalls(userId, connectionManager)
+
                 connectionManager.removeConnection(userId)
                 AuditLog.log(userId = userId, eventType = "WS_CONNECTION_DROPPED", ipAddress = ip)
             }
         }
+    }
+}
+
+/**
+ * WebSocket disconnect tespit edildiginde aktif grup aramalarini temizler.
+ *
+ * - Normal uye disconnect → digerlerine group_call_member_left broadcast, participants'tan cikar
+ * - Koordinator disconnect:
+ *   * Kalan online uye varsa → koordinatorluk ona devredilir, herkese
+ *     group_call_coordinator_changed + member_left bildirilir; arama DEVAM eder
+ *   * Hic kimse kalmadiysa → arama sonlandirilir (store.end + Janus destroy)
+ *
+ * Koordinator sadece yeni katilim/SDP-route icin onemli; mevcut P2P/SFU media
+ * akisi koordinator yokken de calismaya devam eder.
+ */
+private suspend fun handleUserDisconnectFromGroupCalls(
+    userId: String,
+    connectionManager: ConnectionManager
+) {
+    try {
+        val affectedCalls = GroupCallSessionStore.findActiveCallsForUser(userId)
+        if (affectedCalls.isEmpty()) return
+
+        for (active in affectedCalls) {
+            val ts = System.currentTimeMillis()
+            // Once participants'tan cikar — kalan listeyi temiz hesaplayabilelim
+            GroupCallSessionStore.removeParticipant(active.groupId, userId)
+
+            // ActiveCall snapshot'i mutable ConcurrentHashMap'in icinde
+            // (removeParticipant gibi degisiklikleri biz yapiyoruz). Kalanlari yeniden cek.
+            val refreshed = GroupCallSessionStore.get(active.groupId)
+            val remaining = refreshed?.participants?.filterNot { it == userId } ?: emptyList()
+
+            // Herkese (eski koordinator + diger uyeler haric) member_left bildir
+            for (memberId in remaining) {
+                val s = connectionManager.connections()[memberId] ?: continue
+                val msg = """{"type":"group_call_member_left","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupCallId":"${active.callId}","groupId":"${active.groupId}","leftMemberId":"$userId"}"""
+                try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
+            }
+
+            val coordinatorLeft = active.coordinatorId == userId
+
+            if (coordinatorLeft) {
+                if (remaining.isEmpty()) {
+                    // Kimse kalmadi → aramayi tamamen sonlandir
+                    GroupCallSessionStore.end(active.groupId)
+                    if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
+                        sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
+                    }
+                    logger.info("[GroupCall] Koordinator+son uye disconnect — arama sonlandirildi: ${active.groupId}")
+                } else {
+                    // Koordinatorlugu kalan ONLINE uyelerden birine devret.
+                    // Tercih: online connection'i olan ilk participant; yoksa listenin ilki (offline ise yine de
+                    // store guncellenir, online geldiginde late-join akisi devam eder).
+                    val newCoordinator = remaining.firstOrNull { connectionManager.connections().containsKey(it) }
+                        ?: remaining.first()
+                    val transferred = GroupCallSessionStore.transferCoordinator(active.groupId, newCoordinator)
+                    if (transferred != null) {
+                        val (prev, next) = transferred
+                        for (memberId in remaining) {
+                            val s = connectionManager.connections()[memberId] ?: continue
+                            val msg = """{"type":"group_call_coordinator_changed","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupCallId":"${active.callId}","groupId":"${active.groupId}","newCoordinatorId":"$next","previousCoordinatorId":"$prev"}"""
+                            try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
+                        }
+                        logger.info("[GroupCall] Koordinator devir: groupId=${active.groupId} $prev → $next (kalan=${remaining.size})")
+                    }
+                }
+            } else {
+                logger.info("[GroupCall] Uye disconnect bildirimi: groupId=${active.groupId} left=$userId kalan=${remaining.size}")
+                // Tum uyeler ayrildiysa (koordinator hala bagli AMA participants bos) — savunmaci temizlik
+                if (remaining.isEmpty()) {
+                    GroupCallSessionStore.end(active.groupId)
+                    if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
+                        sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
+                    }
+                    logger.info("[GroupCall] Tum uyeler ayrildi — arama temizlendi: ${active.groupId}")
+                }
+            }
+        }
+    } catch (e: Exception) {
+        logger.warn("[!] handleUserDisconnectFromGroupCalls hatasi ($userId): ${e.message}")
     }
 }
 
@@ -128,13 +221,17 @@ private suspend fun handleMessage(
             }
         }
 
-        // --- Grup aramasi: GroupCallSessionStore'a kaydet + (>=4 ise) SFU room olustur ---
+        // --- Grup aramasi: GroupCallSessionStore'a kaydet + (esik asilirsa) SFU room olustur ---
+        // Esikler: 3-5K kullanici icin mesh-first stratejisi. Video bandwidth pahali oldugu
+        // icin daha dusuk esik. 6+ kisi grup video pratikte nadir; bu konfig ile cogu grup
+        // arama mesh kalir, server CPU/RAM tasarrufu.
         if (type == "group_call_invite") {
             val groupId = element["groupId"]?.jsonPrimitive?.contentOrNull
             val callId = element["callId"]?.jsonPrimitive?.contentOrNull
             val callType = element["callType"]?.jsonPrimitive?.contentOrNull
             val participants = element["participants"]?.jsonArray?.map { it.jsonPrimitive.content }
-            val isSfu = participants != null && participants.size >= 4
+            val sfuThreshold = if (callType == "VIDEO") 6 else 10
+            val isSfu = participants != null && participants.size > sfuThreshold
 
             if (groupId != null && callId != null && callType != null && participants != null) {
                 // Ilk invite ise store'a kaydet (ayni grup icin coklu davet idempotent)
@@ -237,23 +334,52 @@ private suspend fun handleMessage(
             connectionManager.setActiveCallSession(senderId, recipientId)
         }
 
-        // --- Grup aramasi bittiginde: koordinator HANGUP'i ise store'u clear et + SFU room sil ---
+        // --- Grup aramasi HANGUP: explicit ayrilis (disconnect handler ile ayni semantik) ---
+        // Client per-peer HANGUP'i da fan-out olarak gonderiyor (eski client compat icin);
+        // bu route'da N kere participant cikarmamak icin SADECE server-yonlendirilmis
+        // (recipientId="server", groupId set) HANGUP'larda devir/broadcast yapilir.
         if (type == "call_control") {
             val action = element["action"]?.jsonPrimitive?.contentOrNull
-            if (action == "HANGUP") {
+            if (action == "HANGUP" && recipientId == "server") {
                 val hangupGroupId = element["groupId"]?.jsonPrimitive?.contentOrNull
                 if (hangupGroupId != null) {
                     val active = GroupCallSessionStore.get(hangupGroupId)
-                    if (active != null && active.coordinatorId == senderId) {
-                        // Koordinator hangup → tum arama biter
-                        GroupCallSessionStore.end(hangupGroupId)
-                        if (JanusOrchestrator.hasActiveRoom(hangupGroupId)) {
-                            sfuScope.launch { JanusOrchestrator.destroyVideoRoom(hangupGroupId) }
+                    if (active != null) {
+                        // Kullanici (koordinator olsun veya olmasin) aramadan ayriliyor.
+                        // Davranis disconnect handler ile ayni: katilimcilari bilgilendir,
+                        // koordinatorse devret, kimse kalmazsa kapat.
+                        GroupCallSessionStore.removeParticipant(hangupGroupId, senderId)
+                        val refreshed = GroupCallSessionStore.get(hangupGroupId)
+                        val remaining = refreshed?.participants?.filterNot { it == senderId } ?: emptyList()
+                        val ts = System.currentTimeMillis()
+
+                        for (memberId in remaining) {
+                            val s = connectionManager.connections()[memberId] ?: continue
+                            val msg = """{"type":"group_call_member_left","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupCallId":"${active.callId}","groupId":"${active.groupId}","leftMemberId":"$senderId"}"""
+                            try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
                         }
-                        logger.info("[GroupCall] Aktif arama sonlandirildi (koordinator hangup): $hangupGroupId")
-                    } else if (active != null) {
-                        // Uye hangup → sadece participant cikar
-                        active.participants.remove(senderId)
+
+                        if (remaining.isEmpty()) {
+                            GroupCallSessionStore.end(hangupGroupId)
+                            if (JanusOrchestrator.hasActiveRoom(hangupGroupId)) {
+                                sfuScope.launch { JanusOrchestrator.destroyVideoRoom(hangupGroupId) }
+                            }
+                            logger.info("[GroupCall] Son uye HANGUP — arama sonlandirildi: $hangupGroupId")
+                        } else if (active.coordinatorId == senderId) {
+                            // Koordinator ayrildi → online kalan biri devralir
+                            val newCoordinator = remaining.firstOrNull { connectionManager.connections().containsKey(it) }
+                                ?: remaining.first()
+                            val transferred = GroupCallSessionStore.transferCoordinator(hangupGroupId, newCoordinator)
+                            if (transferred != null) {
+                                val (prev, next) = transferred
+                                for (memberId in remaining) {
+                                    val s = connectionManager.connections()[memberId] ?: continue
+                                    val msg = """{"type":"group_call_coordinator_changed","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupCallId":"${active.callId}","groupId":"${active.groupId}","newCoordinatorId":"$next","previousCoordinatorId":"$prev"}"""
+                                    try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
+                                }
+                                logger.info("[GroupCall] HANGUP ile koordinator devir: groupId=$hangupGroupId $prev → $next")
+                            }
+                        }
                     }
                 }
             }
@@ -344,6 +470,20 @@ private suspend fun handleMessage(
             logger.warn("[!] Disabled broadcast attempt from {}", senderId)
             return
         }
+
+        // GUVENLIK: file_transfer chunk'lari icin byte-rate limit (5 MB/dk per user).
+        // Buyuk dosya gondermede mesaj boyutunu sayar; pencerede 5MB'i asarsa drop edilir.
+        // Mesh modda fan-out sirasinda her chunk N kere bandwidth tuketir, bu yuzden kritik.
+        if (type == "file_transfer") {
+            val chunkSize = messageJson.length // payload boyutu yakl. ≈ frame boyutu
+            if (!RateLimiter.allowBytes("file_chunk_bytes", senderId, chunkSize)) {
+                AuditLog.log(userId = senderId, eventType = "FILE_BYTE_RATE_LIMIT",
+                    metadata = mapOf("chunk_bytes" to chunkSize.toString()))
+                logger.warn("[!] File byte rate limit asildi: $senderId chunk=$chunkSize")
+                return
+            }
+        }
+
         connectionManager.routeMessage(senderId, recipientId, messageJson)
 
     } catch (e: Exception) {

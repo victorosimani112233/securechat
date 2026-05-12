@@ -134,23 +134,67 @@ class IncomingMessageHandler @Inject constructor(
         // Foreground servis reconnect yaptiginda kullaniciyi online gostermemeli.
         signalingClient.onConnectedListener = null
 
-        // CallManager.callSession terminal state'e gectiğinde aktif grup arama
-        // state'inden temizle — banner kaybolsun.
+        // CallManager.callSession terminal state'ine gectiğinde:
+        // - ESKI: activeGroupCalls'tan grubu hemen silerdi → "ben aramadan ciktim ama
+        //   digerleri devam ediyor" senaryosunda banner kaybolurdu, sohbete tekrar
+        //   girince yeniden gelirdi. Bu yanlistir: yerel cikis ≠ aramanin bitmesi.
+        // - YENI: sunucuya fresh GroupCallStatusQuery gonderilir, gercek durum
+        //   handleGroupCallStatusResponse uzerinden update edilir (hala aktifse banner kalir).
+        // Ayni collector RINGING'den herhangi bir state'e gecince missed-call timer'i da
+        // iptal eder (yanitlanan arama icin hayalet missed bildirim sorununu kapatir).
         scope.launch {
+            var lastSeenCallId: String? = null
+            var lastSeenState: com.securechat.media.model.CallState? = null
             callManager.callSession.collect { session ->
+                // Grup arama banner: yerel session terminal'e dustugunde server'a
+                // refresh query gonder — gerçek aktif durum cevapla gelir.
                 if (session != null && session.isGroupCall) {
-                    val gid = session.groupId ?: return@collect
+                    val gid = session.groupId
                     val terminal = session.state == com.securechat.media.model.CallState.ENDED ||
                                    session.state == com.securechat.media.model.CallState.FAILED ||
                                    session.state == com.securechat.media.model.CallState.REJECTED ||
                                    session.state == com.securechat.media.model.CallState.BUSY
-                    if (terminal) {
-                        val current = activeGroupCalls.value.toMutableMap()
-                        if (current.remove(gid) != null) {
-                            activeGroupCalls.value = current
-                            android.util.Log.d("IncomingHandler", "Aktif grup arama temizlendi (terminal): $gid")
+                    if (terminal && gid != null) {
+                        val uid = userSession.userId
+                        if (!uid.isNullOrBlank()) {
+                            try {
+                                signalingClient.sendSignal(
+                                    SignalMessage.GroupCallStatusQuery(
+                                        senderId = uid,
+                                        recipientId = "server",
+                                        timestamp = System.currentTimeMillis(),
+                                        groupId = gid
+                                    )
+                                )
+                                android.util.Log.d("IncomingHandler", "Yerel cikis sonrasi fresh status query: $gid")
+                            } catch (e: Exception) {
+                                android.util.Log.w("IncomingHandler", "Status query gonderilemedi: ${e.message}")
+                            }
                         }
                     }
+                }
+
+                // Missed-call timer iptal: arama RINGING'den herhangi bir state'e gecince.
+                // Yerel acceptCall (INCOMING+RINGING → ACTIVE) bu yoldan yakalanir; karsi taraf
+                // ACCEPT'i CallControl uzerinden zaten cancel ediyor. Bu collector eksik
+                // yolu kapatir — bazen yanitlanmis arama icin gelen sahte missed bildirim sorunu.
+                val callId = session?.callId
+                val state = session?.state
+                if (callId != null && state != null) {
+                    val wasRinging = lastSeenCallId == callId &&
+                        lastSeenState == com.securechat.media.model.CallState.RINGING
+                    val leftRinging = wasRinging && state != com.securechat.media.model.CallState.RINGING
+                    val nowActive = state == com.securechat.media.model.CallState.ACTIVE
+                    if (leftRinging || nowActive) {
+                        missedCallTracker.cancelMissedCallTimer(callId)
+                    }
+                    lastSeenCallId = callId
+                    lastSeenState = state
+                } else if (session == null && lastSeenCallId != null) {
+                    // Session temizlendi — son callId icin de iptal et (defansif)
+                    lastSeenCallId?.let { missedCallTracker.cancelMissedCallTimer(it) }
+                    lastSeenCallId = null
+                    lastSeenState = null
                 }
             }
         }
@@ -199,6 +243,8 @@ class IncomingMessageHandler @Inject constructor(
                     is SignalMessage.PresenceUpdate -> handlePresenceUpdate(signal)
                     is SignalMessage.GroupCallInvite -> handleGroupCallInvite(signal)
                     is SignalMessage.GroupCallMemberJoined -> callManager.handleGroupCallMemberJoined(signal)
+                    is SignalMessage.GroupCallMemberLeft -> callManager.handleGroupCallMemberLeft(signal)
+                    is SignalMessage.GroupCallCoordinatorChanged -> callManager.handleGroupCallCoordinatorChanged(signal)
                     is SignalMessage.GroupCallJoinRequest -> callManager.handleGroupCallJoinRequest(signal)
                     is SignalMessage.GroupCallStatusResponse -> handleGroupCallStatusResponse(signal)
                     is SignalMessage.GroupCallStatusQuery -> { /* Sunucu tarafinda islenir */ }
@@ -746,23 +792,32 @@ class IncomingMessageHandler @Inject constructor(
 
         callManager.handleGroupCallInvite(signal, localUserId)
 
-        val peerName = resolvePeerName(signal.senderId)
+        val callerName = resolvePeerName(signal.senderId)
+        // Grup adi: yerel DB'de varsa kullan, yoksa "Grup Araması" generic fallback.
+        // ESKI: peerName="Grup: <uuid>" gosteriyordu cunku resolvePeerName(senderId) sadece
+        // arayanin adini cozer; arayan rehberde yoksa UUID dondururdu. Yeni davranis:
+        // baslikta grup adi, alt satirda kim aradigi.
+        val groupConv = conversationDao.getById(signal.groupId)
+        val groupName = groupConv?.peerName?.takeIf {
+            it.isNotBlank() && it != signal.groupId
+        } ?: "Grup Araması"
+        val displayTitle = if (callerName != signal.senderId) "$groupName · $callerName" else groupName
         val session = callManager.currentSession
 
         if (session != null) {
-            android.util.Log.d("IncomingHandler", "GELEN GRUP ARAMASI: ${signal.groupId} from $peerName")
+            android.util.Log.d("IncomingHandler", "GELEN GRUP ARAMASI: ${signal.groupId} from $callerName ($displayTitle)")
 
             // Gelen arama bildirimini goster
             incomingCallHandler.showIncomingCall(
                 session = session,
-                peerName = "Grup: $peerName",
+                peerName = displayTitle,
                 fullScreenActivityClass = IncomingCallActivity::class.java
             )
 
             try {
                 val intent = android.content.Intent(context, IncomingCallActivity::class.java).apply {
                     putExtra("peer_id", signal.senderId)
-                    putExtra("peer_name", "Grup Arama: $peerName")
+                    putExtra("peer_name", displayTitle)
                     putExtra("call_type", signal.callType.name)
                     putExtra("is_group_call", true)
                     putExtra("group_id", signal.groupId)
@@ -776,7 +831,7 @@ class IncomingMessageHandler @Inject constructor(
                 android.util.Log.e("IncomingHandler", "Grup arama Activity baslatılamadı: ${e.message}")
             }
 
-            missedCallTracker.startMissedCallTimer(session, "Grup: $peerName")
+            missedCallTracker.startMissedCallTimer(session, displayTitle)
         }
     }
 

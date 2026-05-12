@@ -5,6 +5,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.ElementsIntoSet
+import okhttp3.CertificatePinner
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -26,11 +27,13 @@ object NetworkModule {
 
     /**
      * OkHttpClient instance'i — app modulundeki interceptor'lari (AuthInterceptor gibi) entegre eder.
+     * CertificatePinner null degilse TLS pin'leri uygulanir (MITM korumasi).
      */
     @Provides
     @Singleton
     fun provideOkHttpClient(
-        interceptors: Set<@JvmSuppressWildcards Interceptor>
+        interceptors: Set<@JvmSuppressWildcards Interceptor>,
+        certificatePinner: CertificatePinner?
     ): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -38,6 +41,7 @@ object NetworkModule {
             .writeTimeout(15, TimeUnit.SECONDS)
             .pingInterval(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
+        certificatePinner?.let { builder.certificatePinner(it) }
         interceptors.forEach { builder.addInterceptor(it) }
         return builder.build()
     }

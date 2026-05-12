@@ -2,7 +2,9 @@ package com.securechat.app.ui.screen
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.pm.PackageManager
+import android.os.PowerManager
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -222,13 +224,38 @@ fun CallScreen(
     val isVideoActive = callType == CallType.VIDEO && callSession?.state == CallState.ACTIVE
     val remoteCameraEnabled by viewModel.remoteCameraEnabled.collectAsStateWithLifecycle()
 
-    // --- [1] Ekrani uyku moduna gecirmesini engelle (video arama aktifken) ---
-    if (isVideoActive) {
+    // Grup arama konusma gostergesi
+    val speakingPeers by viewModel.speakingPeers.collectAsStateWithLifecycle()
+    val participantNames by viewModel.participantNames.collectAsStateWithLifecycle()
+    val localUserId = viewModel.localUserId
+    val isGroupActive = isGroupCall && callSession?.state == CallState.ACTIVE
+    val isGroupVoiceActive = isGroupActive && !isVideoActive
+
+    // --- [1] Ekrani uyku moduna gecirmesini engelle (sadece goruntulu arama) ---
+    // FLAG_KEEP_SCREEN_ON bazi ROM'larda (Samsung One UI, Xiaomi MIUI) agresif power
+    // saving ile override edilebilir. Wake lock ile pekisitirilir (deprecated ama
+    // hala calisir; foreground service yokken Activity'de tutulur, dispose'da serbest).
+    val keepScreenOn = callType == CallType.VIDEO && callSession != null &&
+        callSession?.state != CallState.ENDED &&
+        callSession?.state != CallState.FAILED &&
+        callSession?.state != CallState.REJECTED
+    if (keepScreenOn) {
         val activity = context as? Activity
         DisposableEffect(Unit) {
             activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            val pm = activity?.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            @Suppress("DEPRECATION")
+            val wakeLock = pm?.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ON_AFTER_RELEASE,
+                "SecureChat:VideoCallScreen"
+            )?.apply {
+                setReferenceCounted(false)
+                // Max 2 saat — savunmaci, agresif power saving olan ROM'larda fail-safe
+                acquire(2 * 60 * 60 * 1000L)
+            }
             onDispose {
                 activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                wakeLock?.let { if (it.isHeld) it.release() }
             }
         }
     }
@@ -292,6 +319,8 @@ fun CallScreen(
                 GroupVideoGrid(
                     remoteVideoTracks = remoteVideoTracks,
                     localVideoTrack = localVideoTrack,
+                    speakingPeers = speakingPeers,
+                    participantNames = participantNames,
                     eglBaseContext = eglBaseContext!!
                 )
             } else if (!isGroupCall) {
@@ -332,6 +361,28 @@ fun CallScreen(
                     )
                 }
             }
+        }
+
+        // --- Grup sesli arama grid'i (video DEGIL, grup VE aktif) ---
+        if (isGroupVoiceActive) {
+            // Sadece UZAK katilimcilari goster — yerel kullanici kendi avatarini gormez
+            // (WhatsApp/Telegram davranisi). Boylelikle "(Sen)" karisikligi da yok.
+            val ids = remember(callSession?.peerIds, localUserId) {
+                callSession?.peerIds
+                    .orEmpty()
+                    .filter { it.isNotBlank() && it != localUserId }
+                    .distinct()
+            }
+            GroupVoiceGrid(
+                participantIds = ids,
+                participantNames = participantNames,
+                speakingPeers = speakingPeers,
+                modifier = Modifier
+                    .fillMaxSize()
+                    // Bottom: controls Column (bottom=96dp) + button+label (~85dp) + marj = 240dp
+                    // Top: ust baslik+sure (~220dp) + nefes alani = 240dp
+                    .padding(top = 240.dp, bottom = 240.dp)
+            )
         }
 
         // --- Karsi taraf kamerasini kapattiysa overlay ---
@@ -447,15 +498,18 @@ fun CallScreen(
 
                         Spacer(modifier = Modifier.height(48.dp))
 
-                        // Avatar — premium animasyonlu
-                        CallAvatar(
-                            name = peerDisplayName,
-                            isRinging = isRinging,
-                            isConnecting = isConnecting,
-                            isActive = isActive
-                        )
-
-                        Spacer(modifier = Modifier.height(28.dp))
+                        // Grup sesli aramada (aktif) buyuk avatar yerine grid gosterilir;
+                        // baslik+sure ust kismi korunur ama tek-buyuk-avatar gizlenir.
+                        if (!isGroupVoiceActive) {
+                            // Avatar — premium animasyonlu
+                            CallAvatar(
+                                name = peerDisplayName,
+                                isRinging = isRinging,
+                                isConnecting = isConnecting,
+                                isActive = isActive
+                            )
+                            Spacer(modifier = Modifier.height(28.dp))
+                        }
 
                         // Peer ismi veya grup bilgisi — daha buyuk, tipografi vurgulu
                         if (isGroupCall) {
@@ -799,6 +853,174 @@ private fun SecondaryCallBanner(
 }
 
 // =====================================================================
+// Grup Arama Konusma Gostergesi (yesil pulse halka)
+// =====================================================================
+
+/**
+ * Konusan kullaniciyi gosteren pulse-glow border.
+ * Scale modu: dairesel sesli grid hucresinde avatar uzerinde calisir (1.0 <-> 1.08).
+ * Border-only modu: video grid hucresinde scale yok, sadece yesil border alpha pulse.
+ */
+@Composable
+private fun SpeakingIndicator(
+    isSpeaking: Boolean,
+    shape: androidx.compose.ui.graphics.Shape = CircleShape,
+    enableScale: Boolean = true,
+    borderWidth: androidx.compose.ui.unit.Dp = 3.dp,
+    modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit
+) {
+    val transition = rememberInfiniteTransition(label = "speak")
+    val pulseScale by transition.animateFloat(
+        initialValue = 1f, targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            tween(600, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    val pulseAlpha by transition.animateFloat(
+        initialValue = 0.55f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(600, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isSpeaking && enableScale) pulseScale else 1f,
+        animationSpec = tween(180), label = "s"
+    )
+    val animatedAlpha by animateFloatAsState(
+        targetValue = if (isSpeaking) pulseAlpha else 0f,
+        animationSpec = tween(180), label = "a"
+    )
+
+    Box(
+        modifier = modifier
+            .graphicsLayer { scaleX = animatedScale; scaleY = animatedScale }
+            .border(borderWidth, Color(0xFF22C55E).copy(alpha = animatedAlpha), shape),
+        content = content
+    )
+}
+
+// =====================================================================
+// Grup Sesli Arama Grid
+// =====================================================================
+
+/**
+ * Grup sesli aramasinda katilimcilari grid duzeninde gosterir.
+ * 2 kisi: 2 col x 1 row (yan yana)
+ * 3-4 kisi: 2 col x 2 row
+ * 5-6 kisi: 2 col x 3 row
+ * 7-8 kisi: 2 col x 4 row
+ *
+ * Konusan kullaninicinin avatari etrafinda yesil pulse halkasi gosterilir.
+ */
+@Composable
+private fun GroupVoiceGrid(
+    participantIds: List<String>,
+    participantNames: Map<String, String>,
+    speakingPeers: Map<String, Boolean>,
+    modifier: Modifier = Modifier
+) {
+    val n = participantIds.size
+    if (n == 0) return  // Yalniz kalan kullanicida grid gosterme
+    val (cols, rows) = when {
+        n == 1 -> 1 to 1
+        n == 2 -> 2 to 1
+        n <= 4 -> 2 to 2
+        n <= 6 -> 2 to 3
+        else   -> 2 to 4
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp, vertical = 24.dp)
+    ) {
+        for (r in 0 until rows) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                for (c in 0 until cols) {
+                    val idx = r * cols + c
+                    if (idx < n) {
+                        val pid = participantIds[idx]
+                        VoiceCell(
+                            name = participantNames[pid] ?: pid.take(8),
+                            isSpeaking = speakingPeers[pid] == true,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(6.dp)
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Tek bir sesli grid hucresi — yuvarlak avatar (initials) + alti ad.
+ * Konusurken yesil pulse halkasi.
+ */
+@Composable
+private fun VoiceCell(
+    name: String,
+    isSpeaking: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val initials = remember(name) {
+        name.trim().split(' ', '_', '-')
+            .filter { it.isNotBlank() }
+            .take(2)
+            .map { it.first().uppercaseChar() }
+            .joinToString("")
+            .ifBlank { "?" }
+    }
+    val gradient = callAvatarGradient(name)
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        SpeakingIndicator(isSpeaking = isSpeaking) {
+            Box(
+                modifier = Modifier
+                    .size(84.dp)
+                    .clip(CircleShape)
+                    .background(brush = gradient),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = initials,
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = name,
+            color = Color.White.copy(alpha = 0.92f),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+// =====================================================================
 // Grup Video Grid
 // =====================================================================
 
@@ -811,6 +1033,8 @@ private fun SecondaryCallBanner(
 private fun GroupVideoGrid(
     remoteVideoTracks: Map<String, VideoTrack>,
     localVideoTrack: VideoTrack?,
+    speakingPeers: Map<String, Boolean>,
+    participantNames: Map<String, String>,
     eglBaseContext: EglBase.Context
 ) {
     val trackList = remoteVideoTracks.entries.toList()
@@ -835,6 +1059,8 @@ private fun GroupVideoGrid(
                             val (peerId, track) = trackList[index]
                             GroupVideoCell(
                                 peerId = peerId,
+                                displayName = participantNames[peerId] ?: peerId.take(8),
+                                isSpeaking = speakingPeers[peerId] == true,
                                 videoTrack = track,
                                 eglBaseContext = eglBaseContext,
                                 modifier = Modifier
@@ -897,56 +1123,70 @@ private fun GroupVideoGrid(
 
 /**
  * Tek bir grup video hucresini render eder.
+ * Konusurken hucre etrafinda yesil border pulse (scale yok — video frame bozulmasin).
  */
 @Composable
 private fun GroupVideoCell(
     peerId: String,
+    displayName: String,
+    isSpeaking: Boolean,
     videoTrack: VideoTrack,
     eglBaseContext: EglBase.Context,
     modifier: Modifier = Modifier
 ) {
     val currentTrack = remember { mutableStateOf<VideoTrack?>(null) }
+    val cellShape = RoundedCornerShape(8.dp)
 
-    Box(modifier = modifier) {
-        AndroidView(
-            factory = { ctx ->
-                SurfaceViewRenderer(ctx).apply {
-                    init(eglBaseContext, null)
-                    setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
-                    setEnableHardwareScaler(true)
-                    setMirror(false)
-                }
-            },
-            update = { renderer ->
-                val prev = currentTrack.value
-                if (prev != videoTrack) {
-                    prev?.removeSink(renderer)
-                    try { videoTrack.addSink(renderer) } catch (_: Exception) {}
-                    currentTrack.value = videoTrack
-                }
-            },
-            onRelease = { renderer ->
-                currentTrack.value?.removeSink(renderer)
-                currentTrack.value = null
-                renderer.release()
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+    SpeakingIndicator(
+        isSpeaking = isSpeaking,
+        shape = cellShape,
+        enableScale = false,
+        borderWidth = 2.dp,
+        modifier = modifier
+    ) {
+        Box(modifier = Modifier.fillMaxSize().clip(cellShape)) {
+            AndroidView(
+                factory = { ctx ->
+                    SurfaceViewRenderer(ctx).apply {
+                        init(eglBaseContext, null)
+                        setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                        setEnableHardwareScaler(true)
+                        setMirror(false)
+                    }
+                },
+                update = { renderer ->
+                    val prev = currentTrack.value
+                    if (prev != videoTrack) {
+                        prev?.removeSink(renderer)
+                        try { videoTrack.addSink(renderer) } catch (_: Exception) {}
+                        currentTrack.value = videoTrack
+                    }
+                },
+                onRelease = { renderer ->
+                    currentTrack.value?.removeSink(renderer)
+                    currentTrack.value = null
+                    renderer.release()
+                },
+                modifier = Modifier.fillMaxSize()
+            )
 
-        // Peer ID etiketi (sol alt kose)
-        Text(
-            text = peerId.take(8),
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(4.dp)
-                .background(
-                    Color.Black.copy(alpha = 0.5f),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
-                )
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-        )
+            // Isim banner'i (sol alt kose)
+            Text(
+                text = displayName,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(4.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.5f),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
     }
 }
 

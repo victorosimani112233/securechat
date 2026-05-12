@@ -402,7 +402,8 @@ class ConnectionManager(
     /**
      * Offline mesaji Redis Sorted Set'e ekler.
      * Key: offline_queue:{userId}, Score: timestamp, Value: mesaj JSON
-     * Max 1000 mesaj — en eski silinir. TTL: 14 gun.
+     * Max 1000 mesaj/user — en eski silinir. TTL: 30 gun.
+     * Birlikte: redis maxmemory=3gb, allkeys-lru → toplam Redis kontrolu.
      */
     private fun queueOfflineMessage(recipientId: String, message: String) {
         try {
@@ -415,8 +416,8 @@ class ConnectionManager(
                 if (size > 1000) {
                     jedis.zremrangeByRank(key, 0, size - 1001)
                 }
-                // 14 gun TTL
-                jedis.expire(key, 14 * 24 * 3600)
+                // 30 gun TTL
+                jedis.expire(key, 30 * 24 * 3600)
             }
         } catch (e: Exception) {
             log.warn("[!] Redis offline queue hatasi: ${e.message}")

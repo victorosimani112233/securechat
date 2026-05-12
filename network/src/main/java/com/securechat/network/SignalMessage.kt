@@ -377,6 +377,41 @@ sealed class SignalMessage {
     ) : SignalMessage()
 
     /**
+     * Grup aramasindan uye ayrildi bildirimi.
+     * Sunucu WebSocket disconnect'i tespit ettiginde diger katilimcilara gonderir;
+     * uye explicit HANGUP gondermeden app'i kapatirsa bu sinyalle peer'lar temizlenir.
+     * Client bu sinyalde ilgili PeerConnection'i dispose eder.
+     */
+    @Serializable
+    @SerialName("group_call_member_left")
+    data class GroupCallMemberLeft(
+        override val senderId: String, // "server"
+        override val recipientId: String,
+        override val timestamp: Long,
+        val groupCallId: String,
+        val groupId: String,
+        val leftMemberId: String
+    ) : SignalMessage()
+
+    /**
+     * Grup aramasinda koordinator devri bildirimi.
+     * Eski koordinator disconnect olursa sunucu kalan uyelerden birini secer
+     * ve herkese bildirir — arama kesilmeden devam eder. Yeni katilim/SDP route
+     * akislari yeni koordinator uzerinden yurutulur.
+     */
+    @Serializable
+    @SerialName("group_call_coordinator_changed")
+    data class GroupCallCoordinatorChanged(
+        override val senderId: String, // "server"
+        override val recipientId: String,
+        override val timestamp: Long,
+        val groupCallId: String,
+        val groupId: String,
+        val newCoordinatorId: String,
+        val previousCoordinatorId: String
+    ) : SignalMessage()
+
+    /**
      * Aktif grup aramasina sonradan katilim istegi.
      * Yeni katilan kullanici tarafindan koordinatore gonderilir.
      * Koordinator validate edip onGroupMemberAccepted akisini tetikler.

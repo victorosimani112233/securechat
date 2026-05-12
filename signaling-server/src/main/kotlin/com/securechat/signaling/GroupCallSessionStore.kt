@@ -79,6 +79,33 @@ object GroupCallSessionStore {
         active[groupId]?.participants?.add(userId)
     }
 
+    /** Katilimciyi cikar (explicit HANGUP veya WebSocket disconnect). */
+    fun removeParticipant(groupId: String, userId: String): Boolean {
+        return active[groupId]?.participants?.remove(userId) ?: false
+    }
+
+    /**
+     * Kullanicinin participant oldugu tum aktif aramalari doner.
+     * WebSocket disconnect handler'i tarafindan kullanilir — bir kullanici
+     * birden fazla grup aramasinda olamaz pratikte ama defansif yaklasim.
+     */
+    fun findActiveCallsForUser(userId: String): List<ActiveCall> {
+        return active.values.filter { it.participants.contains(userId) || it.coordinatorId == userId }
+    }
+
+    /**
+     * Koordinatorlugu yeni bir uyeye devret. Eski koordinator disconnect oldugunda
+     * sunucu kalan participants'tan birini secer; arama kesilmez.
+     * @return Devir basarili ise (eski, yeni) ciftini, basarisizsa null
+     */
+    fun transferCoordinator(groupId: String, newCoordinatorId: String): Pair<String, String>? {
+        val current = active[groupId] ?: return null
+        if (newCoordinatorId == current.coordinatorId) return null
+        val previous = current.coordinatorId
+        active[groupId] = current.copy(coordinatorId = newCoordinatorId)
+        return previous to newCoordinatorId
+    }
+
     /** Arama bitti — koordinator HANGUP'i ile. */
     fun end(groupId: String) {
         active.remove(groupId)
