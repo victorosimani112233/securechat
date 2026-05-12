@@ -45,7 +45,8 @@ class WebSocketDebugger {
         Log.d("SecureChat", "🔍 === WebSocket DEBUG SESSION STARTED ===")
         Log.d("SecureChat", "Target server: $baseUrl")
         Log.d("SecureChat", "User ID: $userId")
-        Log.d("SecureChat", "Auth token: ${authToken.take(10)}...")
+        // GUVENLIK (M4 fix): Auth token (10 char bile) loglanmaz — token enumeration kolaylasir.
+        Log.d("SecureChat", "Auth token: [REDACTED]")
 
         val wsUrl = "$baseUrl/ws?userId=$userId"
         Log.d("SecureChat", "Full WebSocket URL: $wsUrl")
@@ -56,10 +57,8 @@ class WebSocketDebugger {
             .addHeader("User-Agent", "SecureChat-Android/1.0")
             .build()
 
-        Log.d("SecureChat", "📤 REQUEST HEADERS:")
-        for ((name, value) in request.headers) {
-            Log.d("SecureChat", "  $name: $value")
-        }
+        // GUVENLIK (M4 fix): Request header'lari token icerir — loglanmaz.
+        Log.d("SecureChat", "📤 Request headers: [REDACTED — Authorization header icerir]")
 
         val webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -67,11 +66,8 @@ class WebSocketDebugger {
                 Log.d("SecureChat", "📥 RESPONSE DETAILS:")
                 Log.d("SecureChat", "  Status: ${response.code} ${response.message}")
                 Log.d("SecureChat", "  Protocol: ${response.protocol}")
-
-                Log.d("SecureChat", "📥 RESPONSE HEADERS:")
-                for ((name, value) in response.headers) {
-                    Log.d("SecureChat", "  $name: $value")
-                }
+                // GUVENLIK (M4 fix): Response header'lari Set-Cookie veya echo'lanmis Authorization icerebilir.
+                Log.d("SecureChat", "📥 Response headers: [REDACTED]")
 
                 // Test bir mesaj gönder
                 val testMessage = """{"type":"ping","timestamp":${System.currentTimeMillis()}}"""
@@ -104,11 +100,8 @@ class WebSocketDebugger {
                     Log.e("SecureChat", "📥 HTTP RESPONSE:")
                     Log.e("SecureChat", "  Status: ${response.code} ${response.message}")
                     Log.e("SecureChat", "  Protocol: ${response.protocol}")
-
-                    Log.e("SecureChat", "📥 RESPONSE HEADERS:")
-                    for ((name, value) in response.headers) {
-                        Log.e("SecureChat", "  $name: $value")
-                    }
+                    // GUVENLIK (M4 fix): Response header'lari hassas bilgi icerebilir.
+                    Log.e("SecureChat", "📥 Response headers: [REDACTED]")
 
                     try {
                         val body = response.body?.string()

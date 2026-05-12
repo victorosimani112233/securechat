@@ -459,9 +459,12 @@ class FileTransferManager @Inject constructor(
             val inputStream = context.contentResolver.openInputStream(uri) ?: return null
             val bitmap = inputStream.use { BitmapFactory.decodeStream(it) } ?: return null
 
-            val cacheDir = File(context.cacheDir, "heic_converted")
-            cacheDir.mkdirs()
-            val jpegFile = File(cacheDir, "converted_${System.currentTimeMillis()}.jpg")
+            // GUVENLIK (M11 fix): cacheDir media scanner ve diger uygulamalar tarafindan
+            // gorunebilir (MODE_PRIVATE ama indexer'lar erisebilir). filesDir/no_backup
+            // altinda tut — backup'a girmez, scanner gormez, sadece bu uygulama erisir.
+            val convertedDir = File(context.noBackupFilesDir, "heic_converted")
+            convertedDir.mkdirs()
+            val jpegFile = File(convertedDir, "converted_${System.currentTimeMillis()}.jpg")
 
             FileOutputStream(jpegFile).use { outputStream ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)

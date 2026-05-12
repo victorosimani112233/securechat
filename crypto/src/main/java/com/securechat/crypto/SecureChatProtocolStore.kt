@@ -69,9 +69,10 @@ class SecureChatProtocolStore @Inject constructor(
     ): Boolean = ioBlocking {
         val existingKey = identityStore.loadIdentity(address.name)
         if (existingKey == null) return@ioBlocking true
-        // Constant-time comparison icin IdentityKey.equals kullanilir
-        val existing = IdentityKey(existingKey, 0)
-        existing == identityKey
+        // GUVENLIK (M1 fix): Timing attack korumasi icin constant-time karsilastirma.
+        // Daha onceki '==' (Kotlin equals) timing-leak yapabiliyordu — first-mismatch'te erken cikis.
+        // MessageDigest.isEqual garanti edilen sabit zamanli byte-wise karsilastirma yapar.
+        java.security.MessageDigest.isEqual(existingKey, identityKey.serialize())
     }
 
     override fun getIdentity(address: SignalProtocolAddress): IdentityKey? = ioBlocking {

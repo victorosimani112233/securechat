@@ -9,6 +9,7 @@ import com.securechat.crypto.store.CryptoSessionStore
 import com.securechat.crypto.store.CryptoSignedPreKeyStore
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.securechat.crypto.KeyStoreManager
 import com.securechat.storage.SecureChatDatabase
 import javax.inject.Named
 import com.securechat.storage.crypto.CryptoIdentityStoreImpl
@@ -51,11 +52,19 @@ object StorageModule {
 
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): SecureChatDatabase {
-        // Gelistirme asamasinda sabit passphrase, production'da KeyStoreManager'dan alinacak
+    fun provideDatabase(
+        @ApplicationContext context: Context,
+        keyStoreManager: KeyStoreManager
+    ): SecureChatDatabase {
         sqlCipherLoaded // native lib'i yukle (lazy, sadece ilk cagride)
-        val passphrase = "securechat_dev_passphrase".toByteArray()
+
+        // Passphrase Android Keystore master key ile sarmalandi (KeyStoreManager.getOrCreateDbPassphrase).
+        // Plaintext passphrase yalnizca burada bellekte; SupportOpenHelperFactory'ye verildikten sonra
+        // hemen sifirlanir. SQLCipher kendi copy'sini tutar (native heap).
+        val passphrase = keyStoreManager.getOrCreateDbPassphrase()
         val factory = SupportOpenHelperFactory(passphrase)
+        // SQLCipher dahili kopya aldi — bizim referansi sifirla.
+        passphrase.fill(0)
 
         return Room.databaseBuilder(
             context,

@@ -137,13 +137,8 @@
             </intent-filter>
         </receiver>
 
-        <receiver
-            android:name=".debug.TestNotificationReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.securechat.app.debug.TEST_NOTIFICATION" />
-            </intent-filter>
-        </receiver>
+        <!-- TestNotificationReceiver debug-only manifest'e (src/debug/AndroidManifest.xml) tasindi.
+             Release APK'ya exported broadcast surface dahil edilmez. -->
 
         <receiver
             android:name=".data.NotifDismissReceiver"

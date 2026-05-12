@@ -78,22 +78,27 @@ android {
             dimension = "environment"
             buildConfigField("String", "SIGNALING_URL", "\"ws://185.48.182.124:9090\"")
             buildConfigField("String", "API_BASE_URL", "\"http://185.48.182.124:9090\"")
+            buildConfigField("String", "STUN_URL", "\"stun:185.48.182.124:3478\"")
             // CERT_PIN bos = pinning disabled (dev/HTTP). Production'da nginx cert'inin
             // SHA-256 SPKI pin'i set edilir (asagidaki prod flavor'a bak).
             buildConfigField("String", "CERT_PIN_HOST", "\"\"")
             buildConfigField("String", "CERT_PIN_SHA256", "\"\"")
+            buildConfigField("String", "CERT_PIN_SHA256_BACKUP", "\"\"")
         }
         create("prod") {
             dimension = "environment"
             buildConfigField("String", "SIGNALING_URL", "\"wss://signal.securechat.app\"")
             buildConfigField("String", "API_BASE_URL", "\"https://signal.securechat.app\"")
+            buildConfigField("String", "STUN_URL", "\"stun:stun.securechat.app:3478\"")
             // YENI SUNUCU TASIMA: cert pin asagiya yazilmali.
             // Pin almak icin: openssl s_client -connect signal.securechat.app:443 -servername signal.securechat.app \
             //   < /dev/null 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | \
             //   openssl dgst -sha256 -binary | openssl enc -base64
             // Format: "sha256/<base64-hash>"
+            // ZORUNLU: backup pin de set edilmeli — cert rotation sirasinda eski APK'lar brick olmasin.
             buildConfigField("String", "CERT_PIN_HOST", "\"signal.securechat.app\"")
-            buildConfigField("String", "CERT_PIN_SHA256", "\"\"")  // TODO: yeni sunucu pin'i set et
+            buildConfigField("String", "CERT_PIN_SHA256", "\"\"")          // TODO: yeni sunucu primary pin'i set et
+            buildConfigField("String", "CERT_PIN_SHA256_BACKUP", "\"\"")   // TODO: backup pin (rotation icin) zorunlu
         }
     }
 

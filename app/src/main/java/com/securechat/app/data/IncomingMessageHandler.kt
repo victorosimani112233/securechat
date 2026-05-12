@@ -95,8 +95,8 @@ class IncomingMessageHandler @Inject constructor(
             val participants: List<String>,
             val mode: String, // MESH veya SFU
             val sfuRoomId: Long? = null,
-            val janusWsUrl: String? = null,
-            val apiSecret: String? = null
+            val janusWsUrl: String? = null
+            // GUVENLIK: apiSecret BURADAN KALDIRILDI (C2 fix) — Janus auth Nginx katmaninda.
         )
         val activeGroupCalls = kotlinx.coroutines.flow.MutableStateFlow<Map<String, ActiveGroupCallInfo>>(emptyMap())
 
@@ -724,8 +724,7 @@ class IncomingMessageHandler @Inject constructor(
         }
         val info = com.securechat.media.CallManager.SfuRoomBindInfo(
             roomId = signal.roomId,
-            janusWsUrl = signal.janusWsUrl,
-            apiSecret = signal.apiSecret
+            janusWsUrl = signal.janusWsUrl
         )
         callManager.bindSfuRoomFromInvite(localUserId, info)
 
@@ -736,8 +735,7 @@ class IncomingMessageHandler @Inject constructor(
             current[signal.groupId] = existing.copy(
                 mode = "SFU",
                 sfuRoomId = signal.roomId,
-                janusWsUrl = signal.janusWsUrl,
-                apiSecret = signal.apiSecret
+                janusWsUrl = signal.janusWsUrl
             )
             activeGroupCalls.value = current
         }
@@ -760,8 +758,7 @@ class IncomingMessageHandler @Inject constructor(
                 participants = signal.participants,
                 mode = signal.mode ?: "MESH",
                 sfuRoomId = signal.sfuRoomId,
-                janusWsUrl = signal.janusWsUrl,
-                apiSecret = signal.apiSecret
+                janusWsUrl = signal.janusWsUrl
             )
         } else {
             current.remove(signal.groupId)
@@ -1445,6 +1442,10 @@ class IncomingMessageHandler @Inject constructor(
                 .setContentTitle("Elçim")
                 .setContentText(privacyText)
                 .setSubText("Elçim")
+                // GUVENLIK (M9 fix): Lock screen'de "Elcim — N yeni mesaj" gostermek bile bilgi sizdirir
+                // (cihaz sahibi disinda birinin elinde olabilir). VISIBILITY_SECRET ile lock screen'de
+                // bildirim TAMAMEN gizlenir — sadece unlock sonrasi gorulebilir.
+                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
 
             try {
                 nm.notify(ELCIM_PRIVACY_NOTIF_ID, privacyBuilder.build())

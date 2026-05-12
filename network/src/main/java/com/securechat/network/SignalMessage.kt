@@ -288,6 +288,10 @@ sealed class SignalMessage {
      * SFU room olusturuldu bildirimi.
      * 4+ katilimcili grup aramasinda sunucu Janus VideoRoom olusturur ve bu bilgiyi gonderir.
      * Client bu bilgiyle mesh yerine Janus SFU'ya baglanir.
+     *
+     * GUVENLIK: apiSecret alani BURADAN KALDIRILDI (C2 fix).
+     * Janus admin secret server-internal; client'a sizmaz. Janus public endpoint
+     * (wss:// reverse proxy + JWT validation) auth saglar.
      */
     @Serializable
     @SerialName("sfu_room_created")
@@ -297,8 +301,7 @@ sealed class SignalMessage {
         override val timestamp: Long,
         val groupId: String,
         val roomId: Long,
-        val janusWsUrl: String,
-        val apiSecret: String = ""
+        val janusWsUrl: String
     ) : SignalMessage()
 
     /**
@@ -444,7 +447,9 @@ sealed class SignalMessage {
     /**
      * Aktif grup aramasi durum cevabi (sunucudan istemciye).
      * isActive=false ise diger alanlar null/bos.
-     * mode: "MESH" veya "SFU". SFU modunda sfuRoomId/janusWsUrl/apiSecret doludur.
+     * mode: "MESH" veya "SFU". SFU modunda sfuRoomId/janusWsUrl doludur.
+     *
+     * GUVENLIK: apiSecret alani BURADAN KALDIRILDI (C2 fix).
      */
     @Serializable
     @SerialName("group_call_status_response")
@@ -460,7 +465,6 @@ sealed class SignalMessage {
         val participants: List<String> = emptyList(),
         val mode: String? = null, // "MESH" veya "SFU"
         val sfuRoomId: Long? = null,
-        val janusWsUrl: String? = null,
-        val apiSecret: String? = null
+        val janusWsUrl: String? = null
     ) : SignalMessage()
 }

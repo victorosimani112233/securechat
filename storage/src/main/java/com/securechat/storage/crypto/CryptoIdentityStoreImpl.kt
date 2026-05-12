@@ -2,6 +2,7 @@ package com.securechat.storage.crypto
 
 import android.content.SharedPreferences
 import android.util.Base64
+import com.securechat.crypto.KeyStoreManager
 import com.securechat.crypto.store.CryptoIdentityStore
 import com.securechat.storage.dao.IdentityDao
 import com.securechat.storage.entity.IdentityEntity
@@ -13,18 +14,28 @@ import javax.inject.Singleton
 /**
  * Identity key store implementasyonu.
  * Uzak kimlikler Room DAO ile saklanir.
- * Yerel registrationId ve identityKeyPair ise SharedPreferences'da tutulur.
- * Not: Production'da EncryptedSharedPreferences kullanilmalidir.
+ *
+ * GUVENLIK: Yerel identity key pair Android Keystore master key ile (AES-256-GCM)
+ * sifrelenmis halde SharedPreferences'a yazilir. Plaintext private key diske ASLA yazilmaz.
+ * registrationId hassas degil — int olarak plain tutulur.
+ *
+ * Migration: KEY_IDENTITY_KEY_PAIR (eski plaintext Base64) varsa, ilk okumada decrypt
+ * dener; basarisizsa eski plaintext olarak okuyup KEY_IDENTITY_KEY_PAIR_V2 (encrypted)
+ * altina migrate eder. Eski entry silinir.
  */
 @Singleton
 class CryptoIdentityStoreImpl @Inject constructor(
     private val identityDao: IdentityDao,
-    @Named("crypto") private val prefs: SharedPreferences
+    @Named("crypto") private val prefs: SharedPreferences,
+    private val keyStoreManager: KeyStoreManager
 ) : CryptoIdentityStore {
 
     companion object {
         private const val KEY_REGISTRATION_ID = "local_registration_id"
-        private const val KEY_IDENTITY_KEY_PAIR = "local_identity_key_pair"
+        // Eski plaintext Base64 entry — migration sonrasi silinir.
+        private const val KEY_IDENTITY_KEY_PAIR_LEGACY = "local_identity_key_pair"
+        // Yeni: Keystore-encrypted, Base64-encoded entry.
+        private const val KEY_IDENTITY_KEY_PAIR_ENCRYPTED = "local_identity_key_pair_v2"
     }
 
     override suspend fun loadIdentity(name: String): ByteArray? =
@@ -52,12 +63,25 @@ class CryptoIdentityStoreImpl @Inject constructor(
     }
 
     override suspend fun getIdentityKeyPair(): ByteArray? {
-        val encoded = prefs.getString(KEY_IDENTITY_KEY_PAIR, null) ?: return null
-        return Base64.decode(encoded, Base64.NO_WRAP)
+        // Once yeni (encrypted) entry'i dene.
+        prefs.getString(KEY_IDENTITY_KEY_PAIR_ENCRYPTED, null)?.let { encryptedBase64 ->
+            val encrypted = Base64.decode(encryptedBase64, Base64.NO_WRAP)
+            return keyStoreManager.decrypt(encrypted)
+        }
+
+        // Migration: eski plaintext entry varsa oku, encrypted'a yaz, eski siyl.
+        val legacyEncoded = prefs.getString(KEY_IDENTITY_KEY_PAIR_LEGACY, null) ?: return null
+        val keyPair = Base64.decode(legacyEncoded, Base64.NO_WRAP)
+        storeIdentityKeyPair(keyPair)
+        prefs.edit().remove(KEY_IDENTITY_KEY_PAIR_LEGACY).apply()
+        return keyPair
     }
 
     override suspend fun storeIdentityKeyPair(keyPair: ByteArray) {
-        val encoded = Base64.encodeToString(keyPair, Base64.NO_WRAP)
-        prefs.edit().putString(KEY_IDENTITY_KEY_PAIR, encoded).apply()
+        // Keystore master key ile sifrele → Base64 → SharedPreferences.
+        // Plaintext private key diske yazilmaz.
+        val encrypted = keyStoreManager.encrypt(keyPair)
+        val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
+        prefs.edit().putString(KEY_IDENTITY_KEY_PAIR_ENCRYPTED, encoded).apply()
     }
 }

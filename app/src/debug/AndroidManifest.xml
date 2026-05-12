@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG-only manifest entries.
+  Bu dosya yalnizca debug build'lerde merge edilir; release APK'ya dahil edilmez.
+  Receiver'lar exported=true bile olsa release build'de manifest'te kayitli olmadigi icin
+  Android sistemi tarafindan tetiklenemez (saldiri yuzeyi sifir).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+
+        <!-- Debug-only: ADB ile bildirim tetiklemek icin test receiver'i.
+             RELEASE build'de bu entry merge edilmez. -->
+        <receiver
+            android:name=".debug.TestNotificationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.securechat.app.debug.TEST_NOTIFICATION" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

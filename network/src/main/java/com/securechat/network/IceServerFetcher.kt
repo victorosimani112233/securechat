@@ -15,7 +15,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class IceServerFetcher @Inject constructor(
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    @Named("stunUrl") private val stunUrl: String
 ) {
     @Volatile
     var apiBaseUrl: String = ""
@@ -80,7 +81,7 @@ class IceServerFetcher @Inject constructor(
 
     private fun fallbackServers(): List<PeerConnection.IceServer> {
         return listOf(
-            PeerConnection.IceServer.builder("stun:185.48.182.124:3478")
+            PeerConnection.IceServer.builder(stunUrl)
                 .createIceServer()
         )
     }

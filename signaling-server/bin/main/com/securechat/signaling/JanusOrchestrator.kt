@@ -27,8 +27,28 @@ private val log = LoggerFactory.getLogger("JanusOrchestrator")
 object JanusOrchestrator {
 
     private val janusWsUrl = System.getenv("JANUS_WS_URL") ?: "ws://localhost:8188"
-    private val janusApiSecret = System.getenv("JANUS_API_SECRET") ?: "securechat_janus_api"
-    private val janusAdminSecret = System.getenv("JANUS_ADMIN_SECRET") ?: "janusoverlord"
+
+    // GUVENLIK: Production'da JANUS_API_SECRET ve JANUS_ADMIN_SECRET env zorunlu (H6 fix).
+    // Default fallback artik yok — env yoksa uygulama start'ta crash eder.
+    // Bu Janus admin API'sine yetkisiz erisimi tamamen onler.
+    private val janusApiSecret = requireSecret("JANUS_API_SECRET")
+    private val janusAdminSecret = requireSecret("JANUS_ADMIN_SECRET")
+
+    private fun requireSecret(envName: String): String {
+        val value = System.getenv(envName) ?: error(
+            "$envName environment variable tanimlanmamis. " +
+            "Bu Janus admin API'sine yetkisiz erisime izin verir. " +
+            "docker-compose.yml veya production env dosyasinda 32+ char random secret ile ayarla."
+        )
+        check(value.length >= 16) {
+            "$envName cok kisa (${value.length} char). En az 16, ideal 32+ char random secret kullan."
+        }
+        check(value != "janusoverlord" && value != "securechat_janus_api") {
+            "$envName default/sample value kullaniyor ($value). " +
+            "Random secret ile degistir: openssl rand -base64 32"
+        }
+        return value
+    }
 
     private val transactionCounter = AtomicLong(0)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -276,14 +296,18 @@ object JanusOrchestrator {
      * Belirli bir grup icin SFU room bilgisini doner.
      * Client bu bilgiyi kullanarak Janus'a dogrudan baglanir.
      *
+     * GUVENLIK: apiSecret client'a ASLA gonderilmez (C2 fix).
+     * Janus public endpoint (Nginx reverse proxy) anonymous baglantiyi kabul etmeli
+     * veya per-session token plugin'i ile authentication yapilmali. apiSecret server-internal.
+     *
      * @return null ise room henuz olusturulmamis
      */
     fun getRoomInfo(groupId: String): SfuRoomInfo? {
         val roomId = activeRooms[groupId] ?: return null
         return SfuRoomInfo(
             roomId = roomId,
-            janusWsUrl = System.getenv("JANUS_PUBLIC_WS_URL") ?: "ws://185.48.182.124:8188",
-            apiSecret = janusApiSecret
+            janusWsUrl = System.getenv("JANUS_PUBLIC_WS_URL")
+                ?: error("JANUS_PUBLIC_WS_URL env tanimlanmamis — production'da zorunlu (wss:// + reverse proxy)")
         )
     }
 
@@ -308,9 +332,12 @@ object JanusOrchestrator {
 
 /**
  * SFU room bilgisi — client'a gonderilir.
+ *
+ * GUVENLIK: apiSecret alani BURADAN KALDIRILDI (C2 fix).
+ * Janus admin api_secret asla client'a sizdirilmaz. Authentication ya Nginx reverse proxy
+ * katmaninda (JWT validation) ya da Janus token plugin'i ile yapilir.
  */
 data class SfuRoomInfo(
     val roomId: Long,
-    val janusWsUrl: String,
-    val apiSecret: String
+    val janusWsUrl: String
 )

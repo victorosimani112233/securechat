@@ -58,7 +58,8 @@ class CallManager @Inject constructor(
     private val ringtonePlayer: RingtonePlayer,
     private val incomingCallHandler: IncomingCallHandler,
     private val callLogDao: CallLogDao,
-    private val messageRepository: com.securechat.storage.repository.MessageRepository
+    private val messageRepository: com.securechat.storage.repository.MessageRepository,
+    private val sharedOkHttpClient: okhttp3.OkHttpClient
 ) {
     private val _callSession = MutableStateFlow<CallSession?>(null)
 
@@ -1310,11 +1311,15 @@ class CallManager @Inject constructor(
         onGroupMemberAccepted(signal.senderId)
     }
 
-    /** SFU bind bilgisi — joinGroupCall ve handleSfuRoomCreated kullanir. */
+    /**
+     * SFU bind bilgisi — joinGroupCall ve handleSfuRoomCreated kullanir.
+     *
+     * GUVENLIK: apiSecret alani BURADAN KALDIRILDI (C2 fix).
+     * Janus auth Nginx reverse proxy (JWT) veya token plugin uzerinden saglanir.
+     */
     data class SfuRoomBindInfo(
         val roomId: Long,
-        val janusWsUrl: String,
-        val apiSecret: String
+        val janusWsUrl: String
     )
 
     /** Aktif Janus istemcisi — sadece SFU modunda dolu. */
@@ -1346,9 +1351,8 @@ class CallManager @Inject constructor(
                 android.util.Log.d("CallManager", "bindSfuRoom basliyor: room=${info.roomId} ws=${info.janusWsUrl}")
                 refreshIceServers(userId)
 
-                val client = com.securechat.network.JanusClient().also { janusClient = it }
-                client.setApiSecret(info.apiSecret)
-
+                val client = com.securechat.network.JanusClient(sharedOkHttpClient).also { janusClient = it }
+                // Janus auth artik Nginx reverse proxy katmaninda (JWT) yapilir — client apiSecret tasimaz.
                 val connected = client.connect(info.janusWsUrl)
                 if (!connected) {
                     android.util.Log.e("CallManager", "Janus baglantisi kurulamadi")

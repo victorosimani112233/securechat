@@ -117,8 +117,13 @@ services:
       ENV: ${ENV:-production}
       FIREBASE_SERVICE_ACCOUNT_PATH: /app/firebase-service-account.json
       JANUS_WS_URL: ws://janus:8188
-      JANUS_API_SECRET: ${JANUS_API_SECRET:-securechat_janus_api}
-      JANUS_ADMIN_SECRET: janusoverlord
+      # GUVENLIK (H6 fix): default value yok — env yoksa startup'ta crash.
+      JANUS_API_SECRET: ${JANUS_API_SECRET:?JANUS_API_SECRET env zorunlu (openssl rand -base64 32)}
+      JANUS_ADMIN_SECRET: ${JANUS_ADMIN_SECRET:?JANUS_ADMIN_SECRET env zorunlu (openssl rand -base64 32)}
+      # Janus public WS URL — Nginx reverse proxy uzerinden (wss:// + JWT auth).
+      JANUS_PUBLIC_WS_URL: ${JANUS_PUBLIC_WS_URL:?JANUS_PUBLIC_WS_URL env zorunlu (wss://signal.../janus)}
+      # GUVENLIK (H7 fix): FCM token AES-256-GCM encryption key — 32 byte base64.
+      FCM_TOKEN_ENCRYPTION_KEY: ${FCM_TOKEN_ENCRYPTION_KEY:?FCM_TOKEN_ENCRYPTION_KEY env zorunlu (openssl rand -base64 32)}
       # Production logging — INFO seviyesinde (DEBUG cok gurultulu)
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_DIR: /app/logs
@@ -151,6 +156,10 @@ services:
     # Host'a expose ETME — Nginx uzerinden erisim
 
   # --- Janus Gateway (SFU) ---
+  # GUVENLIK (C3 fix): 8188 ve 8088 admin/control portlari ARTIK HOSTA EXPOSE EDILMIYOR.
+  # Sadece internal Docker network'unden backend service'i erisebilir. Client'lar Janus'a
+  # Nginx reverse proxy uzerinden (wss://signal.../janus) baglanir; Nginx JWT validation yapar.
+  # UDP RTP portlari (20000-20200) WebRTC medya icin disa acik kalmali (P2P traversal).
   janus:
     image: canyan/janus-gateway:latest
     container_name: securechat-janus
@@ -160,19 +169,25 @@ services:
       - ./janus/janus.plugin.videoroom.jcfg:/usr/local/etc/janus/janus.plugin.videoroom.jcfg:ro
       - ./janus/janus.transport.websockets.jcfg:/usr/local/etc/janus/janus.transport.websockets.jcfg:ro
       - ./janus/janus.transport.http.jcfg:/usr/local/etc/janus/janus.transport.http.jcfg:ro
+    # 8188 ve 8088 expose ile internal-only (backend container erisebilir, host degil).
+    expose:
+      - "8188"   # Janus WebSocket API — internal-only
+      - "8088"   # Janus HTTP API — internal-only (admin enumeration onlenir)
     ports:
-      - "8188:8188"   # Janus WebSocket API
-      - "8088:8088"   # Janus HTTP API
-      - "20000-20200:20000-20200/udp"  # RTP media ports (janus.jcfg ile eslesir)
+      - "20000-20200:20000-20200/udp"  # RTP media ports — disa acik (WebRTC NAT traversal)
     environment:
-      JANUS_API_SECRET: ${JANUS_API_SECRET:-securechat_janus_api}
+      # GUVENLIK: env yoksa JanusOrchestrator startup'ta crash eder (H6 fix).
+      # Default value yok — production'da .env'den 32+ char random secret zorunlu.
+      JANUS_API_SECRET: ${JANUS_API_SECRET:?JANUS_API_SECRET env zorunlu}
+      JANUS_ADMIN_SECRET: ${JANUS_ADMIN_SECRET:?JANUS_ADMIN_SECRET env zorunlu}
     mem_limit: 512m
     mem_reservation: 64m
     stop_grace_period: 15s
     logging: *default-logging
     networks:
       - internal
-      - external
+      # NOT: external network'ten KALDIRILDI — Janus artik dis aga dogrudan baglanmiyor.
+      # RTP medya icin UDP portlari hala host network namespace'inden erisilebilir.
 
 volumes:
   postgres_data:

@@ -164,6 +164,15 @@ class MissedCallTracker @Inject constructor(
         )
 
         val callTypeLabel = if (session.callType.name == "VIDEO") "Görüntülü Arama" else "Sesli Arama"
+        // GUVENLIK (M9 fix): Public visibility ile peerName lock screen'de gorunur.
+        // VISIBILITY_PRIVATE — lock screen'de generic mesaj, unlock sonrasi tam icerik.
+        val publicVersion = NotificationCompat.Builder(context, MISSED_CALL_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_notify_missed_call)
+            .setContentTitle("Kaçırılan arama")
+            .setContentText("Açmak için dokunun")
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
+
         val notification = NotificationCompat.Builder(context, MISSED_CALL_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_missed_call)
             .setContentTitle("Kaçırılan $callTypeLabel")
@@ -177,6 +186,8 @@ class MissedCallTracker @Inject constructor(
                 callBackPi
             )
             .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_LIGHTS)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion)
             .build()
 
         try {

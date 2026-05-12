@@ -44,8 +44,9 @@ dependencies {
     // WebRTC — api ile expose ediliyor, app modulu SurfaceViewRenderer kullanir
     api(libs.webrtc)
 
-    // OkHttp
-    implementation(libs.okhttp)
+    // OkHttp — api olarak expose ediyoruz: CallManager (media modulu) shared OkHttpClient'i
+    // dogrudan kullaniyor (JanusClient'a cert pinning ile gecirmek icin).
+    api(libs.okhttp)
     implementation(libs.okhttp.logging)
 
     // Kotlinx Serialization

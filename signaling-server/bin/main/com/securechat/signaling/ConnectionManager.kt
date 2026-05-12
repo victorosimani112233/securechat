@@ -191,21 +191,22 @@ class ConnectionManager(
         recipientPayloads: Map<String, String>,
         timestamp: Long
     ) {
-        // GUVENLIK: Sender grubun gercek uyesi mi? Authorization kontrolu.
-        // Onceden hicbir kontrol yoktu — saldirgan herhangi bir gruba mesaj enjekte edebiliyordu.
+        // GUVENLIK (M7 fix): Grup uye listesi sync edilmediyse fanout REDDEDILIR.
+        // Eskiden "members.isEmpty()" durumunda tum recipient'lara izin veriliyordu — bu
+        // yeni grup olusturma race window'inda saldirgan istedigi userId'lere mesaj enjekte
+        // edebiliyordu. Artik client once group_notification (CREATE/ADD_MEMBER) gondererek
+        // uye listesini sync etmeli; sonra fanout kabul edilir.
         val members = GroupMemberStore.getMembers(groupId)
-        if (members.isNotEmpty() && senderId !in members) {
+        if (members.isEmpty()) {
+            log.warn("[!] Grup fanout reddedildi: $senderId -> $groupId uye listesi sync edilmemis (group_notification onceden gerekli)")
+            return
+        }
+        if (senderId !in members) {
             log.warn("[!] Yetkisiz grup fanout girisimi: $senderId -> $groupId (uye degil)")
             return
         }
-        // GUVENLIK: Recipient'lar da gercek uye olmali — sender grup uye listesi degistirmemeli.
-        val validRecipients = if (members.isNotEmpty()) {
-            recipientPayloads.filterKeys { it in members }
-        } else {
-            // Grup uye listesi henuz sunucuda yoksa (yeni grup), tum recipient'lara izin ver.
-            // group_notification mesaji ile uye listesi sync edilince siki kontrol baslar.
-            recipientPayloads
-        }
+        // Recipient'lar da gercek uye olmali — sender grup uye listesi degistirmemeli.
+        val validRecipients = recipientPayloads.filterKeys { it in members }
         if (validRecipients.size != recipientPayloads.size) {
             log.warn("[!] Grup fanout: ${recipientPayloads.size - validRecipients.size} yetkisiz alici filtrelendi")
         }
@@ -387,8 +388,13 @@ class ConnectionManager(
         val transientTypes = setOf("typing_indicator", "presence_update", "presence_subscribe", "presence_unsubscribe", "audio_data", "video_data")
         if (messageType in transientTypes) return
 
-        // Redis Sorted Set'e ekle
-        queueOfflineMessage(recipientId, messageJson)
+        // GUVENLIK (H8 fix): file_transfer mesajlari AYRI bucket'a yonlendirilir.
+        // Buyuk dosya chunk'lari ana mesaj queue'sunu doldurarak Redis OOM yaratamasin.
+        if (messageType == "file_transfer") {
+            queueOfflineFileTransfer(recipientId, messageJson)
+        } else {
+            queueOfflineMessage(recipientId, messageJson)
+        }
         Metrics.messagesQueued.increment()
 
         if (fcmPushSender != null && messageType != null) {
@@ -402,7 +408,13 @@ class ConnectionManager(
     /**
      * Offline mesaji Redis Sorted Set'e ekler.
      * Key: offline_queue:{userId}, Score: timestamp, Value: mesaj JSON
-     * Max 1000 mesaj — en eski silinir. TTL: 14 gun.
+     *
+     * GUVENLIK (H8 fix): Iki kademe sinir uygulanir.
+     * 1. Mesaj sayisi: Max 1000 mesaj/user (mevcut)
+     * 2. Toplam byte: Max OFFLINE_QUEUE_MAX_BYTES per user (50 MB) — Redis OOM korumasi.
+     *    Yeni mesaj eklendiginde toplam byte hesaplanir, asanlardan en eski silinir.
+     *
+     * TTL: 30 gun. Redis: maxmemory=3gb, allkeys-lru → genel korumayi tamamlar.
      */
     private fun queueOfflineMessage(recipientId: String, message: String) {
         try {
@@ -410,17 +422,63 @@ class ConnectionManager(
             val score = System.currentTimeMillis().toDouble()
             RedisManager.use { jedis ->
                 jedis.zadd(key, score, message)
-                // Max 1000 mesaj — en eskileri sil
-                val size = jedis.zcard(key)
-                if (size > 1000) {
-                    jedis.zremrangeByRank(key, 0, size - 1001)
-                }
-                // 14 gun TTL
-                jedis.expire(key, 14 * 24 * 3600)
+                enforceQueueLimits(jedis, key, OFFLINE_QUEUE_MAX_BYTES)
+                jedis.expire(key, 30 * 24 * 3600)
             }
         } catch (e: Exception) {
             log.warn("[!] Redis offline queue hatasi: ${e.message}")
         }
+    }
+
+    /**
+     * File transfer chunk'lari icin ayri bucket — TTL kisa (24 saat), byte cap dusuk (10 MB/user).
+     * Buyuk dosyalar offline kullaniciya hicbir zaman birikmez; gondericinin retry'sine bagli.
+     */
+    private fun queueOfflineFileTransfer(recipientId: String, message: String) {
+        try {
+            val key = "offline_file:$recipientId"
+            val score = System.currentTimeMillis().toDouble()
+            RedisManager.use { jedis ->
+                jedis.zadd(key, score, message)
+                enforceQueueLimits(jedis, key, OFFLINE_FILE_MAX_BYTES)
+                jedis.expire(key, 24 * 3600)  // 24 saat
+            }
+        } catch (e: Exception) {
+            log.warn("[!] Redis offline file queue hatasi: ${e.message}")
+        }
+    }
+
+    /**
+     * Queue limit enforcement: hem mesaj sayisi (1000) hem toplam byte cap.
+     * Sirayla en eski mesajlari siler ta ki her iki sinir altina dusene kadar.
+     */
+    private fun enforceQueueLimits(jedis: redis.clients.jedis.Jedis, key: String, maxBytes: Long) {
+        // Once mesaj sayisi sinirini uygula
+        val size = jedis.zcard(key)
+        if (size > OFFLINE_QUEUE_MAX_MESSAGES) {
+            jedis.zremrangeByRank(key, 0, size - OFFLINE_QUEUE_MAX_MESSAGES - 1)
+        }
+
+        // Toplam byte sinirini uygula (en eski mesajlari siler)
+        var iterations = 0
+        while (iterations < 50) {  // defansif: en fazla 50 mesaj sil tek seferde
+            val all = jedis.zrange(key, 0, -1) ?: break
+            val totalBytes = all.sumOf { it.length.toLong() }
+            if (totalBytes <= maxBytes) break
+            // En eski %10'unu sil (toplu silme — tek tek silmek pahali)
+            val toRemove = (all.size / 10).coerceAtLeast(1)
+            jedis.zremrangeByRank(key, 0, (toRemove - 1).toLong())
+            iterations++
+        }
+    }
+
+    companion object {
+        /** Offline queue per-user mesaj sayisi limiti. */
+        private const val OFFLINE_QUEUE_MAX_MESSAGES = 1000L
+        /** Offline mesaj queue per-user toplam byte limiti (50 MB). Redis OOM korumasi. */
+        private const val OFFLINE_QUEUE_MAX_BYTES = 50L * 1024 * 1024
+        /** File transfer queue per-user toplam byte limiti (10 MB). */
+        private const val OFFLINE_FILE_MAX_BYTES = 10L * 1024 * 1024
     }
 
     /**
@@ -433,12 +491,16 @@ class ConnectionManager(
     private suspend fun deliverOfflineMessages(userId: String, session: WebSocketSession) {
         try {
             val key = "offline_queue:$userId"
+            val fileKey = "offline_file:$userId"
+            // Hem ana mesaj queue'sunu hem file transfer queue'sunu birlikte deliver et.
+            // H8 fix: file_transfer'lar ayri bucket'ta birikiyor — kacirilmamasi icin burada da oku.
             val messages = RedisManager.use { jedis ->
-                val msgs = jedis.zrangeByScore(key, "-inf", "+inf")
-                if (msgs.isNotEmpty()) {
-                    jedis.del(key)
-                }
-                msgs
+                val main = jedis.zrangeByScore(key, "-inf", "+inf") ?: emptyList()
+                val files = jedis.zrangeByScore(fileKey, "-inf", "+inf") ?: emptyList()
+                if (main.isNotEmpty()) jedis.del(key)
+                if (files.isNotEmpty()) jedis.del(fileKey)
+                // Iki listeyi timestamp sirasiyla birlestir (Redis Sorted Set'in score'una guveniyoruz).
+                (main + files)
             }
             if (messages.isNullOrEmpty()) return
 

@@ -83,8 +83,9 @@ fun main() {
         install(WebSockets) {
             pingPeriod = Duration.ofSeconds(60)  // Server her 60sn ping atar
             timeout = Duration.ofSeconds(90)     // 90sn pong gelmezse drop
-            // GUVENLIK: 256 KB frame limit — saldirgan tek frame ile RAM tuketmesin.
-            // En buyuk SDP Offer ~10 KB; encrypted message envelope ~64 KB; bu limit fazlasiyla yeterli.
+            // GUVENLIK (M14 fix): 256 KB frame limit — saldirgan tek frame ile RAM tuketmesin.
+            // Tek otoritatif limit; WebSocketRoutes.kt'de MAX_MESSAGE_BYTES ayni deger.
+            // SDP Offer ~10 KB, encrypted envelope ~64 KB, file_transfer chunk 128 KB — limit yeterli.
             maxFrameSize = 256L * 1024L
             masking = false
         }

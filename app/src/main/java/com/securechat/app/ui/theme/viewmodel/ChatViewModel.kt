@@ -257,11 +257,10 @@ class ChatViewModel @Inject constructor(
     fun joinActiveGroupCall() {
         val info = activeGroupCallForChat.value ?: return
         val uid = userSession.userId ?: return
-        val sfuInfo = if (info.mode == "SFU" && info.sfuRoomId != null && info.janusWsUrl != null && info.apiSecret != null) {
+        val sfuInfo = if (info.mode == "SFU" && info.sfuRoomId != null && info.janusWsUrl != null) {
             com.securechat.media.CallManager.SfuRoomBindInfo(
                 roomId = info.sfuRoomId,
-                janusWsUrl = info.janusWsUrl,
-                apiSecret = info.apiSecret
+                janusWsUrl = info.janusWsUrl
             )
         } else null
 
@@ -283,7 +282,18 @@ class ChatViewModel @Inject constructor(
         }
         // Chat screen kapatildiginda current chat'i temizle
         IncomingMessageHandler.currentChatId = null
-        android.util.Log.d("ChatViewModel", "Current chat cleared")
+
+        // GUVENLIK (M12 fix): Hassas state'leri temizle — memory dump'larda mesaj icerigi
+        // veya search query'si gorunmesin. messages StateFlow zaten WhileSubscribed(5000)
+        // ile GC eligible, ama diger state'leri explicit sifirla.
+        _searchQuery.value = ""
+        _searchResultIds.value = emptyList()
+        _highlightedMessageId.value = null
+        _conversationInfo.value = null
+        _uploadProgress.value = emptyMap()
+        draftMessages.remove(conversationId)
+
+        android.util.Log.d("ChatViewModel", "Current chat cleared, sensitive state wiped")
     }
 
     /** Taslak mesaji kaydeder — kullanici sohbetten cikarken cagrilir. */

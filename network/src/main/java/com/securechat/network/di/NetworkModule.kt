@@ -9,12 +9,14 @@ import okhttp3.CertificatePinner
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
-import javax.inject.Named
 import javax.inject.Singleton
 
 /**
  * Network modulunun Hilt dependency injection konfigurasyonu.
  * OkHttpClient ve diger ag bagimliliklarini saglar.
+ *
+ * NOT: signalingUrl, stunUrl ve CertificatePinner provider'lari `:app` modulunde
+ * (AppModule.kt) tanimli — BuildConfig fields'a erisim icin app-level binding gerekli.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -44,16 +46,5 @@ object NetworkModule {
         certificatePinner?.let { builder.certificatePinner(it) }
         interceptors.forEach { builder.addInterceptor(it) }
         return builder.build()
-    }
-
-    /**
-     * Signaling sunucusu URL'ini saglar.
-     * Hardcoded development URL - production'da farklı olabilir.
-     */
-    @Provides
-    @Singleton
-    @Named("signalingUrl")
-    fun provideSignalingUrl(): String {
-        return "ws://185.48.182.124:9090"
     }
 }

@@ -17,7 +17,12 @@ private val logger = LoggerFactory.getLogger("WebSocketRoutes")
 private val sfuScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 /** Maksimum WebSocket mesaj uzunlugu (karakter cinsinden). 256KB frame'e paralel. */
-private const val MAX_MESSAGE_LENGTH = 256_000
+/**
+ * Mesaj boyut limiti — byte cinsinden, frame size limit ile tutarli (M14 fix).
+ * Application.kt'de WebSockets.maxFrameSize = 256 KB; mesaj byte boyutu da ayni limit.
+ * UTF-8'de char != byte (1-4 byte/char) — bu yuzden length yerine byte cinsinden olculur.
+ */
+private const val MAX_MESSAGE_BYTES = 256 * 1024  // 256 KB, frame size ile aynı
 
 fun Application.configureWebSocket(connectionManager: ConnectionManager) {
     routing {
@@ -74,10 +79,12 @@ fun Application.configureWebSocket(connectionManager: ConnectionManager) {
                     when (frame) {
                         is Frame.Text -> {
                             val text = frame.readText()
-                            // GUVENLIK: Mesaj boyut limiti — frame size'a ek savunma katmani
-                            if (text.length > MAX_MESSAGE_LENGTH) {
+                            // GUVENLIK (M14 fix): Byte cinsinden boyut kontrolu — frame size limit ile tutarli.
+                            // Ktor maxFrameSize zaten buyuk frame'leri reddeder, bu ek savunma.
+                            val byteSize = text.toByteArray(Charsets.UTF_8).size
+                            if (byteSize > MAX_MESSAGE_BYTES) {
                                 AuditLog.log(userId = userId, eventType = "WS_OVERSIZE_MSG", ipAddress = ip,
-                                    metadata = mapOf("size" to text.length.toString()))
+                                    metadata = mapOf("bytes" to byteSize.toString()))
                                 close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Mesaj cok buyuk"))
                                 return@webSocket
                             }
@@ -155,12 +162,25 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                     }
                     logger.info("[GroupCall] Koordinator+son uye disconnect — arama sonlandirildi: ${active.groupId}")
                 } else {
-                    // Koordinatorlugu kalan ONLINE uyelerden birine devret.
-                    // Tercih: online connection'i olan ilk participant; yoksa listenin ilki (offline ise yine de
-                    // store guncellenir, online geldiginde late-join akisi devam eder).
-                    val newCoordinator = remaining.firstOrNull { connectionManager.connections().containsKey(it) }
-                        ?: remaining.first()
-                    val transferred = GroupCallSessionStore.transferCoordinator(active.groupId, newCoordinator)
+                    // GUVENLIK (H9 fix): Koordinator transfer ZORUNLU olarak online uyeye yapilir.
+                    // Eskiden offline uyeye fallback vardi — bu kullaniciya orphan call yaratabilirdi.
+                    // Online candidate yoksa transfer skip edilir, arama kalan online uyelerle devam,
+                    // sonraki disconnect/heartbeat tekrar dener.
+                    val onlineCandidate = remaining.firstOrNull { connectionManager.connections().containsKey(it) }
+                    if (onlineCandidate == null) {
+                        logger.warn("[!] Koordinator transfer atlandi: groupId=${active.groupId} hicbir kalan uye online degil")
+                        // Hicbir online uye yok → arama pratik olarak duzelmez, sonlandir.
+                        GroupCallSessionStore.end(active.groupId)
+                        if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
+                            sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
+                        }
+                        continue
+                    }
+                    val transferred = GroupCallSessionStore.transferCoordinator(
+                        active.groupId,
+                        onlineCandidate,
+                        onlineFilter = { connectionManager.connections().containsKey(it) }
+                    )
                     if (transferred != null) {
                         val (prev, next) = transferred
                         for (memberId in remaining) {
@@ -190,12 +210,49 @@ private suspend fun handleUserDisconnectFromGroupCalls(
 
 private suspend fun handleMessage(
     senderId: String,
-    messageJson: String,
+    rawMessageJson: String,
     connectionManager: ConnectionManager
 ) {
     try {
         val json = Json { ignoreUnknownKeys = true }
-        val element = json.parseToJsonElement(messageJson).jsonObject
+        val rawElement = json.parseToJsonElement(rawMessageJson).jsonObject
+
+        // GUVENLIK (H5 fix): client'tan gelen senderId'yi server-enforced degerle override et.
+        // Bir kullanici WebSocket'e authenticate oldugunda token sub'undan senderId belirlenir;
+        // mesaj JSON'unda farkli bir senderId varsa SPOOFING girisimidir. Sanitized JSON'i
+        // tum downstream route/broadcast cagrilari kullanir.
+        val clientSenderId = rawElement["senderId"]?.jsonPrimitive?.contentOrNull
+        if (clientSenderId != null && clientSenderId != senderId) {
+            logger.warn(
+                "[!] Spoofing girisimi: authenticated={} ama JSON.senderId='{}' type='{}' — override edildi",
+                senderId, clientSenderId, rawElement["type"]?.jsonPrimitive?.contentOrNull
+            )
+        }
+
+        // GUVENLIK (M5 fix): Timestamp REPLAY attack korumasi.
+        // Client tarafindan gonderilen timestamp guvensiz — saldirgan eski mesaji aynisiyla tekrar
+        // gonderebilir veya gelecekteki timestamp ile delivery sirasini bozabilir.
+        // Server timestamp'i otorite — drift toleransi olarak ±5 dakika kabul, disinda override.
+        // Iletim sirasi ve TTL hesabi server timestamp'ine gore yapilir.
+        val nowMs = System.currentTimeMillis()
+        val clientTs = rawElement["timestamp"]?.jsonPrimitive?.longOrNull
+        val skewMs = if (clientTs != null) Math.abs(nowMs - clientTs) else 0L
+        val acceptableSkewMs = 5 * 60 * 1000L  // ±5 dk
+        if (clientTs != null && skewMs > acceptableSkewMs) {
+            logger.warn(
+                "[!] Timestamp skew asildi: sender={} client_ts={} server_ts={} delta={}ms — server'a esitlendi",
+                senderId, clientTs, nowMs, nowMs - clientTs
+            )
+        }
+
+        val element = kotlinx.serialization.json.buildJsonObject {
+            rawElement.forEach { (k, v) ->
+                if (k != "senderId" && k != "timestamp") put(k, v)
+            }
+            put("senderId", kotlinx.serialization.json.JsonPrimitive(senderId))
+            put("timestamp", kotlinx.serialization.json.JsonPrimitive(nowMs))
+        }
+        val messageJson = element.toString()
 
         val type = element["type"]?.jsonPrimitive?.contentOrNull
         val recipientId = element["recipientId"]?.jsonPrimitive?.contentOrNull
@@ -258,11 +315,11 @@ private suspend fun handleMessage(
                             GroupCallSessionStore.updateSfuInfo(
                                 groupId = groupId,
                                 sfuRoomId = roomInfo.roomId,
-                                janusWsUrl = roomInfo.janusWsUrl,
-                                apiSecret = roomInfo.apiSecret
+                                janusWsUrl = roomInfo.janusWsUrl
                             )
-                            // Tum katilimcilara SFU room bilgisini gonder
-                            val sfuMsg = """{"type":"sfu_room_created","groupId":"$groupId","roomId":${roomInfo.roomId},"janusWsUrl":"${roomInfo.janusWsUrl}","apiSecret":"${roomInfo.apiSecret}","timestamp":${System.currentTimeMillis()}}"""
+                            // Tum katilimcilara SFU room bilgisini gonder.
+                            // GUVENLIK: apiSecret artik gonderilmiyor (C2 fix).
+                            val sfuMsg = """{"type":"sfu_room_created","groupId":"$groupId","roomId":${roomInfo.roomId},"janusWsUrl":"${roomInfo.janusWsUrl}","timestamp":${System.currentTimeMillis()}}"""
                             for (pid in participants) {
                                 val s = connectionManager.connections()[pid]
                                 if (s != null) {
@@ -291,7 +348,8 @@ private suspend fun handleMessage(
                 val response = if (active != null) {
                     val partsJson = active.participants.joinToString(",") { "\"$it\"" }
                     val sfuFields = if (active.mode == "SFU" && active.sfuRoomId != null) {
-                        ""","sfuRoomId":${active.sfuRoomId},"janusWsUrl":"${active.janusWsUrl}","apiSecret":"${active.apiSecret}""""
+                        // GUVENLIK: apiSecret artik gonderilmiyor (C2 fix).
+                        ""","sfuRoomId":${active.sfuRoomId},"janusWsUrl":"${active.janusWsUrl}""""
                     } else ""
                     """{"type":"group_call_status_response","senderId":"server","recipientId":"$senderId","timestamp":${System.currentTimeMillis()},"groupId":"$groupId","isActive":true,"callId":"${active.callId}","coordinatorId":"${active.coordinatorId}","callType":"${active.callType}","participants":[$partsJson],"mode":"${active.mode}"$sfuFields}"""
                 } else {

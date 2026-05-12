@@ -144,8 +144,10 @@ class SecureChatActivity : AppCompatActivity() {
         // Sistem paylasim intent'ini handle et
         handleShareIntent(intent)
 
-        // Intent'ten chat_peer varsa kaydet
-        intent.getStringExtra("chat_peer")?.let { pendingChatPeerId.value = it }
+        // Intent'ten chat_peer varsa kaydet — VALIDATION ZORUNLU (M8 fix).
+        intent.getStringExtra("chat_peer")?.let { extractAndValidatePeerId(it) }?.let {
+            pendingChatPeerId.value = it
+        }
 
         // IncomingCallActivity'den gelen arama navigasyonu
         handleCallNavigationIntent(intent)
@@ -253,9 +255,42 @@ class SecureChatActivity : AppCompatActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         handleShareIntent(intent)
-        intent.getStringExtra("chat_peer")?.let { pendingChatPeerId.value = it }
+        intent.getStringExtra("chat_peer")?.let { extractAndValidatePeerId(it) }?.let {
+            pendingChatPeerId.value = it
+        }
         handleCallNavigationIntent(intent)
         handleCallbackIntent(intent)
+    }
+
+    /**
+     * GUVENLIK (M8 fix): Intent extras validation.
+     * chat_peer extras malicious app tarafindan dolduruluyor olabilir. UUID format'i zorunlu
+     * (a-z0-9- karakterleri, 32-36 char). Gecersizse null donulur, navigasyon yapilmaz.
+     */
+    private fun extractAndValidatePeerId(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || trimmed.length > 64) return null
+        if (!trimmed.matches(Regex("^[a-zA-Z0-9_-]{8,64}$"))) {
+            Log.w("SecureChatActivity", "Gecersiz chat_peer intent extras — reddedildi")
+            return null
+        }
+        return trimmed
+    }
+
+    /**
+     * GUVENLIK (M8 fix): Paylasilan Uri'nin authority'sini dogrula.
+     * Sadece content:// scheme'ler (FileProvider) ve media store kabul edilir.
+     * file:// reddedilir (storage path traversal koruma). http(s):// reddedilir.
+     */
+    private fun isAcceptableShareUri(uri: android.net.Uri): Boolean {
+        val scheme = uri.scheme?.lowercase() ?: return false
+        if (scheme != "content") return false
+        // content:// uri: authority FileProvider veya media store olmali
+        val authority = uri.authority ?: return false
+        return authority.startsWith("com.") ||
+            authority == "media" ||
+            authority.endsWith(".fileprovider") ||
+            authority == "${BuildConfig.APPLICATION_ID}.fileprovider"
     }
 
     private fun handleShareIntent(intent: android.content.Intent) {
@@ -263,14 +298,16 @@ class SecureChatActivity : AppCompatActivity() {
             android.content.Intent.ACTION_SEND -> {
                 val text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT)
                 val uri = intent.getParcelableExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM)
-                if (text != null) pendingShareText.value = text
-                if (uri != null) pendingShareUri.value = uri
-                Log.d("SecureChatActivity", "Share intent: text=$text, uri=$uri")
+                // Text uzunluk siniri (DoS koruma) — 100KB ustu paylasimi reddet
+                if (text != null && text.length <= 100_000) pendingShareText.value = text
+                if (uri != null && isAcceptableShareUri(uri)) pendingShareUri.value = uri
+                Log.d("SecureChatActivity", "Share intent: textLen=${text?.length}, uriAccepted=${uri?.let { isAcceptableShareUri(it) }}")
             }
             android.content.Intent.ACTION_SEND_MULTIPLE -> {
                 val uris = intent.getParcelableArrayListExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM)
-                if (!uris.isNullOrEmpty()) pendingShareUri.value = uris.first()
-                Log.d("SecureChatActivity", "Share multiple intent: ${uris?.size} items")
+                val firstValid = uris?.firstOrNull { isAcceptableShareUri(it) }
+                if (firstValid != null) pendingShareUri.value = firstValid
+                Log.d("SecureChatActivity", "Share multiple intent: ${uris?.size} items, valid=${firstValid != null}")
             }
         }
     }

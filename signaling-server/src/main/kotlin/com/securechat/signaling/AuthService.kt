@@ -142,13 +142,20 @@ object AuthService {
     /**
      * Access token'i dogrular ve userId'yi (sub claim) doner.
      * Hatali/expired/revoked token icin null doner.
+     *
+     * GUVENLIK (H4 fix): typ claim'i ZORUNLU olarak "access" olmali.
+     * Eski legacy "null typ" kabulu kaldirildi — refresh token'in access olarak
+     * kullanilmasini engeller. Eski APK'lar /auth/refresh ile yeni token alir.
      */
     fun verifyToken(token: String): String? {
         return try {
             val decoded = verifier.verify(token)
-            // Sadece access token'lar bu fonksiyonla dogrulanir
+            // ZORUNLU: typ claim'i "access" olmali. null, "refresh", "registration" REDDEDILIR.
             val typ = decoded.getClaim("typ").asString()
-            if (typ != "access" && typ != null) return null
+            if (typ != "access") {
+                log.warn("[Auth] verifyToken redd: typ='$typ' (access bekleniyordu) jti={}", decoded.id)
+                return null
+            }
             // Blacklist kontrolu
             val jti = decoded.id
             if (jti != null && JwtBlacklist.isRevoked(jti)) {

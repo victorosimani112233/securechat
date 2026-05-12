@@ -22,6 +22,7 @@ import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -38,7 +39,8 @@ import kotlin.coroutines.suspendCoroutine
  */
 @Singleton
 class PeerConnectionManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    @Named("stunUrl") private val stunUrl: String
 ) {
     companion object {
         private const val TAG = "WebRTC"
@@ -133,10 +135,11 @@ class PeerConnectionManager @Inject constructor(
     /** SFU publisher baglanti durumu. */
     var onSfuPublisherConnectionStateChanged: ((PeerConnection.IceConnectionState) -> Unit)? = null
 
-    /** ICE sunucu listesi — sunucudan dinamik cekilir, fallback olarak STUN kullanilir */
+    /** ICE sunucu listesi — sunucudan dinamik cekilir, fallback olarak STUN kullanilir.
+     *  Hardcoded URL kaldirildi — stunUrl BuildConfig.STUN_URL'den inject edilir. */
     @Volatile
     private var iceServers: List<PeerConnection.IceServer> = listOf(
-        PeerConnection.IceServer.builder("stun:185.48.182.124:3478")
+        PeerConnection.IceServer.builder(stunUrl)
             .createIceServer()
     )
 

@@ -21,22 +21,47 @@ import java.util.concurrent.TimeUnit
  * 6. subscribeToFeed() → Uzak publisher'a abone ol, Janus'tan offer al
  * 7. answerSubscription() → Subscriber SDP answer'i gonder
  */
-class JanusClient {
+class JanusClient(
+    /**
+     * Shared OkHttpClient — NetworkModule'den inject edilir (certificate pinning + interceptors).
+     * JanusClient kendi OkHttp instance'ini olusturmaz, aksi takdirde MITM korumasi atlanir.
+     */
+    private val sharedClient: OkHttpClient
+) {
 
     companion object {
         private const val TAG = "JanusClient"
         private const val JANUS_TIMEOUT_MS = 10_000L
+
+        /**
+         * SDP icindeki private/local IP candidate'lari ve mDNS host'lari kaldirir (M6 fix).
+         * RFC 1918 araliklar:  10.0.0.0/8, 172.16-31.x.x, 192.168.0.0/16,
+         * Link-local: 169.254.0.0/16, IPv6 fe80::/10
+         * mDNS host candidate'lari (.local hostname) — gercek IP'yi gizler ama bilgi sizdirir.
+         *
+         * Sonuc: sadece public/STUN/TURN relay candidate'lari Janus'a iletilir → LAN topology leak yok.
+         */
+        internal fun stripPrivateCandidates(sdp: String): String {
+            val privateCandidateRegex = Regex(
+                """^a=candidate:.*\s(?:10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|fe80:[0-9a-fA-F:]+|[A-Fa-f0-9.-]+\.local)\s.*$""",
+                RegexOption.IGNORE_CASE
+            )
+            return sdp.lineSequence()
+                .filterNot { privateCandidateRegex.matches(it) }
+                .joinToString("\r\n")
+        }
     }
 
     private var webSocket: WebSocket? = null
-    private val client = OkHttpClient.Builder()
+    // Janus icin daha uzun read/write timeout — uzun suren VideoRoom operasyonlari icin.
+    // newBuilder() shared client'in pinner+interceptor'larini KORUR.
+    private val client = sharedClient.newBuilder()
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
     private var sessionId: Long = 0
     private var publisherHandleId: Long = 0
-    private var apiSecret: String? = null
     private var roomId: Long = 0
 
     // Subscriber handle'lari: feedId -> handleId
@@ -59,15 +84,20 @@ class JanusClient {
 
     /**
      * Janus WebSocket sunucusuna baglanir.
+     *
+     * GUVENLIK: api_secret tabanli auth KALDIRILDI (C2 fix).
+     * Janus authentication artik Nginx reverse proxy katmaninda yapilir
+     * (Authorization: Bearer JWT). Client mesajlarinda apisecret alani gonderilmez.
      */
-    /** apiSecret — Janus instance-wide auth (api_secret config'i ile aktif). */
+    /** Eski apiSecret auth no-op — backward compat icin korundu, hicbir sey yapmaz. */
+    @Deprecated("Janus auth Nginx reverse proxy katmaninda yapilir; apiSecret kullanmayin.")
     fun setApiSecret(secret: String?) {
-        apiSecret = secret?.takeIf { it.isNotBlank() }
+        // No-op: apisecret artik kullanilmiyor.
     }
 
-    /** JsonObjectBuilder'a apiSecret alani ekler (varsa). */
+    /** JsonObjectBuilder auth — Nginx katmani Authorization header'i set eder, body'de degisiklik yok. */
     private fun JsonObjectBuilder.withAuth() {
-        apiSecret?.let { put("apisecret", it) }
+        // apisecret artik gonderilmez.
     }
 
     suspend fun connect(janusWsUrl: String): Boolean {
@@ -191,6 +221,8 @@ class JanusClient {
      */
     suspend fun publishSdp(sdpOffer: String): String {
         val txId = newTransaction()
+        // GUVENLIK (M6 fix): SDP'den private/local IP candidate'lari kaldir.
+        val sanitizedOffer = stripPrivateCandidates(sdpOffer)
         val body = buildJsonObject {
             put("request", "configure")
             put("audio", true)
@@ -198,7 +230,7 @@ class JanusClient {
         }
         val jsep = buildJsonObject {
             put("type", "offer")
-            put("sdp", sdpOffer)
+            put("sdp", sanitizedOffer)
         }
         val msg = buildJsonObject {
             put("janus", "message")
@@ -257,13 +289,15 @@ class JanusClient {
             ?: throw RuntimeException("Subscriber handle bulunamadi: feedId=$feedId")
 
         val txId = newTransaction()
+        // GUVENLIK (M6 fix): SDP'den private/local IP candidate'lari kaldir.
+        val sanitizedAnswer = stripPrivateCandidates(sdpAnswer)
         val body = buildJsonObject {
             put("request", "start")
             put("room", roomId)
         }
         val jsep = buildJsonObject {
             put("type", "answer")
-            put("sdp", sdpAnswer)
+            put("sdp", sanitizedAnswer)
         }
         val msg = buildJsonObject {
             put("janus", "message")
@@ -283,6 +317,16 @@ class JanusClient {
      * handleType: "publisher" -> publisherHandleId; "subscriber:<feedId>" -> subscriberHandles[feedId]
      */
     fun trickleIce(handleId: Long, sdpMid: String?, sdpMLineIndex: Int, candidate: String) {
+        // GUVENLIK (M6 fix): Private/local IP candidate'i Janus'a iletme.
+        // Tek satirlik candidate string'i regex ile dogrula.
+        val privateCandidateRegex = Regex(
+            """.*\s(?:10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|fe80:[0-9a-fA-F:]+|[A-Fa-f0-9.-]+\.local)\s.*""",
+            RegexOption.IGNORE_CASE
+        )
+        if (privateCandidateRegex.matches(candidate)) {
+            Log.d(TAG, "Private candidate filtrelendi (M6 fix)")
+            return
+        }
         val txId = newTransaction()
         val candObj = buildJsonObject {
             put("candidate", candidate)
