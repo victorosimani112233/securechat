@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Markenname bleibt unverändert. -->
+    <string name="app_name">ELÇİM</string>
+
+    <!-- Group Info Screen -->
+    <string name="group_info">Gruppeninfo</string>
+    <string name="group_settings">Gruppeneinstellungen</string>
+    <string name="add_member">Mitglied hinzufügen</string>
+    <string name="members_count">Mitglieder (%1$d)</string>
+    <string name="loading">Wird geladen…</string>
+    <string name="admin">Administrator</string>
+    <string name="you">Du</string>
+    <string name="remove_member">Mitglied entfernen</string>
+    <string name="remove_from_group">Aus Gruppe entfernen</string>
+
+    <!-- Dialogs -->
+    <string name="edit_group_name">Gruppennamen bearbeiten</string>
+    <string name="group_name">Gruppenname</string>
+    <string name="save">Speichern</string>
+    <string name="cancel">Abbrechen</string>
+    <string name="add_new_member">Neues Mitglied hinzufügen</string>
+    <string name="user_id">Benutzer-ID</string>
+    <string name="add">Hinzufügen</string>
+    <string name="remove_member_confirm">Mitglied entfernen</string>
+    <string name="remove_member_message">Möchtest du %1$s wirklich aus der Gruppe entfernen?</string>
+    <string name="remove">Entfernen</string>
+
+    <!-- Chat Screen -->
+    <string name="view_info">Informationen anzeigen</string>
+</resources>
