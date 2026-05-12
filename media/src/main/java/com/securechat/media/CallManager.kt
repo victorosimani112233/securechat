@@ -969,6 +969,9 @@ class CallManager @Inject constructor(
                 onCallFailed()
             }
         }
+
+        // Sohbete "Grup araması başladı" sistem mesaji kaydet
+        saveGroupCallStartMessage(session)
     }
 
     /**
@@ -1091,10 +1094,14 @@ class CallManager @Inject constructor(
         }
 
         ringtonePlayer.playConnectedTone()
-        _callSession.value = session.copy(
+        val activeSession = session.copy(
             state = CallState.ACTIVE,
             startTime = System.currentTimeMillis()
         )
+        _callSession.value = activeSession
+
+        // Sohbete "Grup araması başladı" sistem mesaji kaydet (her katilan kendi local kopyasi)
+        saveGroupCallStartMessage(activeSession)
     }
 
     /**
@@ -1128,6 +1135,320 @@ class CallManager @Inject constructor(
             } catch (e: Exception) {
                 android.util.Log.e("CallManager", "connectToGroupPeer hatasi ($peerId): ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Aktif bir grup aramasina sonradan katilim (late-join).
+     * Sohbet ekranindaki "Grup araması devam ediyor • Katıl" banner'i tetikler.
+     *
+     * Mesh modunda: koordinatore GroupCallJoinRequest gonderir, koordinator
+     * onGroupCallJoinRequest cevabini verir (mevcut peer'lara haber + yeni
+     * uyeye SDP Offer akisi = onGroupMemberAccepted yolu).
+     *
+     * SFU modunda: bindSfuRoom akisi (Adim 3'te eklenecek) ile dogrudan Janus'a
+     * publisher olarak baglanir.
+     *
+     * @param userId Katilan kullanicinin ID'si
+     * @param groupId Grup ID'si
+     * @param callId Aktif arama ID'si (status query ile alindi)
+     * @param coordinatorId Koordinator kullanici ID'si
+     * @param callType VOICE veya VIDEO
+     * @param sfuRoomInfo SFU modu icin Janus baglanti bilgisi, mesh modunda null
+     */
+    fun joinGroupCall(
+        userId: String,
+        groupId: String,
+        callId: String,
+        coordinatorId: String,
+        callType: CallType,
+        sfuRoomInfo: SfuRoomBindInfo? = null
+    ) {
+        val currentSession = _callSession.value
+        if (currentSession != null && (
+            currentSession.state == CallState.RINGING ||
+            currentSession.state == CallState.ACTIVE ||
+            currentSession.state == CallState.INITIATING
+        )) {
+            android.util.Log.w("CallManager", "joinGroupCall IGNORE — zaten aktif call var")
+            return
+        }
+
+        localUserId = userId
+        isGroupCallCoordinator = false
+        groupConnectedPeers.clear()
+
+        val session = CallSession(
+            callId = callId,
+            peerId = coordinatorId, // koordinator referans icin
+            callType = callType,
+            direction = CallDirection.OUTGOING, // kullanici aktif olarak katildi
+            state = CallState.ACTIVE,
+            startTime = System.currentTimeMillis(),
+            isSpeakerOn = true,
+            isGroupCall = true,
+            groupId = groupId,
+            peerIds = listOf(coordinatorId),
+            connectedPeerIds = emptyList()
+        )
+        _callSession.value = session
+
+        audioManager.setSpeakerOn(true)
+        audioManager.setCallMode()
+
+        if (sfuRoomInfo != null) {
+            // SFU modu — bindSfuRoom Adim 3'te eklenecek; simdilik hook
+            bindSfuRoom(userId, session, sfuRoomInfo)
+        } else {
+            // Mesh modu — koordinatore katilim istegi gonder; koordinator mevcut
+            // peer listesini bilir ve onGroupMemberAccepted akisini tetikler.
+            scope.launch(Dispatchers.Main) {
+                try {
+                    refreshIceServers(userId)
+                    peerConnectionManager.initialize()
+
+                    peerConnectionManager.onGroupIceCandidateGenerated = { peerId, candidate ->
+                        signalingClient.sendSignal(
+                            SignalMessage.IceCandidate(
+                                senderId = userId,
+                                recipientId = peerId,
+                                timestamp = System.currentTimeMillis(),
+                                candidate = candidate.sdp,
+                                sdpMid = candidate.sdpMid,
+                                sdpMLineIndex = candidate.sdpMLineIndex
+                            )
+                        )
+                    }
+
+                    peerConnectionManager.onGroupConnectionStateChanged = { peerId, state ->
+                        if (state == org.webrtc.PeerConnection.IceConnectionState.CONNECTED ||
+                            state == org.webrtc.PeerConnection.IceConnectionState.COMPLETED) {
+                            synchronized(groupConnectedPeers) { groupConnectedPeers.add(peerId) }
+                            updateGroupConnectedPeers()
+                        } else if (state == org.webrtc.PeerConnection.IceConnectionState.DISCONNECTED ||
+                                   state == org.webrtc.PeerConnection.IceConnectionState.FAILED) {
+                            synchronized(groupConnectedPeers) { groupConnectedPeers.remove(peerId) }
+                            updateGroupConnectedPeers()
+                        }
+                    }
+
+                    // Koordinatore katilim istegi
+                    signalingClient.sendSignal(
+                        SignalMessage.GroupCallJoinRequest(
+                            senderId = userId,
+                            recipientId = coordinatorId,
+                            timestamp = System.currentTimeMillis(),
+                            groupId = groupId,
+                            callId = callId,
+                            callType = callType
+                        )
+                    )
+
+                    android.util.Log.d("CallManager", "Grup aramasina katilim istegi gonderildi: $groupId -> coord=$coordinatorId")
+                } catch (e: Exception) {
+                    android.util.Log.e("CallManager", "joinGroupCall hatasi: ${e.message}")
+                    onCallFailed()
+                }
+            }
+        }
+
+        // Sohbete "Grup araması başladı" sistem mesaji kaydet (kendi local kopyasi)
+        saveGroupCallStartMessage(session)
+    }
+
+    /**
+     * Koordinator: bir uye sonradan katilim istedi.
+     * onGroupMemberAccepted ile ayni akis — mevcut peer'lara bildir + yeni uyeye PC kur + SDP Offer.
+     */
+    fun handleGroupCallJoinRequest(signal: SignalMessage.GroupCallJoinRequest) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall || !isGroupCallCoordinator) {
+            android.util.Log.w("CallManager", "handleGroupCallJoinRequest IGNORE — koordinator degil")
+            return
+        }
+        if (session.groupId != signal.groupId || session.callId != signal.callId) {
+            android.util.Log.w("CallManager", "handleGroupCallJoinRequest IGNORE — groupId/callId uyumsuz")
+            return
+        }
+        // SFU modundayken mesh join istegi gelmemeli — yine de geldiyse sessizce ignore et,
+        // dogru akis: joiner sunucudan GroupCallStatusResponse alip SFU bilgisi ile bindSfuRoom yapar.
+        if (janusClient != null) {
+            android.util.Log.w("CallManager", "handleGroupCallJoinRequest IGNORE — SFU modunda mesh join istegi")
+            return
+        }
+        // peerIds listesine ekle (idempotent)
+        val newPeerIds = (session.peerIds + signal.senderId).distinct()
+        _callSession.value = session.copy(peerIds = newPeerIds)
+
+        // Mevcut akis: onGroupMemberAccepted ile ayni
+        onGroupMemberAccepted(signal.senderId)
+    }
+
+    /** SFU bind bilgisi — joinGroupCall ve handleSfuRoomCreated kullanir. */
+    data class SfuRoomBindInfo(
+        val roomId: Long,
+        val janusWsUrl: String,
+        val apiSecret: String
+    )
+
+    /** Aktif Janus istemcisi — sadece SFU modunda dolu. */
+    private var janusClient: com.securechat.network.JanusClient? = null
+
+    /**
+     * IncomingMessageHandler.handleSfuRoomCreated tarafindan cagirilir.
+     * Aktif grup arama mesh modundayken sunucu SFU room actiginda buraya yonlendirilir.
+     */
+    fun bindSfuRoomFromInvite(userId: String, info: SfuRoomBindInfo) {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+        bindSfuRoom(userId, session, info)
+    }
+
+    /**
+     * SFU moduna baglan: Janus'a publisher olarak katil, mevcut yayincilara abone ol,
+     * yerel media'yi yayinla. onPublisherJoined/Left callback'leri ile dinamik yonetilir.
+     *
+     * Akis:
+     * 1. JanusClient.connect → createSession → attachVideoRoom → joinAsPublisher
+     * 2. PeerConnectionManager.createSfuPublisherPeerConnection → createOffer → publishSdp → setAnswer
+     * 3. Mevcut publisher listesi icin subscribeToFeed → setSubscriberRemoteAndCreateAnswer → answerSubscription
+     * 4. ICE candidate'lar trickle gonderilir (Janus'a)
+     */
+    private fun bindSfuRoom(userId: String, session: CallSession, info: SfuRoomBindInfo) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                android.util.Log.d("CallManager", "bindSfuRoom basliyor: room=${info.roomId} ws=${info.janusWsUrl}")
+                refreshIceServers(userId)
+
+                val client = com.securechat.network.JanusClient().also { janusClient = it }
+                client.setApiSecret(info.apiSecret)
+
+                val connected = client.connect(info.janusWsUrl)
+                if (!connected) {
+                    android.util.Log.e("CallManager", "Janus baglantisi kurulamadi")
+                    onCallFailed()
+                    return@launch
+                }
+                client.createSession()
+                client.attachVideoRoom()
+                val existingPublishers = client.joinAsPublisher(info.roomId, userId)
+                android.util.Log.d("CallManager", "Janus'a publisher olarak katildi, mevcut=${existingPublishers.size}")
+
+                // Mevcut PC'leri kapatabilir miyiz? bindSfuRoom mesh ile cakisirsa cikar
+                // (4. uye katildiginda sunucu room acti — mesh hala calisiyor olabilir).
+                // En guvenli: mesh group PC'lerini kapat, SFU'ya gec.
+                withContext(Dispatchers.Main) {
+                    peerConnectionManager.closeGroupPeerConnectionsOnly()
+                }
+
+                // Publisher PC + offer
+                val enableVideo = session.callType == CallType.VIDEO
+                withContext(Dispatchers.Main) {
+                    peerConnectionManager.onSfuPublisherIce = { candidate ->
+                        try {
+                            client.trickleIce(
+                                handleId = client.getPublisherHandleId(),
+                                sdpMid = candidate.sdpMid,
+                                sdpMLineIndex = candidate.sdpMLineIndex,
+                                candidate = candidate.sdp
+                            )
+                        } catch (_: Exception) { }
+                    }
+                    peerConnectionManager.onSfuPublisherIceComplete = {
+                        try { client.trickleIceCompleted(client.getPublisherHandleId()) } catch (_: Exception) { }
+                    }
+                    peerConnectionManager.onSfuSubscriberIce = subIce@{ feedId, candidate ->
+                        try {
+                            val handleId = client.getSubscriberHandleId(feedId) ?: return@subIce
+                            client.trickleIce(
+                                handleId = handleId,
+                                sdpMid = candidate.sdpMid,
+                                sdpMLineIndex = candidate.sdpMLineIndex,
+                                candidate = candidate.sdp
+                            )
+                        } catch (_: Exception) { }
+                    }
+                    peerConnectionManager.onSfuPublisherConnectionStateChanged = { state ->
+                        if (state == org.webrtc.PeerConnection.IceConnectionState.CONNECTED ||
+                            state == org.webrtc.PeerConnection.IceConnectionState.COMPLETED) {
+                            synchronized(groupConnectedPeers) {
+                                groupConnectedPeers.add("sfu_self")
+                            }
+                            updateGroupConnectedPeers()
+                        }
+                    }
+                    peerConnectionManager.createSfuPublisherConnection(enableVideo)
+                }
+
+                val publisherOffer = withContext(Dispatchers.Main) {
+                    peerConnectionManager.createSfuPublisherOffer()
+                }
+                val publisherAnswer = client.publishSdp(publisherOffer.description)
+                withContext(Dispatchers.Main) {
+                    peerConnectionManager.setSfuPublisherRemoteAnswer(
+                        SessionDescription(SessionDescription.Type.ANSWER, publisherAnswer)
+                    )
+                }
+
+                // Mevcut publisher'lara abone ol
+                for ((feedId, display) in existingPublishers) {
+                    subscribeToSfuFeed(client, info.roomId, feedId, display)
+                }
+
+                // Yeni publisher'lar icin callback
+                client.onPublisherJoined = { feedId, display ->
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            subscribeToSfuFeed(client, info.roomId, feedId, display)
+                        } catch (e: Exception) {
+                            android.util.Log.e("CallManager", "SFU yeni publisher abone hatasi: ${e.message}")
+                        }
+                    }
+                }
+                client.onPublisherLeft = { feedId ->
+                    scope.launch(Dispatchers.Main) {
+                        peerConnectionManager.disposeSfuSubscriber(feedId)
+                        synchronized(groupConnectedPeers) {
+                            groupConnectedPeers.remove("sfu_$feedId")
+                        }
+                        updateGroupConnectedPeers()
+                    }
+                }
+
+                android.util.Log.d("CallManager", "bindSfuRoom tamamlandi: room=${info.roomId} subs=${existingPublishers.size}")
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "bindSfuRoom hatasi: ${e.message}", e)
+                onCallFailed()
+            }
+        }
+    }
+
+    /** Tek bir uzak feed'e SFU abone ol — bindSfuRoom ve onPublisherJoined kullanir. */
+    private suspend fun subscribeToSfuFeed(
+        client: com.securechat.network.JanusClient,
+        roomId: Long,
+        feedId: Long,
+        @Suppress("UNUSED_PARAMETER") display: String?
+    ) {
+        try {
+            val subscriberOffer = client.subscribeToFeed(roomId, feedId)
+            withContext(Dispatchers.Main) {
+                peerConnectionManager.createSfuSubscriberConnection(feedId)
+            }
+            val answer = withContext(Dispatchers.Main) {
+                peerConnectionManager.handleSfuSubscriberOffer(
+                    feedId,
+                    SessionDescription(SessionDescription.Type.OFFER, subscriberOffer)
+                )
+            }
+            client.answerSubscription(feedId, answer.description)
+            synchronized(groupConnectedPeers) {
+                groupConnectedPeers.add("sfu_$feedId")
+            }
+            updateGroupConnectedPeers()
+            android.util.Log.d("CallManager", "SFU feed abone tamamlandi: feedId=$feedId")
+        } catch (e: Exception) {
+            android.util.Log.e("CallManager", "SFU subscribe hatasi feedId=$feedId: ${e.message}")
         }
     }
 
@@ -1299,14 +1620,31 @@ class CallManager @Inject constructor(
         val session = _callSession.value ?: return
         if (!session.isGroupCall) return
 
-        // Tum peer'lere HANGUP gonder
+        val sessionGroupId = session.groupId
+        // Tum peer'lere HANGUP gonder. Koordinator (initiateGroupCall ile baslatan) ise
+        // groupId set edilir — server bu sayede GroupCallSessionStore + SFU room temizler.
+        val isCoordinator = isGroupCallCoordinator
         for (peerId in session.peerIds) {
             signalingClient.sendSignal(
                 SignalMessage.CallControl(
                     senderId = userId,
                     recipientId = peerId,
                     timestamp = System.currentTimeMillis(),
-                    action = CallAction.HANGUP
+                    action = CallAction.HANGUP,
+                    groupId = if (isCoordinator) sessionGroupId else null
+                )
+            )
+        }
+
+        // Koordinator ise server'a da bilgi gec (recipientId="server" ile)
+        if (isCoordinator && sessionGroupId != null) {
+            signalingClient.sendSignal(
+                SignalMessage.CallControl(
+                    senderId = userId,
+                    recipientId = "server",
+                    timestamp = System.currentTimeMillis(),
+                    action = CallAction.HANGUP,
+                    groupId = sessionGroupId
                 )
             )
         }
@@ -1346,11 +1684,27 @@ class CallManager @Inject constructor(
 
             saveCallLog(session, duration, finalState)
 
+            // Grup aramasi bitti — sohbete sistem mesaji kaydet (her uye kendi local kopyasi)
+            if (finalState == CallState.ENDED || finalState == CallState.FAILED) {
+                saveGroupCallEndMessage(session, duration)
+            }
+
             incomingCallHandler.dismissIncomingCall()
             ringtonePlayer.stopRinging()
             ringtonePlayer.stopRingbackTone()
 
             peerConnectionManager.disposeAllGroupPeerConnections()
+            peerConnectionManager.disposeAllSfuConnections()
+
+            // SFU janus baglantisini kapat
+            janusClient?.let { jc ->
+                scope.launch(Dispatchers.IO) {
+                    try { jc.leaveRoom() } catch (_: Exception) { }
+                    try { jc.disconnect() } catch (_: Exception) { }
+                }
+            }
+            janusClient = null
+
             audioManager.resetAudioMode()
 
             isGroupCallCoordinator = false
@@ -1371,6 +1725,9 @@ class CallManager @Inject constructor(
 
     /** Remote video track'leri (grup arama icin). */
     val remoteVideoTracksFlow get() = peerConnectionManager.remoteVideoTracksFlow
+
+    /** SFU subscriber'lardan gelen remote video track'leri (feedId -> VideoTrack). */
+    val sfuRemoteVideoTracksFlow get() = peerConnectionManager.sfuRemoteVideoTracksFlow
 
     /** Aktif oturumun grup aramasi olup olmadigini kontrol eder. */
     val isCurrentCallGroup: Boolean get() = _callSession.value?.isGroupCall == true
@@ -1687,8 +2044,10 @@ class CallManager @Inject constructor(
 
                 // WhatsApp tarzi: arama bilgisini sohbette SYSTEM mesaji olarak da kaydet
                 // boylece kullanici sohbet icinde "Sesli arama · 01:48" gibi gorebilir.
-                // Grup aramalarinda yapma (her uye icin ayri kayit anlamli degil).
-                if (!session.isGroupCall) {
+                if (session.isGroupCall) {
+                    // Grup aramasinda saveCallLog ENDED state icin yazilir — GROUP_ENDED sistem mesaji
+                    // saveGroupCallEndMessage tarafindan ayrica yazildigi icin burada tekrar yazma.
+                } else {
                     saveCallSystemMessage(session, status, duration)
                 }
             } catch (e: Exception) {
@@ -1748,6 +2107,66 @@ class CallManager @Inject constructor(
             messageRepository.saveMessage(message)
         } catch (e: Exception) {
             android.util.Log.e("CallManager", "Call system message kayit hatasi: ${e.message}")
+        }
+    }
+
+    /**
+     * Grup aramasi basladiginda sohbete SYSTEM mesaji kaydeder.
+     * Format: "CALL|GROUP_STARTED|VOICE|ACTIVE|0|📞 Grup araması başladı"
+     */
+    private fun saveGroupCallStartMessage(session: CallSession) {
+        val groupId = session.groupId ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val callTypeName = session.callType.name
+                val displayText = "📞 Grup araması başladı"
+                val systemContent = "CALL|GROUP_STARTED|$callTypeName|ACTIVE|0|$displayText"
+                val message = com.securechat.storage.domain.LocalMessage(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = groupId,
+                    senderId = localUserId,
+                    peerId = groupId,
+                    content = systemContent,
+                    contentType = com.securechat.storage.model.MessageContentType.SYSTEM,
+                    timestamp = System.currentTimeMillis(),
+                    status = com.securechat.storage.model.MessageStatus.DELIVERED,
+                    isOutgoing = false
+                )
+                messageRepository.saveMessage(message)
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "Grup arama baslangic mesaji hatasi: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Grup aramasi bittiginde sohbete SYSTEM mesaji kaydeder.
+     * Format: "CALL|GROUP_ENDED|VOICE|ENDED|<durationMs>|Grup araması · mm:ss sürdü"
+     */
+    private fun saveGroupCallEndMessage(session: CallSession, duration: Long?) {
+        val groupId = session.groupId ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val callTypeName = session.callType.name
+                val dur = duration ?: 0
+                val displayText = if (dur > 0) "Grup araması · ${formatCallDuration(dur)} sürdü"
+                                  else "Grup araması sonlandırıldı"
+                val systemContent = "CALL|GROUP_ENDED|$callTypeName|ENDED|$dur|$displayText"
+                val message = com.securechat.storage.domain.LocalMessage(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = groupId,
+                    senderId = localUserId,
+                    peerId = groupId,
+                    content = systemContent,
+                    contentType = com.securechat.storage.model.MessageContentType.SYSTEM,
+                    timestamp = System.currentTimeMillis(),
+                    status = com.securechat.storage.model.MessageStatus.DELIVERED,
+                    isOutgoing = false
+                )
+                messageRepository.saveMessage(message)
+            } catch (e: Exception) {
+                android.util.Log.e("CallManager", "Grup arama bitis mesaji hatasi: ${e.message}")
+            }
         }
     }
 

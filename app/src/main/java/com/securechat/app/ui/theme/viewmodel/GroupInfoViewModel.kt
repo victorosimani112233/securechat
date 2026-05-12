@@ -38,7 +38,8 @@ class GroupInfoViewModel @Inject constructor(
     private val addGroupMemberUseCase: AddGroupMemberUseCase,
     private val promoteToAdminUseCase: PromoteToAdminUseCase,
     private val removeGroupMemberUseCase: RemoveGroupMemberUseCase,
-    private val updateGroupNameUseCase: UpdateGroupNameUseCase
+    private val updateGroupNameUseCase: UpdateGroupNameUseCase,
+    private val contactNameResolver: com.securechat.storage.resolver.ContactNameResolver
 ) : ViewModel() {
 
     companion object {
@@ -130,6 +131,11 @@ class GroupInfoViewModel @Inject constructor(
                         memberNames[memberId] = contact.displayName
                         continue
                     }
+                    // Local'de yok — sunucudan sifreli numarayi cek ve coz (UUID yerine telefon goster)
+                    val resolvedName = contactNameResolver.resolveDisplayName(memberId)
+                    if (resolvedName.isNotBlank() && resolvedName != memberId) {
+                        memberNames[memberId] = resolvedName
+                    }
                 }
 
                 // Uye telefon numaralarini cozumle: batch query ile (N+1 fix)
@@ -151,6 +157,11 @@ class GroupInfoViewModel @Inject constructor(
                     if (contact != null && contact.phoneNumber.isNotBlank()) {
                         memberPhones[memberId] = contact.phoneNumber
                         continue
+                    }
+                    // Local'de yok — sunucudan sifreli numarayi cek
+                    val resolvedPhone = contactNameResolver.resolvePhoneNumber(memberId)
+                    if (resolvedPhone.isNotBlank()) {
+                        memberPhones[memberId] = resolvedPhone
                     }
                 }
 

@@ -65,9 +65,13 @@ class IncomingMessageHandler @Inject constructor(
     private var cachedAppIconBitmap: android.graphics.Bitmap? = null
 
     companion object {
-        /** Uygulama on plandaysa true */
-        @Volatile
-        var isAppInForeground = false
+        /** Uygulama on plandaysa true — backing flow ile observe edilebilir. */
+        private val _isAppInForegroundFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val isAppInForegroundFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isAppInForegroundFlow
+
+        var isAppInForeground: Boolean
+            get() = _isAppInForegroundFlow.value
+            set(value) { _isAppInForegroundFlow.value = value }
 
         /** Simdiki acik olan sohbet ID'si - bu sohbetten gelen mesajlar icin bildirim gosterilmez */
         @Volatile
@@ -82,6 +86,20 @@ class IncomingMessageHandler @Inject constructor(
         /** Karsi tarafin kamera durumu — video arama sirasinda kullanilir */
         val remoteCameraEnabled = kotlinx.coroutines.flow.MutableStateFlow(true)
 
+        /** Aktif grup arama durumu — ChatScreen banner'i bu state'i observe eder. */
+        data class ActiveGroupCallInfo(
+            val groupId: String,
+            val callId: String,
+            val coordinatorId: String,
+            val callType: com.securechat.network.model.CallType,
+            val participants: List<String>,
+            val mode: String, // MESH veya SFU
+            val sfuRoomId: Long? = null,
+            val janusWsUrl: String? = null,
+            val apiSecret: String? = null
+        )
+        val activeGroupCalls = kotlinx.coroutines.flow.MutableStateFlow<Map<String, ActiveGroupCallInfo>>(emptyMap())
+
         /** Bildirim mesaj sayaci — sohbet basina mesaj sayisi ve son mesajlar */
         private val notifMessageCount = mutableMapOf<String, Int>()
         private val notifRecentMessages = mutableMapOf<String, MutableList<Pair<String, Long>>>() // content, timestamp
@@ -90,6 +108,12 @@ class IncomingMessageHandler @Inject constructor(
         fun clearNotificationCounts() {
             notifMessageCount.clear()
             notifRecentMessages.clear()
+        }
+
+        /** Tek bir konusmanin bildirim sayacini sifirla (kullanici swipe ile dismiss etti) */
+        fun clearConversationNotificationCount(conversationId: String) {
+            notifMessageCount.remove(conversationId)
+            notifRecentMessages.remove(conversationId)
         }
     }
 
@@ -109,6 +133,27 @@ class IncomingMessageHandler @Inject constructor(
         // Presence sadece Activity.onResume/onPause ile kontrol edilir.
         // Foreground servis reconnect yaptiginda kullaniciyi online gostermemeli.
         signalingClient.onConnectedListener = null
+
+        // CallManager.callSession terminal state'e gectiğinde aktif grup arama
+        // state'inden temizle — banner kaybolsun.
+        scope.launch {
+            callManager.callSession.collect { session ->
+                if (session != null && session.isGroupCall) {
+                    val gid = session.groupId ?: return@collect
+                    val terminal = session.state == com.securechat.media.model.CallState.ENDED ||
+                                   session.state == com.securechat.media.model.CallState.FAILED ||
+                                   session.state == com.securechat.media.model.CallState.REJECTED ||
+                                   session.state == com.securechat.media.model.CallState.BUSY
+                    if (terminal) {
+                        val current = activeGroupCalls.value.toMutableMap()
+                        if (current.remove(gid) != null) {
+                            activeGroupCalls.value = current
+                            android.util.Log.d("IncomingHandler", "Aktif grup arama temizlendi (terminal): $gid")
+                        }
+                    }
+                }
+            }
+        }
 
         scope.launch {
             signalingClient.incomingSignals.collect { signal ->
@@ -154,6 +199,10 @@ class IncomingMessageHandler @Inject constructor(
                     is SignalMessage.PresenceUpdate -> handlePresenceUpdate(signal)
                     is SignalMessage.GroupCallInvite -> handleGroupCallInvite(signal)
                     is SignalMessage.GroupCallMemberJoined -> callManager.handleGroupCallMemberJoined(signal)
+                    is SignalMessage.GroupCallJoinRequest -> callManager.handleGroupCallJoinRequest(signal)
+                    is SignalMessage.GroupCallStatusResponse -> handleGroupCallStatusResponse(signal)
+                    is SignalMessage.GroupCallStatusQuery -> { /* Sunucu tarafinda islenir */ }
+                    is SignalMessage.SfuRoomCreated -> handleSfuRoomCreated(signal)
                     is SignalMessage.PresenceSubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.PresenceUnsubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.AudioData -> { }
@@ -276,7 +325,7 @@ class IncomingMessageHandler @Inject constructor(
             val fileNow = System.currentTimeMillis()
             val groupDisappDuration = (groupConv ?: conversationDao.getById(groupId))?.disappearingDuration ?: 0
             val groupFileExpiresAt = if (groupDisappDuration > 0) fileNow + groupDisappDuration else null
-            val isGroupChatOpen = currentChatId == groupId
+            val isGroupChatOpen = currentChatId == groupId && isAppInForeground
 
             val message = LocalMessage(
                 id = signal.originalMessageId ?: UUID.randomUUID().toString(),
@@ -329,7 +378,7 @@ class IncomingMessageHandler @Inject constructor(
             val fileNow = System.currentTimeMillis()
             val fileDisappDuration = existingConv?.disappearingDuration ?: 0
             val fileExpiresAt = if (fileDisappDuration > 0) fileNow + fileDisappDuration else null
-            val isFileChatOpen = currentChatId == senderId
+            val isFileChatOpen = currentChatId == senderId && isAppInForeground
 
             val message = LocalMessage(
                 id = signal.originalMessageId ?: UUID.randomUUID().toString(),
@@ -423,8 +472,10 @@ class IncomingMessageHandler @Inject constructor(
         val groupDisappDuration = (groupConv ?: conversationDao.getById(groupId))?.disappearingDuration ?: 0
         val groupExpiresAt = if (groupDisappDuration > 0) now + groupDisappDuration else null
 
-        // Grup sohbeti aciksa mesaj direkt READ, degilse DELIVERED
-        val isGroupChatOpen = currentChatId == groupId
+        // Grup sohbeti aciksa VE app on plandaysa mesaj direkt READ, degilse DELIVERED.
+        // isAppInForeground kontrolu olmadan: telefon kilitliyken son acik sohbet gruba esitse
+        // READ receipt gonderiliyordu — yanlis "okundu" tiki.
+        val isGroupChatOpen = currentChatId == groupId && isAppInForeground
 
         // CRITICAL: Gondericinin orijinal mesaj ID'sini kullan — "herkesten sil" icin gerekli
         val message = LocalMessage(
@@ -505,8 +556,10 @@ class IncomingMessageHandler @Inject constructor(
         val expiresAt = if (disappDuration > 0) now + disappDuration else null
 
         // Yerel saat kullan — cihaz saati farklari mesaj sirasini bozmasin
-        // Sohbet aciksa mesaj direkt READ, degilse DELIVERED olarak kaydedilir
-        val isChatOpen = currentChatId == senderId
+        // Sohbet aciksa VE app on plandaysa direkt READ, degilse DELIVERED.
+        // isAppInForeground kontrolu olmadan: kullanici son sohbeti acik birakip telefonu
+        // kilitlemis olsa bile gelen mesaj READ olarak isaretleniyor — yanlis "okundu" tiki.
+        val isChatOpen = currentChatId == senderId && isAppInForeground
 
         // CRITICAL: Gondericinin orijinal mesaj ID'sini kullan — "herkesten sil" icin gerekli
         val message = LocalMessage(
@@ -609,11 +662,88 @@ class IncomingMessageHandler @Inject constructor(
     }
 
     /**
+     * SFU room olusturuldu — koordinator veya davet edilen uye burada Janus'a baglanir.
+     * 4+ kisilik grup aramasinda server otomatik olarak bu mesaji broadcast eder.
+     */
+    private fun handleSfuRoomCreated(signal: SignalMessage.SfuRoomCreated) {
+        val localUserId = userSession.userId ?: return
+        val session = callManager.currentSession ?: return
+        if (!session.isGroupCall || session.groupId != signal.groupId) {
+            android.util.Log.d("IncomingHandler", "SfuRoomCreated atlandi — aktif grup arama uyusmuyor")
+            return
+        }
+        if (session.state != com.securechat.media.model.CallState.ACTIVE) {
+            android.util.Log.d("IncomingHandler", "SfuRoomCreated atlandi — call ACTIVE degil")
+            return
+        }
+        val info = com.securechat.media.CallManager.SfuRoomBindInfo(
+            roomId = signal.roomId,
+            janusWsUrl = signal.janusWsUrl,
+            apiSecret = signal.apiSecret
+        )
+        callManager.bindSfuRoomFromInvite(localUserId, info)
+
+        // activeGroupCalls state'inde SFU bilgisini ekle (sonradan katilim icin)
+        val current = activeGroupCalls.value.toMutableMap()
+        val existing = current[signal.groupId]
+        if (existing != null) {
+            current[signal.groupId] = existing.copy(
+                mode = "SFU",
+                sfuRoomId = signal.roomId,
+                janusWsUrl = signal.janusWsUrl,
+                apiSecret = signal.apiSecret
+            )
+            activeGroupCalls.value = current
+        }
+    }
+
+    /**
+     * Sunucudan aktif grup arama durum cevabi — ChatScreen banner state'ini gunceller.
+     */
+    private fun handleGroupCallStatusResponse(signal: SignalMessage.GroupCallStatusResponse) {
+        val current = activeGroupCalls.value.toMutableMap()
+        val callId = signal.callId
+        val coordinatorId = signal.coordinatorId
+        val callType = signal.callType
+        if (signal.isActive && callId != null && coordinatorId != null && callType != null) {
+            current[signal.groupId] = ActiveGroupCallInfo(
+                groupId = signal.groupId,
+                callId = callId,
+                coordinatorId = coordinatorId,
+                callType = callType,
+                participants = signal.participants,
+                mode = signal.mode ?: "MESH",
+                sfuRoomId = signal.sfuRoomId,
+                janusWsUrl = signal.janusWsUrl,
+                apiSecret = signal.apiSecret
+            )
+        } else {
+            current.remove(signal.groupId)
+        }
+        activeGroupCalls.value = current
+        android.util.Log.d("IncomingHandler", "Grup arama durum guncellendi: ${signal.groupId} active=${signal.isActive}")
+    }
+
+    /**
      * Gelen grup arama davetiyesini isler.
      * CallManager'a iletir ve gelen arama bildirimini gosterir.
      */
     private suspend fun handleGroupCallInvite(signal: SignalMessage.GroupCallInvite) {
         val localUserId = userSession.userId ?: "unknown"
+
+        // Aktif grup arama state'ine ekle — ChatScreen banner cagrida bunu gorur
+        val isSfu = signal.participants.size >= 4
+        val current = activeGroupCalls.value.toMutableMap()
+        current[signal.groupId] = ActiveGroupCallInfo(
+            groupId = signal.groupId,
+            callId = signal.callId,
+            coordinatorId = signal.senderId,
+            callType = signal.callType,
+            participants = signal.participants,
+            mode = if (isSfu) "SFU" else "MESH"
+        )
+        activeGroupCalls.value = current
+
         callManager.handleGroupCallInvite(signal, localUserId)
 
         val peerName = resolvePeerName(signal.senderId)
@@ -1168,9 +1298,11 @@ class IncomingMessageHandler @Inject constructor(
         // Kullanici tercihi: mesaj icerigi gosterilsin mi?
         val showContent = try {
             themeManager.showNotificationContent.first()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.w("IncomingHandler", "showNotificationContent okunamadi: ${e.message}")
             true
         }
+        android.util.Log.d("IncomingHandler", "showContent=$showContent (false=gizlilik modu aktif)")
 
         val channelId = "elcim_messages_v4"
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -1305,6 +1437,18 @@ class IncomingMessageHandler @Inject constructor(
             NotificationCompat.DEFAULT_ALL
         }
 
+        // Per-peer dismiss intent — kullanici bu konusmanin bildirimini swipe ederse sayac sifirlanir
+        val dismissIntent = android.content.Intent(context, NotifDismissReceiver::class.java).apply {
+            action = NotifDismissReceiver.ACTION_DISMISS
+            putExtra(NotifDismissReceiver.EXTRA_CONVERSATION_ID, conversationId)
+        }
+        val dismissPendingIntent = android.app.PendingIntent.getBroadcast(
+            context,
+            conversationId.hashCode(),
+            dismissIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(com.securechat.app.R.mipmap.ic_launcher)
             .setColor(0xFF3E7BFA.toInt())
@@ -1312,10 +1456,12 @@ class IncomingMessageHandler @Inject constructor(
             .setPriority(priority)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .setDeleteIntent(dismissPendingIntent)
             .setDefaults(defaults)
             .setSilent(shouldBeSilent)
             .setGroup(groupKey)
             .setNumber(notifMessageCount[conversationId] ?: 1)
+            .setContentTitle(senderName)
 
         // Ozel bildirim sesi ayarla (sessiz degilse)
         if (!shouldBeSilent && customSoundUri.isNotEmpty()) {
@@ -1352,6 +1498,7 @@ class IncomingMessageHandler @Inject constructor(
         }
 
         val messagingStyle = NotificationCompat.MessagingStyle(person)
+            .setConversationTitle(senderName)
         for ((msg, ts) in recentList) {
             messagingStyle.addMessage(msg, ts, person)
         }
@@ -1363,53 +1510,68 @@ class IncomingMessageHandler @Inject constructor(
         try {
             nm.notify(conversationId.hashCode(), builder.build())
 
-            // Grup ozet bildirimi
-            val activeNotifications = nm.activeNotifications.filter {
+            // Grup ozet bildirimi — HER ZAMAN olustur (API 24+ setGroup pattern'i):
+            // activeNotifications.size race condition'a takiliyordu — kendi sayacimizi kullaniyoruz.
+            // WhatsApp davranisi: tek sohbet bile olsa stacked notification icin summary lazim.
+            val finalChatCount = notifMessageCount.size
+            val finalTotalMessages = notifMessageCount.values.sum()
+            val summaryText = if (finalChatCount > 1) {
+                "$finalChatCount sohbetten $finalTotalMessages yeni mesaj"
+            } else {
+                "$finalTotalMessages yeni mesaj"
+            }
+
+            val summaryIntent = android.content.Intent(context, com.securechat.app.SecureChatActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val summaryPendingIntent = android.app.PendingIntent.getActivity(
+                context, ELCIM_SUMMARY_ID, summaryIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val inboxStyle = NotificationCompat.InboxStyle()
+                .setBigContentTitle("Elçim")
+                .setSummaryText(summaryText)
+            // notifMessageCount'tan beslenen InboxStyle — race-free
+            val activeForSummary = nm.activeNotifications.filter {
                 it.notification.group == groupKey && it.id != ELCIM_SUMMARY_ID && it.id != ELCIM_PRIVACY_NOTIF_ID
             }
-            if (activeNotifications.size > 1) {
-                val summaryIntent = android.content.Intent(context, com.securechat.app.SecureChatActivity::class.java).apply {
-                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
-                }
-                val summaryPendingIntent = android.app.PendingIntent.getActivity(
-                    context, ELCIM_SUMMARY_ID, summaryIntent,
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-                )
-
-                val finalChatCount = activeNotifications.size
-                val finalTotalMessages = notifMessageCount.values.sum()
-                val summaryText = "$finalChatCount sohbetten $finalTotalMessages yeni mesaj"
-
-                val inboxStyle = NotificationCompat.InboxStyle()
-                    .setBigContentTitle("Elçim")
-                    .setSummaryText(summaryText)
-                for (notif in activeNotifications) {
-                    val extras = notif.notification.extras
-                    val title = extras.getString("android.title") ?: ""
-                    val text = extras.getCharSequence("android.text")?.toString() ?: ""
-                    if (title.isNotBlank()) {
-                        inboxStyle.addLine("$title: $text")
-                    }
-                }
-
-                val summaryBuilder = NotificationCompat.Builder(context, channelId)
-                    .setSmallIcon(com.securechat.app.R.mipmap.ic_launcher)
-                    .setColor(0xFF3E7BFA.toInt())
-                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                    .setGroup(groupKey)
-                    .setGroupSummary(true)
-                    .setAutoCancel(true)
-                    .setContentIntent(summaryPendingIntent)
-                    .setSubText("Elçim")
-                    .setContentTitle("Elçim")
-                    .setContentText(summaryText)
-                    .setNumber(finalTotalMessages)
-                    .setStyle(inboxStyle)
-
-                nm.notify(ELCIM_SUMMARY_ID, summaryBuilder.build())
+            for (notif in activeForSummary) {
+                val extras = notif.notification.extras
+                val title = extras.getString("android.title") ?: ""
+                val text = extras.getCharSequence("android.text")?.toString() ?: ""
+                if (title.isNotBlank()) inboxStyle.addLine("$title: $text")
             }
 
-            android.util.Log.d("IncomingHandler", "Bildirim gosterildi: $senderName (showContent=$showContent, msgCount=${notifMessageCount[conversationId]})")
+            val summaryDismissIntent = android.content.Intent(context, NotifDismissReceiver::class.java).apply {
+                action = NotifDismissReceiver.ACTION_DISMISS_ALL
+            }
+            val summaryDismissPendingIntent = android.app.PendingIntent.getBroadcast(
+                context,
+                ELCIM_SUMMARY_ID,
+                summaryDismissIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val summaryBuilder = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(com.securechat.app.R.mipmap.ic_launcher)
+                .setColor(0xFF3E7BFA.toInt())
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setGroup(groupKey)
+                .setGroupSummary(true)
+                .setAutoCancel(true)
+                .setContentIntent(summaryPendingIntent)
+                .setDeleteIntent(summaryDismissPendingIntent)
+                .setSubText("Elçim")
+                .setContentTitle("Elçim")
+                .setContentText(summaryText)
+                .setNumber(finalTotalMessages)
+                .setStyle(inboxStyle)
+                .setSilent(true) // Summary sessiz — per-peer notif zaten ses cikariyor
+
+            nm.notify(ELCIM_SUMMARY_ID, summaryBuilder.build())
+
+            android.util.Log.d("IncomingHandler", "Bildirim gosterildi: $senderName (showContent=$showContent, msgCount=${notifMessageCount[conversationId]}, summary=$summaryText)")
         } catch (e: SecurityException) {
             android.util.Log.e("IncomingHandler", "Bildirim gosterilemedi (izin yok): ${e.message}")
         }
@@ -1457,7 +1619,7 @@ class IncomingMessageHandler @Inject constructor(
                             peerId = signal.groupId,
                             peerName = signal.groupName,
                             peerPhone = "",
-                            lastMessage = "${signal.senderId} grubu oluşturdu",
+                            lastMessage = "${resolvePeerName(signal.senderId)} grubu oluşturdu",
                             lastMessageTimestamp = signal.timestamp,
                             unreadCount = if (signal.senderId != localUserId) 1 else 0,
                             isMuted = false,
@@ -1499,9 +1661,11 @@ class IncomingMessageHandler @Inject constructor(
                     android.util.Log.d("IncomingHandler", "Grup üye listesi güncelleniyor: ${signal.groupId}")
                     conversationDao.updateGroupMembers(signal.groupId, signal.groupMembers.joinToString(","))
 
-                    // Sistem mesajı kaydet
+                    // Sistem mesajı kaydet — UUID yerine isimleri kullan
                     val targetMember = signal.targetMemberId ?: "bilinmeyen"
-                    val systemMessage = "${signal.senderId}, ${targetMember}'i gruba ekledi"
+                    val adderName = resolvePeerName(signal.senderId)
+                    val addedName = resolvePeerName(targetMember)
+                    val systemMessage = "$adderName, $addedName'i gruba ekledi"
 
                     val message = com.securechat.storage.domain.LocalMessage(
                         id = UUID.randomUUID().toString(),
@@ -1561,8 +1725,10 @@ class IncomingMessageHandler @Inject constructor(
                         android.util.Log.d("IncomingHandler", "Grup üye listesi güncelleniyor: ${signal.groupId}")
                         conversationDao.updateGroupMembers(signal.groupId, signal.groupMembers.joinToString(","))
 
-                        // Sistem mesaji kaydet
-                        val systemMessage = "${signal.senderId}, ${targetMember}'i gruptan çıkardı"
+                        // Sistem mesaji kaydet — UUID yerine isimleri kullan
+                        val removerName = resolvePeerName(signal.senderId)
+                        val removedName = resolvePeerName(targetMember)
+                        val systemMessage = "$removerName, $removedName'i gruptan çıkardı"
                         val message = com.securechat.storage.domain.LocalMessage(
                             id = UUID.randomUUID().toString(),
                             conversationId = signal.groupId,
@@ -1617,8 +1783,10 @@ class IncomingMessageHandler @Inject constructor(
                     val updatedAdmins = (currentAdmins + targetMember).distinct().joinToString(",")
                     conversationDao.updateGroupAdmins(signal.groupId, updatedAdmins)
 
-                    // Sistem mesaji kaydet
-                    val systemMessage = "${signal.senderId}, ${targetMember}'i yonetici yapti"
+                    // Sistem mesaji kaydet — UUID yerine kullanici adlarini kullan
+                    val promoterName = resolvePeerName(signal.senderId)
+                    val promotedName = resolvePeerName(targetMember)
+                    val systemMessage = "$promoterName, $promotedName'i yönetici yaptı"
                     val message = com.securechat.storage.domain.LocalMessage(
                         id = UUID.randomUUID().toString(),
                         conversationId = signal.groupId,

@@ -4,10 +4,8 @@ import com.google.auth.oauth2.GoogleCredentials
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.messaging.AndroidConfig
-import com.google.firebase.messaging.AndroidNotification
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.Message
-import com.google.firebase.messaging.Notification
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.FileInputStream
@@ -110,13 +108,13 @@ class FcmPushSender(private val tokenStore: FcmTokenStore) {
         }
 
         return try {
-            // Arama sinyallerinde notification payload EKLENMEZ.
-            // Sebep: Notification payload sistem tarafindan otomatik gosterilir ve
-            // "Gelen arama" yerine mesaj bildirimi gibi gorunur.
-            // Data-only mesaj ile onMessageReceived() tetiklenir ve client
-            // kendi arama bildirimini (full-screen intent) gosterir.
-            // (isCallSignal yukarida hesaplandi)
-
+            // TUM push'lar data-only. Notification payload eklenmez cunku:
+            // - Sistem auto-notif gruplanmaz (her mesaj icin ayri jenerik bildirim)
+            // - Istemci IncomingMessageHandler.showMessageNotification zaten MessagingStyle +
+            //   InboxStyle summary ile sohbet-basina grupluyor
+            // - Cift bildirim (jenerik + grouplu) sorununu engeller
+            // Data-only HIGH priority push, app process kapali olsa bile onMessageReceived'i
+            // tetikler ve WebSocketDrainWorker offline kuyrugu drain eder.
             val messageBuilder = Message.builder()
                 .setToken(fcmToken)
                 .putData("type", if (isCallSignal) "incoming_call" else "new_message")
@@ -129,21 +127,6 @@ class FcmPushSender(private val tokenStore: FcmTokenStore) {
                         .setTtl(if (isCallSignal) 30 * 1000 else 0) // Arama: 30sn TTL
                         .build()
                 )
-
-            // Arama DEGIL ise notification payload ekle (sistem bildirimi)
-            // Arama ISE sadece data payload — onMessageReceived() handle eder
-            if (!isCallSignal) {
-                val notificationTitle = when (messageType) {
-                    "file_transfer" -> "Yeni dosya"
-                    else -> "Yeni mesaj"
-                }
-                messageBuilder.setNotification(
-                    Notification.builder()
-                        .setTitle(notificationTitle)
-                        .setBody("Yeni bir mesajınız var")
-                        .build()
-                )
-            }
 
             val message = messageBuilder.build()
 

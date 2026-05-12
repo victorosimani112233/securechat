@@ -128,17 +128,42 @@ private suspend fun handleMessage(
             }
         }
 
-        // --- SFU: Grup aramasi baslatildiginda VideoRoom olustur ---
+        // --- Grup aramasi: GroupCallSessionStore'a kaydet + (>=4 ise) SFU room olustur ---
         if (type == "group_call_invite") {
             val groupId = element["groupId"]?.jsonPrimitive?.contentOrNull
+            val callId = element["callId"]?.jsonPrimitive?.contentOrNull
+            val callType = element["callType"]?.jsonPrimitive?.contentOrNull
             val participants = element["participants"]?.jsonArray?.map { it.jsonPrimitive.content }
-            if (groupId != null && participants != null && participants.size >= 4) {
+            val isSfu = participants != null && participants.size >= 4
+
+            if (groupId != null && callId != null && callType != null && participants != null) {
+                // Ilk invite ise store'a kaydet (ayni grup icin coklu davet idempotent)
+                if (!GroupCallSessionStore.isActive(groupId)) {
+                    GroupCallSessionStore.start(
+                        groupId = groupId,
+                        callId = callId,
+                        coordinatorId = senderId,
+                        callType = callType,
+                        participants = participants,
+                        mode = if (isSfu) "SFU" else "MESH"
+                    )
+                    logger.info("[GroupCall] Aktif arama kayit edildi: $groupId mode=${if (isSfu) "SFU" else "MESH"} coord=$senderId")
+                }
+            }
+
+            if (groupId != null && participants != null && isSfu) {
                 // 4+ katilimci → SFU mode
                 sfuScope.launch {
                     try {
                         JanusOrchestrator.createVideoRoom(groupId, participants.size + 5)
                         val roomInfo = JanusOrchestrator.getRoomInfo(groupId)
                         if (roomInfo != null) {
+                            GroupCallSessionStore.updateSfuInfo(
+                                groupId = groupId,
+                                sfuRoomId = roomInfo.roomId,
+                                janusWsUrl = roomInfo.janusWsUrl,
+                                apiSecret = roomInfo.apiSecret
+                            )
                             // Tum katilimcilara SFU room bilgisini gonder
                             val sfuMsg = """{"type":"sfu_room_created","groupId":"$groupId","roomId":${roomInfo.roomId},"janusWsUrl":"${roomInfo.janusWsUrl}","apiSecret":"${roomInfo.apiSecret}","timestamp":${System.currentTimeMillis()}}"""
                             for (pid in participants) {
@@ -156,6 +181,51 @@ private suspend fun handleMessage(
             }
         }
 
+        // --- Aktif grup aramasi durum sorgusu ---
+        if (type == "group_call_status_query") {
+            val groupId = element["groupId"]?.jsonPrimitive?.contentOrNull
+            if (groupId != null) {
+                // Yetki: sorgulayan bu grubun uyesi olmali
+                if (!GroupMemberStore.getMembers(groupId).contains(senderId)) {
+                    logger.warn("[!] group_call_status_query yetki yok: $senderId / $groupId")
+                    return
+                }
+                val active = GroupCallSessionStore.get(groupId)
+                val response = if (active != null) {
+                    val partsJson = active.participants.joinToString(",") { "\"$it\"" }
+                    val sfuFields = if (active.mode == "SFU" && active.sfuRoomId != null) {
+                        ""","sfuRoomId":${active.sfuRoomId},"janusWsUrl":"${active.janusWsUrl}","apiSecret":"${active.apiSecret}""""
+                    } else ""
+                    """{"type":"group_call_status_response","senderId":"server","recipientId":"$senderId","timestamp":${System.currentTimeMillis()},"groupId":"$groupId","isActive":true,"callId":"${active.callId}","coordinatorId":"${active.coordinatorId}","callType":"${active.callType}","participants":[$partsJson],"mode":"${active.mode}"$sfuFields}"""
+                } else {
+                    """{"type":"group_call_status_response","senderId":"server","recipientId":"$senderId","timestamp":${System.currentTimeMillis()},"groupId":"$groupId","isActive":false,"participants":[]}"""
+                }
+                try {
+                    connectionManager.connections()[senderId]?.send(io.ktor.websocket.Frame.Text(response))
+                } catch (_: Exception) { /* yutuldu */ }
+                return
+            }
+        }
+
+        // --- Aktif grup aramasina katilim istegi — koordinatore route, store'a participant ekle ---
+        if (type == "group_call_join_request") {
+            val groupId = element["groupId"]?.jsonPrimitive?.contentOrNull
+            if (groupId != null) {
+                // Yetki: katilan bu grubun uyesi olmali
+                if (!GroupMemberStore.getMembers(groupId).contains(senderId)) {
+                    logger.warn("[!] group_call_join_request yetki yok: $senderId / $groupId")
+                    return
+                }
+                val active = GroupCallSessionStore.get(groupId)
+                if (active == null) {
+                    logger.warn("[!] group_call_join_request: aktif arama yok $groupId")
+                    return
+                }
+                GroupCallSessionStore.addParticipant(groupId, senderId)
+                // recipientId koordinator'a zaten set edilmis durumda — normal route ile gidiyor
+            }
+        }
+
         // --- SDP_OFFER: aktif call session olustur (Redis), duplicate engelle ---
         if (type == "sdp_offer" && !recipientId.isNullOrBlank()) {
             // Mevcut active call session var mi? Varsa duplicate engellenebilir
@@ -167,14 +237,23 @@ private suspend fun handleMessage(
             connectionManager.setActiveCallSession(senderId, recipientId)
         }
 
-        // --- SFU: Grup aramasi bittiginde VideoRoom sil ---
+        // --- Grup aramasi bittiginde: koordinator HANGUP'i ise store'u clear et + SFU room sil ---
         if (type == "call_control") {
             val action = element["action"]?.jsonPrimitive?.contentOrNull
             if (action == "HANGUP") {
-                val groupCallId = element["groupCallId"]?.jsonPrimitive?.contentOrNull
-                if (groupCallId != null && JanusOrchestrator.hasActiveRoom(groupCallId)) {
-                    sfuScope.launch {
-                        JanusOrchestrator.destroyVideoRoom(groupCallId)
+                val hangupGroupId = element["groupId"]?.jsonPrimitive?.contentOrNull
+                if (hangupGroupId != null) {
+                    val active = GroupCallSessionStore.get(hangupGroupId)
+                    if (active != null && active.coordinatorId == senderId) {
+                        // Koordinator hangup → tum arama biter
+                        GroupCallSessionStore.end(hangupGroupId)
+                        if (JanusOrchestrator.hasActiveRoom(hangupGroupId)) {
+                            sfuScope.launch { JanusOrchestrator.destroyVideoRoom(hangupGroupId) }
+                        }
+                        logger.info("[GroupCall] Aktif arama sonlandirildi (koordinator hangup): $hangupGroupId")
+                    } else if (active != null) {
+                        // Uye hangup → sadece participant cikar
+                        active.participants.remove(senderId)
                     }
                 }
             }

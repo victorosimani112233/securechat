@@ -93,6 +93,19 @@ class PeerConnectionManager @Inject constructor(
     /** Grup aramasi ICE baglanti durumu callback — peerId ile birlikte bildirilir. */
     var onGroupConnectionStateChanged: ((String, PeerConnection.IceConnectionState) -> Unit)? = null
 
+    // --- SFU mode callback'leri (PC tanimlari ileride, "SFU PeerConnection Yonetimi" bolumunde) ---
+    /** SFU publisher PC icin yerel ICE candidate — Janus'a trickle gonderilir. */
+    var onSfuPublisherIce: ((IceCandidate) -> Unit)? = null
+
+    /** SFU publisher ICE gathering tamamlandi. */
+    var onSfuPublisherIceComplete: (() -> Unit)? = null
+
+    /** SFU subscriber PC icin yerel ICE candidate — feedId ile birlikte. */
+    var onSfuSubscriberIce: ((Long, IceCandidate) -> Unit)? = null
+
+    /** SFU publisher baglanti durumu. */
+    var onSfuPublisherConnectionStateChanged: ((PeerConnection.IceConnectionState) -> Unit)? = null
+
     /** ICE sunucu listesi — sunucudan dinamik cekilir, fallback olarak STUN kullanilir */
     @Volatile
     private var iceServers: List<PeerConnection.IceServer> = listOf(
@@ -739,16 +752,20 @@ class PeerConnectionManager @Inject constructor(
 
         val observer = object : PeerConnection.Observer {
             override fun onIceCandidate(candidate: IceCandidate) {
-                // SFU modunda ICE candidate Janus tarafindan trickle edilir (otomatik)
-                Log.d(TAG, "SFU Publisher ICE candidate: ${candidate.sdpMid}")
+                onSfuPublisherIce?.invoke(candidate)
+            }
+            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
+                if (state == PeerConnection.IceGatheringState.COMPLETE) {
+                    onSfuPublisherIceComplete?.invoke()
+                }
             }
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
                 Log.d(TAG, "SFU Publisher ICE state: $state")
+                onSfuPublisherConnectionStateChanged?.invoke(state)
             }
             override fun onAddTrack(receiver: RtpReceiver, streams: Array<out MediaStream>) {}
             override fun onSignalingChange(state: PeerConnection.SignalingState) {}
             override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
             override fun onAddStream(stream: MediaStream) {}
             override fun onRemoveStream(stream: MediaStream) {}
@@ -834,7 +851,7 @@ class PeerConnectionManager @Inject constructor(
 
         val observer = object : PeerConnection.Observer {
             override fun onIceCandidate(candidate: IceCandidate) {
-                Log.d(TAG, "SFU Subscriber ICE candidate: feedId=$feedId ${candidate.sdpMid}")
+                onSfuSubscriberIce?.invoke(feedId, candidate)
             }
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
                 Log.d(TAG, "SFU Subscriber ICE state: feedId=$feedId -> $state")

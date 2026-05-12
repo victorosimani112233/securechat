@@ -36,6 +36,8 @@ class JanusClient {
 
     private var sessionId: Long = 0
     private var publisherHandleId: Long = 0
+    private var apiSecret: String? = null
+    private var roomId: Long = 0
 
     // Subscriber handle'lari: feedId -> handleId
     private val subscriberHandles = ConcurrentHashMap<Long, Long>()
@@ -58,6 +60,16 @@ class JanusClient {
     /**
      * Janus WebSocket sunucusuna baglanir.
      */
+    /** apiSecret — Janus instance-wide auth (api_secret config'i ile aktif). */
+    fun setApiSecret(secret: String?) {
+        apiSecret = secret?.takeIf { it.isNotBlank() }
+    }
+
+    /** JsonObjectBuilder'a apiSecret alani ekler (varsa). */
+    private fun JsonObjectBuilder.withAuth() {
+        apiSecret?.let { put("apisecret", it) }
+    }
+
     suspend fun connect(janusWsUrl: String): Boolean {
         val connectDeferred = CompletableDeferred<Boolean>()
 
@@ -105,6 +117,7 @@ class JanusClient {
         val msg = buildJsonObject {
             put("janus", "create")
             put("transaction", txId)
+            withAuth()
         }
         val response = sendAndWait(txId, msg)
         sessionId = response["data"]?.jsonObject?.get("id")?.jsonPrimitive?.long
@@ -127,6 +140,7 @@ class JanusClient {
             put("session_id", sessionId)
             put("plugin", "janus.plugin.videoroom")
             put("transaction", txId)
+            withAuth()
         }
         val response = sendAndWait(txId, msg)
         publisherHandleId = response["data"]?.jsonObject?.get("id")?.jsonPrimitive?.long
@@ -140,6 +154,7 @@ class JanusClient {
      * @return Mevcut publisher listesi (feedId, displayName)
      */
     suspend fun joinAsPublisher(roomId: Long, displayName: String): List<Pair<Long, String?>> {
+        this.roomId = roomId
         val txId = newTransaction()
         val body = buildJsonObject {
             put("request", "join")
@@ -153,6 +168,7 @@ class JanusClient {
             put("handle_id", publisherHandleId)
             put("transaction", txId)
             put("body", body)
+            withAuth()
         }
         val response = sendAndWait(txId, msg)
 
@@ -191,6 +207,7 @@ class JanusClient {
             put("transaction", txId)
             put("body", body)
             put("jsep", jsep)
+            withAuth()
         }
         val response = sendAndWait(txId, msg)
         val answerSdp = response["jsep"]?.jsonObject?.get("sdp")?.jsonPrimitive?.content
@@ -223,6 +240,7 @@ class JanusClient {
             put("handle_id", handleId)
             put("transaction", txId)
             put("body", body)
+            withAuth()
         }
         val response = sendAndWait(txId, msg)
         val offerSdp = response["jsep"]?.jsonObject?.get("sdp")?.jsonPrimitive?.content
@@ -241,7 +259,7 @@ class JanusClient {
         val txId = newTransaction()
         val body = buildJsonObject {
             put("request", "start")
-            put("room", sessionId) // Room ID'si normalde lazim degil ama bazi Janus versiyonlari ister
+            put("room", roomId)
         }
         val jsep = buildJsonObject {
             put("type", "answer")
@@ -254,9 +272,70 @@ class JanusClient {
             put("transaction", txId)
             put("body", body)
             put("jsep", jsep)
+            withAuth()
         }
         sendAndWait(txId, msg)
         Log.d(TAG, "Subscriber answer gonderildi: feedId=$feedId")
+    }
+
+    /**
+     * Janus'a ICE candidate trickle gonderir.
+     * handleType: "publisher" -> publisherHandleId; "subscriber:<feedId>" -> subscriberHandles[feedId]
+     */
+    fun trickleIce(handleId: Long, sdpMid: String?, sdpMLineIndex: Int, candidate: String) {
+        val txId = newTransaction()
+        val candObj = buildJsonObject {
+            put("candidate", candidate)
+            sdpMid?.let { put("sdpMid", it) }
+            put("sdpMLineIndex", sdpMLineIndex)
+        }
+        val msg = buildJsonObject {
+            put("janus", "trickle")
+            put("session_id", sessionId)
+            put("handle_id", handleId)
+            put("transaction", txId)
+            put("candidate", candObj)
+            withAuth()
+        }
+        // Trickle async — yanit beklenmez
+        webSocket?.send(msg.toString())
+    }
+
+    fun trickleIceCompleted(handleId: Long) {
+        val txId = newTransaction()
+        val msg = buildJsonObject {
+            put("janus", "trickle")
+            put("session_id", sessionId)
+            put("handle_id", handleId)
+            put("transaction", txId)
+            put("candidate", buildJsonObject { put("completed", true) })
+            withAuth()
+        }
+        webSocket?.send(msg.toString())
+    }
+
+    /** Publisher handle ID'sini doner — trickle ICE icin. */
+    fun getPublisherHandleId(): Long = publisherHandleId
+
+    /** Subscriber handle ID'sini doner — trickle ICE icin. */
+    fun getSubscriberHandleId(feedId: Long): Long? = subscriberHandles[feedId]
+
+    /** VideoRoom'dan ayrilma — best-effort. */
+    suspend fun leaveRoom() {
+        if (publisherHandleId == 0L || sessionId == 0L) return
+        val txId = newTransaction()
+        val body = buildJsonObject {
+            put("request", "leave")
+        }
+        val msg = buildJsonObject {
+            put("janus", "message")
+            put("session_id", sessionId)
+            put("handle_id", publisherHandleId)
+            put("transaction", txId)
+            put("body", body)
+            withAuth()
+        }
+        try { sendAndWait(txId, msg) } catch (_: Exception) { /* best-effort */ }
     }
 
     /**
@@ -269,6 +348,7 @@ class JanusClient {
             put("session_id", sessionId)
             put("plugin", "janus.plugin.videoroom")
             put("transaction", txId)
+            withAuth()
         }
         val response = sendAndWait(txId, msg)
         val handleId = response["data"]?.jsonObject?.get("id")?.jsonPrimitive?.long
@@ -289,6 +369,7 @@ class JanusClient {
                     put("janus", "keepalive")
                     put("session_id", sessionId)
                     put("transaction", newTransaction())
+                    withAuth()
                 }
                 webSocket?.send(msg.toString())
             }

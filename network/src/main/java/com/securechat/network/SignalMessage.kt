@@ -85,7 +85,10 @@ sealed class SignalMessage {
         override val timestamp: Long,
         val action: CallAction,
         // Server ACK icin benzersiz ID — client retry icin kullanir.
-        val messageId: String? = null
+        val messageId: String? = null,
+        // Grup aramasinda: koordinator HANGUP gonderirken doldurulur — server SFU room
+        // ve GroupCallSessionStore temizligi icin kullanir.
+        val groupId: String? = null
     ) : SignalMessage()
 
     /**
@@ -371,5 +374,58 @@ sealed class SignalMessage {
         override val timestamp: Long,
         val groupCallId: String,
         val joinedMemberId: String
+    ) : SignalMessage()
+
+    /**
+     * Aktif grup aramasina sonradan katilim istegi.
+     * Yeni katilan kullanici tarafindan koordinatore gonderilir.
+     * Koordinator validate edip onGroupMemberAccepted akisini tetikler.
+     */
+    @Serializable
+    @SerialName("group_call_join_request")
+    data class GroupCallJoinRequest(
+        override val senderId: String,
+        override val recipientId: String, // Koordinator ID'si
+        override val timestamp: Long,
+        val groupId: String,
+        val callId: String,
+        val callType: CallType
+    ) : SignalMessage()
+
+    /**
+     * Grup icin aktif arama durumu sorgusu.
+     * Istemci ChatScreen acildiginda sunucuya gonderir; sunucu cevaplar.
+     * recipientId = "server" sabit string'i.
+     */
+    @Serializable
+    @SerialName("group_call_status_query")
+    data class GroupCallStatusQuery(
+        override val senderId: String,
+        override val recipientId: String, // "server"
+        override val timestamp: Long,
+        val groupId: String
+    ) : SignalMessage()
+
+    /**
+     * Aktif grup aramasi durum cevabi (sunucudan istemciye).
+     * isActive=false ise diger alanlar null/bos.
+     * mode: "MESH" veya "SFU". SFU modunda sfuRoomId/janusWsUrl/apiSecret doludur.
+     */
+    @Serializable
+    @SerialName("group_call_status_response")
+    data class GroupCallStatusResponse(
+        override val senderId: String, // "server"
+        override val recipientId: String,
+        override val timestamp: Long,
+        val groupId: String,
+        val isActive: Boolean,
+        val callId: String? = null,
+        val coordinatorId: String? = null,
+        val callType: CallType? = null,
+        val participants: List<String> = emptyList(),
+        val mode: String? = null, // "MESH" veya "SFU"
+        val sfuRoomId: Long? = null,
+        val janusWsUrl: String? = null,
+        val apiSecret: String? = null
     ) : SignalMessage()
 }

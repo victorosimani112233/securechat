@@ -144,6 +144,15 @@
         </receiver>
 
         <receiver
+            android:name=".data.NotifDismissReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.securechat.app.NOTIF_DISMISS" />
+                <action android:name="com.securechat.app.NOTIF_DISMISS_ALL" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".data.BootReceiver"
             android:enabled="true"
             android:exported="true">

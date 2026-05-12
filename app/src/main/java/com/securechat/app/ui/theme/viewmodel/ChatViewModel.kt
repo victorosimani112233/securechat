@@ -56,7 +56,8 @@ class ChatViewModel @Inject constructor(
     private val userSession: UserSession,
     private val signalingClient: SignalingClient,
     private val contactNameResolver: ContactNameResolver,
-    private val sharedPreferences: SharedPreferences
+    private val sharedPreferences: SharedPreferences,
+    private val callManager: com.securechat.media.CallManager
 ) : ViewModel() {
 
     /** Navigation argument'inden alinan konusma kimlik numarasi. */
@@ -205,6 +206,73 @@ class ChatViewModel @Inject constructor(
         // Current chat tracking: Bu sohbet acildiginda bildirim sistemine bildir
         IncomingMessageHandler.currentChatId = conversationId
         android.util.Log.d("ChatViewModel", "Current chat set to: $conversationId")
+
+        // Grup sohbeti acildiginda sunucudan aktif grup arama durumunu sorgula —
+        // banner bu cevap ile populate edilir.
+        if (conversationId.startsWith("group_")) {
+            viewModelScope.launch {
+                signalingClient.connectionState.collect { state ->
+                    if (state is ConnectionState.Connected) {
+                        val uid = userSession.userId ?: return@collect
+                        signalingClient.sendSignal(
+                            com.securechat.network.SignalMessage.GroupCallStatusQuery(
+                                senderId = uid,
+                                recipientId = "server",
+                                timestamp = System.currentTimeMillis(),
+                                groupId = conversationId
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Bu sohbet (grup) icin aktif grup arama bilgisi — ChatScreen banner observe eder.
+     * Kullanici zaten bir aramadaysa (callManager.callSession != null) banner gizlenir.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val activeGroupCallForChat: StateFlow<IncomingMessageHandler.Companion.ActiveGroupCallInfo?> =
+        kotlinx.coroutines.flow.combine(
+            IncomingMessageHandler.activeGroupCalls,
+            callManager.callSession
+        ) { activeMap, currentSession ->
+            val info = activeMap[conversationId] ?: return@combine null
+            // Kullanici zaten bir aramada ise banner gosterme
+            if (currentSession != null && (
+                currentSession.state == com.securechat.media.model.CallState.RINGING ||
+                currentSession.state == com.securechat.media.model.CallState.ACTIVE ||
+                currentSession.state == com.securechat.media.model.CallState.INITIATING
+            )) {
+                return@combine null
+            }
+            info
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /**
+     * Aktif grup aramasina sonradan katil — banner tap callback'i.
+     * Hem mesh hem SFU modunu CallManager.joinGroupCall icinde handle edilir.
+     */
+    fun joinActiveGroupCall() {
+        val info = activeGroupCallForChat.value ?: return
+        val uid = userSession.userId ?: return
+        val sfuInfo = if (info.mode == "SFU" && info.sfuRoomId != null && info.janusWsUrl != null && info.apiSecret != null) {
+            com.securechat.media.CallManager.SfuRoomBindInfo(
+                roomId = info.sfuRoomId,
+                janusWsUrl = info.janusWsUrl,
+                apiSecret = info.apiSecret
+            )
+        } else null
+
+        callManager.joinGroupCall(
+            userId = uid,
+            groupId = info.groupId,
+            callId = info.callId,
+            coordinatorId = info.coordinatorId,
+            callType = info.callType,
+            sfuRoomInfo = sfuInfo
+        )
     }
 
     override fun onCleared() {
@@ -267,24 +335,32 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun markIncomingMessagesAsRead() {
         val localUserId = userSession.userId ?: return
-        observeMessagesUseCase(conversationId).collect { messageList ->
-            val unreadIncoming = messageList.filter {
-                !it.isOutgoing && it.status != MessageStatus.READ && it.id !in readReceiptSentIds
-            }
-            for (msg in unreadIncoming) {
-                readReceiptSentIds.add(msg.id)
-                messageRepository.updateMessageStatus(msg.id, MessageStatus.READ)
-                signalingClient.sendSignal(
-                    SignalMessage.DeliveryReceipt(
-                        senderId = localUserId,
-                        recipientId = msg.senderId,
-                        timestamp = System.currentTimeMillis(),
-                        messageId = msg.id,
-                        status = "READ"
+        // observeMessagesUseCase ve foreground state'ini combine et — sadece foreground=true
+        // iken READ marking yap. Foreground'a tekrar gecince de bekleyen mesajlari yakalar.
+        kotlinx.coroutines.flow.combine(
+            observeMessagesUseCase(conversationId),
+            IncomingMessageHandler.isAppInForegroundFlow
+        ) { messageList, isForeground -> messageList to isForeground }
+            .collect { (messageList, isForeground) ->
+                if (!isForeground) return@collect
+
+                val unreadIncoming = messageList.filter {
+                    !it.isOutgoing && it.status != MessageStatus.READ && it.id !in readReceiptSentIds
+                }
+                for (msg in unreadIncoming) {
+                    readReceiptSentIds.add(msg.id)
+                    messageRepository.updateMessageStatus(msg.id, MessageStatus.READ)
+                    signalingClient.sendSignal(
+                        SignalMessage.DeliveryReceipt(
+                            senderId = localUserId,
+                            recipientId = msg.senderId,
+                            timestamp = System.currentTimeMillis(),
+                            messageId = msg.id,
+                            status = "READ"
+                        )
                     )
-                )
+                }
             }
-        }
     }
 
     /**

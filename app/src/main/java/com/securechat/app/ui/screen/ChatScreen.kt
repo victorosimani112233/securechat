@@ -240,6 +240,9 @@ fun ChatScreen(
     val currentSearchIndex by viewModel.currentSearchIndex.collectAsStateWithLifecycle()
     val highlightedMessageId by viewModel.highlightedMessageId.collectAsStateWithLifecycle()
 
+    // Aktif grup arama bilgisi — banner state'i
+    val activeGroupCall by viewModel.activeGroupCallForChat.collectAsStateWithLifecycle()
+
     // Mesaj duzenleme state'leri
     var editingMessageId by remember { mutableStateOf<String?>(null) }
     var editingMessageContent by remember { mutableStateOf("") }
@@ -463,6 +466,17 @@ fun ChatScreen(
                         }
                     }
                 )
+                // Aktif grup arama banner'i — devam eden aramaya katilim
+                AnimatedVisibility(
+                    visible = activeGroupCall != null && isGroup,
+                    enter = slideInVertically(tween(200)) { -it } + fadeIn(tween(200)),
+                    exit = slideOutVertically(tween(200)) { -it } + fadeOut(tween(200))
+                ) {
+                    ActiveGroupCallBanner(
+                        callType = activeGroupCall?.callType?.name ?: "VOICE",
+                        onJoinClick = { viewModel.joinActiveGroupCall() }
+                    )
+                }
                 AnimatedVisibility(
                     visible = isSearchMode,
                     enter = slideInVertically(tween(200)) { -it } + fadeIn(tween(200)),
@@ -1050,6 +1064,52 @@ private fun DateSeparator(dateLabel: String) {
 }
 
 /**
+ * Aktif grup aramasi banner'i — sohbet ekranin ust kisminda.
+ * Kullanici sohbeti acinca devam eden grup aramasi varsa gosterilir; tap → katilim.
+ */
+@Composable
+private fun ActiveGroupCallBanner(
+    callType: String,
+    onJoinClick: () -> Unit
+) {
+    val icon = if (callType == "VIDEO") Icons.Default.Videocam else Icons.Default.Call
+    val label = if (callType == "VIDEO") "Görüntülü grup araması devam ediyor"
+                else "Sesli grup araması devam ediyor"
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1F8E3D))
+            .clickable { onJoinClick() }
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = label,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "Katıl",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+
+/**
  * Sistem mesajlarini (grup olaylari, arama bilgileri) ortada bilgilendirme olarak gosterir.
  * WhatsApp'taki gibi mesaj balonu yerine kucuk, ortalanmis metin.
  */
@@ -1075,13 +1135,17 @@ private fun SystemMessageBanner(
         val direction = parts.getOrNull(1) ?: ""
         val status = parts.getOrNull(3) ?: ""
         displayText = parts.getOrNull(5) ?: content
-        isCallbackable = status in listOf("MISSED", "REJECTED", "FAILED", "BUSY")
+        // GROUP_STARTED/GROUP_ENDED'de geri arama yok
+        isCallbackable = status in listOf("MISSED", "REJECTED", "FAILED", "BUSY") &&
+                         direction != "GROUP_STARTED" && direction != "GROUP_ENDED"
 
         icon = if (callType == "VIDEO") Icons.Default.Videocam else Icons.Default.Call
-        iconTint = when (status) {
-            "MISSED", "REJECTED", "FAILED", "BUSY" -> MaterialTheme.colorScheme.error
-            else -> if (direction == "OUTGOING") MaterialTheme.colorScheme.primary
-                    else Color(0xFF4CAF50)
+        iconTint = when {
+            direction == "GROUP_STARTED" -> Color(0xFF4CAF50)
+            direction == "GROUP_ENDED" -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            status in listOf("MISSED", "REJECTED", "FAILED", "BUSY") -> MaterialTheme.colorScheme.error
+            direction == "OUTGOING" -> MaterialTheme.colorScheme.primary
+            else -> Color(0xFF4CAF50)
         }
     } else {
         displayText = content
