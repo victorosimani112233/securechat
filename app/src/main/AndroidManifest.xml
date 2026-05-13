@@ -149,6 +149,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Planli mesaj alarm tetikleyici — AlarmManager bu receiver'i cagirir. -->
+        <receiver
+            android:name=".scheduler.ScheduledMessageReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.securechat.app.SCHEDULED_MESSAGE_TRIGGER" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".data.BootReceiver"
             android:enabled="true"
