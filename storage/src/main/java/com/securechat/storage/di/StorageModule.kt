@@ -58,10 +58,24 @@ object StorageModule {
     ): SecureChatDatabase {
         sqlCipherLoaded // native lib'i yukle (lazy, sadece ilk cagride)
 
-        // Passphrase Android Keystore master key ile sarmalandi (KeyStoreManager.getOrCreateDbPassphrase).
-        // Plaintext passphrase yalnizca burada bellekte; SupportOpenHelperFactory'ye verildikten sonra
-        // hemen sifirlanir. SQLCipher kendi copy'sini tutar (native heap).
+        // Passphrase Android Keystore master key ile sarmalandi.
         val passphrase = keyStoreManager.getOrCreateDbPassphrase()
+
+        // MIGRATION RECOVERY: Eski APK'larda "securechat_dev_passphrase" hardcoded passphrase ile
+        // yaratilmis DB diskte olabilir. Yeni Keystore-derived passphrase ile decrypt fail eder
+        // ("file is not a database" SQLiteException, code 26). Bu durumda DB dosyasini sil ki
+        // Room temiz baslayabilsin — kullanici uninstall etmek zorunda kalmasin.
+        //
+        // Production'da gercek user verisi varsa bu DESTRUCTIVE — geliştirme/launch öncesi OK.
+        val dbFile = context.getDatabasePath("securechat.db")
+        if (dbFile.exists() && !canOpenWithPassphrase(dbFile, passphrase)) {
+            android.util.Log.w(
+                "StorageModule",
+                "DB passphrase mismatch tespit edildi — eski DB siliniyor (one-time migration)"
+            )
+            context.deleteDatabase("securechat.db")
+        }
+
         val factory = SupportOpenHelperFactory(passphrase)
         // SQLCipher dahili kopya aldi — bizim referansi sifirla.
         passphrase.fill(0)
@@ -82,6 +96,31 @@ object StorageModule {
                 }
             })
             .build()
+    }
+
+    /**
+     * Mevcut DB dosyasinin verilen passphrase ile acilip acilamadigini test eder.
+     * Hizli no-op query (PRAGMA cipher_version) — basarisizsa yanlis passphrase demektir.
+     * Kaynak guvenli — sadece bu fonksiyon kapsaminda DB acilir, sonra kapatilir.
+     */
+    private fun canOpenWithPassphrase(dbFile: java.io.File, passphrase: ByteArray): Boolean {
+        return try {
+            net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
+                dbFile.absolutePath,
+                passphrase,
+                null,
+                net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READONLY,
+                null,
+                null
+            ).use { db ->
+                // Yanlis passphrase ile herhangi bir compile cagrisi exception atar.
+                db.rawQuery("SELECT count(*) FROM sqlite_master", null).use { it.moveToFirst() }
+            }
+            true
+        } catch (e: Exception) {
+            android.util.Log.w("StorageModule", "DB test open basarisiz: ${e.message}")
+            false
+        }
     }
 
     @Provides
