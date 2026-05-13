@@ -119,12 +119,16 @@ class KeyStoreManager @Inject constructor(
      *
      * Akis:
      * 1. SharedPreferences'da encrypted passphrase var mi bak.
-     * 2. Yoksa: SecureRandom ile 32 byte random uret, Keystore master key ile sifrele,
-     *    Base64 encode et ve SharedPreferences'a yaz.
-     * 3. Varsa: SharedPreferences'tan oku, Base64 decode et, Keystore ile decrypt et.
+     * 2. Varsa: oku, Keystore ile decrypt et — passphrase dondur.
+     * 3. Decrypt FAIL ise: Keystore master key bozulmus/cycled → yeni passphrase uret.
+     *    BU DURUMDA eski DB acilamaz; caller (StorageModule) destructive recovery yapar.
+     * 4. Yoksa (ilk acilis): yeni 32 byte random uret, encrypt, SharedPrefs'e yaz.
+     *
+     * KRITIK: SharedPreferences yazma .commit() ile SENKRON yapilir — .apply() async,
+     * process killed olunca yazma kaybolabilirdi, sonraki acilista passphrase yok diye
+     * yeni uretilirdi, eski DB acilamazdi, tum sohbetler silinirdi.
      *
      * GUVENLIK: Plaintext passphrase asla diske yazilmaz; sadece bellekte aktarilir.
-     * Caller (StorageModule) passphrase'i SQLCipher SupportOpenHelperFactory'ye verir.
      *
      * @return 32-byte plaintext passphrase (caller kullandiktan sonra .fill(0) ile sifirlamali)
      */
@@ -133,21 +137,43 @@ class KeyStoreManager @Inject constructor(
         val stored = prefs.getString(DB_PASSPHRASE_KEY, null)
 
         if (stored != null) {
-            val encrypted = Base64.decode(stored, Base64.NO_WRAP)
-            return decrypt(encrypted)
+            try {
+                val encrypted = Base64.decode(stored, Base64.NO_WRAP)
+                val passphrase = decrypt(encrypted)
+                android.util.Log.d(
+                    "KeyStoreManager",
+                    "DB passphrase storage'dan okundu (decrypt OK, prefix=" +
+                        passphrase.take(4).joinToString("") { "%02x".format(it) } + ")"
+                )
+                return passphrase
+            } catch (e: Exception) {
+                // Keystore master key cycle/bozulma — decrypt edemiyoruz.
+                // Eski entry'i sil ve yeni passphrase uret (caller migration recovery yapacak).
+                android.util.Log.e(
+                    "KeyStoreManager",
+                    "DB passphrase decrypt FAIL — Keystore master key cycled? Yeni passphrase uretiliyor: ${e.message}"
+                )
+                prefs.edit().remove(DB_PASSPHRASE_KEY).commit()
+            }
         }
 
-        // Ilk acilis — yeni passphrase uret
+        // Ilk acilis VEYA decrypt fail — yeni passphrase uret
         val passphrase = ByteArray(DB_PASSPHRASE_LENGTH)
         SecureRandom().nextBytes(passphrase)
+        android.util.Log.w(
+            "KeyStoreManager",
+            "Yeni DB passphrase uretildi (prefix=" +
+                passphrase.take(4).joinToString("") { "%02x".format(it) } + ")"
+        )
 
         val encrypted = encrypt(passphrase)
-        prefs.edit()
+        // KRITIK: commit() SENKRON — process kill olsa bile diske yazilmis olur.
+        // apply() async oldugundan ilk acilisin hemen ardindan crash/kill durumunda kaybolurdu.
+        val written = prefs.edit()
             .putString(DB_PASSPHRASE_KEY, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-            .apply()
+            .commit()
+        android.util.Log.d("KeyStoreManager", "DB passphrase SharedPrefs'e yazildi: success=$written")
 
-        // encrypt() icinde passphrase kopya alindi, encrypted ureten cipher input'u sifirlamiyor.
-        // Caller'a donerken plaintext'i biz dondururuz; caller .fill(0) ile cleanup yapmali.
         return passphrase
     }
 }

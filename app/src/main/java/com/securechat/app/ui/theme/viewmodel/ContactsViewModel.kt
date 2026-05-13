@@ -105,6 +105,18 @@ class ContactsViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * TUM kayitli kullanicilarin phoneHash set'i — DB'den Flow olarak izlenir.
+     * ContactsScreen rehberdeki kisinin "Elcim'de kayitli mi" kontrolu icin bunu kullanir.
+     *
+     * Onceden `contacts` (paginated) ile karsilastiriliyordu — 50 kisiden fazla kayitli user
+     * varsa 51+ kisiler "Davet Et" gosteriyordu (BUG). Flow tum DB'yi izledigi icin pagination
+     * sinirinin disinda kalan kayitlar da yakalanir + discovery sonrasi otomatik refresh olur.
+     */
+    val registeredPhoneHashes: StateFlow<Set<String>> = contactDao.getRegistered()
+        .map { entities -> entities.map { it.phoneHash }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
     init {
         // Contacts ekrandayken current chat'i "contacts" olarak set et
         IncomingMessageHandler.currentChatId = "contacts"
@@ -292,6 +304,27 @@ class ContactsViewModel @Inject constructor(
                 // Veritabanindaki mevcut kisiler gosterilir.
             } finally {
                 _isDiscovering.value = false
+                // FIX: Yeni eslesen kullanicilar paginated listede gozuksun diye yenile.
+                // registeredPhoneHashes Flow zaten otomatik update olur ama sayfalama
+                // snapshot oldugu icin manuel reload gerekli.
+                loadInitialContacts()
+            }
+        }
+    }
+
+    /**
+     * Paginated `_paginatedContacts` listesinde bulunmayan bir kayitli kullanicinin
+     * userId'sini DB'den hash uzerinden cozer. ContactsScreen click handler tarafindan
+     * kullanilir (51+ kisi varsa pagination tasmasinda fallback).
+     */
+    fun resolveUserIdByHash(phoneHash: String, callback: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val result = contactDao.getByHashes(listOf(phoneHash)).firstOrNull()
+                callback(result?.id)
+            } catch (e: Exception) {
+                android.util.Log.e("ContactsVM", "resolveUserIdByHash hatasi", e)
+                callback(null)
             }
         }
     }

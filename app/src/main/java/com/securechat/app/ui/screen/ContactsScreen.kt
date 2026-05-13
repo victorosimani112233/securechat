@@ -110,6 +110,8 @@ fun ContactsScreen(
 ) {
     val contacts by viewModel.contacts.collectAsStateWithLifecycle()
     val phoneContacts by viewModel.phoneContacts.collectAsStateWithLifecycle()
+    // Pagination'dan bagimsiz, TUM kayitli kullanicilarin hash set'i — DB Flow ile auto-refresh.
+    val registeredPhoneHashes by viewModel.registeredPhoneHashes.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val permissionGranted by viewModel.permissionGranted.collectAsStateWithLifecycle()
     val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
@@ -504,10 +506,6 @@ fun ContactsScreen(
 
             // Telefon rehberindeki kişiler — izin verilmişse gösterilir
             if (phoneContacts.isNotEmpty()) {
-                val registeredNumbers = contacts.map {
-                    PhoneNumberNormalizer.normalizeDigits(it.phoneNumber)
-                }.toSet()
-
                 item {
                     Text(
                         text = "Telefon Rehberi",
@@ -518,17 +516,27 @@ fun ContactsScreen(
                     )
                 }
                 items(phoneContacts, key = { "phone_${it.id}_${it.phoneNumber}" }) { contact ->
-                    val normalized = PhoneNumberNormalizer.normalizeDigits(contact.phoneNumber)
-                    val isRegistered = normalized in registeredNumbers
+                    // BUGFIX: Eslesme phoneHash bazli yapilir (tum DB'den, pagination disinda).
+                    // Onceden `contacts` (paginated, max 50 kisi) ile normalize string karsilastirma
+                    // yapiliyordu — sayfalanmamis kullanicilar "Davet Et" gosteriyordu.
+                    val contactHash = remember(contact.phoneNumber) {
+                        com.securechat.contacts.UserDiscoveryService.hashPhoneNumber(contact.phoneNumber)
+                    }
+                    val isRegistered = contactHash in registeredPhoneHashes
                     PhoneContactItem(
                         contact = contact,
                         isRegistered = isRegistered,
                         onClick = {
-                            val match = contacts.firstOrNull { reg ->
-                                PhoneNumberNormalizer.normalizeDigits(reg.phoneNumber) == normalized
-                            }
+                            // Click handler — kayitliysa userId'yi bul ve chat ac.
+                            // Once paginated listede ara, yoksa DB'ye direk sorgu (callback launch)
+                            val match = contacts.firstOrNull { reg -> reg.phoneHash == contactHash }
                             if (match != null) {
                                 onContactClick(match.userId)
+                            } else if (isRegistered) {
+                                // Kayitli ama paginated'da yok — ViewModel'den userId resolve et
+                                viewModel.resolveUserIdByHash(contactHash) { resolvedId ->
+                                    if (resolvedId != null) onContactClick(resolvedId)
+                                }
                             }
                         }
                     )

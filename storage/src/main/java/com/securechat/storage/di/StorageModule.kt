@@ -61,32 +61,58 @@ object StorageModule {
         // Passphrase Android Keystore master key ile sarmalandi.
         val passphrase = keyStoreManager.getOrCreateDbPassphrase()
 
-        // MIGRATION RECOVERY (NON-DESTRUCTIVE): Eski APK'larda "securechat_dev_passphrase"
-        // hardcoded passphrase ile yaratilmis DB diskte olabilir. Yeni Keystore-derived
-        // passphrase ile direct decrypt fail eder. Eski passphrase ile aciliyorsa
-        // PRAGMA rekey (SQLCipher native changePassword) ile yeni key'e gec — sohbetler KORUNUR.
-        // Sadece her iki passphrase de fail ederse DB corrupted demektir, son care destructive.
+        // MIGRATION RECOVERY: Eski APK'larda "securechat_dev_passphrase" hardcoded passphrase ile
+        // yaratilmis DB diskte olabilir. Yeni Keystore-derived passphrase ile direct decrypt fail eder.
+        // Eski passphrase ile aciliyorsa PRAGMA rekey ile yeni key'e gec — sohbetler KORUNUR.
+        //
+        // KRITIK: Hicbir passphrase ile acilmazsa DB SILINMEZ — yedek alinir (securechat.db.broken_<ts>)
+        // ki kullanici verisini geri kurtarmak mumkun olsun. Onceki destructive delete kullanici
+        // sohbetlerini her acilista siliyordu (apply() async write race ile birlikte).
         val dbFile = context.getDatabasePath("securechat.db")
-        if (dbFile.exists() && !canOpenWithPassphrase(dbFile, passphrase)) {
-            android.util.Log.w(
-                "StorageModule",
-                "DB yeni passphrase ile acilamadi — legacy passphrase ile rekey deneniyor"
-            )
-            val legacyPassphrase = LEGACY_DEV_PASSPHRASE.toByteArray(Charsets.UTF_8)
-            val rekeyed = tryRekeyDatabase(dbFile, legacyPassphrase, passphrase)
-            legacyPassphrase.fill(0)
-            if (!rekeyed) {
-                android.util.Log.e(
-                    "StorageModule",
-                    "Legacy passphrase ile de acilamadi — DB corrupted veya 3. passphrase. Son care: sil."
-                )
-                context.deleteDatabase("securechat.db")
+        if (dbFile.exists()) {
+            android.util.Log.d("StorageModule", "DB var, yeni passphrase ile test ediliyor")
+            if (canOpenWithPassphrase(dbFile, passphrase)) {
+                android.util.Log.d("StorageModule", "DB yeni passphrase ile acildi — migration gerekmiyor")
             } else {
-                android.util.Log.i(
+                android.util.Log.w(
                     "StorageModule",
-                    "DB basariyla yeni Keystore-derived passphrase'e rekey edildi (sohbetler korundu)"
+                    "DB yeni passphrase ile acilamadi — legacy passphrase rekey deneniyor"
                 )
+                val legacyPassphrase = LEGACY_DEV_PASSPHRASE.toByteArray(Charsets.UTF_8)
+                val rekeyed = tryRekeyDatabase(dbFile, legacyPassphrase, passphrase)
+                legacyPassphrase.fill(0)
+                if (rekeyed) {
+                    android.util.Log.i(
+                        "StorageModule",
+                        "DB basariyla yeni Keystore-derived passphrase'e rekey edildi (sohbetler korundu)"
+                    )
+                } else {
+                    // Hicbir passphrase calismadi — DB'yi YEDEKLE (silme yerine).
+                    // Bu sayede:
+                    //   1. Kullanici sohbetlerini kaybetmez (yedek dosyasi diskte kalir)
+                    //   2. Future debug/recovery icin dosya korunur
+                    //   3. App temiz DB ile baslar (UX bozulmaz)
+                    val ts = System.currentTimeMillis()
+                    val backupFile = java.io.File(dbFile.parentFile, "securechat.db.broken_$ts")
+                    try {
+                        dbFile.renameTo(backupFile)
+                        // SQLCipher journal/wal dosyalarini da temizle (varsa)
+                        java.io.File(dbFile.parentFile, "securechat.db-journal").delete()
+                        java.io.File(dbFile.parentFile, "securechat.db-wal").delete()
+                        java.io.File(dbFile.parentFile, "securechat.db-shm").delete()
+                        android.util.Log.e(
+                            "StorageModule",
+                            "DB hicbir passphrase ile acilamadi — YEDEK ALINDI: ${backupFile.name}. " +
+                                "Kullanici verisi disk'te korundu, recovery icin manuel mudahale gerekir."
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("StorageModule", "DB yedek alinamadi: ${e.message}, son care delete", e)
+                        context.deleteDatabase("securechat.db")
+                    }
+                }
             }
+        } else {
+            android.util.Log.d("StorageModule", "DB dosyasi yok, ilk acilis — yeni DB yaratilacak")
         }
 
         val factory = SupportOpenHelperFactory(passphrase)
