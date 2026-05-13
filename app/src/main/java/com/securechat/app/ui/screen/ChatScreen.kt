@@ -42,8 +42,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -115,6 +118,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -180,7 +184,7 @@ fun ChatScreen(
     onVideoCallClick: (String) -> Unit,
     onChatInfoClick: (String) -> Unit = {},
     onGroupInfoClick: (String) -> Unit = {},
-    onMessageJump: (String) -> Unit = {}
+    @Suppress("UNUSED_PARAMETER") onMessageJump: (String) -> Unit = {}
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val conversationInfo by viewModel.conversationInfo.collectAsStateWithLifecycle()
@@ -437,7 +441,30 @@ fun ChatScreen(
     }
 
     val dark = LocalDarkTheme.current
-    Box(Modifier.fillMaxSize()) {
+    // Sol kenardan saga swipe ile geri donus (Telegram/iOS pattern).
+    // 24dp'lik sol edge zone'dan baslayan, 80dp'den fazla saga hareket eden gesture'i
+    // tetikler. LazyColumn dikey scroll'u ile cakismaz; sadece edge'den baslayanlar yakalanir.
+    val edgeWidthPx = with(density) { 24.dp.toPx() }
+    val swipeThresholdPx = with(density) { 80.dp.toPx() }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    // Sadece sol kenardan baslayan dokunuslari yakala
+                    if (down.position.x > edgeWidthPx) return@awaitEachGesture
+                    var totalDeltaX = 0f
+                    val dragCompleted = horizontalDrag(down.id) { change ->
+                        totalDeltaX += change.positionChange().x
+                    }
+                    if (dragCompleted && totalDeltaX > swipeThresholdPx) {
+                        onBackClick()
+                    }
+                }
+            }
+    ) {
         AzureDoodleBackdrop(dark = dark)
 
     Scaffold(
@@ -1736,6 +1763,8 @@ fun MessageBubble(
     val dark = LocalDarkTheme.current
     var showPopupMenu by remember { mutableStateOf(false) }
     var showEditHistoryDialog by remember { mutableStateOf(false) }
+    // "Herkesten sil" geri donulemez bir islemdir — onay dialog'u tetikler.
+    var showDeleteForEveryoneConfirm by remember { mutableStateOf(false) }
 
     // Azure tema balon renkleri
     val bubbleBg = if (isOutgoing) {
@@ -2240,7 +2269,7 @@ fun MessageBubble(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                 )
 
-                // Herkesten sil (sadece kendi mesajları için)
+                // Herkesten sil (sadece kendi mesajları için) — onay dialog'u tetikler
                 if (onDeleteForEveryone != null) {
                     DropdownMenuItem(
                         text = {
@@ -2252,7 +2281,8 @@ fun MessageBubble(
                         },
                         onClick = {
                             showPopupMenu = false
-                            onDeleteForEveryone()
+                            // Dogrudan silmek yerine onay dialog'u ac — geri donulemez islem.
+                            showDeleteForEveryoneConfirm = true
                         },
                         leadingIcon = {
                             Icon(
@@ -2398,6 +2428,47 @@ fun MessageBubble(
             }
         } // Column end
     }
+
+    // "Herkesten sil" onay dialog'u — geri donulemez bir islem oldugu icin
+    // kullanicinin dikkatini cekecek bir AlertDialog ile onay alinir.
+    if (showDeleteForEveryoneConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showDeleteForEveryoneConfirm = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.DeleteForever,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Mesajı sil") },
+            text = {
+                Text(
+                    "Silmek istediğinize emin misiniz? Silinen mesajın geri getirilmesi mümkün olmayacaktır."
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showDeleteForEveryoneConfirm = false
+                        onDeleteForEveryone?.invoke()
+                    }
+                ) {
+                    Text(
+                        text = "Herkesten Sil",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { showDeleteForEveryoneConfirm = false }
+                ) {
+                    Text("Vazgeç")
+                }
+            }
+        )
+    }
 }
 
 /**
@@ -2490,7 +2561,7 @@ private fun FileMessageContent(
     isOutgoing: Boolean,
     uploadPercent: Int? = null,
     onFileClick: () -> Unit = {},
-    onShareClick: () -> Unit = {}
+    @Suppress("UNUSED_PARAMETER") onShareClick: () -> Unit = {}
 ) {
     val dark = LocalDarkTheme.current
     val isUploading = uploadPercent != null
@@ -2901,7 +2972,6 @@ private fun EditMessageDialog(
     onDismiss: () -> Unit
 ) {
     var editedText by remember { mutableStateOf(currentContent) }
-    val dark = LocalDarkTheme.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
