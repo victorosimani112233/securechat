@@ -9,11 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.securechat.app.domain.usecase.SendMessageUseCase
-import com.securechat.app.ui.viewmodel.RepeatType
-import com.securechat.app.ui.viewmodel.ScheduledMessageViewModel
 import com.securechat.storage.dao.ScheduledMessageDao
-import com.securechat.storage.entity.ScheduledMessageEntity
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -40,7 +36,7 @@ class ScheduledMessageWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val scheduledMessageDao: ScheduledMessageDao,
-    private val sendMessageUseCase: SendMessageUseCase
+    private val dispatcher: ScheduledMessageDispatcher
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -49,64 +45,14 @@ class ScheduledMessageWorker @AssistedInject constructor(
             val due = scheduledMessageDao.getDueMessages(now)
             android.util.Log.d(TAG, "Worker calisti — due plan sayisi: ${due.size}")
 
+            // Dispatcher'a delege — Receiver ile ayni logic
             for (entity in due) {
-                processEntity(entity, now)
+                dispatcher.processPlan(entity.id)
             }
             Result.success()
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Worker hatasi: ${e.message}", e)
-            // Geçici hata — bir sonraki periyodda yeniden dener
             Result.retry()
-        }
-    }
-
-    private suspend fun processEntity(entity: ScheduledMessageEntity, @Suppress("UNUSED_PARAMETER") now: Long) {
-        val recipients = entity.recipientIds.split(",").filter { it.isNotBlank() }
-        if (recipients.isEmpty()) {
-            android.util.Log.w(TAG, "Plan ${entity.id}: alici listesi bos, atlandi")
-            // Bozuk kayit — sil
-            scheduledMessageDao.deleteById(entity.id)
-            return
-        }
-
-        // Tum aliclara mesaji gonder (bireysel veya grup konusma id'leri)
-        for (recipientId in recipients) {
-            try {
-                sendMessageUseCase(
-                    conversationId = recipientId,
-                    content = entity.messageContent
-                )
-                android.util.Log.d(TAG, "Plan ${entity.id} → $recipientId gonderildi")
-            } catch (e: Exception) {
-                android.util.Log.e(TAG, "Plan ${entity.id} → $recipientId gonderim hatasi: ${e.message}")
-                // Bir aliciya gonderilemese bile digerlerine devam
-            }
-        }
-
-        // Tekrarlama
-        val repeatType = try {
-            RepeatType.valueOf(entity.repeatType)
-        } catch (_: Exception) {
-            RepeatType.ONCE // bozuk veri ise tek seferlik say
-        }
-
-        when (repeatType) {
-            RepeatType.ONCE -> {
-                scheduledMessageDao.deleteById(entity.id)
-                android.util.Log.d(TAG, "Plan ${entity.id} ONCE — silindi")
-            }
-            RepeatType.DAILY, RepeatType.CUSTOM -> {
-                val days = entity.repeatDays
-                    ?.split(",")
-                    ?.mapNotNull { it.trim().toIntOrNull() }
-                    ?.toSet()
-                    ?: emptySet()
-                val nextTrigger = ScheduledMessageViewModel.calculateNextTrigger(
-                    entity.hour, entity.minute, repeatType, days
-                )
-                scheduledMessageDao.update(entity.copy(nextTriggerTime = nextTrigger))
-                android.util.Log.d(TAG, "Plan ${entity.id} ${repeatType.name} — yeni trigger: $nextTrigger")
-            }
         }
     }
 

@@ -146,4 +146,109 @@ class SendMessageUseCaseTest {
 
         coVerify { messageRepository.updateMessageStatus(any(), MessageStatus.FAILED) }
     }
+
+    // ---- Yeni eklenenler (kritik path coverage) ----
+
+    @Test
+    fun `transient failure - retry sonrasi basari - SENT olarak isaretlenir`() = runTest {
+        // Ilk 2 deneme false, 3. deneme true
+        var attempt = 0
+        every { signalingClient.sendSignal(any()) } answers {
+            attempt++
+            attempt >= 3
+        }
+
+        sendMessageUseCase("conv_1", "test")
+
+        // En az 3 attempt yapilmis olmali (ilk + 2 retry)
+        coVerify(atLeast = 3) { signalingClient.sendSignal(any()) }
+        coVerify { messageRepository.updateMessageStatus(any(), MessageStatus.SENT) }
+        coVerify(exactly = 0) { messageRepository.updateMessageStatus(any(), MessageStatus.FAILED) }
+    }
+
+    @Test
+    fun `tum retryler fail - en az MAX_RETRY+1 deneme + FAILED`() = runTest {
+        every { signalingClient.sendSignal(any()) } returns false
+
+        sendMessageUseCase("conv_1", "test")
+
+        // 1 ilk + 3 retry = 4 deneme
+        coVerify(exactly = SendMessageUseCase.MAX_RETRY_COUNT + 1) { signalingClient.sendSignal(any()) }
+        coVerify { messageRepository.updateMessageStatus(any(), MessageStatus.FAILED) }
+    }
+
+    @Test
+    fun `grup konusma - GroupMessageFanout signal turu kullanilir`() = runTest {
+        val groupId = "group_xyz"
+        val groupConv = com.securechat.storage.entity.ConversationEntity(
+            id = groupId,
+            peerId = groupId,
+            peerName = "Test Grup",
+            peerPhone = "",
+            lastMessage = null,
+            lastMessageTimestamp = null,
+            isGroup = true,
+            groupMembers = "user_a,user_b,user_c"
+        )
+        coEvery { conversationDao.getById(groupId) } returns groupConv
+
+        sendMessageUseCase(groupId, "Selam grup")
+
+        val signalSlot = slot<com.securechat.network.SignalMessage>()
+        coVerify { signalingClient.sendSignal(capture(signalSlot)) }
+        assertTrue(signalSlot.captured is com.securechat.network.SignalMessage.GroupMessageFanout)
+    }
+
+    @Test
+    fun `birebir konusma - EncryptedMessage signal turu kullanilir`() = runTest {
+        coEvery { conversationDao.getById("conv_1") } returns null // birebir, isGroup=false
+
+        sendMessageUseCase("conv_1", "Selam")
+
+        val signalSlot = slot<com.securechat.network.SignalMessage>()
+        coVerify { signalingClient.sendSignal(capture(signalSlot)) }
+        assertTrue(signalSlot.captured is com.securechat.network.SignalMessage.EncryptedMessage)
+    }
+
+    @Test
+    fun `replyToId set - mesajda replyToId saklanir`() = runTest {
+        sendMessageUseCase("conv_1", "Cevap", replyToId = "msg_123")
+
+        val messageSlot = slot<LocalMessage>()
+        coVerify { messageRepository.saveMessage(capture(messageSlot)) }
+        assertEquals("msg_123", messageSlot.captured.replyToId)
+    }
+
+    @Test
+    fun `disappearing duration set - expiresAt hesaplanir`() = runTest {
+        val convWithDisappearing = com.securechat.storage.entity.ConversationEntity(
+            id = "conv_disap",
+            peerId = "conv_disap",
+            peerName = "Test",
+            peerPhone = "",
+            lastMessage = null,
+            lastMessageTimestamp = null,
+            isGroup = false,
+            disappearingDuration = 3600_000L // 1 saat
+        )
+        coEvery { conversationDao.getById("conv_disap") } returns convWithDisappearing
+
+        sendMessageUseCase("conv_disap", "siliner")
+
+        val messageSlot = slot<LocalMessage>()
+        coVerify { messageRepository.saveMessage(capture(messageSlot)) }
+        val expiresAt = messageSlot.captured.expiresAt
+        assertTrue(expiresAt != null && expiresAt > System.currentTimeMillis())
+    }
+
+    @Test
+    fun `disappearing duration 0 - expiresAt null olur`() = runTest {
+        coEvery { conversationDao.getById("conv_1") } returns null
+
+        sendMessageUseCase("conv_1", "kalici")
+
+        val messageSlot = slot<LocalMessage>()
+        coVerify { messageRepository.saveMessage(capture(messageSlot)) }
+        assertEquals(null, messageSlot.captured.expiresAt)
+    }
 }
