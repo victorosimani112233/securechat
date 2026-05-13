@@ -26,8 +26,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.CheckCircle
@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Visibility
@@ -141,6 +142,7 @@ fun SettingsScreen(
 
     var showNukeDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -165,6 +167,7 @@ fun SettingsScreen(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
+            @Suppress("DEPRECATION") // typed getParcelableExtra API 33+ — min SDK 26 destegi icin eski API
             val uri = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
             viewModel.setNotificationSoundUri(uri?.toString() ?: "")
         }
@@ -334,6 +337,22 @@ fun SettingsScreen(
         )
     }
 
+    // Dil seçim diyaloğu
+    if (showLanguageDialog) {
+        LanguageSelectionDialog(
+            onLanguageSelected = { langTag ->
+                val locales = if (langTag.isEmpty()) {
+                    androidx.core.os.LocaleListCompat.getEmptyLocaleList()
+                } else {
+                    androidx.core.os.LocaleListCompat.forLanguageTags(langTag)
+                }
+                androidx.appcompat.app.AppCompatDelegate.setApplicationLocales(locales)
+                showLanguageDialog = false
+            },
+            onDismiss = { showLanguageDialog = false }
+        )
+    }
+
     Box(Modifier.fillMaxSize()) {
         AzureDoodleBackdrop(dark = dark)
 
@@ -402,6 +421,32 @@ fun SettingsScreen(
                             },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable { showThemeDialog = true }
+                        )
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        // === Dil Secimi ===
+                        val currentLocale = androidx.appcompat.app.AppCompatDelegate.getApplicationLocales()
+                        val currentLangTag = if (currentLocale.isEmpty) "" else currentLocale.toLanguageTags()
+                        val currentLangLabel = when {
+                            currentLangTag.startsWith("en") -> "English"
+                            currentLangTag.startsWith("de") -> "Deutsch"
+                            currentLangTag.startsWith("ar") -> "العربية"
+                            currentLangTag.startsWith("tr") -> "Türkçe"
+                            else -> "Sistem Dili"
+                        }
+                        ListItem(
+                            headlineContent = { Text("Dil") },
+                            supportingContent = { Text(currentLangLabel) },
+                            leadingContent = {
+                                Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable { showLanguageDialog = true }
                         )
 
                         HorizontalDivider(
@@ -654,7 +699,7 @@ fun SettingsScreen(
                             },
                             trailingContent = {
                                 if (!canDrawOverlays) {
-                                    Icon(Icons.Default.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 }
                             },
                             modifier = Modifier.clickable {
@@ -689,7 +734,7 @@ fun SettingsScreen(
                                 Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
                             trailingContent = {
-                                Icon(Icons.Default.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
                             modifier = Modifier.clickable {
                                 onNavigateToCallReadiness()
@@ -736,7 +781,7 @@ fun SettingsScreen(
                             },
                             trailingContent = {
                                 if (!batteryOptimized) {
-                                    Icon(Icons.Default.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 } else {
                                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 }
@@ -803,7 +848,7 @@ fun SettingsScreen(
                             },
                             trailingContent = {
                                 Icon(
-                                    Icons.Default.ArrowForward,
+                                    Icons.AutoMirrored.Filled.ArrowForward,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                     modifier = Modifier.size(20.dp)
@@ -1209,6 +1254,78 @@ private fun ThemeSelectionDialog(
             TextButton(onClick = onDismiss) { Text("Kapat") }
         }
     )
+}
+
+/**
+ * Dil seçim diyaloğu — AppCompatDelegate.setApplicationLocales kullanır.
+ * Android 13+ native per-app locale, oncesinde compat fallback.
+ */
+@Composable
+private fun LanguageSelectionDialog(
+    onLanguageSelected: (langTag: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val current = androidx.appcompat.app.AppCompatDelegate.getApplicationLocales()
+    val currentTag = if (current.isEmpty) "" else current.toLanguageTags().substringBefore("-")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Dil Seçimi") },
+        text = {
+            Column {
+                LanguageOption(
+                    label = "Sistem Dili",
+                    selected = currentTag.isEmpty(),
+                    onClick = { onLanguageSelected("") }
+                )
+                LanguageOption(
+                    label = "Türkçe",
+                    selected = currentTag == "tr",
+                    onClick = { onLanguageSelected("tr") }
+                )
+                LanguageOption(
+                    label = "English",
+                    selected = currentTag == "en",
+                    onClick = { onLanguageSelected("en") }
+                )
+                LanguageOption(
+                    label = "Deutsch",
+                    selected = currentTag == "de",
+                    onClick = { onLanguageSelected("de") }
+                )
+                LanguageOption(
+                    label = "العربية",
+                    selected = currentTag == "ar",
+                    onClick = { onLanguageSelected("ar") }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Kapat") }
+        }
+    )
+}
+
+@Composable
+private fun LanguageOption(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        androidx.compose.material3.RadioButton(
+            selected = selected,
+            onClick = onClick
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(text = label, style = MaterialTheme.typography.bodyLarge)
+    }
 }
 
 @Composable
