@@ -1174,7 +1174,6 @@ class PeerConnectionManager @Inject constructor(
 
     private fun getCameraName(enumerator: Camera2Enumerator): String? {
         val names = enumerator.deviceNames
-        val facing = if (useFrontCamera) "front" else "back"
         return names.firstOrNull { name ->
             if (useFrontCamera) enumerator.isFrontFacing(name)
             else enumerator.isBackFacing(name)

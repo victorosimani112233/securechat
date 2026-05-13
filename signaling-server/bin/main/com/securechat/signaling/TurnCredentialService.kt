@@ -14,7 +14,7 @@ import java.util.Base64
 object TurnCredentialService {
 
     private val turnSecret: String = System.getenv("TURN_SECRET") ?: ""
-    private val turnHost: String = System.getenv("TURN_HOST") ?: "185.48.182.124"
+    private val turnHost: String = System.getenv("TURN_HOST") ?: "94.73.180.226"
     private val turnPort: Int = System.getenv("TURN_PORT")?.toIntOrNull() ?: 3478
     private const val TTL_SECONDS = 86400L // 24 saat
 

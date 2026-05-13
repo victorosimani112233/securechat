@@ -18,6 +18,7 @@ import javax.inject.Singleton
  * - Arama sonrasi onceki ses ayarlarina geri donme
  */
 @Singleton
+@Suppress("DEPRECATION") // isSpeakerphoneOn — Android 12+ setCommunicationDevice() var ama 26-31 destek korunuyor
 class CallAudioManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {

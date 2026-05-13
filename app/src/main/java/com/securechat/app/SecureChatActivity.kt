@@ -293,6 +293,7 @@ class SecureChatActivity : AppCompatActivity() {
             authority == "${BuildConfig.APPLICATION_ID}.fileprovider"
     }
 
+    @Suppress("DEPRECATION") // getParcelableExtra typed versiyon API 33+ — min SDK 26 destegi icin eski API
     private fun handleShareIntent(intent: android.content.Intent) {
         when (intent.action) {
             android.content.Intent.ACTION_SEND -> {

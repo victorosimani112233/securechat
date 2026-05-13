@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  DEV flavor override: dev sunucu IP'lerine cleartext erisim.
-  Production build (prod flavor) bu dosyayi gormez, src/main/res/xml versiyonunu kullanir
-  (cleartextTrafficPermitted=false, sadece TLS).
+  DEV flavor override: dev sunucu icin custom trust anchor.
+  Production build (prod flavor) bu dosyayi gormez, src/main/res/xml versiyonunu kullanir.
+
+  Yeni sunucu (94.73.180.226) self-signed cert oldugu icin:
+    1. Cleartext degil — WSS/HTTPS zorunlu
+    2. Self-signed cert'i raw resource'tan trust et (CertificatePinner pin'i ayrica dogrular)
+
+  10.0.2.2 (emulator localhost) + 10.4.10.12 (LAN dev) icin cleartext acik tutuldu.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
@@ -10,12 +15,19 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <!-- Sadece dev sunucu IP'leri ve emulator host'una cleartext izin -->
+    <!-- LAN/emulator: cleartext OK -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">10.0.2.2</domain>
         <domain includeSubdomains="false">10.4.10.12</domain>
-        <domain includeSubdomains="false">185.48.182.124</domain>
         <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+    <!-- Yeni sunucu (self-signed cert) — TLS zorunlu, custom CA -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">94.73.180.226</domain>
+        <trust-anchors>
+            <certificates src="@raw/server_cert" />
+            <certificates src="system" />
+        </trust-anchors>
     </domain-config>
     <debug-overrides>
         <trust-anchors>

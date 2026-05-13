@@ -60,6 +60,7 @@ class WebSocketDebugger {
         // GUVENLIK (M4 fix): Request header'lari token icerir — loglanmaz.
         Log.d("SecureChat", "📤 Request headers: [REDACTED — Authorization header icerir]")
 
+        @Suppress("UNUSED_VARIABLE")
         val webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d("SecureChat", "✅ WebSocket connection SUCCESS!")

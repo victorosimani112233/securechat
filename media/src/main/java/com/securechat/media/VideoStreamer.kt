@@ -294,6 +294,7 @@ class VideoStreamer @Inject constructor(
         val reader = imageReader ?: return
 
         try {
+            @Suppress("DEPRECATION") // SessionConfiguration API 28+, min SDK 26 — eski API stable
             camera.createCaptureSession(
                 listOf(reader.surface),
                 object : CameraCaptureSession.StateCallback() {

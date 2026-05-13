@@ -907,7 +907,6 @@ class CallManager @Inject constructor(
         isGroupCallCoordinator = true
         groupConnectedPeers.clear()
 
-        val isVideo = callType == CallType.VIDEO
         val callId = UUID.randomUUID().toString()
         val session = CallSession(
             callId = callId,
@@ -2346,7 +2345,7 @@ class CallManager @Inject constructor(
      * baslarsa (initiateCall / handleIncomingCall) o yeni session'i yok ETMEZ.
      * Eski davranis: state RINGING bile olsa null yapardi → ghost call'un tetikleyicisiydi.
      */
-    private fun scheduleTerminalStateCleanup(finalState: CallState, cleanupCallId: String) {
+    private fun scheduleTerminalStateCleanup(@Suppress("UNUSED_PARAMETER") finalState: CallState, cleanupCallId: String) {
         scope.launch {
             kotlinx.coroutines.delay(2000)
             val current = _callSession.value

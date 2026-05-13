@@ -92,7 +92,7 @@ class IncomingCallActivity : ComponentActivity() {
 
     private val audioPermissionLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
-    ) { granted ->
+    ) { _ ->
         // Izin verilsin verilmesin aramayi kabul et (ses gitmeyebilir ama UI akisi bozulmasin)
         val uid = pendingAcceptUserId ?: return@registerForActivityResult
         val pid = pendingAcceptPeerId ?: return@registerForActivityResult

@@ -34,7 +34,7 @@ class IceServerFetcher @Inject constructor(
      * Basarisiz olursa sadece STUN doner (TURN olmadan).
      * Sunucu artik userId'yi token claim'inden okur — query param gereksiz ama backward-compat icin tutuluyor.
      */
-    fun fetch(userId: String): List<PeerConnection.IceServer> {
+    fun fetch(@Suppress("UNUSED_PARAMETER") userId: String): List<PeerConnection.IceServer> {
         return try {
             val url = "$apiBaseUrl/api/v1/ice/config"
             val token = accessTokenProvider()

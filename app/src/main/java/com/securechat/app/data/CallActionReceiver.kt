@@ -26,6 +26,7 @@ class CallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         android.util.Log.d("CallActionReceiver", "Action alındı: ${intent.action}")
 
+        @Suppress("UNUSED_VARIABLE")
         val callId = intent.getStringExtra(IncomingCallHandler.EXTRA_CALL_ID)
         val userId = userSession.userId
 

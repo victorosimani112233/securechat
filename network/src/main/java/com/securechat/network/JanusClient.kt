@@ -91,7 +91,7 @@ class JanusClient(
      */
     /** Eski apiSecret auth no-op — backward compat icin korundu, hicbir sey yapmaz. */
     @Deprecated("Janus auth Nginx reverse proxy katmaninda yapilir; apiSecret kullanmayin.")
-    fun setApiSecret(secret: String?) {
+    fun setApiSecret(@Suppress("UNUSED_PARAMETER") secret: String?) {
         // No-op: apisecret artik kullanilmiyor.
     }
 

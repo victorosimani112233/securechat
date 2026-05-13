@@ -1,8 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Production network policy: cleartextTrafficPermitted=false (sadece TLS).
-  Dev flavor'da debug build varsa user CA cert'leri kabul edilir (Charles, mitmproxy vs).
-  Dev sunucu IP'leri buraya degil, dev flavor'in kendi src/dev/res/xml/network_security_config.xml'ine yazilir.
+  94.73.180.226 self-signed cert oldugu icin custom trust anchor eklenmis.
+  CertificatePinner pin'i HALA dogrular — bu sadece sistem CA validation katmaninda
+  self-signed cert'i kabul eder.
+
+  Yeni gercek domain + Let's Encrypt cert'e gecince:
+    1. <domain-config>'u kaldir
+    2. res/raw/server_cert.pem'i sil
+    3. build.gradle.kts'te CERT_PIN_SHA256 + BACKUP'i yeni cert pin'i ile guncelle
+
+  NOT: <debug-overrides> burada YOK — sadece src/dev/res/xml versiyonunda.
+  Android lint dev flavor build'de iki dosyayi da tarar; her ikisinde de debug-overrides
+  olunca "Expecting at most 1" lint error verir. Prod flavor release build'leri zaten
+  debuggable=false oldugu icin debug-overrides ignore edilir.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
@@ -10,10 +21,12 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <debug-overrides>
+    <!-- Self-signed cert icin sadece bu host trust edilir — geri kalan TLS strict -->
+    <domain-config>
+        <domain includeSubdomains="false">94.73.180.226</domain>
         <trust-anchors>
-            <certificates src="user" />
+            <certificates src="@raw/server_cert" />
             <certificates src="system" />
         </trust-anchors>
-    </debug-overrides>
+    </domain-config>
 </network-security-config>
