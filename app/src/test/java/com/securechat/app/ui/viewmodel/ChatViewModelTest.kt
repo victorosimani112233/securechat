@@ -87,7 +87,8 @@ class ChatViewModelTest {
             userSession = userSession,
             signalingClient = signalingClient,
             contactNameResolver = contactNameResolver,
-            sharedPreferences = sharedPreferences
+            sharedPreferences = sharedPreferences,
+            callManager = mockk(relaxed = true)
         )
     }
 

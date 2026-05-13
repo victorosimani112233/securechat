@@ -68,8 +68,10 @@ class IncomingMessageHandlerTest {
             fileTransferManager = fileTransferManager,
             userSession = userSession,
             incomingCallHandler = incomingCallHandler,
+            ringtonePlayer = mockk(relaxed = true),
             missedCallTracker = missedCallTracker,
-            themeManager = themeManager
+            themeManager = themeManager,
+            phoneAccountRegistrar = mockk(relaxed = true)
         )
     }
 

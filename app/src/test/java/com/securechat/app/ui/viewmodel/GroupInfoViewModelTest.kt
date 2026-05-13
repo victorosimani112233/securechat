@@ -63,8 +63,16 @@ class GroupInfoViewModelTest {
             addGroupMemberUseCase = addGroupMemberUseCase,
             promoteToAdminUseCase = promoteToAdminUseCase,
             removeGroupMemberUseCase = removeGroupMemberUseCase,
-            updateGroupNameUseCase = updateGroupNameUseCase
+            updateGroupNameUseCase = updateGroupNameUseCase,
+            contactNameResolver = contactNameResolver
         )
+    }
+
+    private val contactNameResolver: com.securechat.storage.resolver.ContactNameResolver = mockk(relaxed = true) {
+        // ViewModel cogu yerde contactNameResolver'a fallback dusebilir; pre-existing test
+        // user2 icin Conversation.peerName "John Doe" bekler. Resolver de bunu donsun
+        // (gercekte resolver Conversation'i ilk source kabul eder, mock symmetric davranisi saglar).
+        coEvery { resolveDisplayName("user2") } returns "John Doe"
     }
 
     @After
