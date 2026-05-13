@@ -23,10 +23,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.CallMade
+import androidx.compose.material.icons.automirrored.filled.CallMissed
+import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallMade
-import androidx.compose.material.icons.filled.CallMissed
-import androidx.compose.material.icons.filled.CallReceived
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -341,10 +341,10 @@ private fun CallLogRow(
 }
 
 private fun getDirectionIcon(direction: String, status: String): ImageVector {
-    if (status == "MISSED" || status == "FAILED" || status == "BUSY") return Icons.Default.CallMissed
+    if (status == "MISSED" || status == "FAILED" || status == "BUSY") return Icons.AutoMirrored.Filled.CallMissed
     return when (direction) {
-        "OUTGOING" -> Icons.Default.CallMade
-        "INCOMING" -> Icons.Default.CallReceived
+        "OUTGOING" -> Icons.AutoMirrored.Filled.CallMade
+        "INCOMING" -> Icons.AutoMirrored.Filled.CallReceived
         else -> Icons.Default.Call
     }
 }

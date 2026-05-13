@@ -55,6 +55,7 @@ class IncomingMessageHandler @Inject constructor(
     private val fileTransferManager: FileTransferManager,
     private val userSession: UserSession,
     private val incomingCallHandler: IncomingCallHandler,
+    private val ringtonePlayer: com.securechat.media.RingtonePlayer,
     private val missedCallTracker: MissedCallTracker,
     private val themeManager: ThemeManager,
     private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>
@@ -682,11 +683,22 @@ class IncomingMessageHandler @Inject constructor(
             // cikmaz — bu yuzden notification fallback'e GUVENMEK YERINE notification
             // her zaman gosterilir. Telecom UI cikarsa kullanici iki UI gorebilir
             // ama onceki "yalnizca ringtone, UI yok" regresyonundan iyidir.
+            // Sessize alinmis sohbet/grup mu — bildirim seviyesinde davranisi etkiler
+            val callMuted = try {
+                conversationDao.getByPeerId(signal.senderId)?.isMuted == true
+            } catch (_: Exception) { false }
+
             incomingCallHandler.showIncomingCall(
                 session = session,
                 peerName = peerName,
-                fullScreenActivityClass = IncomingCallActivity::class.java
+                fullScreenActivityClass = IncomingCallActivity::class.java,
+                isMuted = callMuted
             )
+
+            // Sessize alinmis kisi arasa zil calmamali — ringtone'i bypass et
+            if (callMuted) {
+                try { ringtonePlayer.stopRinging() } catch (_: Exception) {}
+            }
 
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 try {
@@ -802,16 +814,28 @@ class IncomingMessageHandler @Inject constructor(
         val session = callManager.currentSession
 
         if (session != null) {
-            android.util.Log.d("IncomingHandler", "GELEN GRUP ARAMASI: ${signal.groupId} from $callerName ($displayTitle)")
+            // Grup sessize alinmis mi
+            val groupMuted = try {
+                groupConv?.isMuted == true
+            } catch (_: Exception) { false }
+
+            android.util.Log.d("IncomingHandler", "GELEN GRUP ARAMASI: ${signal.groupId} from $callerName ($displayTitle) muted=$groupMuted")
 
             // Gelen arama bildirimini goster
             incomingCallHandler.showIncomingCall(
                 session = session,
                 peerName = displayTitle,
-                fullScreenActivityClass = IncomingCallActivity::class.java
+                fullScreenActivityClass = IncomingCallActivity::class.java,
+                isMuted = groupMuted
             )
 
-            try {
+            // Sessize alinmis grup arasa zil calmamali + Activity kilit ekrani uzerine atlamasin
+            if (groupMuted) {
+                try { ringtonePlayer.stopRinging() } catch (_: Exception) {}
+            }
+
+            // Full-screen Activity SADECE sessize alinmamis grup aramalarinda
+            if (!groupMuted) try {
                 val intent = android.content.Intent(context, IncomingCallActivity::class.java).apply {
                     putExtra("peer_id", signal.senderId)
                     putExtra("peer_name", displayTitle)
@@ -865,7 +889,7 @@ class IncomingMessageHandler @Inject constructor(
                     session.state == com.securechat.media.model.CallState.RINGING) {
                     callManager.onCallConnected()
                     // Timer iptal et - arama kabul edildi
-                    session.callId?.let { missedCallTracker.cancelMissedCallTimer(it) }
+                    missedCallTracker.cancelMissedCallTimer(session.callId)
                 } else {
                     android.util.Log.d("IncomingHandler", "ACCEPT mesaji islenmedi - direction=${session?.direction}, state=${session?.state}")
                 }
@@ -1356,15 +1380,18 @@ class IncomingMessageHandler @Inject constructor(
         }
         android.util.Log.d("IncomingHandler", "showContent=$showContent (false=gizlilik modu aktif)")
 
-        val channelId = "elcim_messages_v4"
+        val channelIdHigh = "elcim_messages_v4"
+        val channelIdLow = "elcim_messages_low_v1"
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         // Eski kanallari temizle
         nm.deleteNotificationChannel("messages")
         nm.deleteNotificationChannel("elci_messages_v2")
         nm.deleteNotificationChannel("elci_messages_v3")
-        if (nm.getNotificationChannel(channelId) == null) {
-            val channel = NotificationChannel(channelId, "Elçim Mesajlar", NotificationManager.IMPORTANCE_HIGH).apply {
+
+        // Normal mesajlar (heads-up + ses)
+        if (nm.getNotificationChannel(channelIdHigh) == null) {
+            val channel = NotificationChannel(channelIdHigh, "Elçim Mesajlar", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Elçim - Gelen mesaj bildirimleri"
                 enableVibration(true)
                 enableLights(true)
@@ -1373,6 +1400,23 @@ class IncomingMessageHandler @Inject constructor(
             }
             nm.createNotificationChannel(channel)
         }
+
+        // Sessize alinmis sohbetler icin AYRI kanal (IMPORTANCE_LOW, ses/titresim yok, heads-up yok).
+        // KRITIK: Android 8+ kanal-seviyesi ayarlari bildirim-seviyesi setSilent/PRIORITY override eder;
+        // bu yuzden gercek "sessize" davranisi ancak ikinci kanal ile saglanir.
+        if (nm.getNotificationChannel(channelIdLow) == null) {
+            val channel = NotificationChannel(channelIdLow, "Elçim Mesajlar (Sessiz)", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Sessize alinmis sohbetlerden gelen mesajlar"
+                enableVibration(false)
+                enableLights(false)
+                setSound(null, null)
+                setShowBadge(true)
+            }
+            nm.createNotificationChannel(channel)
+        }
+
+        // Routing: bu mesaj sessize alinmis sohbetten geliyorsa low kanaldan post et
+        val channelId = if (isMuted) channelIdLow else channelIdHigh
 
         // Tiklaninca ilgili sohbeti acan intent
         val tapIntent = android.content.Intent(context, com.securechat.app.SecureChatActivity::class.java).apply {

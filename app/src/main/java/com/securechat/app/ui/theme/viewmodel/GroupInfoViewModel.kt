@@ -149,8 +149,8 @@ class GroupInfoViewModel @Inject constructor(
                         continue
                     }
                     val memberConv = memberConvs[memberId]
-                    if (memberConv != null && !memberConv.peerPhone.isNullOrBlank()) {
-                        memberPhones[memberId] = memberConv.peerPhone!!
+                    if (memberConv != null && memberConv.peerPhone.isNotBlank()) {
+                        memberPhones[memberId] = memberConv.peerPhone
                         continue
                     }
                     val contact = contactDao.getById(memberId)

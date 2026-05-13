@@ -103,8 +103,11 @@ class ConnectionManager(
             lastSeenMap[userId] = System.currentTimeMillis()
         }
         if (hideLastSeen) {
-            notifyPresenceChange(userId, isOnline = false, lastSeen = 0, hideLastSeen = true)
-            log.info("[P] Presence guncellendi: $userId online=$isOnline (GIZLI)")
+            // BUGFIX: hideLastSeen=true iken isOnline DA gizleniyordu (her zaman false set edilirdi).
+            // Bu yuzden kullanici "son gorulmeyi gizle" ayarini acinca cevrimici de kayboluyordu.
+            // Dogru davranis: sadece lastSeen=0 gizlenir, isOnline GERCEKçi yayilir.
+            notifyPresenceChange(userId, isOnline = isOnline, lastSeen = 0, hideLastSeen = true)
+            log.info("[P] Presence guncellendi: $userId online=$isOnline (lastSeen GIZLI)")
             return
         }
         val lastSeen = if (isOnline) System.currentTimeMillis() else (lastSeenMap[userId] ?: System.currentTimeMillis())
@@ -114,12 +117,13 @@ class ConnectionManager(
 
     private suspend fun sendPresenceResponse(requesterId: String, targetUserId: String) {
         val session = connections[requesterId] ?: return
+        // BUGFIX: hideLastSeen kullanicilar icin de GERCEK isOnline doner — sadece lastSeen gizlenir.
+        val isOnline = foregroundUsers.contains(targetUserId)
         if (hideLastSeenUsers.contains(targetUserId)) {
-            val json = buildPresenceJson(targetUserId, requesterId, isOnline = false, lastSeen = 0, hideLastSeen = true)
+            val json = buildPresenceJson(targetUserId, requesterId, isOnline = isOnline, lastSeen = 0, hideLastSeen = true)
             try { session.send(Frame.Text(json)) } catch (_: Exception) { }
             return
         }
-        val isOnline = foregroundUsers.contains(targetUserId)
         val lastSeen = if (isOnline) System.currentTimeMillis() else (lastSeenMap[targetUserId] ?: 0)
         val json = buildPresenceJson(targetUserId, requesterId, isOnline, lastSeen)
         try { session.send(Frame.Text(json)) } catch (_: Exception) { }

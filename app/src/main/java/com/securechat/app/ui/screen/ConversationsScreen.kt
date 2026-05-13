@@ -121,8 +121,8 @@ fun ConversationsScreen(
     onScheduledMessages: () -> Unit = {},
     onBulkMessage: () -> Unit = {},
     onSettingsClick: () -> Unit,
-    onCallHistoryClick: () -> Unit = {},
-    onContactsClick: () -> Unit = onNewChat,
+    @Suppress("UNUSED_PARAMETER") onCallHistoryClick: () -> Unit = {},
+    @Suppress("UNUSED_PARAMETER") onContactsClick: () -> Unit = onNewChat,
     onCallReadinessClick: () -> Unit = onSettingsClick
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()

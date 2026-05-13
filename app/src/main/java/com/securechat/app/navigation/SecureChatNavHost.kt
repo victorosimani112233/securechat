@@ -286,7 +286,7 @@ fun SecureChatNavHost(
                 ChatInfoScreen(
                     conversationId = conversationId,
                     onBackClick = { navController.popBackStack() },
-                    onMessageClick = { messageId ->
+                    onMessageClick = { _ ->
                         navController.popBackStack()
                     },
                     onMediaClick = { message ->

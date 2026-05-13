@@ -779,7 +779,7 @@ private fun GroupMediaContent(
 
 @Composable
 private fun GroupMediaThumbnail(
-    message: MessageEntity,
+    @Suppress("UNUSED_PARAMETER") message: MessageEntity,
     onClick: () -> Unit
 ) {
     Card(

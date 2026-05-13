@@ -96,7 +96,7 @@ class SecureChatFcmService : FirebaseMessagingService() {
      *    ringtone baslatip iki Activity acmaya calisiyordu).
      *  - Bildirim kanali idempotent olarak garanti edilir.
      */
-    private fun handleIncomingCallPush(senderId: String, messageType: String) {
+    private fun handleIncomingCallPush(@Suppress("UNUSED_PARAMETER") senderId: String, @Suppress("UNUSED_PARAMETER") messageType: String) {
         // Foreground'daysa: WS zaten acik, SDP gelecek; ekstra is yok.
         if (IncomingMessageHandler.isAppInForeground) {
             Log.d("FcmService", "App foreground'da, FCM call push isleme atlandi")

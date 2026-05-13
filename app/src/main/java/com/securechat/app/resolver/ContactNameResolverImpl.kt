@@ -21,7 +21,10 @@ class ContactNameResolverImpl @Inject constructor(
     @Named("apiBaseUrl") private val apiBaseUrl: String
 ) : ContactNameResolver {
 
-    override suspend fun resolveDisplayName(userId: String): String {
+    override suspend fun resolveDisplayName(phoneNumber: String): String {
+        // NOT: interface param adi 'phoneNumber' ama buradaki impl UUID/userId aliyor (resolver chain
+        // hem telefon hem UUID destekler). Caller'da parameter type her ikisini de tasiyabilir.
+        val userId = phoneNumber
         return try {
             // 1. UUID ile contacts DB'de ara (discovery sonrasi kaydedilmis)
             val contact = contactDao.getById(userId)

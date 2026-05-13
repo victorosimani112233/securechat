@@ -2,6 +2,7 @@ package com.securechat.app.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.securechat.app.scheduler.ScheduledMessageAlarmScheduler
 import com.securechat.storage.dao.ScheduledMessageDao
 import com.securechat.storage.domain.Conversation
 import com.securechat.storage.entity.ScheduledMessageEntity
@@ -43,7 +44,8 @@ enum class RepeatType(val label: String) {
 @HiltViewModel
 class ScheduledMessageViewModel @Inject constructor(
     private val scheduledMessageDao: ScheduledMessageDao,
-    private val messageRepository: MessageRepository
+    private val messageRepository: MessageRepository,
+    private val alarmScheduler: ScheduledMessageAlarmScheduler
 ) : ViewModel() {
 
     /** Mevcut konusmalar — kisi secici icin kullanilir. */
@@ -158,6 +160,8 @@ class ScheduledMessageViewModel @Inject constructor(
 
         viewModelScope.launch {
             scheduledMessageDao.insert(entity)
+            // ALARM KUR — kullanici "ekstra is" beklemez, set ettigi saatte mesaji gonderir.
+            alarmScheduler.schedule(entity)
             clearForm()
         }
     }
@@ -165,12 +169,19 @@ class ScheduledMessageViewModel @Inject constructor(
     fun toggleEnabled(id: String) {
         viewModelScope.launch {
             val entity = scheduledMessageDao.getById(id) ?: return@launch
-            scheduledMessageDao.update(entity.copy(isEnabled = !entity.isEnabled))
+            val updated = entity.copy(isEnabled = !entity.isEnabled)
+            scheduledMessageDao.update(updated)
+            // Toggle on → alarm kur, off → iptal
+            if (updated.isEnabled) alarmScheduler.schedule(updated)
+            else alarmScheduler.cancel(id)
         }
     }
 
     fun delete(id: String) {
-        viewModelScope.launch { scheduledMessageDao.deleteById(id) }
+        viewModelScope.launch {
+            alarmScheduler.cancel(id)
+            scheduledMessageDao.deleteById(id)
+        }
     }
 
     private fun ScheduledMessageEntity.toItem() = ScheduledMessageItem(

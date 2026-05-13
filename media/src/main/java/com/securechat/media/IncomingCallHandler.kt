@@ -28,6 +28,8 @@ class IncomingCallHandler @Inject constructor(
     companion object {
         const val INCOMING_CALL_NOTIFICATION_ID = 1200  // Daha guvenli aralik
         const val INCOMING_CALL_CHANNEL_ID = "incoming_call_channel"
+        // Sessize alinmis sohbetlerden gelen aramalar icin AYRI kanal — heads-up + ringtone yok.
+        const val INCOMING_CALL_CHANNEL_ID_MUTED = "incoming_call_channel_muted"
         const val ACTION_ACCEPT = "com.securechat.media.ACTION_ACCEPT"
         const val ACTION_REJECT = "com.securechat.media.ACTION_REJECT"
         const val EXTRA_CALL_ID = "call_id"
@@ -38,20 +40,35 @@ class IncomingCallHandler @Inject constructor(
      * Uygulama baslatildiginda bir kere cagrilmalidir.
      */
     fun initialize() {
-        val channel = NotificationChannel(
+        val nm = context.getSystemService(NotificationManager::class.java)
+
+        // Normal arama (heads-up + ringtone — RingtonePlayer disaridan calar)
+        nm.createNotificationChannel(NotificationChannel(
             INCOMING_CALL_CHANNEL_ID,
             "Gelen Arama",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            setSound(null, null)
-            // Kritik: Bu kanal full-screen intent'leri destekler
+            setSound(null, null) // ringtone bildirim disinda calar
             enableLights(true)
             enableVibration(true)
             description = "Gelen arama bildirimleri - kilit ekranında görünür"
             lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-        }
-        val nm = context.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(channel)
+        })
+
+        // Sessize alinmis sohbetlerden gelen arama: ses/titresim/heads-up yok.
+        // KRITIK: Android 8+ kanal-seviyesi ayarlari bildirim-seviyesi PRIORITY/setSilent
+        // override eder; ancak ikinci kanal ile gerçek "sessize" davranisi saglanir.
+        nm.createNotificationChannel(NotificationChannel(
+            INCOMING_CALL_CHANNEL_ID_MUTED,
+            "Gelen Arama (Sessiz)",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            setSound(null, null)
+            enableLights(false)
+            enableVibration(false)
+            description = "Sessize alinmis sohbetlerden gelen arama bildirimleri"
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+        })
     }
 
     /**
@@ -61,8 +78,18 @@ class IncomingCallHandler @Inject constructor(
      * @param session Gelen arama oturumu bilgileri
      * @param peerName Arayan kisinin gorunen adi
      * @param fullScreenActivityClass IncomingCallActivity sinif referansi (app modulunden saglanir)
+     * @param isMuted Sessize alinmis sohbet/grup mu — true ise:
+     *                - Low importance kanal kullanilir (heads-up + ses + titresim YOK)
+     *                - Full-screen intent SKIP (kilit ekrani uzerinde acilmaz)
+     *                Ringtone caller (CallManager) sorumlulugunda — disaridan da skip etmeli.
+     *                Bildirim statusbar'da gorulur, kullanici manuel acabilir.
      */
-    fun showIncomingCall(session: CallSession, peerName: String, fullScreenActivityClass: Class<*>?) {
+    fun showIncomingCall(
+        session: CallSession,
+        peerName: String,
+        fullScreenActivityClass: Class<*>?,
+        isMuted: Boolean = false
+    ) {
         // ACCEPT: Android 10+ "background activity launch" kisitlamasi yuzunden
         // BroadcastReceiver'dan startActivity sessizce basarisiz olabiliyor
         // ("yukaridan kabul et" basinca arama ekrani acilmiyor sorunu).
@@ -110,25 +137,33 @@ class IncomingCallHandler @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val builder = NotificationCompat.Builder(context, INCOMING_CALL_CHANNEL_ID)
+        val channel = if (isMuted) INCOMING_CALL_CHANNEL_ID_MUTED else INCOMING_CALL_CHANNEL_ID
+        val priority = if (isMuted) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_MAX
+
+        val builder = NotificationCompat.Builder(context, channel)
             .setContentTitle("Gelen Arama")
             .setContentText("$peerName ariyor...")
             .setSmallIcon(android.R.drawable.ic_menu_call)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setPriority(priority)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .addAction(android.R.drawable.ic_menu_call, "Kabul Et", acceptPi)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Reddet", rejectPi)
             .setOngoing(true)
             .setAutoCancel(false)
-            // Kritik: Bu bildirim heads-up olarak gösterilmeli
-            .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
-            .setVibrate(longArrayOf(0, 1000, 500, 1000))
-            .setSound(null) // Zil sesi RingtonePlayer'dan çalacak
+            .setSound(null) // Zil sesi RingtonePlayer'dan çalacak (mute durumunda caller atlamali)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setTimeoutAfter(30_000) // 30 saniye sonra otomatik kaybolsun
+            .setTimeoutAfter(30_000)
+            .setSilent(isMuted)
 
-        // Full-screen intent ekle — kilit ekraninda dogrudan Activity acar
-        if (fullScreenActivityClass != null) {
+        if (!isMuted) {
+            // Normal arama: titresim + heads-up
+            builder.setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+            builder.setVibrate(longArrayOf(0, 1000, 500, 1000))
+        }
+
+        // Full-screen intent SADECE sessize alinmamis aramalarda — sessize alinmis ise
+        // kilit ekrani uzerine atlamasin, kullanici manuel acsin.
+        if (!isMuted && fullScreenActivityClass != null) {
             val fullScreenIntent = Intent(context, fullScreenActivityClass).apply {
                 putExtra("peer_id", session.peerId)
                 putExtra("peer_name", peerName)

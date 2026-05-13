@@ -91,6 +91,11 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
                 DisappearingMessageWorker.schedule(this@SecureChatApplication)
             }
 
+            // Planli mesaj tetikleyici (15dk periodic) — `next_trigger_time` <= now olanlari gonderir
+            android.os.Handler(mainLooper).post {
+                com.securechat.app.scheduler.ScheduledMessageWorker.enqueue(this@SecureChatApplication)
+            }
+
             // Rehber degisikliklerini dinle — telefon rehberinde yeni eklenen kisi
             // Elcim'e kayitliysa otomatik olarak isaretlenir.
             android.os.Handler(mainLooper).post {

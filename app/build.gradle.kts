@@ -78,7 +78,7 @@ android {
             dimension = "environment"
             buildConfigField("String", "SIGNALING_URL", "\"wss://94.73.180.226\"")
             buildConfigField("String", "API_BASE_URL", "\"https://94.73.180.226\"")
-            buildConfigField("String", "STUN_URL", "\"stun:stun.l.google.com:19302\"")
+            buildConfigField("String", "STUN_URL", "\"stun:94.73.180.226:3478\"")
             // 94.73.180.226 self-signed cert pin'leri (2026-05-13 fresh install)
             buildConfigField("String", "CERT_PIN_HOST", "\"94.73.180.226\"")
             buildConfigField("String", "CERT_PIN_SHA256", "\"DLws9D1beDKBVkETgqo4rb0U9qXZx+AUVGKwaDXQiSA=\"")
@@ -88,7 +88,7 @@ android {
             dimension = "environment"
             buildConfigField("String", "SIGNALING_URL", "\"wss://94.73.180.226\"")
             buildConfigField("String", "API_BASE_URL", "\"https://94.73.180.226\"")
-            buildConfigField("String", "STUN_URL", "\"stun:stun.l.google.com:19302\"")
+            buildConfigField("String", "STUN_URL", "\"stun:94.73.180.226:3478\"")
             // YENI SUNUCU TASIMA: cert pin asagiya yazilmali.
             // Pin almak icin: openssl s_client -connect signal.securechat.app:443 -servername signal.securechat.app \
             //   < /dev/null 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | \

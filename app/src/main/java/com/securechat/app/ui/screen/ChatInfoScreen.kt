@@ -530,8 +530,6 @@ private fun ProfileHeader(
     phoneNumber: String,
     isGroup: Boolean
 ) {
-    val dark = LocalDarkTheme.current
-
     Column(
         modifier = Modifier
             .fillMaxWidth()

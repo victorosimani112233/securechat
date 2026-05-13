@@ -334,7 +334,7 @@ private fun ContactRow(
 
 @Composable
 private fun SendButton(
-    dark: Boolean,
+    @Suppress("UNUSED_PARAMETER") dark: Boolean,
     canSend: Boolean,
     isSending: Boolean,
     selectedCount: Int,

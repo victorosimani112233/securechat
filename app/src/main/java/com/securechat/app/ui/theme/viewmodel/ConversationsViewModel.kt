@@ -131,8 +131,6 @@ class ConversationsViewModel @Inject constructor(
     fun createTestConversation() {
         viewModelScope.launch {
             val testPeerId = "test_user_${System.currentTimeMillis()}"
-            val names = listOf("Ahmet Yılmaz", "Elif Kaya", "Mehmet Demir", "Zeynep Çelik", "Can Öztürk")
-            val name = names.random()
             val now = System.currentTimeMillis()
             val messages = listOf(
                 "Merhaba, nasılsın?",

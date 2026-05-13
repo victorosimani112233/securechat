@@ -51,7 +51,6 @@ fun EmailOtpScreen(
     var info by remember { mutableStateOf<String?>(null) }
     var smtpDisabled by remember { mutableStateOf(false) }
 
-    val isDark = LocalDarkTheme.current
     val scope = rememberCoroutineScope()
 
     Scaffold(

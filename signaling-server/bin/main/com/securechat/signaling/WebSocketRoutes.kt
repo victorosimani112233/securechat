@@ -115,6 +115,27 @@ fun Application.configureWebSocket(connectionManager: ConnectionManager) {
 }
 
 /**
+ * Grup aramasi sonlandi — tum grup uyelerine isActive=false durum bildirimi gonder.
+ * Sadece son aktif katilimcilara degil, ChatScreen banner'i goren ama henuz katilmamis
+ * uyelere de erisir (stale "Katil" banner'ini temizler).
+ */
+private suspend fun broadcastGroupCallEnded(
+    groupId: String,
+    connectionManager: ConnectionManager
+) {
+    val members = GroupMemberStore.getMembers(groupId)
+    if (members.isEmpty()) return
+    val ts = System.currentTimeMillis()
+    val connections = connectionManager.connections()
+    for (memberId in members) {
+        val session = connections[memberId] ?: continue
+        val msg = """{"type":"group_call_status_response","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupId":"$groupId","isActive":false,"participants":[]}"""
+        try { session.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
+    }
+    logger.info("[GroupCall] Arama sonlandi broadcast: groupId=$groupId, member_count=${members.size}")
+}
+
+/**
  * WebSocket disconnect tespit edildiginde aktif grup aramalarini temizler.
  *
  * - Normal uye disconnect → digerlerine group_call_member_left broadcast, participants'tan cikar
@@ -160,6 +181,7 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                     if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
                         sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
                     }
+                    broadcastGroupCallEnded(active.groupId, connectionManager)
                     logger.info("[GroupCall] Koordinator+son uye disconnect — arama sonlandirildi: ${active.groupId}")
                 } else {
                     // GUVENLIK (H9 fix): Koordinator transfer ZORUNLU olarak online uyeye yapilir.
@@ -174,6 +196,7 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                         if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
                             sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
                         }
+                        broadcastGroupCallEnded(active.groupId, connectionManager)
                         continue
                     }
                     val transferred = GroupCallSessionStore.transferCoordinator(
@@ -199,6 +222,7 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                     if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
                         sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
                     }
+                    broadcastGroupCallEnded(active.groupId, connectionManager)
                     logger.info("[GroupCall] Tum uyeler ayrildi — arama temizlendi: ${active.groupId}")
                 }
             }
@@ -422,6 +446,7 @@ private suspend fun handleMessage(
                             if (JanusOrchestrator.hasActiveRoom(hangupGroupId)) {
                                 sfuScope.launch { JanusOrchestrator.destroyVideoRoom(hangupGroupId) }
                             }
+                            broadcastGroupCallEnded(hangupGroupId, connectionManager)
                             logger.info("[GroupCall] Son uye HANGUP — arama sonlandirildi: $hangupGroupId")
                         } else if (active.coordinatorId == senderId) {
                             // Koordinator ayrildi → online kalan biri devralir

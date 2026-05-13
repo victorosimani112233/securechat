@@ -127,7 +127,7 @@ import kotlin.random.Random
  */
 @Composable
 fun CallScreen(
-    peerId: String,
+    @Suppress("UNUSED_PARAMETER") peerId: String, // ViewModel SavedStateHandle'dan okur, route param zorunlu
     callType: CallType,
     viewModel: CallViewModel = hiltViewModel(),
     onCallEnded: () -> Unit
@@ -321,7 +321,7 @@ fun CallScreen(
                     localVideoTrack = localVideoTrack,
                     speakingPeers = speakingPeers,
                     participantNames = participantNames,
-                    eglBaseContext = eglBaseContext!!
+                    eglBaseContext = eglBaseContext
                 )
             } else if (!isGroupCall) {
                 // 1-to-1 video: Tam ekran
@@ -348,7 +348,7 @@ fun CallScreen(
                             val newTrack = mainVideoTrack
                             if (prevTrack != newTrack) {
                                 prevTrack?.removeSink(renderer)
-                                try { newTrack?.addSink(renderer) } catch (_: Exception) {}
+                                try { newTrack.addSink(renderer) } catch (_: Exception) {}
                                 currentMainTrack.value = newTrack
                             }
                         },
@@ -699,7 +699,7 @@ fun CallScreen(
                             val newTrack = pipVideoTrack
                             if (prevTrack != newTrack) {
                                 prevTrack?.removeSink(renderer)
-                                try { newTrack?.addSink(renderer) } catch (_: Exception) {}
+                                try { newTrack.addSink(renderer) } catch (_: Exception) {}
                                 currentPipTrack.value = newTrack
                             }
                         },
@@ -1105,7 +1105,7 @@ private fun GroupVideoGrid(
                         val next = localVideoTrack
                         if (prev != next) {
                             prev?.removeSink(renderer)
-                            try { next?.addSink(renderer) } catch (_: Exception) {}
+                            try { next.addSink(renderer) } catch (_: Exception) {}
                             currentLocalTrack.value = next
                         }
                     },
@@ -1127,7 +1127,7 @@ private fun GroupVideoGrid(
  */
 @Composable
 private fun GroupVideoCell(
-    peerId: String,
+    @Suppress("UNUSED_PARAMETER") peerId: String, // debug log/key icin tutuldu, ileride displayName fallback
     displayName: String,
     isSpeaking: Boolean,
     videoTrack: VideoTrack,

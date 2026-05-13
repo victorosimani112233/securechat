@@ -118,7 +118,7 @@ class MissedCallTracker @Inject constructor(
      * Missed call kaydını konuşmada saklar.
      * Son mesaj olarak "Kaçırılan arama" metni eklenir.
      */
-    private suspend fun recordMissedCall(session: CallSession, peerName: String) {
+    private suspend fun recordMissedCall(session: CallSession, @Suppress("UNUSED_PARAMETER") peerName: String) {
         try {
             val existingConv = conversationDao.getByPeerId(session.peerId)
             if (existingConv != null) {

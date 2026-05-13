@@ -31,6 +31,11 @@ android {
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
     }
+
+    // MigrationTestHelper schemas/ dizinine androidTest asset olarak erisir
+    sourceSets {
+        getByName("androidTest").assets.srcDirs("$projectDir/schemas")
+    }
 }
 
 dependencies {
@@ -64,4 +69,12 @@ dependencies {
     testImplementation(libs.truth)
     testImplementation(libs.turbine)
     testImplementation(libs.room.testing)
+
+    // androidTest — Room MigrationTestHelper SQLite ile cihaz/emulatorde calisir
+    androidTestImplementation(libs.room.testing)
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:core:1.5.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.truth)
 }
