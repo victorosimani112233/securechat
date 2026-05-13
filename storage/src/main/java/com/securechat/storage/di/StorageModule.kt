@@ -61,13 +61,11 @@ object StorageModule {
         // Passphrase Android Keystore master key ile sarmalandi.
         val passphrase = keyStoreManager.getOrCreateDbPassphrase()
 
-        // MIGRATION RECOVERY: Eski APK'larda "securechat_dev_passphrase" hardcoded passphrase ile
-        // yaratilmis DB diskte olabilir. Yeni Keystore-derived passphrase ile direct decrypt fail eder.
-        // Eski passphrase ile aciliyorsa PRAGMA rekey ile yeni key'e gec — sohbetler KORUNUR.
-        //
-        // KRITIK: Hicbir passphrase ile acilmazsa DB SILINMEZ — yedek alinir (securechat.db.broken_<ts>)
-        // ki kullanici verisini geri kurtarmak mumkun olsun. Onceki destructive delete kullanici
-        // sohbetlerini her acilista siliyordu (apply() async write race ile birlikte).
+        // MIGRATION RECOVERY (multi-source): Yeni deterministic passphrase ile DB acilamazsa
+        // 3 kaynaktan rekey dene:
+        //   1. Eski Keystore-encrypted random passphrase (onceki versionlardan)
+        //   2. Hardcoded "securechat_dev_passphrase" (en eski dev versionlardan)
+        // Hicbiri tutmazsa DB YEDEKLE (silme yerine) — kullanici verisi disk'te korunur.
         val dbFile = context.getDatabasePath("securechat.db")
         if (dbFile.exists()) {
             android.util.Log.d("StorageModule", "DB var, yeni passphrase ile test ediliyor")
@@ -76,27 +74,46 @@ object StorageModule {
             } else {
                 android.util.Log.w(
                     "StorageModule",
-                    "DB yeni passphrase ile acilamadi — legacy passphrase rekey deneniyor"
+                    "DB yeni deterministic passphrase ile acilamadi — legacy yollar deneniyor"
                 )
-                val legacyPassphrase = LEGACY_DEV_PASSPHRASE.toByteArray(Charsets.UTF_8)
-                val rekeyed = tryRekeyDatabase(dbFile, legacyPassphrase, passphrase)
-                legacyPassphrase.fill(0)
-                if (rekeyed) {
-                    android.util.Log.i(
-                        "StorageModule",
-                        "DB basariyla yeni Keystore-derived passphrase'e rekey edildi (sohbetler korundu)"
-                    )
-                } else {
-                    // Hicbir passphrase calismadi — DB'yi YEDEKLE (silme yerine).
-                    // Bu sayede:
-                    //   1. Kullanici sohbetlerini kaybetmez (yedek dosyasi diskte kalir)
-                    //   2. Future debug/recovery icin dosya korunur
-                    //   3. App temiz DB ile baslar (UX bozulmaz)
+
+                var rekeyed = false
+
+                // 1. ESKI KEYSTORE PASSPHRASE: onceki versionlarda Keystore-encrypted random passphrase
+                val legacyKeystorePassphrase = keyStoreManager.getLegacyPassphraseIfAny()
+                if (legacyKeystorePassphrase != null) {
+                    android.util.Log.i("StorageModule", "Legacy Keystore passphrase deneniyor")
+                    rekeyed = tryRekeyDatabase(dbFile, legacyKeystorePassphrase, passphrase)
+                    legacyKeystorePassphrase.fill(0)
+                    if (rekeyed) {
+                        keyStoreManager.clearLegacyPassphrase()
+                        android.util.Log.i(
+                            "StorageModule",
+                            "Legacy Keystore passphrase ile rekey BASARILI — sohbetler korundu"
+                        )
+                    }
+                }
+
+                // 2. HARDCODED LEGACY PASSPHRASE: en eski dev versionlardan
+                if (!rekeyed) {
+                    android.util.Log.i("StorageModule", "Hardcoded legacy passphrase deneniyor")
+                    val hardcodedLegacy = LEGACY_DEV_PASSPHRASE.toByteArray(Charsets.UTF_8)
+                    rekeyed = tryRekeyDatabase(dbFile, hardcodedLegacy, passphrase)
+                    hardcodedLegacy.fill(0)
+                    if (rekeyed) {
+                        android.util.Log.i(
+                            "StorageModule",
+                            "Hardcoded legacy passphrase ile rekey BASARILI"
+                        )
+                    }
+                }
+
+                if (!rekeyed) {
+                    // 3. Hicbir passphrase calismadi — DB'yi YEDEKLE (silme yerine).
                     val ts = System.currentTimeMillis()
                     val backupFile = java.io.File(dbFile.parentFile, "securechat.db.broken_$ts")
                     try {
                         dbFile.renameTo(backupFile)
-                        // SQLCipher journal/wal dosyalarini da temizle (varsa)
                         java.io.File(dbFile.parentFile, "securechat.db-journal").delete()
                         java.io.File(dbFile.parentFile, "securechat.db-wal").delete()
                         java.io.File(dbFile.parentFile, "securechat.db-shm").delete()

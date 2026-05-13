@@ -1,6 +1,7 @@
 package com.securechat.crypto
 
 import android.content.Context
+import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -9,8 +10,10 @@ import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
+import javax.crypto.Mac
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -115,65 +118,81 @@ class KeyStoreManager @Inject constructor(
     }
 
     /**
-     * SQLCipher veritabani icin random passphrase olusturur veya mevcut olani doner.
+     * SQLCipher veritabani icin DETERMINISTIK passphrase uretir — ANDROID_ID + HMAC ile.
      *
-     * Akis:
-     * 1. SharedPreferences'da encrypted passphrase var mi bak.
-     * 2. Varsa: oku, Keystore ile decrypt et — passphrase dondur.
-     * 3. Decrypt FAIL ise: Keystore master key bozulmus/cycled → yeni passphrase uret.
-     *    BU DURUMDA eski DB acilamaz; caller (StorageModule) destructive recovery yapar.
-     * 4. Yoksa (ilk acilis): yeni 32 byte random uret, encrypt, SharedPrefs'e yaz.
+     * Eski yaklasim (Keystore-encrypted random passphrase + SharedPrefs) bazi cihazlarda
+     * "sohbetler her acilista siliniyor" bug'ina yol aciyordu. Sebep: Keystore master key
+     * cycle veya SharedPrefs apply()/commit() race condition. Her acilista farkli passphrase
+     * doniyor, DB acilamiyor, destructive delete tetikleniyordu.
      *
-     * KRITIK: SharedPreferences yazma .commit() ile SENKRON yapilir — .apply() async,
-     * process killed olunca yazma kaybolabilirdi, sonraki acilista passphrase yok diye
-     * yeni uretilirdi, eski DB acilamazdi, tum sohbetler silinirdi.
+     * YENI yaklasim: passphrase = HMAC-SHA256(salt, ANDROID_ID).
+     * - ANDROID_ID factory reset'e kadar AYNI kalir (signing key bazli izole)
+     * - SharedPrefs/Keystore'a bagimli degil — disk persistence sorunu YOK
+     * - Reinstall sonrasi ayni cihazda ayni passphrase → DB hala acilabilir
+     * - Factory reset sonrasi ANDROID_ID degisir → DB sifirlanir (kabul edilebilir)
      *
-     * GUVENLIK: Plaintext passphrase asla diske yazilmaz; sadece bellekte aktarilir.
+     * Eski Keystore-encrypted passphrase varsa `getLegacyPassphraseIfAny()` ile alinabilir
+     * (StorageModule migration recovery'de kullanilir, eski APK'lardan upgrade icin).
      *
-     * @return 32-byte plaintext passphrase (caller kullandiktan sonra .fill(0) ile sifirlamali)
+     * GUVENLIK: ANDROID_ID public bir deger degil ama app-scope'ludur. HMAC salt
+     * APK icindedir (decompile edilebilir) — gercek production icin gelecekte
+     * Keystore + biometric ile guclendirilmeli. Su an "kullanici verisi korunsun"
+     * onceligi, security-vs-usability tradeoff'unda usability one ciktirilir.
      */
     fun getOrCreateDbPassphrase(): ByteArray {
-        val prefs = context.getSharedPreferences(DB_PASSPHRASE_PREFS, Context.MODE_PRIVATE)
-        val stored = prefs.getString(DB_PASSPHRASE_KEY, null)
+        val androidId = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ANDROID_ID
+        ) ?: "fallback_no_android_id"
 
-        if (stored != null) {
-            try {
-                val encrypted = Base64.decode(stored, Base64.NO_WRAP)
-                val passphrase = decrypt(encrypted)
-                android.util.Log.d(
-                    "KeyStoreManager",
-                    "DB passphrase storage'dan okundu (decrypt OK, prefix=" +
-                        passphrase.take(4).joinToString("") { "%02x".format(it) } + ")"
-                )
-                return passphrase
-            } catch (e: Exception) {
-                // Keystore master key cycle/bozulma — decrypt edemiyoruz.
-                // Eski entry'i sil ve yeni passphrase uret (caller migration recovery yapacak).
-                android.util.Log.e(
-                    "KeyStoreManager",
-                    "DB passphrase decrypt FAIL — Keystore master key cycled? Yeni passphrase uretiliyor: ${e.message}"
-                )
-                prefs.edit().remove(DB_PASSPHRASE_KEY).commit()
-            }
-        }
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(DB_PASSPHRASE_HMAC_SALT.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        val passphrase = mac.doFinal(androidId.toByteArray(Charsets.UTF_8))
 
-        // Ilk acilis VEYA decrypt fail — yeni passphrase uret
-        val passphrase = ByteArray(DB_PASSPHRASE_LENGTH)
-        SecureRandom().nextBytes(passphrase)
-        android.util.Log.w(
+        android.util.Log.d(
             "KeyStoreManager",
-            "Yeni DB passphrase uretildi (prefix=" +
+            "DB passphrase deterministic uretildi (prefix=" +
                 passphrase.take(4).joinToString("") { "%02x".format(it) } + ")"
         )
-
-        val encrypted = encrypt(passphrase)
-        // KRITIK: commit() SENKRON — process kill olsa bile diske yazilmis olur.
-        // apply() async oldugundan ilk acilisin hemen ardindan crash/kill durumunda kaybolurdu.
-        val written = prefs.edit()
-            .putString(DB_PASSPHRASE_KEY, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-            .commit()
-        android.util.Log.d("KeyStoreManager", "DB passphrase SharedPrefs'e yazildi: success=$written")
-
         return passphrase
     }
+
+    /**
+     * Eski Keystore-encrypted passphrase'i SharedPreferences'tan okur (varsa).
+     * Migration: eski APK'larda yaratilmis DB'leri yeni deterministic passphrase'e rekey
+     * etmek icin StorageModule tarafindan kullanilir.
+     *
+     * @return Eski passphrase 32-byte, yoksa veya decrypt fail ise null
+     */
+    fun getLegacyPassphraseIfAny(): ByteArray? {
+        val prefs = context.getSharedPreferences(DB_PASSPHRASE_PREFS, Context.MODE_PRIVATE)
+        val stored = prefs.getString(DB_PASSPHRASE_KEY, null) ?: return null
+        return try {
+            val encrypted = Base64.decode(stored, Base64.NO_WRAP)
+            val passphrase = decrypt(encrypted)
+            android.util.Log.i(
+                "KeyStoreManager",
+                "Legacy Keystore passphrase storage'dan okundu (migration icin)"
+            )
+            passphrase
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "KeyStoreManager",
+                "Legacy passphrase decrypt fail (Keystore key cycle?): ${e.message}"
+            )
+            null
+        }
+    }
+
+    /** Legacy SharedPrefs entry'i sil — başarılı migration sonrası caller çağırır. */
+    fun clearLegacyPassphrase() {
+        context.getSharedPreferences(DB_PASSPHRASE_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .remove(DB_PASSPHRASE_KEY)
+            .apply()
+    }
 }
+
+// HMAC salt — APK icinde public, ANDROID_ID ile birlestirilince passphrase derive eder.
+// Kullanici verisi korunma onceligi: deterministic passphrase, disk persistence'a bagimli degil.
+private const val DB_PASSPHRASE_HMAC_SALT = "elcim_securechat_db_passphrase_v1_salt_2026"
