@@ -64,7 +64,7 @@ class BackupViewModel @Inject constructor(
                 _toastEvent.emit("Yedek oluşturuldu")
             } catch (e: Exception) {
                 android.util.Log.e("BackupVM", "Yedek olusturulamadi", e)
-                _toastEvent.emit("Yedek oluşturulamadı: ${e.message}")
+                _toastEvent.emit("Yedek oluşturulamadı. Cihazınızda yeterli alan olduğundan emin olup tekrar deneyin.")
             } finally {
                 _isCreating.value = false
             }
@@ -91,7 +91,10 @@ class BackupViewModel @Inject constructor(
                         _toastEvent.emit(result.message)
                 }
             } catch (e: Exception) {
-                _toastEvent.emit("Geri yükleme hatası: ${e.message}")
+                // Teknik mesaj yerine kullanici dostu — `e.message` cogu zaman "null" veya
+                // SQLite/IO stack icerir, kullanici icin anlamsiz
+                android.util.Log.e("BackupViewModel", "Restore exception: ${e.message}", e)
+                _toastEvent.emit("Yedek dosyası okunamadı. Dosyanın bozuk olmadığını ve şifrenizin doğru olduğunu kontrol edin.")
             } finally {
                 _isRestoring.value = false
             }
@@ -127,7 +130,7 @@ class BackupViewModel @Inject constructor(
             })
         } catch (e: Exception) {
             android.util.Log.e("BackupVM", "Paylasim hatasi", e)
-            viewModelScope.launch { _toastEvent.emit("Paylaşılamadı: ${e.message}") }
+            viewModelScope.launch { _toastEvent.emit("Paylaşım uygulaması açılamadı. Yedeği dosya yöneticisinden manuel paylaşabilirsiniz.") }
         }
     }
 }

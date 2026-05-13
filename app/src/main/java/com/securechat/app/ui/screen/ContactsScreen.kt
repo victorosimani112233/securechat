@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContactPhone
 import androidx.compose.material.icons.filled.Dialpad
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Search
@@ -110,6 +111,13 @@ fun ContactsScreen(
 ) {
     val contacts by viewModel.contacts.collectAsStateWithLifecycle()
     val phoneContacts by viewModel.phoneContacts.collectAsStateWithLifecycle()
+
+    // Initial load skeleton: 300ms tolerance — flicker yok, yavas yuklemede gozukur
+    var contactsInitialLoaded by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(300)
+        contactsInitialLoaded = true
+    }
     // Pagination'dan bagimsiz, TUM kayitli kullanicilarin hash set'i — DB Flow ile auto-refresh.
     val registeredPhoneHashes by viewModel.registeredPhoneHashes.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -462,6 +470,13 @@ fun ContactsScreen(
                 }
             }
 
+            // Initial load henuz bitmemis VE liste bos ise shimmer goster (300ms flicker tolerance)
+            if (contacts.isEmpty() && phoneContacts.isEmpty() && !contactsInitialLoaded) {
+                items(6) {
+                    com.securechat.app.ui.components.ContactShimmerItem()
+                }
+            }
+
             // Kayıtlı (Elçim kullanan) kişiler
             if (contacts.isNotEmpty()) {
                 item {
@@ -665,58 +680,21 @@ private fun EmptyContactsState(
     isSearching: Boolean,
     hasPermission: Boolean
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = Modifier.padding(48.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .clip(CircleShape)
-                .background(
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.PersonSearch,
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        val titleText = when {
-            isSearching -> "Sonuç bulunamadı"
-            !hasPermission -> "Rehber izni gerekli"
-            else -> "Kayıtlı kişi bulunamadı"
-        }
-
-        val bodyText = when {
-            isSearching -> "Farklı bir arama terimi deneyin."
-            !hasPermission -> "Kişilerinizi görmek için rehber erişimi verin\nveya yukarıdaki alandan numara ile sohbet başlatabilirsiniz."
-            else -> "Elçim kullanan bir kişiniz bulunamadı.\nYukarıdaki alandan numara ile sohbet başlatabilirsiniz."
-        }
-
-        Text(
-            text = titleText,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = bodyText,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+    val titleText = when {
+        isSearching -> "Sonuç bulunamadı"
+        !hasPermission -> "Rehber izni gerekli"
+        else -> "Kayıtlı kişi bulunamadı"
     }
+    val bodyText = when {
+        isSearching -> "Farklı bir arama terimi deneyin."
+        !hasPermission -> "Kişilerinizi görmek için rehber erişimi verin veya yukarıdaki alandan numara ile sohbet başlatabilirsiniz."
+        else -> "Elçim kullanan bir kişiniz bulunamadı. Yukarıdaki alandan numara ile sohbet başlatabilirsiniz."
+    }
+    com.securechat.app.ui.components.EmptyStateView(
+        icon = if (isSearching) Icons.Default.SearchOff else Icons.Default.PersonSearch,
+        title = titleText,
+        subtitle = bodyText
+    )
 }
 
 /**

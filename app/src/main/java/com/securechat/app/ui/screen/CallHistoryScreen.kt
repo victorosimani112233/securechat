@@ -181,25 +181,12 @@ fun CallHistoryScreen(
             contentWindowInsets = WindowInsets(0)
         ) { padding ->
             if (callLogs.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Call,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "Arama geçmişi boş",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
-                    }
+                Box(modifier = Modifier.padding(padding)) {
+                    com.securechat.app.ui.components.EmptyStateView(
+                        icon = Icons.Default.Call,
+                        title = "Arama geçmişi boş",
+                        subtitle = "Yaptığınız ve kaçırdığınız aramalar burada görünecek."
+                    )
                 }
             } else {
                 LazyColumn(

@@ -202,6 +202,7 @@ fun ChatScreen(
     // Sistem galerisine yonlendirme yerine burada gosterilir — SecureChatActivity'nin
     // FLAG_SECURE'i aktif oldugu icin SS otomatik engellenir.
     var viewOnceImagePath by remember { mutableStateOf<String?>(null) }
+    val haptic = com.securechat.app.ui.components.rememberHaptic()
     val listState = rememberLazyListState()
     var initialScrollDone by remember { mutableStateOf(false) }
 
@@ -553,12 +554,33 @@ fun ChatScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
+                // Initial load: 300ms icinde messages dolduysa shimmer hiç gozukmez (flicker yok)
+                var chatInitialLoaded by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(300)
+                    chatInitialLoaded = true
+                }
+
                 if (messages.isEmpty()) {
-                    EncryptionInfoBanner(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(32.dp)
-                    )
+                    if (!chatInitialLoaded) {
+                        // Shimmer placeholder — alternatif yonlu (gelen + giden) baloncuklar
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            items(6) { idx ->
+                                com.securechat.app.ui.components.MessageShimmerItem(
+                                    isOutgoing = idx % 2 == 0
+                                )
+                            }
+                        }
+                    } else {
+                        EncryptionInfoBanner(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(32.dp)
+                        )
+                    }
                 }
 
                 // Mesajları tarih gruplarına ve reply map'e memoize et — gereksiz yeniden hesaplamayı önler
@@ -824,6 +846,7 @@ fun ChatScreen(
                 },
                 onSend = {
                     if (messageText.isNotBlank()) {
+                        haptic.light()
                         viewModel.sendMessage(messageText.trim(), replyingToMessage?.id)
                         messageText = ""
                         replyingToMessage = null
@@ -1765,6 +1788,7 @@ fun MessageBubble(
     var showEditHistoryDialog by remember { mutableStateOf(false) }
     // "Herkesten sil" geri donulemez bir islemdir — onay dialog'u tetikler.
     var showDeleteForEveryoneConfirm by remember { mutableStateOf(false) }
+    val bubbleHaptic = com.securechat.app.ui.components.rememberHaptic()
 
     // Azure tema balon renkleri
     val bubbleBg = if (isOutgoing) {
@@ -1816,7 +1840,12 @@ fun MessageBubble(
                     .clip(bubbleShape)
                     .combinedClickable(
                         onClick = { },
-                        onLongClick = { if (!message.isDeleted) showPopupMenu = true }
+                        onLongClick = {
+                            if (!message.isDeleted) {
+                                bubbleHaptic.longPress()
+                                showPopupMenu = true
+                            }
+                        }
                     )
             ) {
                 Column(

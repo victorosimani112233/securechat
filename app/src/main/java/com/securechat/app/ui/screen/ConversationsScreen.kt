@@ -36,6 +36,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
@@ -130,6 +131,15 @@ fun ConversationsScreen(
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val typingStates by com.securechat.app.data.IncomingMessageHandler.typingStates.collectAsStateWithLifecycle()
     val globalSearchResults by viewModel.globalSearchResults.collectAsStateWithLifecycle()
+
+    // Initial loading skeleton — DB yuklemesinin tipik suresi <300ms olur, bu sureden
+    // sonra hala bos ise (gercek empty veya yavas yukleme) shimmer goster.
+    // Bu sayede flicker yok (hizli yuklemede skeleton goz cirpmaz).
+    var initialLoadDone by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(300)
+        initialLoadDone = true
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchVisible by remember { mutableStateOf(false) }
@@ -428,7 +438,20 @@ fun ConversationsScreen(
                     }
 
                     if (filtered.isEmpty() && archivedConversations.isEmpty() && searchQuery.isBlank() && activeFilter == ConversationFilter.NONE && globalSearchResults.isEmpty()) {
-                        EmptyConversationsState(isSearching = false)
+                        // Initial load henuz bitmemis ise shimmer; tamamen yuklenmis bos ise empty state
+                        if (!initialLoadDone) {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                items(8) {
+                                    com.securechat.app.ui.components.ConversationShimmerItem()
+                                }
+                            }
+                        } else {
+                            EmptyConversationsState(isSearching = false)
+                        }
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -1229,46 +1252,12 @@ private fun SwipeableArchivedItem(
 
 @Composable
 private fun EmptyConversationsState(isSearching: Boolean) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(48.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Forum,
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = if (isSearching) "Sonuç bulunamadı" else "Henüz bir sohbet yok",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = if (isSearching) "Farklı bir arama terimi deneyin."
-                       else "Yeni sohbet başlatmak için\nsağ üstteki + ikonuna dokunun.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-        }
-    }
+    com.securechat.app.ui.components.EmptyStateView(
+        icon = if (isSearching) Icons.Default.SearchOff else Icons.Default.Forum,
+        title = if (isSearching) "Sonuç bulunamadı" else "Henüz sohbet yok",
+        subtitle = if (isSearching) "Farklı bir arama terimi deneyin."
+                   else "Yeni sohbet başlatmak için sağ üstteki + ikonuna dokunun."
+    )
 }
 
 // ─── Global arama sonuc satiri ──────────────────────────────────────
