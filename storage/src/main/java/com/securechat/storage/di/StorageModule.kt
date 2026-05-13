@@ -61,19 +61,32 @@ object StorageModule {
         // Passphrase Android Keystore master key ile sarmalandi.
         val passphrase = keyStoreManager.getOrCreateDbPassphrase()
 
-        // MIGRATION RECOVERY: Eski APK'larda "securechat_dev_passphrase" hardcoded passphrase ile
-        // yaratilmis DB diskte olabilir. Yeni Keystore-derived passphrase ile decrypt fail eder
-        // ("file is not a database" SQLiteException, code 26). Bu durumda DB dosyasini sil ki
-        // Room temiz baslayabilsin — kullanici uninstall etmek zorunda kalmasin.
-        //
-        // Production'da gercek user verisi varsa bu DESTRUCTIVE — geliştirme/launch öncesi OK.
+        // MIGRATION RECOVERY (NON-DESTRUCTIVE): Eski APK'larda "securechat_dev_passphrase"
+        // hardcoded passphrase ile yaratilmis DB diskte olabilir. Yeni Keystore-derived
+        // passphrase ile direct decrypt fail eder. Eski passphrase ile aciliyorsa
+        // PRAGMA rekey (SQLCipher native changePassword) ile yeni key'e gec — sohbetler KORUNUR.
+        // Sadece her iki passphrase de fail ederse DB corrupted demektir, son care destructive.
         val dbFile = context.getDatabasePath("securechat.db")
         if (dbFile.exists() && !canOpenWithPassphrase(dbFile, passphrase)) {
             android.util.Log.w(
                 "StorageModule",
-                "DB passphrase mismatch tespit edildi — eski DB siliniyor (one-time migration)"
+                "DB yeni passphrase ile acilamadi — legacy passphrase ile rekey deneniyor"
             )
-            context.deleteDatabase("securechat.db")
+            val legacyPassphrase = LEGACY_DEV_PASSPHRASE.toByteArray(Charsets.UTF_8)
+            val rekeyed = tryRekeyDatabase(dbFile, legacyPassphrase, passphrase)
+            legacyPassphrase.fill(0)
+            if (!rekeyed) {
+                android.util.Log.e(
+                    "StorageModule",
+                    "Legacy passphrase ile de acilamadi — DB corrupted veya 3. passphrase. Son care: sil."
+                )
+                context.deleteDatabase("securechat.db")
+            } else {
+                android.util.Log.i(
+                    "StorageModule",
+                    "DB basariyla yeni Keystore-derived passphrase'e rekey edildi (sohbetler korundu)"
+                )
+            }
         }
 
         val factory = SupportOpenHelperFactory(passphrase)
@@ -99,26 +112,69 @@ object StorageModule {
     }
 
     /**
+     * Eski hardcoded passphrase — sadece migration recovery'de kullanilir.
+     * Production'a giden tum APK'lar Keystore-derived passphrase'e gecmis olur,
+     * sonraki versiyonlarda bu constant kaldirilabilir (kalan kullanicilar zaten rekey olmus).
+     */
+    private const val LEGACY_DEV_PASSPHRASE = "securechat_dev_passphrase"
+
+    /**
      * Mevcut DB dosyasinin verilen passphrase ile acilip acilamadigini test eder.
-     * Hizli no-op query (PRAGMA cipher_version) — basarisizsa yanlis passphrase demektir.
-     * Kaynak guvenli — sadece bu fonksiyon kapsaminda DB acilir, sonra kapatilir.
+     * Yanlis passphrase ile SQLCipher prepareStatement asamasinda exception atar.
      */
     private fun canOpenWithPassphrase(dbFile: java.io.File, passphrase: ByteArray): Boolean {
         return try {
-            net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
+            val db = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
                 dbFile.absolutePath,
                 passphrase,
                 null,
                 net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READONLY,
                 null,
                 null
-            ).use { db ->
+            )
+            try {
                 // Yanlis passphrase ile herhangi bir compile cagrisi exception atar.
                 db.rawQuery("SELECT count(*) FROM sqlite_master", null).use { it.moveToFirst() }
+                true
+            } finally {
+                db.close()
             }
-            true
         } catch (e: Exception) {
             android.util.Log.w("StorageModule", "DB test open basarisiz: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Eski passphrase ile DB'yi acip yeni passphrase ile rekey eder.
+     * SQLCipher native changePassword() kullanir — atomic, schema/data korunur, sohbetler kaybolmaz.
+     *
+     * @return true ise basarili — DB artik newKey ile acilabilir; false ise migration mumkun degil.
+     */
+    private fun tryRekeyDatabase(
+        dbFile: java.io.File,
+        oldKey: ByteArray,
+        newKey: ByteArray
+    ): Boolean {
+        return try {
+            val db = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
+                dbFile.absolutePath,
+                oldKey,
+                null,
+                net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READWRITE,
+                null,
+                null
+            )
+            try {
+                // changePassword PRAGMA rekey'i atomic olarak calistirir.
+                db.changePassword(newKey)
+            } finally {
+                db.close()
+            }
+            // Dogrula: yeni key ile gercekten acilabiliyor mu?
+            canOpenWithPassphrase(dbFile, newKey)
+        } catch (e: Exception) {
+            android.util.Log.w("StorageModule", "Rekey hatasi: ${e.message}")
             false
         }
     }
