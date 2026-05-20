@@ -1626,7 +1626,7 @@ fun ChatTopBar(
 
 /**
  * Süreli mesaj zamanlayıcı seçim dialog'u.
- * WhatsApp benzeri seçenekler sunar.
+ * Hazır süreler + "Özel süre" picker.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1635,14 +1635,30 @@ fun DisappearingTimerDialog(
     onDurationSelected: (Long) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val options = listOf(
+    val presets = listOf(
         0L to "Kapalı",
         30_000L to "30 saniye",
         60_000L to "1 dakika",
-        300_000L to "5 dakika",
-        3_600_000L to "1 saat",
-        86_400_000L to "24 saat"
+        600_000L to "10 dakika",
+        1_800_000L to "30 dakika",
+        3_600_000L to "1 saat"
     )
+
+    var showCustom by remember { mutableStateOf(false) }
+
+    if (showCustom) {
+        CustomDurationPickerDialog(
+            initialDuration = currentDuration.takeIf { d -> d > 0 && presets.none { it.first == d } } ?: 0L,
+            onConfirm = { duration ->
+                showCustom = false
+                onDurationSelected(duration)
+            },
+            onDismiss = { showCustom = false }
+        )
+        return
+    }
+
+    val isCustomActive = currentDuration > 0 && presets.none { it.first == currentDuration }
 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
@@ -1660,48 +1676,21 @@ fun DisappearingTimerDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
-                options.forEach { (duration, label) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .combinedClickable(onClick = { onDurationSelected(duration) })
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            if (duration == 0L) Icons.Default.Close else Icons.Default.Schedule,
-                            contentDescription = null,
-                            tint = if (duration == currentDuration)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (duration == currentDuration)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onSurface,
-                            fontWeight = if (duration == currentDuration)
-                                FontWeight.Bold
-                            else
-                                FontWeight.Normal
-                        )
-                        if (duration == currentDuration) {
-                            Spacer(modifier = Modifier.weight(1f))
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
+                presets.forEach { (duration, label) ->
+                    TimerOptionRow(
+                        label = label,
+                        selected = duration == currentDuration,
+                        icon = if (duration == 0L) Icons.Default.Close else Icons.Default.Schedule,
+                        onClick = { onDurationSelected(duration) }
+                    )
                 }
+                // Ozel sure satiri
+                TimerOptionRow(
+                    label = if (isCustomActive) "Özel: ${formatDisappearingLabel(currentDuration)}" else "Özel süre…",
+                    selected = isCustomActive,
+                    icon = Icons.Default.Schedule,
+                    onClick = { showCustom = true }
+                )
             }
         },
         confirmButton = {},
@@ -1710,6 +1699,146 @@ fun DisappearingTimerDialog(
                 Text("Kapat")
             }
         }
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TimerOptionRow(
+    label: String,
+    selected: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+        )
+        if (selected) {
+            Spacer(modifier = Modifier.weight(1f))
+            Icon(
+                Icons.Default.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Özel süre seçimi: saat/dakika/saniye girisi.
+ * Maks 30 gun, min 1 saniye. Toplam ms olarak [onConfirm]'e verilir.
+ */
+@Composable
+private fun CustomDurationPickerDialog(
+    initialDuration: Long,
+    onConfirm: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val initialHours = (initialDuration / 3_600_000L).toInt()
+    val initialMinutes = ((initialDuration % 3_600_000L) / 60_000L).toInt()
+    val initialSeconds = ((initialDuration % 60_000L) / 1_000L).toInt()
+
+    var hoursText by remember { mutableStateOf(initialHours.toString()) }
+    var minutesText by remember { mutableStateOf(initialMinutes.toString()) }
+    var secondsText by remember { mutableStateOf(initialSeconds.toString()) }
+
+    val hours = hoursText.toIntOrNull()?.coerceIn(0, 720) ?: 0
+    val minutes = minutesText.toIntOrNull()?.coerceIn(0, 59) ?: 0
+    val seconds = secondsText.toIntOrNull()?.coerceIn(0, 59) ?: 0
+    val totalMs = hours * 3_600_000L + minutes * 60_000L + seconds * 1_000L
+    val isValid = totalMs in 1_000L..2_592_000_000L // 1 sn – 30 gun
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Özel Süre") },
+        text = {
+            Column {
+                Text(
+                    "Mesajlar seçilen süre sonunda otomatik silinir.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    DurationField(
+                        label = "Saat",
+                        value = hoursText,
+                        onValueChange = { hoursText = it.filter { ch -> ch.isDigit() }.take(3) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    DurationField(
+                        label = "Dakika",
+                        value = minutesText,
+                        onValueChange = { minutesText = it.filter { ch -> ch.isDigit() }.take(2) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    DurationField(
+                        label = "Saniye",
+                        value = secondsText,
+                        onValueChange = { secondsText = it.filter { ch -> ch.isDigit() }.take(2) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = if (isValid) "Mesajlar ${formatDisappearingLabel(totalMs)} sonra silinir."
+                    else "Süre 1 saniye ile 30 gün arası olmalı.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isValid) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.error
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                onClick = { if (isValid) onConfirm(totalMs) },
+                enabled = isValid
+            ) { Text("Kaydet") }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("İptal") }
+        }
+    )
+}
+
+@Composable
+private fun DurationField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.material3.OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+        ),
+        modifier = modifier
     )
 }
 

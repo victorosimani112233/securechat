@@ -1007,16 +1007,29 @@ private fun EmptyStateMessage(text: String) {
 
 /**
  * Süreli mesaj süresini okunabilir etikete çevirir.
+ * Sabit preset'ler icin hizli yol; ozel sureler icin gun/saat/dakika/saniye birlesik metin.
  */
-private fun formatDisappearingLabel(duration: Long): String {
+internal fun formatDisappearingLabel(duration: Long): String {
+    if (duration <= 0) return "Kapalı"
     return when (duration) {
-        0L -> "Kapalı"
         30_000L -> "30 saniye"
         60_000L -> "1 dakika"
-        300_000L -> "5 dakika"
+        600_000L -> "10 dakika"
+        1_800_000L -> "30 dakika"
         3_600_000L -> "1 saat"
         86_400_000L -> "24 saat"
-        else -> "Açık"
+        else -> {
+            val days = duration / 86_400_000L
+            val hours = (duration % 86_400_000L) / 3_600_000L
+            val minutes = (duration % 3_600_000L) / 60_000L
+            val seconds = (duration % 60_000L) / 1_000L
+            buildList {
+                if (days > 0) add("$days gün")
+                if (hours > 0) add("$hours saat")
+                if (minutes > 0) add("$minutes dakika")
+                if (seconds > 0 && days == 0L && hours == 0L) add("$seconds saniye")
+            }.joinToString(" ").ifBlank { "Açık" }
+        }
     }
 }
 
