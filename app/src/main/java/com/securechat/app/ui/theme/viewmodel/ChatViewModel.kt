@@ -726,7 +726,7 @@ class ChatViewModel @Inject constructor(
                 val isGroup = conversation?.isGroup == true
                 val members = conversation?.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
 
-                // Dosya gonder
+                // Dosya gonder — sureli mesaj icin mutlak expiresAt'i tasi (Asama 3)
                 val result = fileTransferManager.sendFile(
                     localUserId = senderId,
                     recipientId = conversationId,
@@ -736,7 +736,8 @@ class ChatViewModel @Inject constructor(
                     groupName = if (isGroup) conversation?.peerName else null,
                     caption = trimmedCaption,
                     isViewOnce = isViewOnce,
-                    originalMessageId = messageId
+                    originalMessageId = messageId,
+                    absoluteExpiresAt = fileExpiresAt
                 )
 
                 // Progress izlemeyi durdur ve temizle

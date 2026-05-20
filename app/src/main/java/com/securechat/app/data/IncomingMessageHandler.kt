@@ -374,7 +374,9 @@ class IncomingMessageHandler @Inject constructor(
 
             val fileNow = System.currentTimeMillis()
             val groupDisappDuration = (groupConv ?: conversationDao.getById(groupId))?.disappearingDuration ?: 0
-            val groupFileExpiresAt = if (groupDisappDuration > 0) fileNow + groupDisappDuration else null
+            // Asama 3: gonderici signal'a absoluteExpiresAt gomduyse onu kullan
+            val groupFileExpiresAt = signal.absoluteExpiresAt
+                ?: if (groupDisappDuration > 0) fileNow + groupDisappDuration else null
             val isGroupChatOpen = currentChatId == groupId && isAppInForeground
 
             val message = LocalMessage(
@@ -427,7 +429,9 @@ class IncomingMessageHandler @Inject constructor(
 
             val fileNow = System.currentTimeMillis()
             val fileDisappDuration = existingConv?.disappearingDuration ?: 0
-            val fileExpiresAt = if (fileDisappDuration > 0) fileNow + fileDisappDuration else null
+            // Asama 3: gonderici signal'a absoluteExpiresAt gomduyse onu kullan
+            val fileExpiresAt = signal.absoluteExpiresAt
+                ?: if (fileDisappDuration > 0) fileNow + fileDisappDuration else null
             val isFileChatOpen = currentChatId == senderId && isAppInForeground
 
             val message = LocalMessage(
@@ -517,10 +521,11 @@ class IncomingMessageHandler @Inject constructor(
             }
         }
 
-        // Sureli mesaj kontrolu — grupta sureli mesaj aktifse expiresAt hesapla
+        // Sureli mesaj kontrolu — gonderici envelope'a gomduyse onu kullan, yoksa lokal fallback.
         val now = System.currentTimeMillis()
         val groupDisappDuration = (groupConv ?: conversationDao.getById(groupId))?.disappearingDuration ?: 0
-        val groupExpiresAt = if (groupDisappDuration > 0) now + groupDisappDuration else null
+        val groupExpiresAt = parsedGroup.absoluteExpiresAt
+            ?: if (groupDisappDuration > 0) now + groupDisappDuration else null
 
         // Grup sohbeti aciksa VE app on plandaysa mesaj direkt READ, degilse DELIVERED.
         // isAppInForeground kontrolu olmadan: telefon kilitliyken son acik sohbet gruba esitse
@@ -600,10 +605,12 @@ class IncomingMessageHandler @Inject constructor(
             )
         }
 
-        // Sureli mesaj kontrolu — konusmada sureli mesaj aktifse expiresAt hesapla
+        // Sureli mesaj kontrolu — once gondericinin envelope'a gomdugu EXP'i kullan (Asama 3).
+        // EXP yoksa (eski client veya timer signal henuz gelmemis) lokal duration'a fallback.
         val now = System.currentTimeMillis()
         val disappDuration = existingConv?.disappearingDuration ?: 0
-        val expiresAt = if (disappDuration > 0) now + disappDuration else null
+        val expiresAt = parsed.absoluteExpiresAt
+            ?: if (disappDuration > 0) now + disappDuration else null
 
         // Yerel saat kullan — cihaz saati farklari mesaj sirasini bozmasin
         // Sohbet aciksa VE app on plandaysa direkt READ, degilse DELIVERED.
@@ -1061,7 +1068,9 @@ class IncomingMessageHandler @Inject constructor(
         val replyToId: String?,
         val content: String,
         val contentType: MessageContentType = MessageContentType.TEXT,
-        val pollVote: PollVoteRef? = null
+        val pollVote: PollVoteRef? = null,
+        /** EXP prefix'ten alinan mutlak expiresAt (ms). Yoksa null. */
+        val absoluteExpiresAt: Long? = null
     )
 
     private fun parseMessageId(content: String): Pair<String?, String> {
@@ -1073,6 +1082,7 @@ class IncomingMessageHandler @Inject constructor(
         var remaining = content
         var messageId: String? = null
         var replyToId: String? = null
+        var absoluteExpiresAt: Long? = null
 
         // MSGID prefix
         if (remaining.startsWith("MSGID:")) {
@@ -1094,6 +1104,16 @@ class IncomingMessageHandler @Inject constructor(
             }
         }
 
+        // EXP prefix — sureli mesaj icin mutlak expiresAt (ms). REPLY'dan sonra, POLL'den once.
+        if (remaining.startsWith("EXP:")) {
+            val firstColon = remaining.indexOf(':')
+            val secondColon = remaining.indexOf(':', firstColon + 1)
+            if (secondColon > firstColon) {
+                absoluteExpiresAt = remaining.substring(firstColon + 1, secondColon).toLongOrNull()
+                remaining = remaining.substring(secondColon + 1)
+            }
+        }
+
         // POLLVOTE: prefix — anket oy guncellemesi (yeni mesaj olarak kaydedilmez,
         // mevcut anket mesajinin votes alanini gunceller)
         // Format: POLLVOTE:<pollMsgId>:<optionIndex>
@@ -1108,7 +1128,8 @@ class IncomingMessageHandler @Inject constructor(
                         replyToId = null,
                         content = "",
                         contentType = MessageContentType.TEXT,
-                        pollVote = PollVoteRef(pollMsgId, optionIdx)
+                        pollVote = PollVoteRef(pollMsgId, optionIdx),
+                        absoluteExpiresAt = absoluteExpiresAt
                     )
                 }
             }
@@ -1121,11 +1142,17 @@ class IncomingMessageHandler @Inject constructor(
                 replyToId = replyToId,
                 content = remaining.removePrefix("POLL:"),
                 contentType = MessageContentType.POLL,
-                pollVote = null
+                pollVote = null,
+                absoluteExpiresAt = absoluteExpiresAt
             )
         }
 
-        return ParsedMessage(messageId, replyToId, remaining)
+        return ParsedMessage(
+            messageId = messageId,
+            replyToId = replyToId,
+            content = remaining,
+            absoluteExpiresAt = absoluteExpiresAt
+        )
     }
 
     /**

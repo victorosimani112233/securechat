@@ -68,7 +68,9 @@ class FileTransferManager @Inject constructor(
         groupName: String? = null,
         caption: String? = null,
         isViewOnce: Boolean = false,
-        originalMessageId: String? = null
+        originalMessageId: String? = null,
+        /** Sureli mesaj icin mutlak expiresAt — alici tarafta ayni anda dolacak (Asama 3). */
+        absoluteExpiresAt: Long? = null
     ): FileTransferResult {
         val contentResolver = context.contentResolver
         val originalMimeType = contentResolver.getType(uri) ?: "application/octet-stream"
@@ -108,7 +110,7 @@ class FileTransferManager @Inject constructor(
             ?: return FileTransferResult.Error("Dosya okunamadi")
 
         return inputStream.use { stream ->
-            sendFileChunked(stream, totalSize, localUserId, recipientId, fileName, mimeType, isGroup, groupMembers, groupName, caption, isViewOnce, originalMessageId)
+            sendFileChunked(stream, totalSize, localUserId, recipientId, fileName, mimeType, isGroup, groupMembers, groupName, caption, isViewOnce, originalMessageId, absoluteExpiresAt)
         }
     }
 
@@ -130,7 +132,8 @@ class FileTransferManager @Inject constructor(
         groupName: String?,
         caption: String?,
         isViewOnce: Boolean,
-        originalMessageId: String?
+        originalMessageId: String?,
+        absoluteExpiresAt: Long?
     ): FileTransferResult {
         val transferId = UUID.randomUUID().toString()
         val totalChunks = ((totalSize + CHUNK_SIZE - 1) / CHUNK_SIZE).toInt().coerceAtLeast(1)
@@ -163,7 +166,10 @@ class FileTransferManager @Inject constructor(
                 // alici tarafta tum parcalar birlestirildikten sonra mesaj olusturulurken kullanilir.
                 caption = if (chunkIndex == totalChunks - 1) caption else null,
                 isViewOnce = isViewOnce,
-                originalMessageId = if (chunkIndex == totalChunks - 1) originalMessageId else null
+                originalMessageId = if (chunkIndex == totalChunks - 1) originalMessageId else null,
+                // Sureli mesaj: sadece son chunk'ta tasi (alici tum chunk'lari birlestirince mesaji
+                // olusturur, oradan expiresAt kullanilir).
+                absoluteExpiresAt = if (chunkIndex == totalChunks - 1) absoluteExpiresAt else null
             )
 
             val sent = if (isGroup && groupMembers.isNotEmpty()) {

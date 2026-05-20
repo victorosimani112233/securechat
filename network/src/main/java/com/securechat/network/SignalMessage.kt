@@ -162,7 +162,12 @@ sealed class SignalMessage {
         val totalChunks: Int = 1, // Toplam parca sayisi (1 = tek parca)
         val caption: String? = null, // Medya altyazisi — alici tarafta ayni baloncukta gosterilir
         val isViewOnce: Boolean = false, // Tek gosterimlik medya bayragi
-        val originalMessageId: String? = null // Gondericinin orijinal mesaj ID'si (delivery receipt + view-once edit icin)
+        val originalMessageId: String? = null, // Gondericinin orijinal mesaj ID'si (delivery receipt + view-once edit icin)
+        /**
+         * Sureli mesaj mutlak expiresAt (ms). Gonderici envelope'a goz acik attigi anda hesaplar.
+         * null ise alici lokal disappearingDuration'a fallback yapar (eski client uyumu).
+         */
+        val absoluteExpiresAt: Long? = null
     ) : SignalMessage()
 
     /**

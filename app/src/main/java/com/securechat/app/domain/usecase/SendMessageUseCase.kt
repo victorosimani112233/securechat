@@ -70,7 +70,12 @@ class SendMessageUseCase @Inject constructor(
         val replyPrefix = if (replyToId != null) "REPLY:$replyToId:" else ""
         // POLL mesajlari POLL: prefix'i ile isaretlenir — alici taraf POLL olarak ayirt edebilsin
         val typePrefix = if (contentType == MessageContentType.POLL) "POLL:" else ""
-        val envelopeContent = "MSGID:${message.id}:${replyPrefix}${typePrefix}$content"
+        // EXP prefix: sureli mesaj icin mutlak expiresAt'i gomeriz — alici da ayni anda gormez
+        // olur. Alici lokal duration'i bilmiyorsa veya transit gecikmesi varsa bile dogru calisir.
+        val expPrefix = if (expiresAt != null) "EXP:$expiresAt:" else ""
+        // Sira onemli: EXP, POLL/POLLVOTE'tan ONCE — parser POLL gorunce geri kalanini content
+        // sayar. Boylece "MSGID:id:[REPLY:rid:][EXP:abs:][POLL:]content" formati elde edilir.
+        val envelopeContent = "MSGID:${message.id}:${replyPrefix}${expPrefix}${typePrefix}$content"
 
         // Ilk deneme
         val sent = attemptSend(senderId, conversationId, timestamp, envelopeContent, isGroup, conversation)
