@@ -111,6 +111,16 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at < :now")
     suspend fun deleteExpiredMessages(now: Long): Int
 
+    // Sureli mesaj — silinecek mesajlarin etkilenecek konusma id'lerini doner (silmeden once).
+    // MessageRepositoryImpl.deleteExpiredMessages bu listeyi alip silme sonrasi her konusmanin
+    // lastMessage degerini tazeler — boylece konusma listesinde stale preview kalmaz.
+    @Query("SELECT DISTINCT conversation_id FROM messages WHERE expires_at IS NOT NULL AND expires_at < :now")
+    suspend fun getExpiredConversationIds(now: Long): List<String>
+
+    // Konusmadaki en son geriye kalan mesaj (suresi dolmamis) — lastMessage senkronu icin.
+    @Query("SELECT * FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestMessage(conversationId: String): MessageEntity?
+
     // Takilmis SENDING mesajlari bul — belirtilen zaman damgasindan eski, giden mesajlar
     @Query("SELECT * FROM messages WHERE status = 'SENDING' AND is_outgoing = 1 AND timestamp < :olderThan")
     suspend fun getStuckSendingMessages(olderThan: Long): List<MessageEntity>

@@ -50,6 +50,12 @@ class ConversationsViewModel @Inject constructor(
         // Boylece diger sohbetlerden gelen mesajlar icin bildirim gosterilir
         IncomingMessageHandler.currentChatId = "conversations"
         android.util.Log.d("ConversationsViewModel", "Current chat set to: conversations")
+
+        // Sureli mesajlari acilista bir kez temizle — konusma listesinde bayat preview kalmasin.
+        // MessageRepositoryImpl etkilenen konusmalarin lastMessage'ini da tazeler.
+        viewModelScope.launch {
+            runCatching { messageRepository.deleteExpiredMessages() }
+        }
     }
 
     override fun onCleared() {

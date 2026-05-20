@@ -118,4 +118,8 @@ interface ConversationDao {
      */
     @Query("UPDATE conversations SET last_message = :message, last_message_timestamp = :timestamp WHERE id = :conversationId")
     suspend fun updateLastMessageById(conversationId: String, message: String, timestamp: Long)
+
+    // Sureli mesaj cleanup sonrasi: konusmada hic mesaj kalmadiysa lastMessage null'a cekilir.
+    @Query("UPDATE conversations SET last_message = NULL, last_message_timestamp = NULL WHERE id = :conversationId")
+    suspend fun clearLastMessage(conversationId: String)
 }

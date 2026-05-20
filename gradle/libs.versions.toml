@@ -28,6 +28,16 @@ turbine = "1.0.0"
 coroutines-test = "1.7.3"
 truth = "1.4.0"
 kotlinx-serialization = "1.6.2"
+nimbus-jose-jwt = "9.37.3"
+junixsocket = "2.9.0"
+netty-epoll = "4.1.107.Final"
+clikt = "4.2.2"
+testcontainers = "1.19.7"
+hikaricp = "5.1.0"
+postgresql-jdbc = "42.7.3"
+jedis = "5.1.2"
+flyway = "9.22.3"
+micrometer = "1.12.4"
 
 [libraries]
 # AndroidX Core
@@ -105,6 +115,22 @@ turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines-test" }
 truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
 serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+
+# Bot API
+nimbus-jose-jwt = { group = "com.nimbusds", name = "nimbus-jose-jwt", version.ref = "nimbus-jose-jwt" }
+junixsocket-core = { group = "com.kohlschutter.junixsocket", name = "junixsocket-core", version.ref = "junixsocket" }
+junixsocket-native-common = { group = "com.kohlschutter.junixsocket", name = "junixsocket-native-common", version.ref = "junixsocket" }
+netty-transport-native-epoll = { group = "io.netty", name = "netty-transport-native-epoll", version.ref = "netty-epoll" }
+clikt = { group = "com.github.ajalt.clikt", name = "clikt", version.ref = "clikt" }
+libsignal-client = { group = "org.signal", name = "libsignal-client", version.ref = "signal-client" }
+hikaricp = { group = "com.zaxxer", name = "HikariCP", version.ref = "hikaricp" }
+postgresql = { group = "org.postgresql", name = "postgresql", version.ref = "postgresql-jdbc" }
+jedis = { group = "redis.clients", name = "jedis", version.ref = "jedis" }
+flyway-core = { group = "org.flywaydb", name = "flyway-core", version.ref = "flyway" }
+micrometer-prometheus = { group = "io.micrometer", name = "micrometer-registry-prometheus", version.ref = "micrometer" }
+micrometer-core = { group = "io.micrometer", name = "micrometer-core", version.ref = "micrometer" }
+testcontainers-postgres = { group = "org.testcontainers", name = "postgresql", version.ref = "testcontainers" }
+testcontainers-junit = { group = "org.testcontainers", name = "junit-jupiter", version.ref = "testcontainers" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

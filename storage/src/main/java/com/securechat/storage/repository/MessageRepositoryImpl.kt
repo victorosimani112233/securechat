@@ -241,7 +241,24 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteExpiredMessages(): Int {
-        return messageDao.deleteExpiredMessages(System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        // Etkilenecek konusma id'lerini SILMEDEN once topla — sonra her birinin lastMessage'ini
+        // tazeleyebilelim (konusma listesinde bayat preview kalmasin).
+        val affectedConvIds = messageDao.getExpiredConversationIds(now)
+        val deleted = messageDao.deleteExpiredMessages(now)
+        for (convId in affectedConvIds) {
+            val latest = messageDao.getLatestMessage(convId)
+            if (latest == null) {
+                conversationDao.clearLastMessage(convId)
+            } else {
+                conversationDao.updateLastMessageById(
+                    conversationId = convId,
+                    message = latest.toDomain().previewText,
+                    timestamp = latest.timestamp
+                )
+            }
+        }
+        return deleted
     }
 
     override suspend fun updateConversationFavorite(conversationId: String, isFavorite: Boolean) {

@@ -171,10 +171,20 @@ class ChatViewModel @Inject constructor(
             markIncomingMessagesAsRead()
         }
 
-        // Sureli mesajlari periyodik olarak temizle (30 saniyede bir, sohbet acikken)
+        // Sureli mesajlari periyodik olarak temizle.
+        // Acilista bir kez hemen calistir, sonra interval ile devam et — interval konusmadaki
+        // disappearingDuration'a gore dinamik: kisa timer'larda agresif kontrol, uzun timer'larda
+        // batarya dostu. Boylelikle 30sn timer maksimum ~5sn gecikmeyle siliniyor.
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            // Ilk acilis cleanup'i — onceki seansta dolan mesajlar varsa hemen gitsin
+            runCatching { messageRepository.deleteExpiredMessages() }
             while (true) {
-                kotlinx.coroutines.delay(30_000)
+                val intervalMs = when {
+                    _disappearingDuration.value in 1..60_000L -> 5_000L
+                    _disappearingDuration.value in 60_001..3_600_000L -> 15_000L
+                    else -> 60_000L
+                }
+                kotlinx.coroutines.delay(intervalMs)
                 val deleted = messageRepository.deleteExpiredMessages()
                 if (deleted > 0) {
                     android.util.Log.d("ChatViewModel", "Sureli mesaj temizlendi: $deleted")
