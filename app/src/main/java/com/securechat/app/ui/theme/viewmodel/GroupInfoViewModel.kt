@@ -2,6 +2,7 @@ package com.securechat.app.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.securechat.app.data.PendingTimerFlusher
 import com.securechat.app.data.UserSession
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
@@ -39,7 +40,8 @@ class GroupInfoViewModel @Inject constructor(
     private val promoteToAdminUseCase: PromoteToAdminUseCase,
     private val removeGroupMemberUseCase: RemoveGroupMemberUseCase,
     private val updateGroupNameUseCase: UpdateGroupNameUseCase,
-    private val contactNameResolver: com.securechat.storage.resolver.ContactNameResolver
+    private val contactNameResolver: com.securechat.storage.resolver.ContactNameResolver,
+    private val pendingTimerFlusher: PendingTimerFlusher
 ) : ViewModel() {
 
     companion object {
@@ -418,21 +420,14 @@ class GroupInfoViewModel @Inject constructor(
                 conversationDao.updateDisappearingDuration(groupId, duration)
                 _disappearingDuration.value = duration
 
-                // Tum grup uyelerine bildir
+                // Tum grup uyelerine bildir — WS kapaliyken sessizce kaybolmasin,
+                // pendingTimerFlusher kuyruga alir, reconnect olunca flush eder.
                 val userId = userSession.userId ?: return@launch
                 val conv = conversationDao.getById(groupId) ?: return@launch
                 val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
                 for (memberId in members) {
-                    if (memberId == userId) continue // Kendine gonderme
-                    signalingClient.sendSignal(
-                        SignalMessage.DisappearingTimer(
-                            senderId = userId,
-                            recipientId = memberId,
-                            timestamp = System.currentTimeMillis(),
-                            duration = duration,
-                            conversationId = groupId
-                        )
-                    )
+                    if (memberId == userId) continue
+                    pendingTimerFlusher.sendOrQueue(memberId, groupId, duration)
                 }
             } catch (e: Exception) {
                 android.util.Log.e("GroupInfoVM", "Sureli mesaj guncelleme hatasi", e)

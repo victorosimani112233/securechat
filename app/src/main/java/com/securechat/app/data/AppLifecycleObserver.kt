@@ -37,7 +37,8 @@ class AppLifecycleObserver @Inject constructor(
     private val fcmTokenManager: FcmTokenManager,
     private val networkMonitor: NetworkMonitor,
     private val offlineMessageQueue: OfflineMessageQueue,
-    private val stuckMessageRecovery: StuckMessageRecovery
+    private val stuckMessageRecovery: StuckMessageRecovery,
+    private val pendingTimerFlusher: PendingTimerFlusher
 ) : DefaultLifecycleObserver {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -54,9 +55,11 @@ class AppLifecycleObserver @Inject constructor(
             signalingClient.offlineMessageQueue = offlineMessageQueue
 
             // Bug 003: Yeniden baglanti kuruldugunda SENDING durumunda takili mesajlari kurtar
+            // + Sureli mesaj timer guncellemelerini de flush et (Asama 2)
             signalingClient.onReconnectedCallback = {
                 scope.launch {
                     stuckMessageRecovery.recoverStuckMessages()
+                    runCatching { pendingTimerFlusher.flush() }
                 }
             }
 

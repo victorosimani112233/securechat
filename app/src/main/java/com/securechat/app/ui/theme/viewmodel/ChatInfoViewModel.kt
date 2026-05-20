@@ -2,6 +2,7 @@ package com.securechat.app.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.securechat.app.data.PendingTimerFlusher
 import com.securechat.app.data.UserSession
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
@@ -34,7 +35,8 @@ class ChatInfoViewModel @Inject constructor(
     private val contactDao: ContactDao,
     private val contactNameResolver: ContactNameResolver,
     private val signalingClient: SignalingClient,
-    private val userSession: UserSession
+    private val userSession: UserSession,
+    private val pendingTimerFlusher: PendingTimerFlusher
 ) : ViewModel() {
 
     private var currentConversationId: String? = null
@@ -266,31 +268,16 @@ class ChatInfoViewModel @Inject constructor(
                 val userId = userSession.userId ?: return@launch
                 val conv = conversationDao.getById(conversationId) ?: return@launch
 
+                // WS kapaliyken sessizce kaybolmasin — pendingTimerFlusher kuyruga alir
+                // ve reconnect olunca otomatik flush eder.
                 if (conv.isGroup) {
-                    // Grup: tum uyelere ayri ayri gonder
                     val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
                     for (memberId in members) {
                         if (memberId == userId) continue
-                        signalingClient.sendSignal(
-                            SignalMessage.DisappearingTimer(
-                                senderId = userId,
-                                recipientId = memberId,
-                                timestamp = System.currentTimeMillis(),
-                                duration = duration,
-                                conversationId = conversationId
-                            )
-                        )
+                        pendingTimerFlusher.sendOrQueue(memberId, conversationId, duration)
                     }
                 } else {
-                    signalingClient.sendSignal(
-                        SignalMessage.DisappearingTimer(
-                            senderId = userId,
-                            recipientId = conv.peerId,
-                            timestamp = System.currentTimeMillis(),
-                            duration = duration,
-                            conversationId = conversationId
-                        )
-                    )
+                    pendingTimerFlusher.sendOrQueue(conv.peerId, conversationId, duration)
                 }
             } catch (e: Exception) {
                 android.util.Log.e("ChatInfoVM", "Sureli mesaj guncelleme hatasi", e)

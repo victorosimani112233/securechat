@@ -73,6 +73,20 @@ interface MessageRepository {
     /** Süresi dolmuş mesajları sil. Silinen mesaj sayısını döner. */
     suspend fun deleteExpiredMessages(): Int
 
+    /**
+     * Yeni gelen DisappearingTimer signal'i icin retroaktif expiresAt uygula.
+     * Race penceresi (windowStart..now) icindeki, henuz expiresAt'i olmayan, gelen mesajlara
+     * `arrivalTimestamp + duration` degerini atar. Boylece timer biraz gec geldi durumlarinda
+     * onceki mesajlar da otomatik silinir.
+     * @return Etkilenen mesaj sayisi
+     */
+    suspend fun applyRetroactiveExpiry(
+        conversationId: String,
+        duration: Long,
+        windowStart: Long,
+        now: Long
+    ): Int
+
     /** Konuşmanın favori durumunu güncelle. */
     suspend fun updateConversationFavorite(conversationId: String, isFavorite: Boolean)
 

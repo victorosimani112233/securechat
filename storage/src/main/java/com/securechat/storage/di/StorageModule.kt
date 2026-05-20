@@ -120,6 +120,10 @@ object StorageModule {
     fun provideScheduledMessageDao(db: SecureChatDatabase): ScheduledMessageDao = db.scheduledMessageDao()
 
     @Provides
+    fun providePendingTimerUpdateDao(db: SecureChatDatabase): com.securechat.storage.dao.PendingTimerUpdateDao =
+        db.pendingTimerUpdateDao()
+
+    @Provides
     fun provideContactDao(db: SecureChatDatabase): ContactDao = db.contactDao()
 
     @Provides

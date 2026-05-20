@@ -121,6 +121,25 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatestMessage(conversationId: String): MessageEntity?
 
+    // Race penceresi: DisappearingTimer signal gec geldiginde, son N saniyedeki gelen mesajlara
+    // retroaktif expiresAt uygula. Sadece is_outgoing = 0 (gelen) ve expires_at NULL olanlar.
+    // expires_at = timestamp + duration (mesajin gelis zamanindan itibaren).
+    @Query("""
+        UPDATE messages
+        SET expires_at = timestamp + :duration
+        WHERE conversation_id = :conversationId
+          AND is_outgoing = 0
+          AND expires_at IS NULL
+          AND timestamp >= :windowStart
+          AND timestamp <= :now
+    """)
+    suspend fun applyRetroactiveExpiry(
+        conversationId: String,
+        duration: Long,
+        windowStart: Long,
+        now: Long
+    ): Int
+
     // Takilmis SENDING mesajlari bul — belirtilen zaman damgasindan eski, giden mesajlar
     @Query("SELECT * FROM messages WHERE status = 'SENDING' AND is_outgoing = 1 AND timestamp < :olderThan")
     suspend fun getStuckSendingMessages(olderThan: Long): List<MessageEntity>

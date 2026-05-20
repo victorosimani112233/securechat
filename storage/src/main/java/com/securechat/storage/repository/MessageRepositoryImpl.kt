@@ -240,6 +240,13 @@ class MessageRepositoryImpl @Inject constructor(
         conversationDao.updateDisappearingDuration(conversationId, duration)
     }
 
+    override suspend fun applyRetroactiveExpiry(
+        conversationId: String,
+        duration: Long,
+        windowStart: Long,
+        now: Long
+    ): Int = messageDao.applyRetroactiveExpiry(conversationId, duration, windowStart, now)
+
     override suspend fun deleteExpiredMessages(): Int {
         val now = System.currentTimeMillis()
         // Etkilenecek konusma id'lerini SILMEDEN once topla — sonra her birinin lastMessage'ini

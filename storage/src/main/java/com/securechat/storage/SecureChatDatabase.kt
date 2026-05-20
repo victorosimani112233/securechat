@@ -8,6 +8,7 @@ import com.securechat.storage.dao.ContactDao
 import com.securechat.storage.dao.ConversationDao
 import com.securechat.storage.dao.IdentityDao
 import com.securechat.storage.dao.MessageDao
+import com.securechat.storage.dao.PendingTimerUpdateDao
 import com.securechat.storage.dao.PreKeyDao
 import com.securechat.storage.dao.SessionDao
 import com.securechat.storage.dao.SignedPreKeyDao
@@ -17,6 +18,7 @@ import com.securechat.storage.entity.ContactEntity
 import com.securechat.storage.entity.ConversationEntity
 import com.securechat.storage.entity.IdentityEntity
 import com.securechat.storage.entity.MessageEntity
+import com.securechat.storage.entity.PendingTimerUpdateEntity
 import com.securechat.storage.entity.PreKeyEntity
 import com.securechat.storage.entity.ScheduledMessageEntity
 import com.securechat.storage.entity.SessionEntity
@@ -36,9 +38,10 @@ import com.securechat.storage.entity.SignedPreKeyEntity
         SessionEntity::class,
         IdentityEntity::class,
         CallLogEntity::class,
-        ScheduledMessageEntity::class
+        ScheduledMessageEntity::class,
+        PendingTimerUpdateEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -52,4 +55,5 @@ abstract class SecureChatDatabase : RoomDatabase() {
     abstract fun identityDao(): IdentityDao
     abstract fun callLogDao(): CallLogDao
     abstract fun scheduledMessageDao(): ScheduledMessageDao
+    abstract fun pendingTimerUpdateDao(): PendingTimerUpdateDao
 }

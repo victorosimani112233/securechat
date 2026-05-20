@@ -66,6 +66,9 @@ class IncomingMessageHandler @Inject constructor(
     private var cachedAppIconBitmap: android.graphics.Bitmap? = null
 
     companion object {
+        /** Sureli mesaj timer signal'i ile gelen mesaj arasindaki race penceresi (ms). */
+        private const val RACE_WINDOW_MS = 60_000L
+
         /** Uygulama on plandaysa true — backing flow ile observe edilebilir. */
         private val _isAppInForegroundFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
         val isAppInForegroundFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isAppInForegroundFlow
@@ -1284,6 +1287,25 @@ class IncomingMessageHandler @Inject constructor(
         val targetConvId = signal.conversationId.ifBlank { signal.senderId }
         android.util.Log.d("IncomingHandler", "DisappearingTimer: duration=${signal.duration} from=${signal.senderId} conv=$targetConvId")
         conversationDao.updateDisappearingDuration(targetConvId, signal.duration)
+
+        // Race penceresi: timer signal bazen ilk mesajdan biraz sonra gelir (WS sirasi farkli olabilir,
+        // FCM push'tan oncelikli gelmis olabilir). Son N saniye icindeki, henuz expiresAt'i olmayan
+        // gelen mesajlara retroaktif expiresAt uygula — boylece "timer biraz once acildi ama ilk
+        // mesaj kacti" hatasi giderilir. Pencere: 60 saniye, sadece duration > 0 ise.
+        if (signal.duration > 0) {
+            val now = System.currentTimeMillis()
+            val windowStart = now - RACE_WINDOW_MS
+            try {
+                messageRepository.applyRetroactiveExpiry(
+                    conversationId = targetConvId,
+                    duration = signal.duration,
+                    windowStart = windowStart,
+                    now = now
+                )
+            } catch (e: Exception) {
+                android.util.Log.w("IncomingHandler", "Retroaktif expiresAt uygulanamadi: ${e.message}")
+            }
+        }
     }
 
     /**
