@@ -1,14 +1,19 @@
 package com.securechat.app.scheduler
 
 import com.google.common.truth.Truth.assertThat
+import com.securechat.app.data.UserSession
 import com.securechat.app.domain.usecase.SendMessageUseCase
+import com.securechat.network.SignalingClient
+import com.securechat.network.model.ConnectionState
 import com.securechat.storage.dao.ScheduledMessageDao
 import com.securechat.storage.entity.ScheduledMessageEntity
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
@@ -23,7 +28,17 @@ class ScheduledMessageDispatcherTest {
     private val dao: ScheduledMessageDao = mockk(relaxed = true)
     private val sendMessageUseCase: SendMessageUseCase = mockk(relaxed = true)
     private val alarmScheduler: ScheduledMessageAlarmScheduler = mockk(relaxed = true)
-    private val dispatcher = ScheduledMessageDispatcher(dao, sendMessageUseCase, alarmScheduler)
+    private val signalingClient: SignalingClient = mockk<SignalingClient>(relaxed = true).apply {
+        every { connectionState } returns MutableStateFlow(ConnectionState.Connected)
+        coEvery { ensureConnected(any(), any(), any(), any()) } returns true
+    }
+    private val userSession: UserSession = mockk<UserSession>(relaxed = true).apply {
+        every { userId } returns "self_user"
+        every { accessToken } returns "test_token"
+    }
+    private val dispatcher = ScheduledMessageDispatcher(
+        dao, sendMessageUseCase, alarmScheduler, signalingClient, userSession
+    )
 
     @Test
     fun `plan DB'de yoksa no-op`() = runTest {
@@ -116,6 +131,33 @@ class ScheduledMessageDispatcherTest {
         coVerify { sendMessageUseCase("user_c", "Test mesaj") }
         // ONCE: tum gonderim sonrasi DB'den silinir (bir alici fail olsa bile)
         coVerify { dao.deleteById("p1") }
+    }
+
+    @Test
+    fun `WS baglanamadi - plan korunur, mesaj gonderilmez, FAILED olusmaz`() = runTest {
+        val entity = entity(recipientIds = "user_a", repeatType = "ONCE")
+        coEvery { dao.getById("p1") } returns entity
+        coEvery { signalingClient.ensureConnected(any(), any(), any(), any()) } returns false
+
+        val result = dispatcher.processPlan("p1")
+
+        assertThat(result).isNull()
+        coVerify(exactly = 0) { sendMessageUseCase.invoke(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { dao.deleteById(any()) }
+        coVerify(exactly = 0) { dao.update(any()) }
+    }
+
+    @Test
+    fun `userId yoksa plan korunur, mesaj gonderilmez`() = runTest {
+        val entity = entity(recipientIds = "user_a", repeatType = "ONCE")
+        coEvery { dao.getById("p1") } returns entity
+        every { userSession.userId } returns null
+
+        val result = dispatcher.processPlan("p1")
+
+        assertThat(result).isNull()
+        coVerify(exactly = 0) { sendMessageUseCase.invoke(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { dao.deleteById(any()) }
     }
 
     @Test

@@ -1,8 +1,12 @@
 package com.securechat.app.scheduler
 
+import com.securechat.app.BuildConfig
+import com.securechat.app.data.IncomingMessageHandler
+import com.securechat.app.data.UserSession
 import com.securechat.app.domain.usecase.SendMessageUseCase
 import com.securechat.app.ui.viewmodel.RepeatType
 import com.securechat.app.ui.viewmodel.ScheduledMessageViewModel
+import com.securechat.network.SignalingClient
 import com.securechat.storage.dao.ScheduledMessageDao
 import com.securechat.storage.entity.ScheduledMessageEntity
 import javax.inject.Inject
@@ -29,12 +33,14 @@ import javax.inject.Singleton
 class ScheduledMessageDispatcher @Inject constructor(
     private val scheduledMessageDao: ScheduledMessageDao,
     private val sendMessageUseCase: SendMessageUseCase,
-    private val alarmScheduler: ScheduledMessageAlarmScheduler
+    private val alarmScheduler: ScheduledMessageAlarmScheduler,
+    private val signalingClient: SignalingClient,
+    private val userSession: UserSession
 ) {
 
     /**
      * Bir plan'i isle: mesajlari gonder ve tekrarlama mantigini uygula.
-     * @return işlenen plan, veya plan yok/disabled ise null
+     * @return işlenen plan, veya plan yok/disabled/bağlanılamadı ise null
      */
     suspend fun processPlan(planId: String): ScheduledMessageEntity? {
         val entity = scheduledMessageDao.getById(planId)
@@ -52,6 +58,28 @@ class ScheduledMessageDispatcher @Inject constructor(
             android.util.Log.w(TAG, "Plan $planId alici listesi bos, siliniyor")
             scheduledMessageDao.deleteById(planId)
             return entity
+        }
+
+        // WS baglantisi garantiye al — app arka plandayken AppLifecycleObserver disconnect
+        // etmis olabilir. Bağlanamazsak hicbir sey yapma, plan'i ilerletme, mesaj kaydetme
+        // — periodik ScheduledMessageWorker getDueMessages ile geri donup tekrar dener.
+        // Boylelikle FAILED + kirmizi unlem hic olusmaz.
+        val userId = userSession.userId
+        val token = userSession.accessToken
+        val openedWsHere = signalingClient.connectionState.value !is com.securechat.network.model.ConnectionState.Connected
+        if (userId == null || token.isNullOrBlank()) {
+            android.util.Log.w(TAG, "Plan $planId: kullanici/token yok, plan korunuyor, sonraki worker cycle'da denenecek")
+            return null
+        }
+        val connected = signalingClient.ensureConnected(
+            userId = userId,
+            authToken = token,
+            customUrl = BuildConfig.SIGNALING_URL,
+            timeoutMs = CONNECT_TIMEOUT_MS
+        )
+        if (!connected) {
+            android.util.Log.w(TAG, "Plan $planId: WS bağlantısı kurulamadı, plan korunuyor, sonraki worker cycle'da denenecek")
+            return null
         }
 
         // Tum alicilara mesaj — bireysel hata digerlerini etkilemez
@@ -94,10 +122,19 @@ class ScheduledMessageDispatcher @Inject constructor(
                 android.util.Log.d(TAG, "Plan $planId ${repeatType.name} — yeni alarm: $nextTrigger")
             }
         }
+
+        // Bagliyiz ve WS'yi bu cagrida biz actiysak + app arka plandaysa: pil tasarrufu icin kapat.
+        // Foreground'da AppLifecycleObserver yonettigi icin dokunma.
+        if (openedWsHere && !IncomingMessageHandler.isAppInForeground) {
+            signalingClient.disconnect()
+            android.util.Log.d(TAG, "Plan $planId: arka plan — WS kapatildi")
+        }
         return entity
     }
 
     companion object {
         private const val TAG = "ScheduledMsgDispatcher"
+        /** WS bağlantısı açılması için bekleme süresi — WebSocketDrainWorker ile aynı pattern */
+        private const val CONNECT_TIMEOUT_MS = 8_000L
     }
 }

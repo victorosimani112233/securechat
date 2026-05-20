@@ -13,8 +13,10 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -193,6 +195,29 @@ class SignalingClient @Inject constructor(
                 Log.w("SecureChat", "⚠️ WebSocket closing (code=$code)")
             }
         })
+    }
+
+    /**
+     * Bağlantı yoksa açar ve `Connected` durumunu bekler. Reconnect backoff dongusuyle
+     * yarismaz — direkt `connect()` cagrir; zaten bagliysa anında doner.
+     *
+     * Planli mesaj receiver'lari ve diger arka plan tetikleyicileri icin idealdir:
+     * "her ne olursa olsun, yeni bir bağlantı açıp gönder" semantigi saglar.
+     *
+     * @return timeout icinde Connected'a ulasildiysa true
+     */
+    suspend fun ensureConnected(
+        userId: String,
+        authToken: String,
+        customUrl: String? = null,
+        timeoutMs: Long = 8_000L
+    ): Boolean {
+        if (_connectionState.value is ConnectionState.Connected && webSocket != null) return true
+        connect(userId, authToken, customUrl)
+        val result = withTimeoutOrNull(timeoutMs) {
+            connectionState.first { it is ConnectionState.Connected }
+        }
+        return result != null
     }
 
     /**
