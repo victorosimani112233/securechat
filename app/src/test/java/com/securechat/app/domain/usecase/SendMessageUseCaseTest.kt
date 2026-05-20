@@ -251,4 +251,45 @@ class SendMessageUseCaseTest {
         coVerify { messageRepository.saveMessage(capture(messageSlot)) }
         assertEquals(null, messageSlot.captured.expiresAt)
     }
+
+    @Test
+    fun `disappearing duration set - envelope EXP prefix icerir`() = runTest {
+        val convWithDisappearing = com.securechat.storage.entity.ConversationEntity(
+            id = "conv_disap",
+            peerId = "conv_disap",
+            peerName = "Test",
+            peerPhone = "",
+            lastMessage = null,
+            lastMessageTimestamp = null,
+            isGroup = false,
+            disappearingDuration = 60_000L
+        )
+        coEvery { conversationDao.getById("conv_disap") } returns convWithDisappearing
+
+        sendMessageUseCase("conv_disap", "merhaba")
+
+        val signalSlot = slot<com.securechat.network.SignalMessage>()
+        coVerify { signalingClient.sendSignal(capture(signalSlot)) }
+        val envelope = (signalSlot.captured as com.securechat.network.SignalMessage.EncryptedMessage).envelope
+        // Format: MSGID:<id>:EXP:<absMs>:<content>
+        assertTrue("Envelope EXP prefix icermeli: $envelope", envelope.contains("EXP:"))
+        // EXP ms degeri parse edilebilmeli ve gelecekte olmali
+        val expRegex = Regex(":EXP:(\\d+):")
+        val match = expRegex.find(envelope)
+        assertTrue("EXP ms degeri parse edilemedi: $envelope", match != null)
+        val expMs = match!!.groupValues[1].toLong()
+        assertTrue("EXP ms gelecek olmali: $expMs", expMs > System.currentTimeMillis())
+    }
+
+    @Test
+    fun `disappearing duration 0 - envelope EXP prefix icermez`() = runTest {
+        coEvery { conversationDao.getById("conv_1") } returns null
+
+        sendMessageUseCase("conv_1", "kalici")
+
+        val signalSlot = slot<com.securechat.network.SignalMessage>()
+        coVerify { signalingClient.sendSignal(capture(signalSlot)) }
+        val envelope = (signalSlot.captured as com.securechat.network.SignalMessage.EncryptedMessage).envelope
+        assertTrue("Envelope EXP prefix icermemeli: $envelope", !envelope.contains("EXP:"))
+    }
 }

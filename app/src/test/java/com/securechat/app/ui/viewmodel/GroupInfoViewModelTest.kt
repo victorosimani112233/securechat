@@ -64,7 +64,8 @@ class GroupInfoViewModelTest {
             promoteToAdminUseCase = promoteToAdminUseCase,
             removeGroupMemberUseCase = removeGroupMemberUseCase,
             updateGroupNameUseCase = updateGroupNameUseCase,
-            contactNameResolver = contactNameResolver
+            contactNameResolver = contactNameResolver,
+            pendingTimerFlusher = mockk(relaxed = true)
         )
     }
 

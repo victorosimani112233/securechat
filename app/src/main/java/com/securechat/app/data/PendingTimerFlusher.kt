@@ -48,6 +48,9 @@ class PendingTimerFlusher @Inject constructor(
      * ViewModel'ler bu metodu cagirir — direkt `sendSignal` yerine.
      */
     suspend fun sendOrQueue(targetUserId: String, conversationId: String, duration: Long) {
+        // userId yoksa kullaniciyi kuyruga almak anlamsiz — flush sirasinda yine senderId
+        // gerekiyor. Kullanici giris yapmamissa bu cagri zaten anlamsiz, sessizce iptal et.
+        if (userSession.userId == null) return
         if (!trySend(targetUserId, conversationId, duration)) {
             pendingTimerUpdateDao.insert(
                 PendingTimerUpdateEntity(
