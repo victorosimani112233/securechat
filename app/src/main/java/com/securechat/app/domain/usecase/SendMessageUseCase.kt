@@ -83,6 +83,19 @@ class SendMessageUseCase @Inject constructor(
         // sayar. Boylece "MSGID:id:[REPLY:rid:][EXP:abs:][VIEWONCE:][POLL:]content" formati olusur.
         val envelopeContent = "MSGID:${message.id}:${replyPrefix}${expPrefix}${viewOncePrefix}${typePrefix}$content"
 
+        // App uzun sure idle kaldiktan sonra ilk mesajda WS socket'i kapali olabilir. Bu durumda
+        // sendSignal direkt false doner ve mesaj 6sn'lik retry penceresinden gecene kadar bekler;
+        // socket bu pencere icinde acilmazsa FAILED olur. ensureConnected baglanti bekler — yoksa
+        // baglanir (max 8sn) — boylece ilk gonderim cogu zaman tek deneme ile gider.
+        // authToken pattern'i AppLifecycleObserver ile ayni: "token_$userId".
+        runCatching {
+            signalingClient.ensureConnected(
+                userId = senderId,
+                authToken = "token_$senderId",
+                timeoutMs = 8_000L
+            )
+        }
+
         // Ilk deneme
         val sent = attemptSend(senderId, conversationId, timestamp, envelopeContent, isGroup, conversation)
 
@@ -95,6 +108,15 @@ class SendMessageUseCase @Inject constructor(
         android.util.Log.d("SendMessage", "Ilk gonderim basarisiz, yeniden deneme basliyor: ${message.id}")
         for (attempt in 1..MAX_RETRY_COUNT) {
             delay(RETRY_DELAY_MS)
+            // Her retry oncesi de baglantiyi dene — socket gec aciliyorsa retry penceresi
+            // icinde gercekten kullanilabilir olsun.
+            runCatching {
+                signalingClient.ensureConnected(
+                    userId = senderId,
+                    authToken = "token_$senderId",
+                    timeoutMs = 3_000L
+                )
+            }
             val retryResult = attemptSend(senderId, conversationId, timestamp, envelopeContent, isGroup, conversation)
             if (retryResult) {
                 messageRepository.updateMessageStatus(message.id, MessageStatus.SENT)

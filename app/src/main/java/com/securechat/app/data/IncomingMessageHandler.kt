@@ -377,6 +377,8 @@ class IncomingMessageHandler @Inject constructor(
             // Asama 3: gonderici signal'a absoluteExpiresAt gomduyse onu kullan
             val groupFileExpiresAt = signal.absoluteExpiresAt
                 ?: if (groupDisappDuration > 0) fileNow + groupDisappDuration else null
+            // isGroupChatOpen sadece bildirim kararinda kullanilir; status DAIMA DELIVERED.
+            // READ'e gecis ChatViewModel.markIncomingMessagesAsRead'in sorumlulugu (tek-kaynak).
             val isGroupChatOpen = currentChatId == groupId && isAppInForeground
 
             val message = LocalMessage(
@@ -387,7 +389,7 @@ class IncomingMessageHandler @Inject constructor(
                 content = fileContent,
                 contentType = contentType,
                 timestamp = fileNow,
-                status = if (isGroupChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
+                status = MessageStatus.DELIVERED,
                 isOutgoing = false,
                 expiresAt = groupFileExpiresAt,
                 caption = signal.caption?.takeIf { it.isNotBlank() },
@@ -396,6 +398,9 @@ class IncomingMessageHandler @Inject constructor(
             messageRepository.saveMessage(message)
 
             android.util.Log.d("IncomingHandler", "Grup dosya alindi: ${signal.fileName} -> $groupId")
+
+            // Dosya icin DELIVERED receipt — text mesajlardakine paralel. READ ChatViewModel'in.
+            signal.originalMessageId?.let { sendDeliveryReceipt(senderId, it, "DELIVERED") }
 
             // Grup sohbeti acik degilse bildirim goster (sessiz konusmalar icin sessiz bildirim)
             if (!isGroupChatOpen) {
@@ -432,6 +437,8 @@ class IncomingMessageHandler @Inject constructor(
             // Asama 3: gonderici signal'a absoluteExpiresAt gomduyse onu kullan
             val fileExpiresAt = signal.absoluteExpiresAt
                 ?: if (fileDisappDuration > 0) fileNow + fileDisappDuration else null
+            // isFileChatOpen sadece bildirim kararinda kullanilir; status DAIMA DELIVERED.
+            // READ'e gecis ChatViewModel.markIncomingMessagesAsRead'in sorumlulugu (tek-kaynak).
             val isFileChatOpen = currentChatId == senderId && isAppInForeground
 
             val message = LocalMessage(
@@ -442,13 +449,16 @@ class IncomingMessageHandler @Inject constructor(
                 content = fileContent,
                 contentType = contentType,
                 timestamp = fileNow,
-                status = if (isFileChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
+                status = MessageStatus.DELIVERED,
                 isOutgoing = false,
                 expiresAt = fileExpiresAt,
                 caption = signal.caption?.takeIf { it.isNotBlank() },
                 isViewOnce = signal.isViewOnce
             )
             messageRepository.saveMessage(message)
+
+            // Dosya icin DELIVERED receipt — text mesajlardakine paralel. READ ChatViewModel'in.
+            signal.originalMessageId?.let { sendDeliveryReceipt(senderId, it, "DELIVERED") }
 
             // Birebir sohbet kapaliysa bildirim goster — caption varsa ozet olarak kullan
             if (!isFileChatOpen) {
@@ -527,10 +537,11 @@ class IncomingMessageHandler @Inject constructor(
         val groupExpiresAt = parsedGroup.absoluteExpiresAt
             ?: if (groupDisappDuration > 0) now + groupDisappDuration else null
 
-        // Grup sohbeti aciksa VE app on plandaysa mesaj direkt READ, degilse DELIVERED.
-        // isAppInForeground kontrolu olmadan: telefon kilitliyken son acik sohbet gruba esitse
-        // READ receipt gonderiliyordu — yanlis "okundu" tiki.
-        val isGroupChatOpen = currentChatId == groupId && isAppInForeground
+        // Mesaj DAIMA DELIVERED ile kaydedilir; READ'e gecisi ChatViewModel.markIncomingMessagesAsRead
+        // ustlenir (sohbet aciksa Flow uzerinden yakalanip READ + receipt gonderilir). Boylece
+        // gonderici onceleyebilir bir gri-cift-tik -> mavi-cift-tik gecisi gorur (tek-kaynak prensibi).
+        // Eski davranis: isGroupChatOpen ise direkt READ idi — DELIVERED adimi atlanip dogrudan
+        // mavi cift tik olusuyordu (bug).
 
         // CRITICAL: Gondericinin orijinal mesaj ID'sini kullan — "herkesten sil" icin gerekli
         val message = LocalMessage(
@@ -541,7 +552,7 @@ class IncomingMessageHandler @Inject constructor(
             content = actualContent,
             contentType = parsedGroup.contentType,
             timestamp = now,
-            status = if (isGroupChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
+            status = MessageStatus.DELIVERED,
             replyToId = groupReplyToId,
             isOutgoing = false,
             expiresAt = groupExpiresAt,
@@ -558,9 +569,10 @@ class IncomingMessageHandler @Inject constructor(
         } else actualContent
         showMessageNotification("$senderName ($displayGroupName)", groupNotifPreview, groupId)
 
-        // Receipt gonder — sohbet aciksa READ, degilse DELIVERED
+        // Receipt: DAIMA DELIVERED. READ receipt'i ChatViewModel.markIncomingMessagesAsRead gonderir
+        // (sohbet aciksa Flow uzerinden). Tek-kaynak prensibi: WhatsApp benzeri tik gecisi animasyonel.
         if (originalMessageId != null) {
-            sendDeliveryReceipt(senderId, originalMessageId, if (isGroupChatOpen) "READ" else "DELIVERED")
+            sendDeliveryReceipt(senderId, originalMessageId, "DELIVERED")
         }
     }
 
@@ -613,11 +625,11 @@ class IncomingMessageHandler @Inject constructor(
         val expiresAt = parsed.absoluteExpiresAt
             ?: if (disappDuration > 0) now + disappDuration else null
 
-        // Yerel saat kullan — cihaz saati farklari mesaj sirasini bozmasin
-        // Sohbet aciksa VE app on plandaysa direkt READ, degilse DELIVERED.
-        // isAppInForeground kontrolu olmadan: kullanici son sohbeti acik birakip telefonu
-        // kilitlemis olsa bile gelen mesaj READ olarak isaretleniyor — yanlis "okundu" tiki.
-        val isChatOpen = currentChatId == senderId && isAppInForeground
+        // Mesaj DAIMA DELIVERED ile kaydedilir; READ'e gecisi ChatViewModel.markIncomingMessagesAsRead
+        // ustlenir (sohbet aciksa Flow uzerinden yakalanip READ + receipt gonderilir). Boylece
+        // gonderici onceleyebilir bir gri-cift-tik -> mavi-cift-tik gecisi gorur (tek-kaynak prensibi).
+        // Eski davranis: isChatOpen ise direkt READ idi — DELIVERED adimi atlanip dogrudan mavi
+        // cift tik olusuyordu (bug).
 
         // CRITICAL: Gondericinin orijinal mesaj ID'sini kullan — "herkesten sil" icin gerekli
         val message = LocalMessage(
@@ -628,7 +640,7 @@ class IncomingMessageHandler @Inject constructor(
             content = actualContent,
             contentType = parsed.contentType,
             timestamp = now,
-            status = if (isChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
+            status = MessageStatus.DELIVERED,
             replyToId = replyToId,
             isOutgoing = false,
             expiresAt = expiresAt,
@@ -643,9 +655,10 @@ class IncomingMessageHandler @Inject constructor(
         } else actualContent
         showMessageNotification(senderName, notifPreview, senderId)
 
-        // Receipt gonder — sohbet aciksa READ (mavi cift tik), degilse DELIVERED (gri cift tik)
+        // Receipt: DAIMA DELIVERED. READ receipt'i ChatViewModel.markIncomingMessagesAsRead gonderir
+        // (sohbet aciksa Flow uzerinden). Tek-kaynak prensibi: WhatsApp benzeri tik gecisi animasyonel.
         if (originalMessageId != null) {
-            sendDeliveryReceipt(senderId, originalMessageId, if (isChatOpen) "READ" else "DELIVERED")
+            sendDeliveryReceipt(senderId, originalMessageId, "DELIVERED")
         }
     }
 

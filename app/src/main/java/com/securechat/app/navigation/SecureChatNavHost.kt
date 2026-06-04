@@ -300,6 +300,12 @@ fun SecureChatNavHost(
                                 mimeType = mimeType
                             )
                         }
+                    },
+                    onSendMessageClick = { peerId ->
+                        // chat_info'yu back stack'ten cikar, ust ust profil katmani birikmesin.
+                        navController.navigate("chat/$peerId") {
+                            popUpTo("chat_info/$conversationId") { inclusive = true }
+                        }
                     }
                 )
             }

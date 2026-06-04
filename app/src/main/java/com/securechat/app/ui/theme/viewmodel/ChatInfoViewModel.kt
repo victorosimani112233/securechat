@@ -56,6 +56,15 @@ class ChatInfoViewModel @Inject constructor(
     private val _isGroup = MutableStateFlow(false)
     val isGroup: StateFlow<Boolean> = _isGroup.asStateFlow()
 
+    /**
+     * Bu kullaniciya mesaj gonderme imkani var mi?
+     * - isGroup == false (gruba "Mesaj Gonder" anlamsiz)
+     * - peerId kendi userId'miz degil (kendine mesaj engellenir)
+     * - aktif conversationId set
+     */
+    private val _canStartConversation = MutableStateFlow(false)
+    val canStartConversation: StateFlow<Boolean> = _canStartConversation.asStateFlow()
+
     private val _mediaMessages = MutableStateFlow<List<MessageEntity>>(emptyList())
     val mediaMessages: StateFlow<List<MessageEntity>> = _mediaMessages.asStateFlow()
 
@@ -130,6 +139,17 @@ class ChatInfoViewModel @Inject constructor(
                                 conversationDao.update(conversation.copy(peerPhone = phoneNumber))
                             }
                         } catch (_: Exception) { }
+                        // Contacts'ta da yoksa sunucudan sifreli numarayi cek
+                        // (grup uyesi rehberde olmasa bile server numarayi sifreli tutar).
+                        if (phoneNumber.isBlank()) {
+                            try {
+                                val resolved = contactNameResolver.resolvePhoneNumber(conversation.peerId)
+                                if (resolved.isNotBlank()) {
+                                    phoneNumber = resolved
+                                    conversationDao.update(conversation.copy(peerPhone = resolved))
+                                }
+                            } catch (_: Exception) { }
+                        }
                         // Hala bossa ve isim numara formatindaysa onu goster
                         if (phoneNumber.isBlank() && displayName.startsWith("+")) {
                             phoneNumber = displayName
@@ -142,9 +162,33 @@ class ChatInfoViewModel @Inject constructor(
                     _isMuted.value = conversation.isMuted
                     _isLocked.value = conversation.isLocked
                     _disappearingDuration.value = conversation.disappearingDuration
+
+                    // Mesaj gonder butonu: grup degilse + kendi UUID'imiz degilse aktif.
+                    _canStartConversation.value =
+                        !conversation.isGroup && conversation.peerId != userSession.userId
                 } else {
-                    _conversationName.value = conversationId
-                    _phoneNumber.value = conversationId
+                    // Conversation entity yok — bu durum tipik olarak grup info'dan rehberde olmayan
+                    // uyenin profiline gecince olusur. UUID'i ekrana basmak yerine resolve et:
+                    // (1) display name'i contactNameResolver ile (rehber/server/UUID fallback),
+                    // (2) telefon numarasini sifreli ucla cek (server'da PhoneEncryptor).
+                    val resolvedName = try {
+                        contactNameResolver.resolveDisplayName(conversationId)
+                    } catch (_: Exception) { conversationId }
+                    val resolvedPhone = try {
+                        contactNameResolver.resolvePhoneNumber(conversationId)
+                    } catch (_: Exception) { "" }
+
+                    // Isim hala UUID kaldiysa kullaniciya cogu zaman bilgi tasiyan numarayi goster;
+                    // numara da yoksa son care olarak "Bilinmeyen kullanici" gosterilir.
+                    val finalName = when {
+                        resolvedName != conversationId && resolvedName.isNotBlank() -> resolvedName
+                        resolvedPhone.isNotBlank() -> resolvedPhone
+                        else -> "Bilinmeyen kullanıcı"
+                    }
+                    _conversationName.value = finalName
+                    _phoneNumber.value = resolvedPhone
+                    _isGroup.value = false
+                    _canStartConversation.value = conversationId != userSession.userId
                 }
             } catch (e: Exception) {
                 _conversationName.value = conversationId
@@ -169,6 +213,45 @@ class ChatInfoViewModel @Inject constructor(
                 _isLoading.value = false
             }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * "Mesaj Gonder" butonu icin: lokal conversation yoksa olusturur, sonra peerId doner.
+     * Caller (NavHost) bu peerId ile "chat/$peerId" route'una gider. Suspend degil cunku
+     * UI thread'inde fire-and-forget kullaniliyor — sonuc StateFlow uzerinden Composable'a
+     * tasinmak yerine direkt callback param'i ile geri donuyor.
+     *
+     * Donus: hedef chat ekrani route'u (chat/$peerId), olusturulamadiysa null.
+     */
+    fun openConversation(onReady: (String) -> Unit) {
+        val convId = currentConversationId ?: return
+        viewModelScope.launch {
+            try {
+                val existing = conversationDao.getById(convId)
+                if (existing == null) {
+                    // Stub conversation — peerName/peerPhone resolve edilmis state'ten al.
+                    val name = _conversationName.value.ifBlank { convId }
+                    val phone = _phoneNumber.value
+                    conversationDao.insert(
+                        ConversationEntity(
+                            id = convId,
+                            peerId = convId,
+                            peerName = name,
+                            peerPhone = phone,
+                            lastMessage = null,
+                            lastMessageTimestamp = null,
+                            unreadCount = 0,
+                            isMuted = false,
+                            isPinned = false,
+                            isGroup = false
+                        )
+                    )
+                }
+                onReady(convId)
+            } catch (e: Exception) {
+                android.util.Log.e("ChatInfoVM", "Conversation olusturma hatasi", e)
+            }
+        }
     }
 
     /**

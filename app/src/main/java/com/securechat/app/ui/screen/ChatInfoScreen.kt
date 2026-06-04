@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -109,13 +110,15 @@ fun ChatInfoScreen(
     viewModel: ChatInfoViewModel = hiltViewModel(),
     onBackClick: () -> Unit,
     onMessageClick: (String) -> Unit,
-    onMediaClick: (MessageEntity) -> Unit
+    onMediaClick: (MessageEntity) -> Unit,
+    onSendMessageClick: (String) -> Unit = {}
 ) {
     val conversationName by viewModel.conversationName.collectAsStateWithLifecycle()
     val phoneNumber by viewModel.phoneNumber.collectAsStateWithLifecycle()
     val contactNote by viewModel.contactNote.collectAsStateWithLifecycle()
     val customNotificationUri by viewModel.customNotificationUri.collectAsStateWithLifecycle()
     val isGroup by viewModel.isGroup.collectAsStateWithLifecycle()
+    val canStartConversation by viewModel.canStartConversation.collectAsStateWithLifecycle()
     val mediaMessages by viewModel.mediaMessages.collectAsStateWithLifecycle()
     val documentMessages by viewModel.documentMessages.collectAsStateWithLifecycle()
     val starredMessages by viewModel.starredMessages.collectAsStateWithLifecycle()
@@ -221,6 +224,11 @@ fun ChatInfoScreen(
                     peerName = conversationName,
                     phoneNumber = phoneNumber,
                     isGroup = isGroup,
+                    canStartConversation = canStartConversation,
+                    onStartConversationClick = {
+                        // ViewModel conversation entity'i (yoksa) olusturur, sonra navigate.
+                        viewModel.openConversation { peerId -> onSendMessageClick(peerId) }
+                    },
                     contactNote = contactNote,
                     customNotificationUri = customNotificationUri,
                     disappearingDuration = disappearingDuration,
@@ -360,6 +368,8 @@ private fun MainInfoContent(
     peerName: String,
     phoneNumber: String,
     isGroup: Boolean,
+    canStartConversation: Boolean = false,
+    onStartConversationClick: () -> Unit = {},
     contactNote: String?,
     customNotificationUri: String?,
     disappearingDuration: Long,
@@ -393,6 +403,22 @@ private fun MainInfoContent(
         }
 
         item { SectionDivider() }
+
+        // Mesaj gonder — sadece kisi (grup degil) ve kendi UUID'imiz degilse.
+        // Grup info'dan rehberde olmayan uyenin profiline gecince burada gorunur:
+        // tiklayinca ChatInfoViewModel lokal conversation entity'i (yoksa) olusturur
+        // ve route /chat/$peerId'a yonlendirme yapar.
+        if (canStartConversation) {
+            item {
+                InfoMenuItem(
+                    icon = Icons.AutoMirrored.Filled.Chat,
+                    iconTint = Color(0xFF128C7E),
+                    title = "Mesaj Gönder",
+                    subtitle = "Bu kişiyle sohbet başlat",
+                    onClick = onStartConversationClick
+                )
+            }
+        }
 
         // Menü öğeleri
         item {

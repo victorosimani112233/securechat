@@ -141,6 +141,17 @@ class FileTransferManager @Inject constructor(
         var chunkIndex = 0
         var totalRead = 0L
 
+        // App idle sonrasi ilk medya gonderiminde socket kapali olabilir — onceden baglanti
+        // bekle (max 8sn). Boylece ilk chunk drop edilmez. ensureConnected zaten bagliysa
+        // hemen doner; basarisizsa retry per-chunk loop devreye girer.
+        runCatching {
+            signalingClient.ensureConnected(
+                userId = localUserId,
+                authToken = "token_$localUserId",
+                timeoutMs = 8_000L
+            )
+        }
+
         while (true) {
             val bytesRead = stream.readNBytes(buffer, CHUNK_SIZE)
             if (bytesRead <= 0) break
@@ -172,21 +183,40 @@ class FileTransferManager @Inject constructor(
                 absoluteExpiresAt = if (chunkIndex == totalChunks - 1) absoluteExpiresAt else null
             )
 
-            val sent = if (isGroup && groupMembers.isNotEmpty()) {
-                var allSent = true
-                for (member in groupMembers) {
-                    if (member != localUserId) {
-                        if (!signalingClient.sendSignal(signal.copy(recipientId = member))) {
-                            allSent = false
-                        }
+            // Chunk gonderim — basarisizsa max 3 retry, her retry oncesi ensureConnected.
+            // Onceden tum transfer'i tek hata ile drop ediyordu; gecici disconnect (ag degisimi,
+            // ping timeout) durumlarinda media kalici fail oluyordu. Artik 3*2sn=6sn ek pencere
+            // var ve socket aciliyorsa devam edebilir.
+            var sent = false
+            for (attempt in 0..3) {
+                if (attempt > 0) {
+                    kotlinx.coroutines.delay(2_000L)
+                    runCatching {
+                        signalingClient.ensureConnected(
+                            userId = localUserId,
+                            authToken = "token_$localUserId",
+                            timeoutMs = 3_000L
+                        )
                     }
                 }
-                allSent
-            } else {
-                signalingClient.sendSignal(signal)
+                sent = if (isGroup && groupMembers.isNotEmpty()) {
+                    var allSent = true
+                    for (member in groupMembers) {
+                        if (member != localUserId) {
+                            if (!signalingClient.sendSignal(signal.copy(recipientId = member))) {
+                                allSent = false
+                            }
+                        }
+                    }
+                    allSent
+                } else {
+                    signalingClient.sendSignal(signal)
+                }
+                if (sent) break
             }
 
             if (!sent) {
+                _transferProgress.value = null
                 return FileTransferResult.Error("Dosya gonderilemedi (parca ${chunkIndex + 1}/$totalChunks)")
             }
 
