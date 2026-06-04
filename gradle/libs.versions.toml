@@ -72,6 +72,8 @@ room-testing = { group = "androidx.room", name = "room-testing", version.ref = "
 
 # Signal Protocol
 signal-protocol = { group = "org.whispersystems", name = "signal-protocol-android", version.ref = "signal-protocol" }
+# Pure Java (JVM) varianti — bot-api icin. Android bagimliliği yok, JNI yok.
+signal-protocol-java = { group = "org.whispersystems", name = "signal-protocol-java", version.ref = "signal-protocol" }
 
 # WebRTC
 webrtc = { group = "io.getstream", name = "stream-webrtc-android", version.ref = "webrtc" }

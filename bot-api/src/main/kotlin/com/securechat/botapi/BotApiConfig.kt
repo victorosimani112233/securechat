@@ -10,38 +10,41 @@ private val log = LoggerFactory.getLogger("BotApiConfig")
  * Tum tek erisim noktasi: BotApiConfig.load() main() basinda cagrilir.
  *
  * GUVENLIK: BOT_MASTER_KEY ve JWT_SECRET ham byte olarak tutulur; log'a yazilmaz.
+ * NOT: lateinit var'larda Kotlin "private set" syntax'i kullanilamaz; bu object
+ *      yalnizca BotApiConfig.load() icinde set ediliyor, runtime'da dis modifier
+ *      kullanimi yok.
  */
 object BotApiConfig {
 
     // --- Database ---
-    lateinit var databaseUrl: String      private set
-    lateinit var databaseUser: String     private set
-    lateinit var databasePassword: String private set
+    lateinit var databaseUrl: String
+    lateinit var databaseUser: String
+    lateinit var databasePassword: String
 
     // --- Redis ---
-    lateinit var redisHost: String        private set
-    var redisPort: Int = 6379             private set
-    var redisPassword: String? = null     private set
+    lateinit var redisHost: String
+    var redisPort: Int = 6379
+    var redisPassword: String? = null
 
     // --- Secrets ---
     /** signaling-server ile paylasilan HS256 secret — bot kendi access token'ini bununla mintler. */
-    lateinit var jwtSecret: ByteArray     private set
+    lateinit var jwtSecret: ByteArray
     /** Bot'un identity private key'ini AES-256-GCM ile saran 32 byte master key. */
-    lateinit var botMasterKey: ByteArray  private set
+    lateinit var botMasterKey: ByteArray
     /** Admin Unix socket uzerinden gelen istekleri dogrulamak icin token. */
-    lateinit var botAdminToken: String    private set
+    lateinit var botAdminToken: String
 
     // --- Signaling-server endpoints (internal Docker network) ---
-    lateinit var signalingInternalUrl: String private set
-    lateinit var signalingWsUrl: String       private set
+    lateinit var signalingInternalUrl: String
+    lateinit var signalingWsUrl: String
 
     // --- Listener paths ---
-    lateinit var publicSocketPath: String     private set
-    lateinit var adminSocketPath: String      private set
-    var healthPort: Int = 8090                private set
+    lateinit var publicSocketPath: String
+    lateinit var adminSocketPath: String
+    var healthPort: Int = 8090
 
     // --- Logging ---
-    lateinit var logLevel: String         private set
+    lateinit var logLevel: String
 
     /**
      * Env'i parse et, zorunlu degerleri dogrula, fail-fast.

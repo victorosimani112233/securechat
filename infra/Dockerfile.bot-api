@@ -1,0 +1,27 @@
+# Bot API container — Alpine (signal-protocol-java pure Java; native JNI yok)
+FROM eclipse-temurin:17-jre-alpine
+
+# wget healthcheck icin; tini sinyal iletimi/zombie reaper icin
+RUN apk add --no-cache wget tini
+
+WORKDIR /app
+
+# 1000:1000 ile uyumlu non-root user — host'taki admin user'a esleshmek icin
+RUN addgroup -g 1000 -S botapi && \
+    adduser -u 1000 -S botapi -G botapi && \
+    mkdir -p /run/bot && \
+    chown -R botapi:botapi /run/bot
+
+# Application distribution — fat JAR yerine lib/*.jar classpath
+# Bu protobuf shading sorunlarini elimine eder (signal-protocol-java
+# protobuf-javalite kullanir, fat JAR'da reflection metadata'si bozuluyor).
+COPY --chown=botapi:botapi build/install/bot-api/lib /app/lib
+COPY --chown=botapi:botapi build/install/bot-api/bin /app/bin
+
+EXPOSE 8090
+
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=25"
+
+USER botapi:botapi
+
+ENTRYPOINT ["/sbin/tini", "--", "sh", "-c", "exec /app/bin/bot-api"]

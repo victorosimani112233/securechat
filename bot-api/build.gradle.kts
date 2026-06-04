@@ -2,23 +2,29 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
     application
+    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 application {
     mainClass.set("com.securechat.botapi.ApplicationKt")
 }
 
-// Fat JAR — bot-api konteynerinde tek dosyalik calistirilabilir
-tasks.register<Jar>("fatJar") {
+// Shadow JAR — META-INF/services'i mergeServiceFiles ile birlestirir.
+// libsignal/protobuf reflection meta'sinin korunmasi icin standart fat JAR
+// yetmiyor; protobuf'in GeneratedMessageLite reflection cagrilari fail olur.
+tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
     archiveClassifier.set("all")
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    archiveFileName.set("bot-api-all.jar")
+    mergeServiceFiles()
     manifest {
         attributes["Main-Class"] = "com.securechat.botapi.ApplicationKt"
     }
-    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
-    with(tasks.jar.get())
-    // JAR imza dosyalarini exclude et — ClassNotFoundException onlemi
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+}
+
+// fatJar alias — eski deploy komutlariyla uyum
+tasks.register("fatJar") {
+    dependsOn("shadowJar")
 }
 
 dependencies {
@@ -42,11 +48,13 @@ dependencies {
     implementation(libs.logback)
     implementation(libs.serialization.json)
 
-    // EdDSA JWT — Nimbus JOSE+JWT (java-jwt EdDSA desteklemiyor)
+    // EdDSA JWT — Nimbus JOSE+JWT (sadece JWT parse/claims icin; imza dogrulama
+    // JDK 17 native Signature("Ed25519") ile yapilir, Tink/BouncyCastle gerektirmez).
     implementation(libs.nimbus.jose.jwt)
 
-    // libsignal-client — JVM, native JNI binding'leri ile gelir
-    implementation(libs.libsignal.client)
+    // Signal Protocol — pure Java variant (Android bagimliliği yok, JNI yok).
+    // crypto modulu (signal-protocol-android 2.8.1) ile wire-format birebir uyumlu.
+    implementation(libs.signal.protocol.java)
 
     // OkHttp — WebSocket client (signaling-server'a bot baglantisi)
     implementation(libs.okhttp)

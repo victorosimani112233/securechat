@@ -2,11 +2,11 @@ package com.securechat.botapi.auth
 
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSObject
-import com.nimbusds.jose.crypto.Ed25519Verifier
-import com.nimbusds.jose.jwk.Curve
-import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jwt.JWTClaimsSet
 import org.slf4j.LoggerFactory
+import java.security.KeyFactory
+import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 
 private val log = LoggerFactory.getLogger("EdDsaJwtVerifier")
@@ -21,17 +21,18 @@ private val log = LoggerFactory.getLogger("EdDsaJwtVerifier")
  *              "jti": "<uuid>",
  *              "bh":  "<base64url SHA-256 of raw body>" }
  *
+ * Imza dogrulama: JDK 17 native Signature("Ed25519") — Tink/BouncyCastle gerekmez.
+ *
  * Pipeline:
  *  1. Header parse + alg=EdDSA + kid varligi
- *  2. ClientKeyCache.get(kid) → revoked/expired filter
- *  3. Ed25519 signature verify
+ *  2. ClientKeyCache.get(kid) -> revoked/expired filter
+ *  3. Ed25519 signature verify (JDK native)
  *  4. iat/exp window check (±60s past, +5s forward skew)
  *  5. NonceStore.tryConsume(jti) — replay
  *  6. BodyHashValidator.check(bh, body) — body integrity
  */
 class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedClient?) {
 
-    /** Verify sonucu. */
     sealed class Result {
         data class Ok(val client: AuthenticatedClient, val jti: String) : Result()
         data class Fail(val reason: Reason, val message: String) : Result()
@@ -50,6 +51,13 @@ class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedC
         BODY_HASH_MISMATCH
     }
 
+    private val keyFactory = KeyFactory.getInstance("Ed25519")
+
+    // X.509 prefix for Ed25519 SubjectPublicKeyInfo (12 byte) — raw 32 byte pubkey'in onune eklenir
+    private val X509_ED25519_PREFIX = byteArrayOf(
+        0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00
+    )
+
     fun verify(bearerToken: String, requestBody: ByteArray): Result {
         // 1. Parse
         val jws = try {
@@ -65,19 +73,17 @@ class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedC
         val kid = jws.header.keyID
             ?: return Result.Fail(Reason.MISSING_KID, "kid header zorunlu")
 
-        // 2. Client lookup (cache + DB)
+        // 2. Client lookup
         val client = clientLookup(kid)
             ?: return Result.Fail(Reason.UNKNOWN_OR_REVOKED_CLIENT, "kid bilinmiyor veya revoked: $kid")
 
-        // 3. Imza dogrulama — Nimbus Ed25519Verifier raw 32 byte public key bekler (base64url, OKP JWK)
-        val verifier = try {
-            buildEd25519Verifier(client.publicKey)
+        // 3. JDK native Ed25519 verify
+        val sigOk = try {
+            verifyEd25519(client.publicKey, jws)
         } catch (e: Exception) {
-            log.warn("[JWT] Ed25519 verifier olusturulamadi (kid={}): {}", kid, e.message)
-            return Result.Fail(Reason.BAD_SIGNATURE, "Verifier insa edilemedi")
+            log.warn("[JWT] Ed25519 verify exception (kid={}): {}", kid, e.message)
+            false
         }
-
-        val sigOk = try { jws.verify(verifier) } catch (e: Exception) { false }
         if (!sigOk) {
             return Result.Fail(Reason.BAD_SIGNATURE, "Imza dogrulanamadi")
         }
@@ -99,7 +105,6 @@ class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedC
         val exp = claims.expirationTime?.time?.div(1000)
             ?: return Result.Fail(Reason.EXPIRED, "exp zorunlu")
 
-        // iat ±5s forward skew, -60s past tolerans
         if (iat > now + 5) {
             return Result.Fail(Reason.IAT_OUT_OF_WINDOW, "iat gelecekte (skew>5s)")
         }
@@ -131,14 +136,19 @@ class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedC
         return Result.Ok(client, jti)
     }
 
-    /** Raw 32 byte Ed25519 public key → Nimbus Ed25519Verifier */
-    private fun buildEd25519Verifier(rawPublicKey: ByteArray): Ed25519Verifier {
-        require(rawPublicKey.size == 32) { "Ed25519 public key 32 byte olmali (${rawPublicKey.size})" }
-        val xB64Url = Base64.getUrlEncoder().withoutPadding().encodeToString(rawPublicKey)
-        val okp = OctetKeyPair.parse(
-            """{"kty":"OKP","crv":"Ed25519","x":"$xB64Url"}"""
-        )
-        return Ed25519Verifier(okp)
+    /** Raw 32 byte Ed25519 pubkey ile JWS'in Ed25519 imzasini JDK native ile dogrula. */
+    private fun verifyEd25519(rawPublicKey: ByteArray, jws: JWSObject): Boolean {
+        require(rawPublicKey.size == 32) { "Ed25519 public key 32 byte olmali" }
+        // X.509 wrap → PublicKey
+        val x509 = X509_ED25519_PREFIX + rawPublicKey
+        val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(x509))
+        // JWS signing input = base64url(header) + "." + base64url(payload)
+        val signingInput = jws.signingInput
+        val sigBytes = jws.signature.decode()
+        val sig = Signature.getInstance("Ed25519")
+        sig.initVerify(publicKey)
+        sig.update(signingInput)
+        return sig.verify(sigBytes)
     }
 
     companion object {

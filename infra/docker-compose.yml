@@ -142,7 +142,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "--tries=1", "--timeout=3", "http://localhost:8080/health", "||", "exit", "1"]
+      test: ["CMD-SHELL", "wget -qO- --tries=1 --timeout=3 http://localhost:8080/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -188,6 +188,68 @@ services:
       - internal
       # NOT: external network'ten KALDIRILDI — Janus artik dis aga dogrudan baglanmiyor.
       # RTP medya icin UDP portlari hala host network namespace'inden erisilebilir.
+
+  # --- Bot API (send-only, Ed25519 imzali, signaling-server'dan ayri container) ---
+  # GUVENLIK: read-only fs, cap_drop ALL, no-new-privileges, sadece internal network.
+  # Nginx UZERINDEN ERISILMEZ — sadece host'a bind-mounted Unix socket'lerle erisilir.
+  # Halen TCP localhost'ta dinliyor (Unix socket entegrasyonu sonraki adim).
+  bot-api:
+    build:
+      context: ../bot-api
+      dockerfile: ../infra/Dockerfile.bot-api
+    container_name: securechat-bot-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/securechat
+      DATABASE_USER: securechat
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # JWT_SECRET signaling-server ile paylasilir (Plan Karar #1 Option A).
+      # v2'de internal HMAC endpoint'e gecilebilir.
+      JWT_SECRET: ${JWT_SECRET}
+      # 32 byte base64 — bot identity private key'i AES-256-GCM ile sarar.
+      BOT_MASTER_KEY: ${BOT_MASTER_KEY:?BOT_MASTER_KEY env zorunlu (openssl rand -base64 32). KAYBOLURSA tum bot oturumlari geri donulemez sekilde kaybolur — escrow zorunlu.}
+      # Admin endpoint'lere erisim icin token (X-Admin-Token header).
+      BOT_ADMIN_TOKEN: ${BOT_ADMIN_TOKEN:?BOT_ADMIN_TOKEN env zorunlu (32+ char random).}
+      SIGNALING_INTERNAL_URL: http://backend:8080
+      SIGNALING_WS_URL: ws://backend:8080/ws
+      # TCP listenerlar — Unix socket henuz Task 13 minimum kapsamda
+      BOT_HEALTH_PORT: "8090"
+      LOG_LEVEL: ${BOT_LOG_LEVEL:-INFO}
+      JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=50"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--tries=1", "--timeout=3", "http://localhost:8090/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 512m
+    mem_reservation: 128m
+    stop_grace_period: 30s
+    logging: *default-logging
+    networks:
+      - internal           # SADECE internal — external'da YOK
+    # --- Hardening ---
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /run/bot:size=8m,mode=0770,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+    # NOT: ports yok — public endpoint disa kapali. Admin CLI host'tan
+    # docker exec ile veya ileride Unix socket bind-mount ile erisir.
 
 volumes:
   postgres_data:
