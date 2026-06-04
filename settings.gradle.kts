@@ -27,6 +27,15 @@ include(":storage")
 include(":media")
 include(":contacts")
 include(":common")
-include(":signaling-server")
-include(":bot-api")
-include(":bot-admin-cli")
+
+// JVM-only sunucu/yardimci modulleri — Android APK build'i icin gerekli degil.
+// Offline ortamda (Shadow plugin gibi server-only bagimliliklar cache'te yoksa)
+// "-PandroidOnly" property'si ile bu modulleri devre disi birakabilirsin:
+//   .\gradlew.bat -PandroidOnly assembleDevDebug
+// Default olarak (CI / online build) hepsi dahildir.
+val androidOnly = (extra.has("androidOnly") || providers.gradleProperty("androidOnly").isPresent)
+if (!androidOnly) {
+    include(":signaling-server")
+    include(":bot-api")
+    include(":bot-admin-cli")
+}
