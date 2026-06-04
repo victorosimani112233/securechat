@@ -281,7 +281,15 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun markViewOnceAsViewed(messageId: String) {
-        messageDao.markViewOnceAsViewed(messageId)
+        // TEXT mesajlarda is_viewed=1 ile birlikte content'i de sil — bu sayede
+        // "Acildi" placeholder kalir ama icerik DB'den geri donulemez bicimde gider.
+        // Foto/dosyada mevcut davranis korunur (dosya silme akisi disarida yapilir).
+        val existing = messageDao.getById(messageId)
+        if (existing?.contentType == com.securechat.storage.model.MessageContentType.TEXT) {
+            messageDao.consumeViewOnceText(messageId)
+        } else {
+            messageDao.markViewOnceAsViewed(messageId)
+        }
     }
 
     override suspend fun updateConversationLocked(conversationId: String, isLocked: Boolean) {

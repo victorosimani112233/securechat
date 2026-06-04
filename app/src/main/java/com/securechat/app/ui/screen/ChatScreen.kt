@@ -47,6 +47,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -202,6 +203,10 @@ fun ChatScreen(
     // Sistem galerisine yonlendirme yerine burada gosterilir — SecureChatActivity'nin
     // FLAG_SECURE'i aktif oldugu icin SS otomatik engellenir.
     var viewOnceImagePath by remember { mutableStateOf<String?>(null) }
+    // View-once metin icin acilan dialog payload'i — (messageId, snapshot icerik).
+    // Snapshot kullanmak race'i onler: dismiss'te DB'den icerik silinince Flow re-render
+    // sirasinda dialog hala lokal kopyasini gosterir, ardindan kullanici kapatir.
+    var openViewOnceText by remember { mutableStateOf<Pair<String, String>?>(null) }
     val haptic = com.securechat.app.ui.components.rememberHaptic()
     val listState = rememberLazyListState()
     var initialScrollDone by remember { mutableStateOf(false) }
@@ -703,6 +708,7 @@ fun ChatScreen(
                                         onPollVote = { msgId, idx -> viewModel.votePoll(msgId, idx) },
                                         onMarkViewOnceViewed = { id -> viewModel.markViewOnceAsViewed(id) },
                                         onOpenViewOnceImage = { path -> viewOnceImagePath = path },
+                                        onOpenViewOnceText = { id, snapshot -> openViewOnceText = id to snapshot },
                                         currentUserId = viewModel.currentUserId
                                     )
                                 }
@@ -844,10 +850,10 @@ fun ChatScreen(
                     messageText = sanitized
                     viewModel.updateTypingState(sanitized.isNotBlank())
                 },
-                onSend = {
+                onSend = { isViewOnce ->
                     if (messageText.isNotBlank()) {
                         haptic.light()
-                        viewModel.sendMessage(messageText.trim(), replyingToMessage?.id)
+                        viewModel.sendMessage(messageText.trim(), replyingToMessage?.id, isViewOnce)
                         messageText = ""
                         replyingToMessage = null
                         viewModel.updateTypingState(false)
@@ -889,6 +895,20 @@ fun ChatScreen(
         ViewOnceImageViewer(
             filePath = currentViewOnce,
             onDismiss = { viewOnceImagePath = null }
+        )
+    }
+
+    // View-once metin goruntuleyici — Activity FLAG_SECURE oldugu icin SS engellenir.
+    // Dismiss'te markViewOnceAsViewed cagrilir; DB'de content silinir, baloncuk
+    // "Acildi" placeholder'a Flow ile dogal sekilde gecer.
+    val currentViewOnceText = openViewOnceText
+    if (currentViewOnceText != null) {
+        ViewOnceTextViewer(
+            content = currentViewOnceText.second,
+            onDismiss = {
+                viewModel.markViewOnceAsViewed(currentViewOnceText.first)
+                openViewOnceText = null
+            }
         )
     }
 }
@@ -954,6 +974,123 @@ private fun ViewOnceImageViewer(
                 )
             }
         }
+    }
+}
+
+/**
+ * Tek gosterimlik metin mesaji icin uygulama-ici tam ekran goruntuleyici.
+ * SecureChatActivity FLAG_SECURE oldugu icin ekran goruntusu engellenir.
+ * Dismiss callback'i caller'da markViewOnceAsViewed cagrir.
+ */
+@Composable
+private fun ViewOnceTextViewer(
+    content: String,
+    onDismiss: () -> Unit
+) {
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onDismiss() })
+            }
+    ) {
+        // Ust bilgi cubugu — "tek gosterimlik" + kapat ikonu
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.85f),
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Tek gösterimlik · ekran görüntüsü engellendi",
+                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Kapat",
+                    tint = Color.White
+                )
+            }
+        }
+        // Icerik — ortada, secilemez (SelectionContainer YOK); kopyalama engellenir
+        Text(
+            text = content,
+            color = Color.White,
+            style = MaterialTheme.typography.headlineSmall,
+            lineHeight = 32.sp,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 32.dp, vertical = 80.dp)
+        )
+        // Alt bilgi — dokun/geri ile kapat ipucu
+        Text(
+            text = "Kapatmak için dokunun · bir daha açılamaz",
+            color = Color.White.copy(alpha = 0.55f),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp)
+        )
+    }
+}
+
+/**
+ * Tek gosterimlik metin baloncugu — placeholder.
+ * Acilmamis ise "Okumak icin dokunun"; acildi/giden ise "Acildi" gosterilir.
+ * Tap callback'i caller'da snapshot alip dialog acar (race yonetimi orada).
+ */
+@Composable
+private fun ViewOnceTextBubbleContent(
+    message: LocalMessage,
+    isOutgoing: Boolean,
+    onTap: () -> Unit
+) {
+    val dark = LocalDarkTheme.current
+    val consumed = isOutgoing || message.isViewed
+    val labelColor = if (isOutgoing) {
+        if (dark) Color.White.copy(alpha = 0.8f) else Color(0xFF1E52D9).copy(alpha = 0.85f)
+    } else {
+        if (dark) Color(0xFFECEEF2).copy(alpha = 0.8f) else Color(0xFF13161B).copy(alpha = 0.8f)
+    }
+    val iconColor = if (consumed) labelColor.copy(alpha = 0.55f) else Color(0xFF3E7BFA)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clickable(enabled = !consumed) { onTap() }
+    ) {
+        Icon(
+            imageVector = Icons.Default.Lock,
+            contentDescription = null,
+            tint = iconColor,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = when {
+                consumed -> "Tek gösterimlik mesaj · Açıldı"
+                else -> "Tek gösterimlik mesaj · Okumak için dokunun"
+            },
+            color = labelColor,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontStyle = if (consumed) androidx.compose.ui.text.font.FontStyle.Italic
+                else androidx.compose.ui.text.font.FontStyle.Normal
+            ),
+            lineHeight = 20.sp
+        )
     }
 }
 
@@ -1909,6 +2046,7 @@ fun MessageBubble(
     onPollVote: ((String, Int) -> Unit)? = null,
     onMarkViewOnceViewed: ((String) -> Unit)? = null,
     onOpenViewOnceImage: ((path: String) -> Unit)? = null,
+    onOpenViewOnceText: ((messageId: String, contentSnapshot: String) -> Unit)? = null,
     currentUserId: String = ""
 ) {
     val isOutgoing = message.isOutgoing
@@ -2113,6 +2251,25 @@ fun MessageBubble(
                                 onVote = { optionIndex -> onPollVote?.invoke(message.id, optionIndex) }
                             )
                         }
+                        message.isViewOnce -> {
+                            // Tek gosterimlik metin mesaji — uc durum:
+                            //  1) Outgoing veya alici tarafinda zaten acilmis -> "Acildi" placeholder
+                            //  2) Alici, henuz acilmamis -> "Tek gosterimlik mesaj • Okumak icin dokunun"
+                            //     dokununca lokal snapshot ile dialog acilir; dialog kapatildiginda
+                            //     markViewOnceAsViewed cagrilir (DB content boşalir, Flow yeniden render).
+                            ViewOnceTextBubbleContent(
+                                message = message,
+                                isOutgoing = isOutgoing,
+                                onTap = {
+                                    if (!isOutgoing && !message.isViewed) {
+                                        val snapshot = message.content
+                                        if (snapshot.isNotEmpty()) {
+                                            onOpenViewOnceText?.invoke(message.id, snapshot)
+                                        }
+                                    }
+                                }
+                            )
+                        }
                         else -> TextMessageContent(
                             message = message,
                             isOutgoing = isOutgoing,
@@ -2184,8 +2341,9 @@ fun MessageBubble(
                 expanded = showPopupMenu,
                 onDismissRequest = { showPopupMenu = false }
             ) {
-                // Hizli emoji reaksiyon satiri
-                if (onReactionClick != null) {
+                // Hizli emoji reaksiyon satiri — view-once mesajlarda gizli (icerige reaksiyon
+                // gostermek view-once gizliligini sizdirir)
+                if (onReactionClick != null && !message.isViewOnce) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2212,8 +2370,8 @@ fun MessageBubble(
                     )
                 }
 
-                // Yanitla
-                if (onReplyToMessage != null) {
+                // Yanitla — view-once mesajlarda kapali (reply preview icerigi sizdirir)
+                if (onReplyToMessage != null && !message.isViewOnce) {
                     DropdownMenuItem(
                         text = { Text("Yanıtla", style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
@@ -2260,8 +2418,8 @@ fun MessageBubble(
                     )
                 }
 
-                // Kopyala (dosya mesaji degilse)
-                if (!message.isFileMessage && !message.isDeleted) {
+                // Kopyala — dosya/silinmis/view-once disindaki mesajlarda
+                if (!message.isFileMessage && !message.isDeleted && !message.isViewOnce) {
                     val clipboardManager = LocalClipboardManager.current
                     val clipContext = LocalContext.current
                     val coroutineScope = rememberCoroutineScope()
@@ -2294,8 +2452,8 @@ fun MessageBubble(
                     )
                 }
 
-                // Duzenle (sadece kendi TEXT mesajlari, 15 dakika icinde)
-                if (onEditMessage != null && message.isOutgoing && !message.isFileMessage && !message.isPollMessage && !message.isDeleted) {
+                // Duzenle (sadece kendi TEXT mesajlari, 15 dakika icinde, view-once degil)
+                if (onEditMessage != null && message.isOutgoing && !message.isFileMessage && !message.isPollMessage && !message.isDeleted && !message.isViewOnce) {
                     val canEdit = (System.currentTimeMillis() - message.timestamp) < 15 * 60 * 1000L
                     if (canEdit) {
                         DropdownMenuItem(
@@ -2318,8 +2476,8 @@ fun MessageBubble(
                     }
                 }
 
-                // Duzenleme gecmisi (duzenlenmis mesajlarda gosterilir)
-                if (message.isEdited && !message.editHistory.isNullOrBlank()) {
+                // Duzenleme gecmisi (duzenlenmis mesajlarda; view-once mesajlarda gizli)
+                if (message.isEdited && !message.editHistory.isNullOrBlank() && !message.isViewOnce) {
                     DropdownMenuItem(
                         text = { Text("Düzenleme Geçmişi", style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
@@ -2360,8 +2518,8 @@ fun MessageBubble(
                     )
                 }
 
-                // Yıldızlama seçeneği
-                onToggleStarMessage?.let { toggleStar ->
+                // Yıldızlama seçeneği — view-once mesajlarda gizli (kalici saklamak amaca aykiri)
+                onToggleStarMessage?.takeIf { !message.isViewOnce }?.let { toggleStar ->
                     DropdownMenuItem(
                         text = {
                             Text(
@@ -2387,8 +2545,8 @@ fun MessageBubble(
                     )
                 }
 
-                // İlet
-                if (onForwardMessage != null) {
+                // İlet — view-once mesajlarda gizli (icerigi disari sizdirir)
+                if (onForwardMessage != null && !message.isViewOnce) {
                     DropdownMenuItem(
                         text = { Text("İlet", style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
@@ -3010,10 +3168,14 @@ fun MessageStatusIcon(status: MessageStatus) {
 fun MessageInputBar(
     text: String,
     onTextChange: (String) -> Unit,
-    onSend: () -> Unit,
+    onSend: (isViewOnce: Boolean) -> Unit,
     onAttachClick: () -> Unit
 ) {
     val dark = LocalDarkTheme.current
+    // Tek gosterimlik mesaj toggle — gonderim sonrasi otomatik sifirlanir
+    // (her view-once kararinin bilincli olmasi icin). MediaPreviewScreen'deki "1" rozetiyle
+    // birebir gorsel tutarlilik.
+    var isViewOnce by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3061,13 +3223,50 @@ fun MessageInputBar(
 
         Spacer(modifier = Modifier.width(6.dp))
 
+        // "1" tek gosterimlik toggle — sadece metin yazilirken anlamli
+        val inactiveBorder = if (dark) Color.White.copy(alpha = 0.25f) else Color(0xFF13161B).copy(alpha = 0.25f)
+        val inactiveText = if (dark) Color.White.copy(alpha = 0.7f) else Color(0xFF5D6570)
+        val inactiveBg = if (dark) Color.White.copy(alpha = 0.06f) else Color(0xFF13161B).copy(alpha = 0.04f)
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isViewOnce) Color(0xFF3E7BFA).copy(alpha = 0.18f)
+                    else inactiveBg
+                )
+                .border(
+                    width = 1.5.dp,
+                    color = if (isViewOnce) Color(0xFF3E7BFA) else inactiveBorder,
+                    shape = CircleShape
+                )
+                .clickable { isViewOnce = !isViewOnce },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "1",
+                color = if (isViewOnce) Color(0xFF3E7BFA) else inactiveText,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.width(6.dp))
+
         // Gonder butonu — azure daire
         Box(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
                 .background(if (text.isNotBlank()) Color(0xFF3E7BFA) else Color(0xFF3E7BFA).copy(alpha = 0.5f))
-                .clickable { if (text.isNotBlank()) onSend() },
+                .clickable {
+                    if (text.isNotBlank()) {
+                        val vo = isViewOnce
+                        // Bilincli karar — gonderim sonrasi otomatik sifirla
+                        isViewOnce = false
+                        onSend(vo)
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
             Icon(

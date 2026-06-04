@@ -37,7 +37,8 @@ class SendMessageUseCase @Inject constructor(
         conversationId: String,
         content: String,
         replyToId: String? = null,
-        contentType: MessageContentType = MessageContentType.TEXT
+        contentType: MessageContentType = MessageContentType.TEXT,
+        isViewOnce: Boolean = false
     ) {
         val senderId = userSession.userId ?: "unknown"
         val timestamp = System.currentTimeMillis()
@@ -61,7 +62,8 @@ class SendMessageUseCase @Inject constructor(
             status = MessageStatus.SENDING,
             isOutgoing = true,
             replyToId = replyToId,
-            expiresAt = expiresAt
+            expiresAt = expiresAt,
+            isViewOnce = isViewOnce
         )
         messageRepository.saveMessage(message)
 
@@ -73,9 +75,13 @@ class SendMessageUseCase @Inject constructor(
         // EXP prefix: sureli mesaj icin mutlak expiresAt'i gomeriz — alici da ayni anda gormez
         // olur. Alici lokal duration'i bilmiyorsa veya transit gecikmesi varsa bile dogru calisir.
         val expPrefix = if (expiresAt != null) "EXP:$expiresAt:" else ""
+        // VIEWONCE prefix: tek gosterimlik metin mesaji bayragi — POLL/icerikten ONCE.
+        // Parser POLL gorunce geri kalanini content sayar; bu yuzden VIEWONCE'u POLL'den
+        // once yerlestiriyoruz. Foto/dosya icin FileTransfer.isViewOnce kullanilir.
+        val viewOncePrefix = if (isViewOnce) "VIEWONCE:" else ""
         // Sira onemli: EXP, POLL/POLLVOTE'tan ONCE — parser POLL gorunce geri kalanini content
-        // sayar. Boylece "MSGID:id:[REPLY:rid:][EXP:abs:][POLL:]content" formati elde edilir.
-        val envelopeContent = "MSGID:${message.id}:${replyPrefix}${expPrefix}${typePrefix}$content"
+        // sayar. Boylece "MSGID:id:[REPLY:rid:][EXP:abs:][VIEWONCE:][POLL:]content" formati olusur.
+        val envelopeContent = "MSGID:${message.id}:${replyPrefix}${expPrefix}${viewOncePrefix}${typePrefix}$content"
 
         // Ilk deneme
         val sent = attemptSend(senderId, conversationId, timestamp, envelopeContent, isGroup, conversation)

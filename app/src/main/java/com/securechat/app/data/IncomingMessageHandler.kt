@@ -544,7 +544,8 @@ class IncomingMessageHandler @Inject constructor(
             status = if (isGroupChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
             replyToId = groupReplyToId,
             isOutgoing = false,
-            expiresAt = groupExpiresAt
+            expiresAt = groupExpiresAt,
+            isViewOnce = parsedGroup.isViewOnce
         )
         messageRepository.saveMessage(message)
 
@@ -630,7 +631,8 @@ class IncomingMessageHandler @Inject constructor(
             status = if (isChatOpen) MessageStatus.READ else MessageStatus.DELIVERED,
             replyToId = replyToId,
             isOutgoing = false,
-            expiresAt = expiresAt
+            expiresAt = expiresAt,
+            isViewOnce = parsed.isViewOnce
         )
         messageRepository.saveMessage(message)
 
@@ -1070,7 +1072,9 @@ class IncomingMessageHandler @Inject constructor(
         val contentType: MessageContentType = MessageContentType.TEXT,
         val pollVote: PollVoteRef? = null,
         /** EXP prefix'ten alinan mutlak expiresAt (ms). Yoksa null. */
-        val absoluteExpiresAt: Long? = null
+        val absoluteExpiresAt: Long? = null,
+        /** VIEWONCE prefix bayragi — tek gosterimlik metin mesaji. */
+        val isViewOnce: Boolean = false
     )
 
     private fun parseMessageId(content: String): Pair<String?, String> {
@@ -1083,6 +1087,7 @@ class IncomingMessageHandler @Inject constructor(
         var messageId: String? = null
         var replyToId: String? = null
         var absoluteExpiresAt: Long? = null
+        var isViewOnce = false
 
         // MSGID prefix
         if (remaining.startsWith("MSGID:")) {
@@ -1114,6 +1119,13 @@ class IncomingMessageHandler @Inject constructor(
             }
         }
 
+        // VIEWONCE prefix — tek gosterimlik metin mesaji bayragi (icerik degeri tasimaz).
+        // POLL'den ONCE parse edilir, cunku POLL gorunce parser kalan her seyi icerik kabul eder.
+        if (remaining.startsWith("VIEWONCE:")) {
+            isViewOnce = true
+            remaining = remaining.removePrefix("VIEWONCE:")
+        }
+
         // POLLVOTE: prefix — anket oy guncellemesi (yeni mesaj olarak kaydedilmez,
         // mevcut anket mesajinin votes alanini gunceller)
         // Format: POLLVOTE:<pollMsgId>:<optionIndex>
@@ -1129,7 +1141,8 @@ class IncomingMessageHandler @Inject constructor(
                         content = "",
                         contentType = MessageContentType.TEXT,
                         pollVote = PollVoteRef(pollMsgId, optionIdx),
-                        absoluteExpiresAt = absoluteExpiresAt
+                        absoluteExpiresAt = absoluteExpiresAt,
+                        isViewOnce = isViewOnce
                     )
                 }
             }
@@ -1143,7 +1156,8 @@ class IncomingMessageHandler @Inject constructor(
                 content = remaining.removePrefix("POLL:"),
                 contentType = MessageContentType.POLL,
                 pollVote = null,
-                absoluteExpiresAt = absoluteExpiresAt
+                absoluteExpiresAt = absoluteExpiresAt,
+                isViewOnce = isViewOnce
             )
         }
 
@@ -1151,7 +1165,8 @@ class IncomingMessageHandler @Inject constructor(
             messageId = messageId,
             replyToId = replyToId,
             content = remaining,
-            absoluteExpiresAt = absoluteExpiresAt
+            absoluteExpiresAt = absoluteExpiresAt,
+            isViewOnce = isViewOnce
         )
     }
 

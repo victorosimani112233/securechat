@@ -497,9 +497,9 @@ class ChatViewModel @Inject constructor(
      *
      * @param content Mesaj icerigi
      */
-    fun sendMessage(content: String, replyToId: String? = null) {
+    fun sendMessage(content: String, replyToId: String? = null, isViewOnce: Boolean = false) {
         viewModelScope.launch {
-            sendMessageUseCase(conversationId, content, replyToId)
+            sendMessageUseCase(conversationId, content, replyToId, isViewOnce = isViewOnce)
         }
     }
 

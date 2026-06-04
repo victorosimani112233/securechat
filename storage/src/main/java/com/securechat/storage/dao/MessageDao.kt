@@ -81,6 +81,12 @@ interface MessageDao {
     @Query("UPDATE messages SET is_viewed = 1 WHERE id = :messageId")
     suspend fun markViewOnceAsViewed(messageId: String)
 
+    // 👁️ Tek gosterimlik TEXT — goruntulendi olarak isaretle + icerigi sifirla.
+    // WhatsApp davranisi: alici acildiktan sonra icerik geri donmemeli; "Acildi"
+    // placeholder kalir. content_type filtresi foto/dosya satirlarinin icerigine dokunmaz.
+    @Query("UPDATE messages SET is_viewed = 1, content = '' WHERE id = :messageId AND content_type = 'TEXT'")
+    suspend fun consumeViewOnceText(messageId: String)
+
     // ⭐ Yıldızlama özellikleri
     @Query("UPDATE messages SET is_starred = :isStarred WHERE id = :messageId")
     suspend fun updateStarred(messageId: String, isStarred: Boolean)
