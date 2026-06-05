@@ -88,6 +88,14 @@ data class LocalMessage(
                 isDeleted -> "Bu mesaj silindi"
                 isViewOnce && contentType == MessageContentType.IMAGE -> "📷 Tek gösterimlik fotoğraf"
                 isViewOnce && contentType == MessageContentType.FILE && fileMimeType?.startsWith("video/") == true -> "🎥 Tek gösterimlik video"
+                // Tek gosterimlik METIN — gercek icerik sohbet listesinde gozukmemeli
+                // (mesajin amaci: gosterim sonrasi geri donulemez gizlilik). Bu case'i
+                // unutursak fallback `else -> content` mesajin tam metnini sohbet
+                // onizlemesine sizdiriyordu; ayrica tuketildikten sonra content="" oldugu
+                // icin de bos preview gozukurdu.
+                isViewOnce && contentType == MessageContentType.TEXT -> "🔒 Tek gösterimlik mesaj"
+                // Diger view-once content type'lari icin guvenli fallback
+                isViewOnce -> "🔒 Tek gösterimlik içerik"
                 contentType == MessageContentType.IMAGE -> cap?.let { "📷 $it" } ?: "📷 Fotoğraf"
                 contentType == MessageContentType.FILE -> {
                     val mt = fileMimeType ?: ""
