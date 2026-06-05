@@ -1061,7 +1061,9 @@ fun SettingsScreen(
 
                         ListItem(
                             headlineContent = { Text("Uygulama Versiyonu") },
-                            supportingContent = { Text("1.0.0") },
+                            // BuildConfig'den dinamik — versionName'e git SHA gomulu, kullanici
+                            // hangi build'i yukledigini buradan kesin dogrulayabilir.
+                            supportingContent = { Text(com.securechat.app.BuildConfig.VERSION_NAME) },
                             leadingContent = {
                                 Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },

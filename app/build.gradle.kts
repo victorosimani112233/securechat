@@ -13,8 +13,23 @@ android {
         applicationId = "com.securechat.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        // Versiyon her build'de commit count + short SHA ile artar — kullanici
+        // hangi build'i yukledigini telefondan dogrulayabilsin (Ayarlar > Hakkinda).
+        // Eski APK'lari "yukledigini sandi ama yuklenmedi" yanlislamalarini engeller.
+        val commitCount = runCatching {
+            providers.exec {
+                commandLine("git", "rev-list", "--count", "HEAD")
+                workingDir = rootDir
+            }.standardOutput.asText.get().trim().toInt()
+        }.getOrDefault(1)
+        val shortSha = runCatching {
+            providers.exec {
+                commandLine("git", "rev-parse", "--short", "HEAD")
+                workingDir = rootDir
+            }.standardOutput.asText.get().trim()
+        }.getOrDefault("dev")
+        versionCode = commitCount
+        versionName = "1.0.$commitCount-$shortSha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
