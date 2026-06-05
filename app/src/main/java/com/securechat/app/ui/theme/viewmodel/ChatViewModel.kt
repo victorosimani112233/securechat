@@ -367,8 +367,20 @@ class ChatViewModel @Inject constructor(
                 val unreadIncoming = messageList.filter {
                     !it.isOutgoing && it.status != MessageStatus.READ && it.id !in readReceiptSentIds
                 }
+                if (unreadIncoming.isEmpty()) return@collect
+
+                // ID'leri hemen rezerv et — Flow bu collector'i yeniden tetiklerse
+                // (DB updateMessageStatus emit'i) ayni mesajlar tekrar islenmesin.
+                for (msg in unreadIncoming) readReceiptSentIds.add(msg.id)
+
+                // DELIVERED tikinin gonderici tarafindan gozlenebilmesi icin minik bekleme.
+                // IncomingMessageHandler mesaj geldiginde DELIVERED receipt'i anlik gonderir;
+                // bu delay olmadan READ receipt 10-50ms sonra giderdi ve gonderici tarafta
+                // gri cift tik hic gorunmeden direkt maviye gecerdi. Local network'te dogal
+                // latency yok, o yuzden kasitli bir pencere koyuyoruz (WhatsApp ~500-800ms).
+                kotlinx.coroutines.delay(800)
+
                 for (msg in unreadIncoming) {
-                    readReceiptSentIds.add(msg.id)
                     messageRepository.updateMessageStatus(msg.id, MessageStatus.READ)
                     signalingClient.sendSignal(
                         SignalMessage.DeliveryReceipt(
