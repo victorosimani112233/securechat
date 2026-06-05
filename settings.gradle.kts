@@ -1,5 +1,12 @@
 pluginManagement {
     repositories {
+        // local-repo PLUGIN resolution icin ilk siraya alinir — offline ortamda
+        // Shadow plugin gibi server-only plugin'ler bu klasorden cozulur.
+        // (dependencyResolutionManagement bloku sadece compile dependencies icin
+        // calisir; plugin'ler ayri bir resolution path'i kullanir.)
+        maven {
+            url = uri("${rootDir}/local-repo")
+        }
         google()
         mavenCentral()
         gradlePluginPortal()
