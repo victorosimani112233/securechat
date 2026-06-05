@@ -35,13 +35,15 @@ include(":media")
 include(":contacts")
 include(":common")
 
-// JVM-only sunucu/yardimci modulleri — Android APK build'i icin gerekli degil.
-// Offline ortamda (Shadow plugin gibi server-only bagimliliklar cache'te yoksa)
-// "-PandroidOnly" property'si ile bu modulleri devre disi birakabilirsin:
-//   .\gradlew.bat -PandroidOnly assembleDevDebug
-// Default olarak (CI / online build) hepsi dahildir.
-val androidOnly = (extra.has("androidOnly") || providers.gradleProperty("androidOnly").isPresent)
-if (!androidOnly) {
+// JVM-only sunucu/yardimci modulleri — Android APK build'i icin gerekli DEGIL.
+// Default olarak DAHIL EDILMEZ; cunku:
+//  1) Offline build ortamlarinda Shadow plugin ve transitif deps cache'te
+//     olmayabilir ve APK build'ini configuration asamasinda blokliyordu.
+//  2) APK build eden gelistirici cogu zaman server'i build etmek istemiyor.
+// Server modullerini build etmek icin "-PincludeServer" bayragini ekle:
+//   .\gradlew.bat -PincludeServer :bot-api:shadowJar
+val includeServer = providers.gradleProperty("includeServer").isPresent
+if (includeServer) {
     include(":signaling-server")
     include(":bot-api")
     include(":bot-admin-cli")
