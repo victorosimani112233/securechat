@@ -244,8 +244,8 @@ class MessageRepositoryImplTest {
 
     @Test
     fun `deleteMessage with conversationId recalculates last message`() = runTest {
-        coEvery { conversationDao.getLastMessageContent("conv-1") } returns "Onceki mesaj"
-        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 1000L
+        coEvery { conversationDao.getLastMessageInfo("conv-1") } returns
+            com.securechat.storage.dao.LastMessageInfo("Onceki mesaj", 1000L, null, null, false)
 
         repository.deleteMessage("msg-1", "conv-1")
 
@@ -255,8 +255,7 @@ class MessageRepositoryImplTest {
 
     @Test
     fun `deleteMessage with conversationId sets empty when no messages remain`() = runTest {
-        coEvery { conversationDao.getLastMessageContent("conv-1") } returns null
-        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns null
+        coEvery { conversationDao.getLastMessageInfo("conv-1") } returns null
 
         repository.deleteMessage("msg-1", "conv-1")
 
@@ -266,8 +265,8 @@ class MessageRepositoryImplTest {
 
     @Test
     fun `recalculateLastMessage updates conversation with latest message`() = runTest {
-        coEvery { conversationDao.getLastMessageContent("conv-1") } returns "Son mesaj"
-        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 5000L
+        coEvery { conversationDao.getLastMessageInfo("conv-1") } returns
+            com.securechat.storage.dao.LastMessageInfo("Son mesaj", 5000L, "TEXT", null, false)
 
         repository.recalculateLastMessage("conv-1")
 
@@ -287,7 +286,8 @@ class MessageRepositoryImplTest {
             isOutgoing = true
         )
         coEvery { messageDao.getById("msg-1") } returns entity
-        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 3000L
+        coEvery { conversationDao.getLastMessageInfo("conv-1") } returns
+            com.securechat.storage.dao.LastMessageInfo("Eski icerik", 3000L, "TEXT", null, false)
 
         repository.editMessage("msg-1", "Yeni icerik", 4000L)
 
@@ -309,7 +309,8 @@ class MessageRepositoryImplTest {
         )
         coEvery { messageDao.getById("msg-1") } returns entity
         // En son mesajin zaman damgasi farkli — duzenlenen mesaj en son degil
-        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 5000L
+        coEvery { conversationDao.getLastMessageInfo("conv-1") } returns
+            com.securechat.storage.dao.LastMessageInfo("Baska mesaj", 5000L, "TEXT", null, false)
 
         repository.editMessage("msg-1", "Yeni icerik", 4000L)
 
@@ -330,7 +331,8 @@ class MessageRepositoryImplTest {
             isOutgoing = true
         )
         coEvery { messageDao.getById("msg-1") } returns entity
-        coEvery { conversationDao.getLastMessageTimestamp("conv-1") } returns 3000L
+        coEvery { conversationDao.getLastMessageInfo("conv-1") } returns
+            com.securechat.storage.dao.LastMessageInfo("Silinecek mesaj", 3000L, "TEXT", null, false)
 
         repository.updateMessageContent("msg-1", "Bu mesaj silindi", "DELETED")
 

@@ -129,6 +129,8 @@ class CryptoIdentityStoreImplTest {
 
     @Test
     fun `getIdentityKeyPair returns null when not set`() = runTest {
+        // Yeni encrypted entry yok + eski legacy entry yok → null donmeli.
+        every { prefs.getString("local_identity_key_pair_v2", null) } returns null
         every { prefs.getString("local_identity_key_pair", null) } returns null
 
         val result = store.getIdentityKeyPair()
@@ -137,13 +139,19 @@ class CryptoIdentityStoreImplTest {
     }
 
     @Test
-    fun `storeIdentityKeyPair and getIdentityKeyPair round-trip`() = runTest {
+    fun `storeIdentityKeyPair sifrelenmis Base64 entry yazar`() = runTest {
+        // Yeni davranis: keyStoreManager ile encrypt -> Base64 -> SharedPreferences
+        // local_identity_key_pair_v2 anahtarina yazilir (eski plaintext entry'den ayri).
         val keyPair = byteArrayOf(100, -50, 25, 0)
-        val encoded = java.util.Base64.getEncoder().encodeToString(keyPair)
+        val ciphertext = byteArrayOf(1, 2, 3, 4)
+        val keyStoreMgr = io.mockk.mockk<com.securechat.crypto.KeyStoreManager>(relaxed = true)
+        every { keyStoreMgr.encrypt(keyPair) } returns ciphertext
+        store = CryptoIdentityStoreImpl(identityDao, prefs, keyStoreMgr)
 
         store.storeIdentityKeyPair(keyPair)
 
-        io.mockk.verify { editor.putString("local_identity_key_pair", encoded) }
+        val expectedB64 = java.util.Base64.getEncoder().encodeToString(ciphertext)
+        io.mockk.verify { editor.putString("local_identity_key_pair_v2", expectedB64) }
         io.mockk.verify { editor.apply() }
     }
 }

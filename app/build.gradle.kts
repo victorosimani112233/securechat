@@ -165,7 +165,10 @@ android {
         unitTests.all {
             it.maxHeapSize = "4096m"
             it.jvmArgs("-XX:MaxMetaspaceSize=512m")
-            it.forkEvery = 4
+            // Her test class kendi JVM forkunda calissin. forkEvery=4 oldugunda
+            // bir test class JVM agent assertion ile cokunce sonraki testler de
+            // yutuluyordu; izole fork OOM/agent crashlerinin etki alanini sinirlar.
+            it.forkEvery = 1
         }
     }
 }
