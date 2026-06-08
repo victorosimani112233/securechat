@@ -8,6 +8,18 @@ application {
     mainClass.set("com.securechat.signaling.ApplicationKt")
 }
 
+// Server JDK 17 (production Docker image); lokal JDK farkli olabilir.
+// Bu hedef olmadan local JDK 21 ile derlenmis sinif dosyalari sunucuda
+// UnsupportedClassVersionError firlatir.
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
+    }
+}
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    kotlinOptions.jvmTarget = "17"
+}
+
 // Fat JAR olustur — tum dependency'leri tek JAR'a paketle
 tasks.register<Jar>("fatJar") {
     archiveClassifier.set("all")
