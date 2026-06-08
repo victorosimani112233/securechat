@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -61,6 +62,8 @@ import com.securechat.app.ui.screen.OtpVerificationScreen
 import com.securechat.app.ui.screen.PhoneVerificationScreen
 import com.securechat.app.ui.screen.ScheduledMessagesScreen
 import com.securechat.app.ui.screen.SettingsScreen
+import com.securechat.app.ui.screen.OnboardingScreen
+import com.securechat.app.ui.screen.PermissionWalkthroughScreen
 import com.securechat.app.ui.screen.SplashScreen
 import com.securechat.app.backup.BackupScreen
 import com.securechat.app.ui.theme.LocalDarkTheme
@@ -120,10 +123,51 @@ fun SecureChatNavHost(
                 enterTransition = { fadeIn(tween(0)) },
                 exitTransition = { fadeOut(tween(300)) }
             ) {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val ackStore = remember(context) {
+                    com.securechat.app.data.OnboardingAckStore(context.applicationContext)
+                }
                 SplashScreen(
                     onSplashFinished = {
-                        navController.navigate(startDestination) {
+                        // İlk açılışta: splash → onboarding → permissions → startDestination
+                        // Sonraki açılışlarda: splash → startDestination (her ikisi tamamlandıysa)
+                        val next = when {
+                            !ackStore.isOnboardingCompleted() -> "onboarding"
+                            !ackStore.isPermissionsWalkthroughSeen() -> "permissions_walkthrough"
+                            else -> startDestination
+                        }
+                        navController.navigate(next) {
                             popUpTo("splash") { inclusive = true }
+                        }
+                    }
+                )
+            }
+
+            composable("onboarding") {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val ackStore = remember(context) {
+                    com.securechat.app.data.OnboardingAckStore(context.applicationContext)
+                }
+                OnboardingScreen(
+                    onFinished = {
+                        ackStore.markOnboardingCompleted()
+                        navController.navigate("permissions_walkthrough") {
+                            popUpTo("onboarding") { inclusive = true }
+                        }
+                    }
+                )
+            }
+
+            composable("permissions_walkthrough") {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val ackStore = remember(context) {
+                    com.securechat.app.data.OnboardingAckStore(context.applicationContext)
+                }
+                PermissionWalkthroughScreen(
+                    onFinished = {
+                        ackStore.markPermissionsWalkthroughSeen()
+                        navController.navigate(startDestination) {
+                            popUpTo("permissions_walkthrough") { inclusive = true }
                         }
                     }
                 )
