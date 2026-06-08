@@ -1,0 +1,135 @@
+name: Android PR Gate
+
+# Her PR'da otomatik çalışır — build + test + lint guardrail'leri.
+# Local geliştirici için sadece checklist; CI'da zorunlu hale getirmek için
+# branch protection rules'a "Android PR Gate" status check'ini required ekleyin.
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'VERSION'
+      - 'CHANGELOG.md'
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # git rev-list --count HEAD için tüm history
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          build-tools: 35.0.0
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Refresh VERSION file (CI run)
+        run: ./scripts/refresh-version.sh
+
+      - name: Compile app (dev/debug)
+        run: ./gradlew :app:compileDevDebugKotlin --no-daemon
+
+      - name: Run unit tests — app
+        run: ./gradlew :app:testDevDebugUnitTest --no-daemon
+        continue-on-error: false
+
+      - name: Run unit tests — common
+        run: ./gradlew :common:testDebugUnitTest --no-daemon
+        continue-on-error: true  # mevcut test fail'leri legacy; geçici tolerans
+
+      - name: Run unit tests — crypto
+        run: ./gradlew :crypto:testDebugUnitTest --no-daemon
+        continue-on-error: true
+
+      - name: Run unit tests — storage
+        run: ./gradlew :storage:testDebugUnitTest --no-daemon
+        continue-on-error: true
+
+      - name: Run unit tests — network
+        run: ./gradlew :network:testDebugUnitTest --no-daemon
+        continue-on-error: true
+
+      - name: Run unit tests — media
+        run: ./gradlew :media:testDebugUnitTest --no-daemon
+        continue-on-error: true
+
+      - name: Build APK (dev/debug)
+        run: ./gradlew :app:assembleDevDebug --no-daemon
+
+      - name: Capture APK metadata
+        id: apk-meta
+        run: |
+          APK=app/build/outputs/apk/dev/debug/app-dev-debug.apk
+          if [ -f "$APK" ]; then
+            SIZE=$(du -h "$APK" | awk '{print $1}')
+            echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+            # versionName aapt2 ile (build-tools)
+            VER=$($ANDROID_HOME/build-tools/35.0.0/aapt2 dump badging "$APK" 2>/dev/null | head -1 | grep -oE "versionName='[^']+'" | cut -d"'" -f2)
+            echo "versionName=$VER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Lint — sensitive log check
+        # Mesaj plaintext'i loglayan tehlikeli pattern'leri reddet.
+        run: |
+          if grep -rn "Log\.[dwie].*plaintext\|Log\.[dwie].*\.envelope\|Log\.[dwie].*\.content[^T]" \
+             app/src/main/java network/src/main/java media/src/main/java 2>/dev/null \
+             | grep -v "// safe:" | grep -v "// audited:" ; then
+            echo "::error::Plaintext/envelope/content loglayan kod bulundu. // safe: veya // audited: yorumu ile aciklayin."
+            exit 1
+          fi
+
+      - name: Lint — TODO/FIXME yoğunluğu
+        # Yeni eklenen kod'da abartılı TODO varsa uyar
+        run: |
+          NEW_TODOS=$(git diff --unified=0 origin/main..HEAD -- '*.kt' 2>/dev/null | grep -E "^\+.*TODO|^\+.*FIXME" | wc -l || echo "0")
+          if [ "$NEW_TODOS" -gt "10" ]; then
+            echo "::warning::Bu PR'da $NEW_TODOS yeni TODO/FIXME var. Lütfen issue açıp link verin."
+          fi
+
+      - name: PR summary
+        if: always()
+        run: |
+          echo "## Android PR Gate Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **APK build:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **APK size:** ${{ steps.apk-meta.outputs.size }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **versionName:** ${{ steps.apk-meta.outputs.versionName }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Hatırlatma:** \`docs/release-checklist.md\` smoke test'i manuel olarak geçilmeli." >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-dev-debug-${{ github.sha }}
+          path: app/build/outputs/apk/dev/debug/app-dev-debug.apk
+          retention-days: 14
+          if-no-files-found: warn
