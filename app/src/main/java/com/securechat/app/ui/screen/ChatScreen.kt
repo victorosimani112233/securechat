@@ -3,6 +3,8 @@ package com.securechat.app.ui.screen
 // Faz 8: Extract edilen composable'lar
 import com.securechat.app.ui.screen.chat.ActiveGroupCallBanner
 import com.securechat.app.ui.screen.chat.ExportEnabledBanner
+import com.securechat.app.ui.screen.chat.MessageInputBar
+import com.securechat.app.ui.screen.chat.SystemMessageBanner
 import com.securechat.app.ui.screen.chat.ViewOnceImageViewer
 import com.securechat.app.ui.screen.chat.ViewOnceTextViewer
 import com.securechat.app.ui.screen.chat.bubble.MessageStatusIcon
@@ -1237,97 +1239,7 @@ private fun DateSeparator(dateLabel: String) {
 // Faz 8: ActiveGroupCallBanner + ExportEnabledBanner ui/screen/chat/ChatBanners.kt'e
 // extract edildi. Mevcut kullanim icin import ile ayni ad korunur.
 
-/**
- * Sistem mesajlarini (grup olaylari, arama bilgileri) ortada bilgilendirme olarak gosterir.
- * WhatsApp'taki gibi mesaj balonu yerine kucuk, ortalanmis metin.
- */
-@Composable
-private fun SystemMessageBanner(
-    message: LocalMessage,
-    onCallBack: ((callType: String) -> Unit)? = null
-) {
-    val dark = LocalDarkTheme.current
-    val content = message.content
-    val isCallMessage = content.startsWith("CALL|")
-
-    // Arama mesaji formatini parse et: "CALL|direction|callType|status|duration|displayText"
-    val displayText: String
-    val icon: androidx.compose.ui.graphics.vector.ImageVector
-    val iconTint: Color
-    var callType = ""
-    var isCallbackable = false
-
-    if (isCallMessage) {
-        val parts = content.split("|", limit = 6)
-        callType = parts.getOrNull(2) ?: ""
-        val direction = parts.getOrNull(1) ?: ""
-        val status = parts.getOrNull(3) ?: ""
-        displayText = parts.getOrNull(5) ?: content
-        // GROUP_STARTED/GROUP_ENDED'de geri arama yok
-        isCallbackable = status in listOf("MISSED", "REJECTED", "FAILED", "BUSY") &&
-                         direction != "GROUP_STARTED" && direction != "GROUP_ENDED"
-
-        icon = if (callType == "VIDEO") Icons.Default.Videocam else Icons.Default.Call
-        iconTint = when {
-            direction == "GROUP_STARTED" -> Color(0xFF4CAF50)
-            direction == "GROUP_ENDED" -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            status in listOf("MISSED", "REJECTED", "FAILED", "BUSY") -> MaterialTheme.colorScheme.error
-            direction == "OUTGOING" -> MaterialTheme.colorScheme.primary
-            else -> Color(0xFF4CAF50)
-        }
-    } else {
-        displayText = content
-        icon = Icons.Default.Info
-        iconTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .glass(dark = dark, shape = RoundedCornerShape(100.dp))
-                .then(
-                    if (isCallbackable && onCallBack != null) {
-                        Modifier.clickable { onCallBack(callType) }
-                    } else Modifier
-                )
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = iconTint
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = displayText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (isCallbackable)
-                        MaterialTheme.colorScheme.error
-                    else if (dark) Color(0xFFECEEF2) else Color(0xFF13161B),
-                    fontSize = 12.sp
-                )
-                if (isCallbackable) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Icon(
-                        Icons.Default.Call,
-                        contentDescription = "Geri Ara",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        }
-    }
-}
+// Faz 8: SystemMessageBanner -> ui/screen/chat/SystemMessageBanner.kt
 
 /**
  * Mesajları tarih bazında gruplar.
@@ -2998,126 +2910,7 @@ private fun formatFileSize(bytes: Long): String {
 
 // Faz 8: MessageStatusIcon -> ui/screen/chat/bubble/MessageStatusIcon.kt
 
-/**
- * Mesaj giriş çubuğu.
- * Koyu surface arka plan, ince border, yuvarlatılmış alan.
- * Ataşman (dosya ekleme) butonu solda, gönder butonu sağda.
- * Metin boşsa ataşman butonu vurgulanır.
- */
-@Composable
-fun MessageInputBar(
-    text: String,
-    onTextChange: (String) -> Unit,
-    onSend: (isViewOnce: Boolean) -> Unit,
-    onAttachClick: () -> Unit
-) {
-    val dark = LocalDarkTheme.current
-    // Tek gosterimlik mesaj toggle — gonderim sonrasi otomatik sifirlanir
-    // (her view-once kararinin bilincli olmasi icin). MediaPreviewScreen'deki "1" rozetiyle
-    // birebir gorsel tutarlilik.
-    var isViewOnce by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 6.dp)
-            .glass(dark = dark, shape = RoundedCornerShape(28.dp))
-            .padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        // Atasman butonu
-        IconButton(
-            onClick = onAttachClick,
-            modifier = Modifier.size(40.dp)
-        ) {
-            Icon(
-                Icons.Default.AttachFile,
-                contentDescription = "Dosya ekle",
-                tint = if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570),
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        // Metin alani — BasicTextField ile minimal padding
-        androidx.compose.foundation.text.BasicTextField(
-            value = text,
-            onValueChange = onTextChange,
-            modifier = Modifier
-                .weight(1f)
-                .padding(vertical = 10.dp),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = if (dark) Color(0xFFECEEF2) else Color(0xFF13161B)
-            ),
-            cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFF3E7BFA)),
-            maxLines = 4,
-            decorationBox = { innerTextField ->
-                if (text.isEmpty()) {
-                    Text(
-                        "Mesaj yazın...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (dark) Color(0xFF6B737D) else Color(0xFF8A929C)
-                    )
-                }
-                innerTextField()
-            }
-        )
-
-        Spacer(modifier = Modifier.width(6.dp))
-
-        // "1" tek gosterimlik toggle — sadece metin yazilirken anlamli
-        val inactiveBorder = if (dark) Color.White.copy(alpha = 0.25f) else Color(0xFF13161B).copy(alpha = 0.25f)
-        val inactiveText = if (dark) Color.White.copy(alpha = 0.7f) else Color(0xFF5D6570)
-        val inactiveBg = if (dark) Color.White.copy(alpha = 0.06f) else Color(0xFF13161B).copy(alpha = 0.04f)
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isViewOnce) Color(0xFF3E7BFA).copy(alpha = 0.18f)
-                    else inactiveBg
-                )
-                .border(
-                    width = 1.5.dp,
-                    color = if (isViewOnce) Color(0xFF3E7BFA) else inactiveBorder,
-                    shape = CircleShape
-                )
-                .clickable { isViewOnce = !isViewOnce },
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "1",
-                color = if (isViewOnce) Color(0xFF3E7BFA) else inactiveText,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Spacer(modifier = Modifier.width(6.dp))
-
-        // Gonder butonu — azure daire
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(if (text.isNotBlank()) Color(0xFF3E7BFA) else Color(0xFF3E7BFA).copy(alpha = 0.5f))
-                .clickable {
-                    if (text.isNotBlank()) {
-                        val vo = isViewOnce
-                        // Bilincli karar — gonderim sonrasi otomatik sifirla
-                        isViewOnce = false
-                        onSend(vo)
-                    }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.Send,
-                contentDescription = "Gönder",
-                tint = Color.White,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-}
+// Faz 8: MessageInputBar -> ui/screen/chat/MessageInputBar.kt
 
 /**
  * Ataşman menü seçenek butonu.
