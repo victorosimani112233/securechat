@@ -150,7 +150,24 @@ class ConnectionManager(
 
     // --- Mesaj Yonlendirme ---
 
+    /**
+     * Routing'e izin verilmeyen sentinel ID'ler. Bunlar kullanici degil, protokol
+     * placeholder'lari:
+     *   - "SYSTEM": grup olaylari icin synthetic sender; client bunlara READ receipt
+     *     yolladiginda yanlislikla offline_queue:SYSTEM olusuyordu (cop birikimi).
+     *   - "server": istemcinin sunucuya yonlendirdigi mesajlarda kullanilir (presence
+     *     subscribe vs.); recipient olarak gelmesi anlamsiz.
+     *   - "broadcast": eskiden tum kullanicilara fanout icin kullaniliyordu, DoS
+     *     amplification riski yuzunden disable edildi.
+     */
+    private val sentinelRecipients = setOf("SYSTEM", "server", "broadcast")
+
     suspend fun routeMessage(senderId: String, recipientId: String, messageJson: String) {
+        // Sentinel ID'ler asla route edilmez, offline queue'ya da girmez — drop + log.
+        if (recipientId in sentinelRecipients) {
+            log.debug("[X] Sentinel recipient drop: $senderId -> $recipientId")
+            return
+        }
         val recipientSession = connections[recipientId]
         if (recipientSession != null) {
             try {
@@ -467,6 +484,11 @@ class ConnectionManager(
     }
 
     private fun queueAndNotify(senderId: String, recipientId: String, messageJson: String) {
+        // Defense in depth: sentinel ID'ler hicbir kosulda queue'lanmaz.
+        // routeMessage zaten erken filtreliyor ama group fanout / direct call'lar da
+        // queueAndNotify'a girebilir; burayi da kapatiyoruz.
+        if (recipientId in sentinelRecipients) return
+
         val messageType = fcmPushSender?.extractMessageType(messageJson)
         val transientTypes = setOf("typing_indicator", "presence_update", "presence_subscribe", "presence_unsubscribe", "audio_data", "video_data")
         if (messageType in transientTypes) return
