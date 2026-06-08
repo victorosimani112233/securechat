@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -79,6 +80,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import android.content.Intent
+import com.securechat.app.R
 import com.securechat.app.ui.components.COUNTRY_CODES
 import com.securechat.app.ui.components.CountryCodePicker
 import com.securechat.app.ui.components.GlassDialog
@@ -109,6 +111,8 @@ fun CreateGroupScreen(
     val phoneNotFound by viewModel.phoneNotFound.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
+    // Composable-disi (Intent.createChooser) cagrida kullanmak icin tek seferlik resolve.
+    val inviteChooserTitle = stringResource(R.string.invite_chooser_title)
     // Telefon input panelinin aciklik durumu saveable — rotation'da kapanmasin.
     var showPhoneInput by rememberSaveable { mutableStateOf(false) }
     // CountryCode data class Parcelable degil; bunun yerine seçili kod ID'sini
@@ -142,7 +146,7 @@ fun CreateGroupScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            "Yeni Grup",
+                            text = stringResource(R.string.create_group_title),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     },
@@ -150,7 +154,7 @@ fun CreateGroupScreen(
                         IconButton(onClick = onBackClick) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Geri",
+                                contentDescription = stringResource(R.string.nav_back),
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -170,7 +174,10 @@ fun CreateGroupScreen(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = Color.White
                     ) {
-                        Text("Oluştur", modifier = Modifier.padding(horizontal = 16.dp))
+                        Text(
+                            text = stringResource(R.string.create_group_action),
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                     }
                 }
             },
@@ -188,7 +195,7 @@ fun CreateGroupScreen(
                 OutlinedTextField(
                     value = groupName,
                     onValueChange = { if (it.length <= 50) viewModel.onGroupNameChanged(it) },
-                    label = { Text("Grup Ad\u0131") },
+                    label = { Text(stringResource(R.string.group_name)) },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Done
@@ -226,7 +233,7 @@ fun CreateGroupScreen(
                 // Seçili üyelerin chip listesi
                 if (selectedMembers.isNotEmpty()) {
                     Text(
-                        text = "Seçili Üyeler (${selectedMembers.size})",
+                        text = stringResource(R.string.create_group_selected_members, selectedMembers.size),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -251,7 +258,7 @@ fun CreateGroupScreen(
                                 trailingIcon = {
                                     Icon(
                                         Icons.Default.Close,
-                                        contentDescription = "Çıkar",
+                                        contentDescription = stringResource(R.string.cd_remove),
                                         modifier = Modifier.padding(start = 4.dp),
                                         tint = MaterialTheme.colorScheme.primary
                                     )
@@ -290,7 +297,7 @@ fun CreateGroupScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            "Numara ile Ekle",
+                            text = stringResource(R.string.create_group_add_by_phone),
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -354,7 +361,7 @@ fun CreateGroupScreen(
                             } else {
                                 Icon(
                                     Icons.Default.PersonAdd,
-                                    contentDescription = "Ekle",
+                                    contentDescription = stringResource(R.string.cd_add),
                                     tint = if (phoneInput.isNotBlank()) MaterialTheme.colorScheme.primary
                                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                 )
@@ -380,7 +387,7 @@ fun CreateGroupScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                "Kullanıcı Bulunamadı",
+                                text = stringResource(R.string.create_group_user_not_found),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -403,7 +410,9 @@ fun CreateGroupScreen(
                                             "Elçim uygulamasını indir, güvenli bir şekilde mesajlaşalım! https://elcim.app"
                                         )
                                     }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Davet gönder"))
+                                    context.startActivity(
+                                        Intent.createChooser(shareIntent, inviteChooserTitle)
+                                    )
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary,
@@ -414,11 +423,11 @@ fun CreateGroupScreen(
                             ) {
                                 Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Davet Gönder")
+                                Text(stringResource(R.string.create_group_send_invite))
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             TextButton(onClick = { viewModel.consumePhoneNotFound() }) {
-                                Text("Kapat")
+                                Text(stringResource(R.string.create_group_close))
                             }
                         }
                     }
@@ -426,7 +435,7 @@ fun CreateGroupScreen(
 
                 // Rehber listesi
                 Text(
-                    text = "Kayıtlı Kişiler",
+                    text = stringResource(R.string.create_group_registered_contacts),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -437,11 +446,11 @@ fun CreateGroupScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { viewModel.onSearchQueryChanged(it) },
-                    placeholder = { Text("Kişi ara...") },
+                    placeholder = { Text(stringResource(R.string.create_group_search_placeholder)) },
                     leadingIcon = {
                         Icon(
                             Icons.Default.Search,
-                            contentDescription = "Ara",
+                            contentDescription = stringResource(R.string.cd_search),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
@@ -450,7 +459,7 @@ fun CreateGroupScreen(
                             IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
                                 Icon(
                                     Icons.Default.Close,
-                                    contentDescription = "Temizle",
+                                    contentDescription = stringResource(R.string.cd_clear),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }

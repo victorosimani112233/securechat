@@ -7,7 +7,7 @@
     <string name="group_settings">Grup Ayarları</string>
     <string name="add_member">Üye Ekle</string>
     <string name="members_count">Üyeler (%1$d)</string>
-    <string name="loading">Yükleniyor...</string>
+    <string name="loading">Yükleniyor…</string>
     <string name="admin">Admin</string>
     <string name="you">Sen</string>
     <string name="remove_member">Üyeyi Çıkar</string>
@@ -27,4 +27,85 @@
 
     <!-- Chat Screen -->
     <string name="view_info">Bilgileri Gör</string>
+
+    <!-- Sprint 1: Phone verification screen -->
+    <string name="onboarding_subtitle">Güvenli mesajlaşma</string>
+    <string name="onboarding_e2ee_notice">Mesajlarınız uçtan uca şifrelenir. Kimse okuyamaz.</string>
+    <string name="register_title">Kayıt Ol</string>
+    <string name="register_subtitle">Bilgilerinizi girerek başlayabilirsiniz.</string>
+    <string name="register_name_label">Adınız</string>
+    <string name="register_name_placeholder">Örneğin: Ahmet Yılmaz</string>
+    <string name="register_country_code_label">Kod</string>
+    <string name="register_phone_label">Telefon Numarası</string>
+    <string name="register_phone_placeholder">5XX XXX XX XX</string>
+    <string name="register_start">Başla</string>
+    <string name="contacts_permission_title">Rehber Erişimi Gerekli</string>
+    <string name="contacts_permission_body">Rehber erişimi uygulamanın temel işlevleri için gereklidir. Kişilerinizi bulabilmek ve güvenli mesajlaşma başlatabilmek için lütfen rehber erişim iznini verin.</string>
+    <string name="action_retry">Tekrar Dene</string>
+
+    <!-- Validation messages (PhoneFormValidation -> UI mapping) -->
+    <string name="validation_name_empty">Adınızı giriniz</string>
+    <string name="validation_name_too_short">En az %1$d karakter</string>
+    <string name="validation_name_too_long">En fazla %1$d karakter</string>
+    <string name="validation_name_invalid_chars">Yalnızca harf, boşluk, tire ve kesme işareti</string>
+    <string name="validation_country_code_empty">Ülke kodu boş</string>
+    <string name="validation_country_code_missing_plus">+ ile başlamalı</string>
+    <string name="validation_country_code_non_digit">Yalnızca rakam</string>
+    <string name="validation_country_code_too_short">En az 1 hane</string>
+    <string name="validation_country_code_too_long">En fazla 4 hane</string>
+    <string name="validation_phone_empty">Telefon numaranızı giriniz</string>
+    <string name="validation_phone_too_short">10 hane gerekli</string>
+    <string name="validation_phone_too_long">Sadece 10 hane</string>
+    <string name="validation_phone_non_digit">Yalnızca rakam</string>
+
+    <!-- Sprint 1: OTP verification screen -->
+    <string name="otp_title">Doğrulama</string>
+    <string name="otp_section_title">Doğrulama Kodu</string>
+    <string name="otp_description">%1$s numarasına gönderilen\n6 haneli doğrulama kodunu girin</string>
+    <string name="otp_incomplete_error">Lütfen 6 haneli kodu tamamen girin</string>
+    <string name="otp_resend">Kodu Tekrar Gönder</string>
+    <string name="otp_resend_countdown">Kodu tekrar gönder: %1$ds</string>
+    <string name="otp_verify">Doğrula</string>
+    <string name="backup_prompt_title">Mevcut bir yedeğiniz var mı?</string>
+    <string name="backup_prompt_body">Daha önce şifreli bir yedek oluşturduysanız, sohbetlerinizi geri yükleyebilirsiniz.</string>
+    <string name="backup_prompt_yes">Evet, yedeği geri yükle</string>
+    <string name="backup_prompt_no">Hayır, yeni başla</string>
+    <string name="nav_back">Geri</string>
+
+    <!-- Sprint 1: Email OTP screen -->
+    <string name="email_otp_title">E-posta Doğrulama</string>
+    <string name="email_otp_step_email">E-posta Adresiniz</string>
+    <string name="email_otp_step_code">Doğrulama Kodu</string>
+    <string name="email_otp_description_email">Hesabınızı doğrulamak için e-posta adresinizi girin. Kodu e-postanıza göndereceğiz.</string>
+    <string name="email_otp_description_code">%1$s adresine gönderilen 6 haneli kodu girin.</string>
+    <string name="email_otp_email_label">E-posta</string>
+    <string name="email_otp_code_label">6 Haneli Kod</string>
+    <string name="email_otp_send">Kod Gönder</string>
+    <string name="email_otp_change_email">Farklı e-posta kullan</string>
+    <string name="email_otp_dev_skip">Geliştirme Modu — Atla</string>
+    <string name="email_otp_invalid_email">Geçerli bir e-posta girin</string>
+    <string name="email_otp_sent">Kod e-postanıza gönderildi</string>
+    <string name="email_otp_smtp_disabled">Sunucuda e-posta servisi yapılandırılmamış. Lütfen yöneticiyle iletişime geçin veya geliştirme modunda \'Atla\' butonunu kullanın.</string>
+    <string name="email_otp_rate_limited">Çok fazla deneme. Lütfen birkaç dakika bekleyin.</string>
+    <string name="email_otp_send_error">Kod gönderilemedi: %1$s</string>
+    <string name="email_otp_verify_failed">Kod hatalı veya süresi dolmuş</string>
+    <string name="email_otp_incomplete">6 haneli kodu eksiksiz girin</string>
+
+    <!-- Sprint 1: Create group screen -->
+    <string name="create_group_title">Yeni Grup</string>
+    <string name="create_group_action">Oluştur</string>
+    <string name="create_group_selected_members">Seçili Üyeler (%1$d)</string>
+    <string name="create_group_add_by_phone">Numara ile Ekle</string>
+    <string name="create_group_user_not_found">Kullanıcı Bulunamadı</string>
+    <string name="create_group_send_invite">Davet Gönder</string>
+    <string name="create_group_close">Kapat</string>
+    <string name="create_group_registered_contacts">Kayıtlı Kişiler</string>
+    <string name="create_group_search_placeholder">Kişi ara…</string>
+    <string name="invite_chooser_title">Davet gönder</string>
+
+    <!-- Generic / a11y -->
+    <string name="cd_remove">Çıkar</string>
+    <string name="cd_search">Ara</string>
+    <string name="cd_clear">Temizle</string>
+    <string name="cd_add">Ekle</string>
 </resources>

@@ -52,6 +52,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -81,6 +82,9 @@ fun OtpVerificationScreen(
     onBackupRestore: (() -> Unit)? = null,
     onBackClick: () -> Unit = {}
 ) {
+    // Lokalize string'leri Composable scope'ta tek seferlik resolve et — onValueChange
+    // gibi non-composable lambda'larda yine kullanilabilsin.
+    val otpIncompleteText = stringResource(R.string.otp_incomplete_error)
     // Form girdileri + UI ilerleme + dialog flag = rememberSaveable.
     // isLoading saveable degil — devam eden coroutine rotation'i restart eder,
     // spinner'i kalintidan tasimak yaniltici (gercek istek devam etmiyor olabilir).
@@ -107,23 +111,14 @@ fun OtpVerificationScreen(
                 showBackupPrompt = false
                 onVerified()
             },
-            title = { Text("Mevcut bir yedeginiz var mi?") },
-            text = {
-                Text(
-                    "Daha once sifreli bir yedek olusturduysaniz, sohbetlerinizi geri yukleyebilirsiniz."
-                )
-            },
+            title = { Text(stringResource(R.string.backup_prompt_title)) },
+            text = { Text(stringResource(R.string.backup_prompt_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     showBackupPrompt = false
-                    // Yedek geri yukleme akisina yonlendir
-                    if (onBackupRestore != null) {
-                        onBackupRestore()
-                    } else {
-                        onVerified()
-                    }
+                    if (onBackupRestore != null) onBackupRestore() else onVerified()
                 }) {
-                    Text("Evet, yedegi geri yukle", color = MaterialTheme.azure.azure)
+                    Text(stringResource(R.string.backup_prompt_yes), color = MaterialTheme.azure.azure)
                 }
             },
             dismissButton = {
@@ -131,7 +126,7 @@ fun OtpVerificationScreen(
                     showBackupPrompt = false
                     onVerified()
                 }) {
-                    Text("Hayir, yeni basla")
+                    Text(stringResource(R.string.backup_prompt_no))
                 }
             }
         )
@@ -145,12 +140,12 @@ fun OtpVerificationScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Dogrulama") },
+                title = { Text(stringResource(R.string.otp_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Geri",
+                            contentDescription = stringResource(R.string.nav_back),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -202,7 +197,7 @@ fun OtpVerificationScreen(
 
             // Başlık
             Text(
-                text = "Doğrulama Kodu",
+                text = stringResource(R.string.otp_section_title),
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold
@@ -212,7 +207,7 @@ fun OtpVerificationScreen(
 
             // Açıklama
             Text(
-                text = "$phoneNumber numarasına gönderilen\n6 haneli doğrulama kodunu girin",
+                text = stringResource(R.string.otp_description, phoneNumber),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -249,7 +244,7 @@ fun OtpVerificationScreen(
                         isLoading = false
                         showBackupPrompt = true
                     } else {
-                        errorMessage = "Lütfen 6 haneli kodu tamamen girin"
+                        errorMessage = otpIncompleteText
                     }
                 }
             )
@@ -288,14 +283,14 @@ fun OtpVerificationScreen(
                     }
                 ) {
                     Text(
-                        "Kodu Tekrar Gönder",
+                        text = stringResource(R.string.otp_resend),
                         color = MaterialTheme.azure.azure,
                         fontWeight = FontWeight.Medium
                     )
                 }
             } else {
                 Text(
-                    text = "Kodu tekrar gönder: ${countdown}s",
+                    text = stringResource(R.string.otp_resend_countdown, countdown),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -313,7 +308,7 @@ fun OtpVerificationScreen(
                         // Yedek prompt'unu goster
                         showBackupPrompt = true
                     } else {
-                        errorMessage = "Lutfen 6 haneli kodu tamamen girin"
+                        errorMessage = otpIncompleteText
                     }
                 },
                 modifier = Modifier
@@ -327,7 +322,7 @@ fun OtpVerificationScreen(
                 shape = RoundedCornerShape(100.dp)
             ) {
                 Text(
-                    "Doğrula",
+                    text = stringResource(R.string.otp_verify),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )

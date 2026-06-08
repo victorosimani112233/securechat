@@ -52,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -165,28 +166,33 @@ fun PhoneVerificationScreen(
         }
     }
 
-    /** Validasyon hata mesajlari — UI label haritalama. Kullanici dostu metinler. */
+    /** Validasyon hata mesajlari — strings.xml uzerinden lokalize. */
+    @Composable
     fun nameErrorMessage(e: PhoneFormValidation.NameError?): String? = when (e) {
         null -> null
-        PhoneFormValidation.NameError.Empty -> "Adınızı giriniz"
-        PhoneFormValidation.NameError.TooShort -> "En az ${PhoneFormValidation.MIN_NAME_LENGTH} karakter"
-        PhoneFormValidation.NameError.TooLong -> "En fazla ${PhoneFormValidation.MAX_NAME_LENGTH} karakter"
-        PhoneFormValidation.NameError.InvalidChars -> "Yalnızca harf, boşluk, tire ve kesme işareti"
+        PhoneFormValidation.NameError.Empty -> stringResource(R.string.validation_name_empty)
+        PhoneFormValidation.NameError.TooShort ->
+            stringResource(R.string.validation_name_too_short, PhoneFormValidation.MIN_NAME_LENGTH)
+        PhoneFormValidation.NameError.TooLong ->
+            stringResource(R.string.validation_name_too_long, PhoneFormValidation.MAX_NAME_LENGTH)
+        PhoneFormValidation.NameError.InvalidChars -> stringResource(R.string.validation_name_invalid_chars)
     }
+    @Composable
     fun countryCodeErrorMessage(e: PhoneFormValidation.CountryCodeError?): String? = when (e) {
         null -> null
-        PhoneFormValidation.CountryCodeError.Empty -> "Ülke kodu boş"
-        PhoneFormValidation.CountryCodeError.MissingPlus -> "+ ile başlamalı"
-        PhoneFormValidation.CountryCodeError.NonDigit -> "Yalnızca rakam"
-        PhoneFormValidation.CountryCodeError.TooShort -> "En az 1 hane"
-        PhoneFormValidation.CountryCodeError.TooLong -> "En fazla 4 hane"
+        PhoneFormValidation.CountryCodeError.Empty -> stringResource(R.string.validation_country_code_empty)
+        PhoneFormValidation.CountryCodeError.MissingPlus -> stringResource(R.string.validation_country_code_missing_plus)
+        PhoneFormValidation.CountryCodeError.NonDigit -> stringResource(R.string.validation_country_code_non_digit)
+        PhoneFormValidation.CountryCodeError.TooShort -> stringResource(R.string.validation_country_code_too_short)
+        PhoneFormValidation.CountryCodeError.TooLong -> stringResource(R.string.validation_country_code_too_long)
     }
+    @Composable
     fun phoneErrorMessage(e: PhoneFormValidation.PhoneError?): String? = when (e) {
         null -> null
-        PhoneFormValidation.PhoneError.Empty -> "Telefon numaranızı giriniz"
-        PhoneFormValidation.PhoneError.TooShort -> "10 hane gerekli"
-        PhoneFormValidation.PhoneError.TooLong -> "Sadece 10 hane"
-        PhoneFormValidation.PhoneError.NonDigit -> "Yalnızca rakam"
+        PhoneFormValidation.PhoneError.Empty -> stringResource(R.string.validation_phone_empty)
+        PhoneFormValidation.PhoneError.TooShort -> stringResource(R.string.validation_phone_too_short)
+        PhoneFormValidation.PhoneError.TooLong -> stringResource(R.string.validation_phone_too_long)
+        PhoneFormValidation.PhoneError.NonDigit -> stringResource(R.string.validation_phone_non_digit)
     }
 
     /** Kullanici adi icin tehlikeli karakterleri temizle. */
@@ -265,26 +271,19 @@ fun PhoneVerificationScreen(
     if (showContactsPermissionDialog) {
         AlertDialog(
             onDismissRequest = { showContactsPermissionDialog = false },
-            title = { Text("Rehber Erisimi Gerekli") },
-            text = {
-                Text(
-                    "Rehber erisimi uygulamanin temel islevleri icin gereklidir. " +
-                    "Kisilarinizi bulabilmek ve guvenli mesajlasma baslatabilmek icin " +
-                    "lutfen rehber erisim iznini verin."
-                )
-            },
+            title = { Text(stringResource(R.string.contacts_permission_title)) },
+            text = { Text(stringResource(R.string.contacts_permission_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     showContactsPermissionDialog = false
-                    // Izinleri tekrar iste
                     permissionLauncher.launch(requiredPermissions)
                 }) {
-                    Text("Tekrar Dene")
+                    Text(stringResource(R.string.action_retry))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showContactsPermissionDialog = false }) {
-                    Text("Iptal")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -323,7 +322,7 @@ fun PhoneVerificationScreen(
 
             // Uygulama adı
             Text(
-                text = "ELÇİM",
+                text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.headlineLarge,
                 color = MaterialTheme.azure.azure,
                 fontWeight = FontWeight.Bold
@@ -333,7 +332,7 @@ fun PhoneVerificationScreen(
 
             // Alt başlık
             Text(
-                text = "Güvenli mesajlaşma",
+                text = stringResource(R.string.onboarding_subtitle),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -354,7 +353,7 @@ fun PhoneVerificationScreen(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Mesajlarınız uçtan uca şifrelenir. Kimse okuyamaz.",
+                    text = stringResource(R.string.onboarding_e2ee_notice),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -377,7 +376,7 @@ fun PhoneVerificationScreen(
                 ) {
                     // Kayıt başlığı
                     Text(
-                        text = "Kayıt Ol",
+                        text = stringResource(R.string.register_title),
                         style = MaterialTheme.typography.titleLarge,
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -387,7 +386,7 @@ fun PhoneVerificationScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Bilgilerinizi girerek başlayabilirsiniz.",
+                        text = stringResource(R.string.register_subtitle),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -400,10 +399,10 @@ fun PhoneVerificationScreen(
                     OutlinedTextField(
                         value = displayName,
                         onValueChange = { displayName = it },
-                        label = { Text("Adınız") },
+                        label = { Text(stringResource(R.string.register_name_label)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        placeholder = { Text("Örneğin: Ahmet Yılmaz") },
+                        placeholder = { Text(stringResource(R.string.register_name_placeholder)) },
                         shape = RoundedCornerShape(12.dp),
                         isError = showNameError,
                         supportingText = if (showNameError) {
@@ -434,7 +433,7 @@ fun PhoneVerificationScreen(
                         OutlinedTextField(
                             value = countryCode,
                             onValueChange = { countryCode = it },
-                            label = { Text("Kod") },
+                            label = { Text(stringResource(R.string.register_country_code_label)) },
                             modifier = Modifier.width(90.dp),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Phone,
@@ -460,7 +459,7 @@ fun PhoneVerificationScreen(
                         OutlinedTextField(
                             value = phoneNumber,
                             onValueChange = { phoneNumber = it.filter { c -> c.isDigit() }.take(10) },
-                            label = { Text("Telefon Numarası") },
+                            label = { Text(stringResource(R.string.register_phone_label)) },
                             modifier = Modifier.weight(1f),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Phone,
@@ -475,7 +474,7 @@ fun PhoneVerificationScreen(
                             ),
                             visualTransformation = com.securechat.app.util.PhoneVisualTransformation(),
                             singleLine = true,
-                            placeholder = { Text("5XX XXX XX XX") },
+                            placeholder = { Text(stringResource(R.string.register_phone_placeholder)) },
                             shape = RoundedCornerShape(12.dp),
                             isError = showPhoneError,
                             supportingText = if (showPhoneError) {
@@ -522,7 +521,7 @@ fun PhoneVerificationScreen(
                 )
             ) {
                 Text(
-                    "Başla",
+                    text = stringResource(R.string.register_start),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )

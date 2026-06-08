@@ -28,4 +28,85 @@
 
     <!-- Chat Screen -->
     <string name="view_info">View Info</string>
+
+    <!-- Sprint 1: Phone verification screen -->
+    <string name="onboarding_subtitle">Secure messaging</string>
+    <string name="onboarding_e2ee_notice">Your messages are end-to-end encrypted. No one can read them.</string>
+    <string name="register_title">Sign Up</string>
+    <string name="register_subtitle">Enter your details to get started.</string>
+    <string name="register_name_label">Your name</string>
+    <string name="register_name_placeholder">e.g. John Smith</string>
+    <string name="register_country_code_label">Code</string>
+    <string name="register_phone_label">Phone number</string>
+    <string name="register_phone_placeholder">5XX XXX XX XX</string>
+    <string name="register_start">Start</string>
+    <string name="contacts_permission_title">Contacts Access Required</string>
+    <string name="contacts_permission_body">Contacts access is required for the app to work. Please grant the contacts permission so we can find your contacts and enable secure messaging.</string>
+    <string name="action_retry">Try Again</string>
+
+    <!-- Validation messages -->
+    <string name="validation_name_empty">Enter your name</string>
+    <string name="validation_name_too_short">At least %1$d characters</string>
+    <string name="validation_name_too_long">At most %1$d characters</string>
+    <string name="validation_name_invalid_chars">Letters, spaces, hyphens and apostrophes only</string>
+    <string name="validation_country_code_empty">Country code empty</string>
+    <string name="validation_country_code_missing_plus">Must start with +</string>
+    <string name="validation_country_code_non_digit">Digits only</string>
+    <string name="validation_country_code_too_short">At least 1 digit</string>
+    <string name="validation_country_code_too_long">At most 4 digits</string>
+    <string name="validation_phone_empty">Enter your phone number</string>
+    <string name="validation_phone_too_short">10 digits required</string>
+    <string name="validation_phone_too_long">10 digits only</string>
+    <string name="validation_phone_non_digit">Digits only</string>
+
+    <!-- Sprint 1: OTP verification screen -->
+    <string name="otp_title">Verification</string>
+    <string name="otp_section_title">Verification Code</string>
+    <string name="otp_description">Enter the 6-digit code sent\nto %1$s</string>
+    <string name="otp_incomplete_error">Please enter all 6 digits</string>
+    <string name="otp_resend">Resend Code</string>
+    <string name="otp_resend_countdown">Resend code: %1$ds</string>
+    <string name="otp_verify">Verify</string>
+    <string name="backup_prompt_title">Do you have an existing backup?</string>
+    <string name="backup_prompt_body">If you previously created an encrypted backup, you can restore your chats.</string>
+    <string name="backup_prompt_yes">Yes, restore backup</string>
+    <string name="backup_prompt_no">No, start fresh</string>
+    <string name="nav_back">Back</string>
+
+    <!-- Sprint 1: Email OTP screen -->
+    <string name="email_otp_title">Email Verification</string>
+    <string name="email_otp_step_email">Your email address</string>
+    <string name="email_otp_step_code">Verification code</string>
+    <string name="email_otp_description_email">Enter your email address to verify your account. We will send the code to your email.</string>
+    <string name="email_otp_description_code">Enter the 6-digit code sent to %1$s.</string>
+    <string name="email_otp_email_label">Email</string>
+    <string name="email_otp_code_label">6-digit code</string>
+    <string name="email_otp_send">Send Code</string>
+    <string name="email_otp_change_email">Use a different email</string>
+    <string name="email_otp_dev_skip">Development Mode — Skip</string>
+    <string name="email_otp_invalid_email">Enter a valid email</string>
+    <string name="email_otp_sent">Code sent to your email</string>
+    <string name="email_otp_smtp_disabled">Email service is not configured on the server. Please contact your administrator or use \'Skip\' in development mode.</string>
+    <string name="email_otp_rate_limited">Too many attempts. Please wait a few minutes.</string>
+    <string name="email_otp_send_error">Failed to send code: %1$s</string>
+    <string name="email_otp_verify_failed">Code invalid or expired</string>
+    <string name="email_otp_incomplete">Enter all 6 digits</string>
+
+    <!-- Sprint 1: Create group screen -->
+    <string name="create_group_title">New Group</string>
+    <string name="create_group_action">Create</string>
+    <string name="create_group_selected_members">Selected Members (%1$d)</string>
+    <string name="create_group_add_by_phone">Add by Number</string>
+    <string name="create_group_user_not_found">User Not Found</string>
+    <string name="create_group_send_invite">Send Invite</string>
+    <string name="create_group_close">Close</string>
+    <string name="create_group_registered_contacts">Registered Contacts</string>
+    <string name="create_group_search_placeholder">Search contacts…</string>
+    <string name="invite_chooser_title">Send invitation</string>
+
+    <!-- Generic / a11y -->
+    <string name="cd_remove">Remove</string>
+    <string name="cd_search">Search</string>
+    <string name="cd_clear">Clear</string>
+    <string name="cd_add">Add</string>
 </resources>

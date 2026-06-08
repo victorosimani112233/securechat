@@ -19,12 +19,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.securechat.app.R
 import com.securechat.app.ui.theme.AzureDoodleBackdrop
 import com.securechat.app.ui.theme.LocalDarkTheme
 
@@ -32,8 +34,8 @@ import com.securechat.app.ui.theme.LocalDarkTheme
  * E-posta OTP doğrulama ekranı.
  *
  * Akış:
- *   1. Kullanıcı e-posta girer → "Kod Gönder" → /otp/request
- *   2. 6-haneli OTP girer → "Doğrula" → /otp/verify → registrationToken
+ *   1. Kullanıcı e-posta girer → [email_otp_send] → /otp/request
+ *   2. 6-haneli OTP girer → [otp_verify] → /otp/verify → registrationToken
  *   3. registrationToken üst seviyeye iletilir (register akışında kullanılır)
  *
  * SMTP yapılandırılmamışsa /otp/request 503 döner — UI bunu gösterir ve
@@ -61,6 +63,16 @@ fun EmailOtpScreen(
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    // Lokalize string'leri Composable scope'ta tek seferlik resolve et — submit
+    // lambda'sindan kullanilabilsin (onClick non-composable).
+    val invalidEmailMsg = stringResource(R.string.email_otp_invalid_email)
+    val sentMsg = stringResource(R.string.email_otp_sent)
+    val smtpDisabledMsg = stringResource(R.string.email_otp_smtp_disabled)
+    val rateLimitedMsg = stringResource(R.string.email_otp_rate_limited)
+    val sendErrorTemplate = stringResource(R.string.email_otp_send_error)
+    val verifyFailedMsg = stringResource(R.string.email_otp_verify_failed)
+    val incompleteMsg = stringResource(R.string.email_otp_incomplete)
+
     /**
      * Submit aksiyonu — Button'un onClick'inin ic mantigini tekrar kullanmak icin
      * cikarildi. Hem buton tikinda hem klavyenin Done aksiyonunda cagrilir.
@@ -70,7 +82,7 @@ fun EmailOtpScreen(
         keyboardController?.hide()
         if (step == 1) {
             if (!email.matches(Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"))) {
-                error = "Geçerli bir e-posta girin"
+                error = invalidEmailMsg
                 return
             }
             loading = true
@@ -81,23 +93,23 @@ fun EmailOtpScreen(
                 when (result) {
                     OtpApiClient.OtpResult.Sent -> {
                         step = 2
-                        info = "Kod e-postanıza gönderildi"
+                        info = sentMsg
                     }
                     OtpApiClient.OtpResult.SmtpDisabled -> {
                         smtpDisabled = true
-                        error = "Sunucuda e-posta servisi yapılandırılmamış. Lütfen yöneticiyle iletişime geçin veya geliştirme modunda 'Atla' butonunu kullanın."
+                        error = smtpDisabledMsg
                     }
                     OtpApiClient.OtpResult.RateLimited -> {
-                        error = "Çok fazla deneme. Lütfen birkaç dakika bekleyin."
+                        error = rateLimitedMsg
                     }
                     is OtpApiClient.OtpResult.Error -> {
-                        error = "Kod gönderilemedi: ${result.message}"
+                        error = sendErrorTemplate.format(result.message)
                     }
                 }
             }
         } else {
             if (otpCode.length != 6) {
-                error = "6 haneli kodu eksiksiz girin"
+                error = incompleteMsg
                 return
             }
             loading = true
@@ -108,7 +120,7 @@ fun EmailOtpScreen(
                 if (token != null) {
                     onVerified(token)
                 } else {
-                    error = "Kod hatalı veya süresi dolmuş"
+                    error = verifyFailedMsg
                     otpCode = ""
                 }
             }
@@ -118,10 +130,10 @@ fun EmailOtpScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("E-posta Doğrulama", fontWeight = FontWeight.SemiBold) },
+                title = { Text(stringResource(R.string.email_otp_title), fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.nav_back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -153,7 +165,10 @@ fun EmailOtpScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = if (step == 1) "E-posta Adresiniz" else "Doğrulama Kodu",
+                    text = if (step == 1)
+                        stringResource(R.string.email_otp_step_email)
+                    else
+                        stringResource(R.string.email_otp_step_code),
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
@@ -163,9 +178,9 @@ fun EmailOtpScreen(
 
                 Text(
                     text = if (step == 1)
-                        "Hesabınızı doğrulamak için e-posta adresinizi girin. Kodu e-postanıza göndereceğiz."
+                        stringResource(R.string.email_otp_description_email)
                     else
-                        "$email adresine gönderilen 6 haneli kodu girin.",
+                        stringResource(R.string.email_otp_description_code, email),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -177,7 +192,7 @@ fun EmailOtpScreen(
                     OutlinedTextField(
                         value = email,
                         onValueChange = { email = it.trim(); error = null },
-                        label = { Text("E-posta") },
+                        label = { Text(stringResource(R.string.email_otp_email_label)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Email,
@@ -198,7 +213,7 @@ fun EmailOtpScreen(
                                 otpCode = it; error = null
                             }
                         },
-                        label = { Text("6 Haneli Kod") },
+                        label = { Text(stringResource(R.string.email_otp_code_label)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Number,
@@ -240,7 +255,10 @@ fun EmailOtpScreen(
                         )
                     } else {
                         Text(
-                            text = if (step == 1) "Kod Gönder" else "Doğrula",
+                            text = if (step == 1)
+                                stringResource(R.string.email_otp_send)
+                            else
+                                stringResource(R.string.otp_verify),
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -256,7 +274,7 @@ fun EmailOtpScreen(
                             error = null
                             info = null
                         }
-                    ) { Text("Farklı e-posta kullan") }
+                    ) { Text(stringResource(R.string.email_otp_change_email)) }
                 }
 
                 if (smtpDisabled) {
@@ -264,7 +282,7 @@ fun EmailOtpScreen(
                     OutlinedButton(
                         onClick = onSkip,
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("Geliştirme Modu — Atla") }
+                    ) { Text(stringResource(R.string.email_otp_dev_skip)) }
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
