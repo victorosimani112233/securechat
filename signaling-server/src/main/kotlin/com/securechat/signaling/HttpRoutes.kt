@@ -172,6 +172,25 @@ fun Application.configureRoutes(
             )
         }
 
+        // Mevcut prod APK versiyon bilgisi — client "guncelleme var mi" kontrolu icin.
+        // Default'lar boş (env yoksa "guncel" yaniti) — server admin LATEST_APK_VERSION_CODE
+        // ve LATEST_APK_VERSION_NAME env'lerini set ederek production'da gercek deger doner.
+        // Manuel APK dagitimi icin Settings > Hakkinda ekraninda "Guncelleme var" rozeti
+        // bu endpoint'e bakar.
+        get("/api/v1/latest-version") {
+            val versionCode = System.getenv("LATEST_APK_VERSION_CODE")?.toIntOrNull()
+            val versionName = System.getenv("LATEST_APK_VERSION_NAME") ?: ""
+            val downloadUrl = System.getenv("LATEST_APK_DOWNLOAD_URL") ?: ""
+            call.respond(
+                mapOf(
+                    "versionCode" to (versionCode ?: 0),
+                    "versionName" to versionName,
+                    "downloadUrl" to downloadUrl,
+                    "mandatory" to (System.getenv("LATEST_APK_MANDATORY") == "true")
+                )
+            )
+        }
+
         // Kullanici kesfi API — rate limited + AUTH GEREKLI
         post("/api/v1/users/check") {
             val authedUserId = requireAuth(call) ?: return@post
