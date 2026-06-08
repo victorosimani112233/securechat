@@ -63,7 +63,10 @@ class IncomingMessageHandler @Inject constructor(
     private val messageEncryptor: com.securechat.crypto.MessageEncryptor,
     private val exportLogDao: com.securechat.storage.dao.ExportLogDao,
     private val senderKeyStore: com.securechat.crypto.SecureChatSenderKeyStore,
-    private val groupSenderKeyDistributor: com.securechat.app.crypto.GroupSenderKeyDistributor
+    private val groupSenderKeyDistributor: com.securechat.app.crypto.GroupSenderKeyDistributor,
+    // Faz 10: handler'lar — kademeli extract
+    private val deliveryReceiptHandler: com.securechat.app.data.incoming.handlers.DeliveryReceiptHandler,
+    private val typingPresenceHandler: com.securechat.app.data.incoming.handlers.TypingPresenceHandler
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -244,12 +247,12 @@ class IncomingMessageHandler @Inject constructor(
                         android.util.Log.d("IncomingHandler", "GroupNotification: ${signal.action} for group ${signal.groupId}")
                         handleGroupNotification(signal)
                     }
-                    is SignalMessage.DeliveryReceipt -> handleDeliveryReceipt(signal)
+                    is SignalMessage.DeliveryReceipt -> deliveryReceiptHandler.handle(signal)
                     is SignalMessage.MessageDelete -> handleMessageDelete(signal)
                     is SignalMessage.MessageEdit -> handleMessageEdit(signal)
                     is SignalMessage.DisappearingTimer -> handleDisappearingTimer(signal)
-                    is SignalMessage.TypingIndicator -> handleTypingIndicator(signal)
-                    is SignalMessage.PresenceUpdate -> handlePresenceUpdate(signal)
+                    is SignalMessage.TypingIndicator -> typingPresenceHandler.onTyping(signal, scope)
+                    is SignalMessage.PresenceUpdate -> typingPresenceHandler.onPresence(signal)
                     is SignalMessage.GroupCallInvite -> handleGroupCallInvite(signal)
                     is SignalMessage.GroupCallMemberJoined -> callManager.handleGroupCallMemberJoined(signal)
                     is SignalMessage.GroupCallMemberLeft -> callManager.handleGroupCallMemberLeft(signal)
@@ -1314,82 +1317,9 @@ class IncomingMessageHandler @Inject constructor(
         }
     }
 
-    /**
-     * Gelen delivery receipt'i isler.
-     * Mesaj durumunu DELIVERED veya READ olarak gunceller.
-     * Durum yalnizca ileri yonde guncellenir (DELIVERED -> READ), geri alinmaz.
-     */
-    private suspend fun handleDeliveryReceipt(receipt: SignalMessage.DeliveryReceipt) {
-        android.util.Log.d("IncomingHandler", "DeliveryReceipt: msgId=${receipt.messageId}, status=${receipt.status}")
-        val newStatus = when (receipt.status) {
-            "DELIVERED" -> MessageStatus.DELIVERED
-            "READ" -> MessageStatus.READ
-            else -> return
-        }
-        // Durum yalnizca ileri yonde guncellenir — geri alinmaz
-        // SENDING < SENT < DELIVERED < READ siralamasi korunur
-        val statusOrder = mapOf(
-            MessageStatus.SENDING to 0,
-            MessageStatus.SENT to 1,
-            MessageStatus.DELIVERED to 2,
-            MessageStatus.READ to 3,
-            MessageStatus.FAILED to -1
-        )
-        val currentMessages = messageRepository.getMessageById(receipt.messageId)
-        if (currentMessages != null) {
-            val currentOrder = statusOrder[currentMessages.status] ?: -1
-            val newOrder = statusOrder[newStatus] ?: -1
-            if (newOrder > currentOrder) {
-                messageRepository.updateMessageStatus(receipt.messageId, newStatus)
-                android.util.Log.d("IncomingHandler", "Receipt: ${currentMessages.status} -> $newStatus")
-            } else {
-                android.util.Log.d("IncomingHandler", "Receipt ignored: ${currentMessages.status} >= $newStatus")
-            }
-        } else {
-            // Mesaj bulunamadiysa yine de guncelle (race condition durumunda)
-            messageRepository.updateMessageStatus(receipt.messageId, newStatus)
-        }
-    }
+    // Faz 10: handleDeliveryReceipt -> DeliveryReceiptHandler (handlers/)
 
-    /** Typing timeout job'lari — her kullanici icin ayri. */
-    private val typingTimeoutJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
-
-    /**
-     * Yazma gostergesini isler. Karsi taraf yazmaya basladiginda/biraktiginda UI'i gunceller.
-     * 10 saniye sonra otomatik temizlenir (sinyal kaybolursa diye).
-     */
-    private fun handleTypingIndicator(signal: SignalMessage.TypingIndicator) {
-        // Onceki timeout'u iptal et
-        typingTimeoutJobs[signal.senderId]?.cancel()
-
-        val current = typingStates.value.toMutableMap()
-        if (signal.isTyping) {
-            current[signal.senderId] = true
-            typingStates.value = current
-            // Guvenlik icin 10 saniye sonra otomatik temizle
-            typingTimeoutJobs[signal.senderId] = scope.launch {
-                kotlinx.coroutines.delay(10_000)
-                val updated = typingStates.value.toMutableMap()
-                updated.remove(signal.senderId)
-                typingStates.value = updated
-            }
-        } else {
-            current.remove(signal.senderId)
-            typingStates.value = current
-        }
-    }
-
-    private fun handlePresenceUpdate(signal: SignalMessage.PresenceUpdate) {
-        val current = presenceStates.value.toMutableMap()
-        // Karsi taraf son gorulmeyi gizliyorsa lastSeen=0 olarak kaydet
-        val effectiveLastSeen = if (signal.hideLastSeen) 0L else signal.lastSeen
-        current[signal.senderId] = PresenceInfo(
-            isOnline = signal.isOnline,
-            lastSeen = effectiveLastSeen
-        )
-        presenceStates.value = current
-        android.util.Log.d("IncomingHandler", "Presence guncellendi: ${signal.senderId} online=${signal.isOnline} lastSeen=$effectiveLastSeen hideLastSeen=${signal.hideLastSeen} (toplam: ${current.size})")
-    }
+    // Faz 10: handleTypingIndicator + handlePresenceUpdate -> TypingPresenceHandler (handlers/)
 
     /**
      * Karsi taraftan gelen sureli mesaj zamanlayici ayarini isler.
