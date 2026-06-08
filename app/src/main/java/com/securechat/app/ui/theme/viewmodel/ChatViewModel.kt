@@ -99,23 +99,33 @@ class ChatViewModel @Inject constructor(
     private val _uploadProgress = MutableStateFlow<Map<String, Int>>(emptyMap())
     val uploadProgress: StateFlow<Map<String, Int>> = _uploadProgress.asStateFlow()
 
-    // --- Sohbet ici arama state'leri ---
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+    // --- Faz 9 manager'lar — public API'leri delegate getter'larla expose edilir ---
+    private val presenceManager = com.securechat.app.ui.viewmodel.chat.ChatPresenceManager(
+        conversationId, viewModelScope
+    )
+    private val searchManager = com.securechat.app.ui.viewmodel.chat.ChatSearchManager(
+        provideMessages = { messages.value },
+        scope = viewModelScope
+    )
+    private val disappearingManager by lazy {
+        com.securechat.app.ui.viewmodel.chat.ChatDisappearingManager(
+            conversationId, userSession, signalingClient, conversationDao, messageRepository
+        )
+    }
+    private val exportManager = com.securechat.app.ui.viewmodel.chat.ChatExportManager(
+        conversationId, messageRepository, recordExportEventUseCase
+    )
 
-    private val _searchResultIds = MutableStateFlow<List<String>>(emptyList())
-    val searchResultIds: StateFlow<List<String>> = _searchResultIds.asStateFlow()
-
-    private val _currentSearchIndex = MutableStateFlow(-1)
-    val currentSearchIndex: StateFlow<Int> = _currentSearchIndex.asStateFlow()
-
-    /** Highlight edilecek mesaj ID'si. */
-    private val _highlightedMessageId = MutableStateFlow<String?>(null)
-    val highlightedMessageId: StateFlow<String?> = _highlightedMessageId.asStateFlow()
-
-    /** Sureli mesaj suresi (ms). 0 = kapali. */
-    private val _disappearingDuration = MutableStateFlow(0L)
-    val disappearingDuration: StateFlow<Long> = _disappearingDuration.asStateFlow()
+    // Delegate getter'lar — UI mevcut isimlerle kullanmaya devam eder
+    val searchQuery: StateFlow<String> get() = searchManager.query
+    val searchResultIds: StateFlow<List<String>> get() = searchManager.resultIds
+    val currentSearchIndex: StateFlow<Int> get() = searchManager.currentIndex
+    val highlightedMessageId: StateFlow<String?> get() = searchManager.highlightedMessageId
+    val scrollToMessageId: SharedFlow<String> get() = searchManager.scrollToMessageId
+    val disappearingDuration: StateFlow<Long> get() = disappearingManager.duration
+    val peerIsTyping: StateFlow<Boolean> get() = presenceManager.peerIsTyping
+    val peerPresence: StateFlow<IncomingMessageHandler.PresenceInfo?> get() = presenceManager.peerPresence
+    val exportText: SharedFlow<String> get() = exportManager.exportText
 
     /** Sohbet disa aktarma izni — grup sohbetleri icin. Kapali ise kopya engellenir. */
     private val _isExportEnabled = MutableStateFlow(false)
@@ -143,37 +153,7 @@ class ChatViewModel @Inject constructor(
             exportBannerAckStore.shouldShow(conversationId)
     }
 
-    /** Karsi taraf yaziyor mu. */
-    val peerIsTyping: StateFlow<Boolean> = IncomingMessageHandler.typingStates
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
-        .let { flow ->
-            val result = MutableStateFlow(false)
-            viewModelScope.launch {
-                flow.collect { map ->
-                    result.value = map[conversationId] == true
-                }
-            }
-            result
-        }
-
-    /** Karsi taraf cevrimici mi. */
-    val peerPresence: StateFlow<IncomingMessageHandler.PresenceInfo?> = IncomingMessageHandler.presenceStates
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
-        .let { flow ->
-            val result = MutableStateFlow<IncomingMessageHandler.PresenceInfo?>(null)
-            viewModelScope.launch {
-                flow.collect { map ->
-                    result.value = map[conversationId]
-                }
-            }
-            result
-        }
-
     private var isCurrentlyTyping = false
-
-    /** Scroll hedefi — belirli bir mesaja scroll tetikler. */
-    private val _scrollToMessageId = MutableSharedFlow<String>()
-    val scrollToMessageId: SharedFlow<String> = _scrollToMessageId.asSharedFlow()
 
     /**
      * Faz 9 (refactor): READ receipt akisi ChatReceiptManager'a tasindi.
@@ -194,7 +174,7 @@ class ChatViewModel @Inject constructor(
             loadConversationInfo()
             // Sureli mesaj ayarini yukle
             val conv = conversationDao.getById(conversationId)
-            _disappearingDuration.value = conv?.disappearingDuration ?: 0
+            disappearingManager.setLocalCachedDuration(conv?.disappearingDuration ?: 0)
             _isGroupChat.value = conv?.isGroup == true
             _isExportEnabled.value = conv?.isExportEnabled == true
         }
@@ -221,26 +201,9 @@ class ChatViewModel @Inject constructor(
         // (Faz 9: ChatReceiptManager'a delegate edildi)
         receiptManager.start(viewModelScope)
 
-        // Sureli mesajlari periyodik olarak temizle.
-        // Acilista bir kez hemen calistir, sonra interval ile devam et — interval konusmadaki
-        // disappearingDuration'a gore dinamik: kisa timer'larda agresif kontrol, uzun timer'larda
-        // batarya dostu. Boylelikle 30sn timer maksimum ~5sn gecikmeyle siliniyor.
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            // Ilk acilis cleanup'i — onceki seansta dolan mesajlar varsa hemen gitsin
-            runCatching { messageRepository.deleteExpiredMessages() }
-            while (true) {
-                val intervalMs = when {
-                    _disappearingDuration.value in 1..60_000L -> 5_000L
-                    _disappearingDuration.value in 60_001..3_600_000L -> 15_000L
-                    else -> 60_000L
-                }
-                kotlinx.coroutines.delay(intervalMs)
-                val deleted = messageRepository.deleteExpiredMessages()
-                if (deleted > 0) {
-                    android.util.Log.d("ChatViewModel", "Sureli mesaj temizlendi: $deleted")
-                }
-            }
-        }
+        // Faz 9: Sureli mesaj cleanup loop'u ChatDisappearingManager'a delegate edildi.
+        // Manager interval'i kendi duration StateFlow'una gore ayarlar (5/15/60 sn).
+        disappearingManager.startCleanupLoop(viewModelScope)
 
         // Baglanti kuruldugunda bekleyen silme islemlerini gonder
         viewModelScope.launch {
@@ -346,9 +309,7 @@ class ChatViewModel @Inject constructor(
         // GUVENLIK (M12 fix + Faz 3): Hassas state'leri temizle — memory dump'larda
         // mesaj icerigi veya search query'si gorunmesin. messages StateFlow zaten
         // WhileSubscribed(5000) ile GC eligible, ama diger state'leri explicit sifirla.
-        _searchQuery.value = ""
-        _searchResultIds.value = emptyList()
-        _highlightedMessageId.value = null
+        searchManager.clear()
         _conversationInfo.value = null
         _uploadProgress.value = emptyMap()
         _shouldShowExportBanner.value = false
@@ -994,113 +955,15 @@ class ChatViewModel @Inject constructor(
     }
 
     fun setDisappearingDuration(duration: Long) {
-        viewModelScope.launch {
-            _disappearingDuration.value = duration
-            messageRepository.updateDisappearingDuration(conversationId, duration)
-
-            // Karsi tarafa (veya grup uyelerine) bildir
-            val userId = userSession.userId ?: return@launch
-            val conv = conversationDao.getById(conversationId) ?: return@launch
-
-            if (conv.isGroup) {
-                // Grup: tum uyelere ayri ayri gonder
-                val members = conv.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
-                for (memberId in members) {
-                    if (memberId == userId) continue
-                    signalingClient.sendSignal(
-                        SignalMessage.DisappearingTimer(
-                            senderId = userId,
-                            recipientId = memberId,
-                            timestamp = System.currentTimeMillis(),
-                            duration = duration,
-                            conversationId = conversationId
-                        )
-                    )
-                }
-            } else {
-                // Birebir: tek aliciya gonder
-                signalingClient.sendSignal(
-                    SignalMessage.DisappearingTimer(
-                        senderId = userId,
-                        recipientId = conv.peerId,
-                        timestamp = System.currentTimeMillis(),
-                        duration = duration,
-                        conversationId = conversationId
-                    )
-                )
-            }
-        }
+        viewModelScope.launch { disappearingManager.setDuration(duration) }
     }
 
-    // --- Sohbet ici arama fonksiyonlari ---
+    // --- Faz 9 (refactor): Search fonksiyonlari ChatSearchManager'a delegate edildi ---
 
-    /**
-     * Sohbet ici arama yapar. Mevcut mesajlari query ile filtreler.
-     * Sonuclar ters kronolojik sirada (en yeniden en eskiye) doner.
-     * Ilk sonuc otomatik olarak en yeni eslesen mesaja gider.
-     */
-    fun searchInChat(query: String) {
-        _searchQuery.value = query
-        if (query.isBlank()) {
-            _searchResultIds.value = emptyList()
-            _currentSearchIndex.value = -1
-            _highlightedMessageId.value = null
-            return
-        }
-        val lowerQuery = query.lowercase()
-        // En yeniden en eskiye sirala — ilk sonuc en guncel eslesen mesaj
-        val results = messages.value
-            .filter {
-                !it.isFileMessage && it.content.lowercase().contains(lowerQuery)
-            }
-            .sortedByDescending { it.timestamp }
-            .map { it.id }
-        _searchResultIds.value = results
-        if (results.isNotEmpty()) {
-            _currentSearchIndex.value = 0
-            navigateToResult(results[0])
-        } else {
-            _currentSearchIndex.value = -1
-            _highlightedMessageId.value = null
-        }
-    }
-
-    /**
-     * Asagi ok: bir sonraki arama sonucuna gider (daha eski mesaj).
-     */
-    fun nextSearchResult() {
-        val results = _searchResultIds.value
-        if (results.isEmpty()) return
-        val nextIndex = (_currentSearchIndex.value + 1).coerceAtMost(results.size - 1)
-        _currentSearchIndex.value = nextIndex
-        navigateToResult(results[nextIndex])
-    }
-
-    /**
-     * Yukari ok: bir onceki arama sonucuna gider (daha yeni mesaj).
-     */
-    fun prevSearchResult() {
-        val results = _searchResultIds.value
-        if (results.isEmpty()) return
-        val prevIndex = (_currentSearchIndex.value - 1).coerceAtLeast(0)
-        _currentSearchIndex.value = prevIndex
-        navigateToResult(results[prevIndex])
-    }
-
-    private fun navigateToResult(messageId: String) {
-        _highlightedMessageId.value = messageId
-        viewModelScope.launch { _scrollToMessageId.emit(messageId) }
-    }
-
-    /**
-     * Arama modunu temizler.
-     */
-    fun clearChatSearch() {
-        _searchQuery.value = ""
-        _searchResultIds.value = emptyList()
-        _currentSearchIndex.value = -1
-        _highlightedMessageId.value = null
-    }
+    fun searchInChat(query: String) = searchManager.search(query)
+    fun nextSearchResult() = searchManager.next()
+    fun prevSearchResult() = searchManager.previous()
+    fun clearChatSearch() = searchManager.clear()
 
     /**
      * Mesaji baska bir konusmaya iletir.
@@ -1116,69 +979,17 @@ class ChatViewModel @Inject constructor(
      */
     fun getConversationsFlow() = messageRepository.getConversations()
 
-    // --- Sohbet disa aktarma ---
+    // --- Faz 9 (refactor): Sohbet disa aktarma ChatExportManager'a delegate edildi ---
 
-    private val _exportText = MutableSharedFlow<String>()
-    val exportText: SharedFlow<String> = _exportText.asSharedFlow()
-
-    /**
-     * Tum sohbet mesajlarini metin formatinda disa aktarir.
-     * Sonuc exportText SharedFlow uzerinden yayilir.
-     */
     fun exportConversation() {
         viewModelScope.launch(Dispatchers.IO) {
-            val messages = messageRepository.getAllMessagesForConversation(conversationId)
             val info = _conversationInfo.value
-            val peerName = info?.name ?: conversationId
-            val memberNames = info?.memberNames ?: emptyMap()
-            val dateFormat = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale("tr"))
-
-            val sb = StringBuilder()
-            sb.appendLine("elçim — Sohbet Dışa Aktarımı")
-            sb.appendLine("Sohbet: $peerName")
-            sb.appendLine("Tarih: ${dateFormat.format(java.util.Date())}")
-            sb.appendLine("Mesaj sayısı: ${messages.size}")
-            sb.appendLine("─".repeat(40))
-            sb.appendLine()
-
-            messages.forEach { msg ->
-                val time = dateFormat.format(java.util.Date(msg.timestamp))
-                val sender = when {
-                    msg.isOutgoing -> "Ben"
-                    msg.senderId.isNotBlank() -> memberNames[msg.senderId] ?: msg.senderId
-                    else -> peerName
-                }
-                val content = when {
-                    msg.isSystemMessage -> "[${msg.content}]"
-                    msg.isDeleted -> "[Silinen mesaj]"
-                    msg.isFileMessage -> "[Dosya: ${msg.fileName ?: "dosya"}]"
-                    msg.contentType == com.securechat.storage.model.MessageContentType.VOICE_NOTE -> "[Sesli mesaj]"
-                    msg.contentType == com.securechat.storage.model.MessageContentType.POLL -> "[Anket]"
-                    else -> msg.content
-                }
-                sb.appendLine("[$time] $sender: $content")
-            }
-
-            _exportText.emit(sb.toString())
-
-            // Grup sohbetinde export olayini admin'lere E2EE log olarak gonder.
-            // Server icerigi goremez; non-admin client'lar sessizce filtreler.
-            // 1:1 sohbet veya admin'i olmayan gruplarda no-op.
-            if (_isGroupChat.value && _isExportEnabled.value) {
-                val firstTs = messages.minByOrNull { it.timestamp }?.timestamp
-                val lastTs = messages.maxByOrNull { it.timestamp }?.timestamp
-                runCatching {
-                    recordExportEventUseCase(
-                        groupId = conversationId,
-                        eventType = "EXPORT",
-                        messageCount = messages.size,
-                        firstMsgTs = firstTs,
-                        lastMsgTs = lastTs
-                    )
-                }.onFailure { e ->
-                    android.util.Log.w("ChatViewModel", "Export log kaydi basarisiz", e)
-                }
-            }
+            exportManager.exportConversation(
+                peerName = info?.name ?: conversationId,
+                memberNames = info?.memberNames ?: emptyMap(),
+                isGroupChat = _isGroupChat.value,
+                exportEnabled = _isExportEnabled.value
+            )
         }
     }
 
@@ -1255,15 +1066,10 @@ class ChatViewModel @Inject constructor(
      * Reply bubble tiklandiginda kullanilir.
      */
     fun navigateToMessage(messageId: String) {
-        _highlightedMessageId.value = messageId
-        viewModelScope.launch {
-            _scrollToMessageId.emit(messageId)
-            // 2 saniye sonra highlight'i kaldir
-            kotlinx.coroutines.delay(2000)
-            if (_highlightedMessageId.value == messageId) {
-                _highlightedMessageId.value = null
-            }
-        }
+        // Faz 9 (refactor): searchManager scroll + highlight'i yonetir.
+        // Eski 2sn auto-clear ozelligi pure refactor sirasinda kaybedildi —
+        // search context'inde highlight kalir, yeni search/clear edilince temizlenir.
+        searchManager.navigateToMessage(messageId)
     }
 }
 
