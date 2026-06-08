@@ -109,9 +109,14 @@ Box(
 ## Faz 15 follow-up
 
 Bu checklist refactor sprint'leri (Faz 8/9/10) ile birlikte uygulanır.
-Şu an WindowSizeClass infrastructure hazır (`ResponsiveLayout.kt`),
-sonraki adım:
-1. `SecureChatActivity` 'da `setContent`'in dışında `calculateWindowSizeClass`
-2. ChatScreen, ConversationsScreen, GroupInfoScreen vb. ekranlarda
+**NOT (2026-06-08):** `material3-window-size-class` dependency offline build
+sorununa yol açtı (multi-variant module, AAR 197 byte stub) — `ResponsiveLayout.kt`
+ile birlikte geri alındı. Tablet/foldable gerçekten kullanılırken:
+
+1. `app/build.gradle.kts`'e `material3-window-size-class:1.2.1` dep tekrar ekle
+2. local-repo'ya tüm variant'lar dahil edilir (multi-platform module + jvm + android variant'lar)
+3. `app/src/main/java/com/securechat/app/ui/theme/ResponsiveLayout.kt` tekrar oluştur
+4. `SecureChatActivity` 'da `setContent`'in dışında `calculateWindowSizeClass`
+5. ChatScreen, ConversationsScreen, GroupInfoScreen vb. ekranlarda
    `LocalWindowSizeClass.current` ile 2-pane karar
-3. `auditing-accessibility` skill ile tam tarama → toplu fix
+6. `auditing-accessibility` skill ile tam tarama → toplu fix

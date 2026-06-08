@@ -217,8 +217,12 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-messaging")
 
-    // Faz 15: WindowSizeClass — tablet/foldable responsive layout
-    implementation("androidx.compose.material3:material3-window-size-class:1.2.1")
+    // Faz 15: WindowSizeClass dependency offline build'lerde sorun cikardi
+    // (multi-variant module, AAR 197 byte stub + variant-specific JAR'lar)
+    // ResponsiveLayout.kt ile birlikte geri alindi. Tablet/foldable layout
+    // gercekten kullanilirken (Sprint 6) tekrar eklenir + local-repo'ya
+    // tum variant'lar dahil edilir.
+    // implementation("androidx.compose.material3:material3-window-size-class:1.2.1")
 
     // WorkManager — arka plan gorevleri (FCM drain, sureli mesaj temizligi)
     implementation("androidx.work:work-runtime-ktx:2.9.0")
