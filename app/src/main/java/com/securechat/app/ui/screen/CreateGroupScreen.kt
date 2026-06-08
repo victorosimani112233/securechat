@@ -290,6 +290,7 @@ fun CreateGroupScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        // Dekoratif tuş takimi ikonu — yanindaki "Numara ile Ekle" metni okur.
                         Icon(
                             Icons.Default.Dialpad,
                             contentDescription = null,
@@ -379,6 +380,7 @@ fun CreateGroupScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.padding(8.dp)
                         ) {
+                            // Dekoratif arama ikonu — alttaki "Kullanici Bulunamadi" basligi okunur.
                             Icon(
                                 Icons.Default.PersonSearch,
                                 contentDescription = null,
@@ -421,6 +423,7 @@ fun CreateGroupScreen(
                                 shape = RoundedCornerShape(20.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
+                                // Dekoratif share ikonu — yanindaki "Davet Gonder" metni okur.
                                 Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(stringResource(R.string.create_group_send_invite))
@@ -554,6 +557,7 @@ private fun ContactSelectionItem(
                 .padding(end = 12.dp),
             contentAlignment = Alignment.Center
         ) {
+            // Dekoratif kisi ikonu — listede her satirin yanindaki isim okunur.
             Icon(
                 Icons.Default.Person,
                 contentDescription = null,

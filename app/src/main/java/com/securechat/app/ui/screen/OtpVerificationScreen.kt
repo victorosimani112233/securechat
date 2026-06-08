@@ -185,6 +185,8 @@ fun OtpVerificationScreen(
                     ),
                 contentAlignment = Alignment.Center
             ) {
+                // Dekoratif kalkan ikonu — ekran basligi "Dogrulama Kodu" zaten
+                // TalkBack tarafindan okunuyor, ikon redundant olmamalı.
                 Icon(
                     imageVector = Icons.Default.Shield,
                     contentDescription = null,

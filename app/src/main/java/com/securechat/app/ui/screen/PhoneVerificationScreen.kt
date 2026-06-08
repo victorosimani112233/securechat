@@ -345,6 +345,8 @@ fun PhoneVerificationScreen(
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier.padding(horizontal = 16.dp)
             ) {
+                // Dekoratif kilit ikonu — yandaki E2EE mesaji TalkBack tarafindan okunur,
+                // ayrica ikon okumaya gerek yok (a11y: pure decoration → null contentDescription).
                 Icon(
                     imageVector = Icons.Default.Lock,
                     contentDescription = null,

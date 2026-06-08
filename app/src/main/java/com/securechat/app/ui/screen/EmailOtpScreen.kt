@@ -155,6 +155,7 @@ fun EmailOtpScreen(
             ) {
                 Spacer(modifier = Modifier.height(48.dp))
 
+                // Dekoratif e-posta ikonu — ekran basligi okunuyor, redundant.
                 Icon(
                     Icons.Default.Email,
                     contentDescription = null,
