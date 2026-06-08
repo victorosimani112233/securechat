@@ -335,14 +335,18 @@ class ChatViewModel @Inject constructor(
         // Chat screen kapatildiginda current chat'i temizle
         IncomingMessageHandler.currentChatId = null
 
-        // GUVENLIK (M12 fix): Hassas state'leri temizle — memory dump'larda mesaj icerigi
-        // veya search query'si gorunmesin. messages StateFlow zaten WhileSubscribed(5000)
-        // ile GC eligible, ama diger state'leri explicit sifirla.
+        // GUVENLIK (M12 fix + Faz 3): Hassas state'leri temizle — memory dump'larda
+        // mesaj icerigi veya search query'si gorunmesin. messages StateFlow zaten
+        // WhileSubscribed(5000) ile GC eligible, ama diger state'leri explicit sifirla.
         _searchQuery.value = ""
         _searchResultIds.value = emptyList()
         _highlightedMessageId.value = null
         _conversationInfo.value = null
         _uploadProgress.value = emptyMap()
+        _shouldShowExportBanner.value = false
+        _isExportEnabled.value = false
+        _isGroupChat.value = false
+        readReceiptSentIds.clear()
         draftMessages.remove(conversationId)
 
         android.util.Log.d("ChatViewModel", "Current chat cleared, sensitive state wiped")

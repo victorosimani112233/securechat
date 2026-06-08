@@ -3,6 +3,7 @@ package com.securechat.app.domain.usecase
 import com.securechat.app.data.UserSession
 import com.securechat.crypto.MessageEncryptor
 import com.securechat.crypto.model.EncryptedEnvelope
+import com.securechat.crypto.useAndZeroize
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
 import com.securechat.storage.dao.ConversationDao
@@ -79,38 +80,31 @@ class RecordExportEventUseCase @Inject constructor(
             if (firstMsgTs != null) put("firstMsgTs", firstMsgTs)
             if (lastMsgTs != null) put("lastMsgTs", lastMsgTs)
         }
-        val plaintext = payloadObj.toString().toByteArray(Charsets.UTF_8)
-
-        // Her admin icin ayri ciphertext uret.
-        // Faz 2: SessionEnsurer ile session yoksa PreKeyBundle fetch + X3DH yapilir,
-        // boylece YENI atanan ve henuz mesajlasmamis admin'ler de bundan SONRAKI
-        // log'lari alabilir (gecmis log'lar yine kasitli olarak gozukmez — eski
-        // payload'larda onlarin userId'si yoktur).
+        // Plaintext useAndZeroize ile sarmali — exception olsa bile fill(0) garanti.
         val payloads = mutableMapOf<String, String>()
-        for (adminId in adminIds) {
-            if (adminId == userId) continue  // kendine sifrelemeye gerek yok
-            try {
-                if (!sessionEnsurer.ensureSession(adminId)) {
+        val plaintext = payloadObj.toString().toByteArray(Charsets.UTF_8)
+        plaintext.useAndZeroize { bytes ->
+            for (adminId in adminIds) {
+                if (adminId == userId) continue  // kendine sifrelemeye gerek yok
+                try {
+                    if (!sessionEnsurer.ensureSession(adminId)) {
+                        android.util.Log.w(
+                            "RecordExportEvent",
+                            "Session kurulamadi, skip: $adminId (PreKeyBundle fetch fail veya server offline)"
+                        )
+                        continue
+                    }
+                    val envelope: EncryptedEnvelope = messageEncryptor.encrypt(adminId, bytes)
+                    val combined = encodeEnvelope(envelope)
+                    payloads[adminId] = combined
+                } catch (e: Exception) {
                     android.util.Log.w(
                         "RecordExportEvent",
-                        "Session kurulamadi, skip: $adminId (PreKeyBundle fetch fail veya server offline)"
+                        "Admin icin sifreleme basarisiz, skip: $adminId (${e.javaClass.simpleName})"
                     )
-                    continue
                 }
-                val envelope: EncryptedEnvelope = messageEncryptor.encrypt(adminId, plaintext)
-                // type + content + senderRegistrationId tek bir taşıyıcıda
-                val combined = encodeEnvelope(envelope)
-                payloads[adminId] = combined
-            } catch (e: Exception) {
-                android.util.Log.w(
-                    "RecordExportEvent",
-                    "Admin icin sifreleme basarisiz, skip: $adminId (${e.javaClass.simpleName})"
-                )
             }
         }
-
-        // Plaintext'i mumkun oldugu kadar erken sifirla
-        plaintext.fill(0)
 
         if (payloads.isEmpty()) {
             android.util.Log.w("RecordExportEvent", "Hicbir admin icin session yok, log gonderilemedi")
