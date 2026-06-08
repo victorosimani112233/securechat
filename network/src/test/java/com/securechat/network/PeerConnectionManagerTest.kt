@@ -30,7 +30,7 @@ class PeerConnectionManagerTest {
     @Before
     fun setUp() {
         mockContext = mockk(relaxed = true)
-        peerConnectionManager = PeerConnectionManager(mockContext)
+        peerConnectionManager = PeerConnectionManager(mockContext, stunUrl = "stun:test.example:3478")
     }
 
     @Test
