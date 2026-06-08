@@ -64,6 +64,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Share
@@ -71,7 +72,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import android.content.Intent
@@ -104,6 +107,7 @@ fun CreateGroupScreen(
     val isResolvingPhone by viewModel.isResolvingPhone.collectAsStateWithLifecycle()
     val phoneNotFound by viewModel.phoneNotFound.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val focusManager = LocalFocusManager.current
     var showPhoneInput by remember { mutableStateOf(false) }
     var selectedCountryCode by remember { mutableStateOf(COUNTRY_CODES.first()) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -178,6 +182,14 @@ fun CreateGroupScreen(
                     value = groupName,
                     onValueChange = { if (it.length <= 50) viewModel.onGroupNameChanged(it) },
                     label = { Text("Grup Ad\u0131") },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { focusManager.clearFocus() }
+                    ),
+                    isError = groupName.length >= 50,
                     supportingText = {
                         Text(
                             text = "${groupName.length}/50",
@@ -302,7 +314,17 @@ fun CreateGroupScreen(
                             modifier = Modifier.weight(1f),
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Phone,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    if (phoneInput.isNotBlank() && !isResolvingPhone) {
+                                        viewModel.addMemberByPhone(selectedCountryCode.code)
+                                    }
+                                }
+                            ),
                             visualTransformation = com.securechat.app.util.PhoneVisualTransformation(),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -430,6 +452,10 @@ fun CreateGroupScreen(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = { focusManager.clearFocus() }
+                    ),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline,

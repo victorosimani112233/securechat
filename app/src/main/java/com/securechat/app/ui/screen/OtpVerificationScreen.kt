@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -50,7 +51,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -232,6 +235,17 @@ fun OtpVerificationScreen(
                             showBackupPrompt = true
                         }
                     }
+                },
+                // Klavyede "Bitti" basildiginda 6 hane tamamsa otomatik dogrulamayi tetikle.
+                // Aksi takdirde inline errorMessage gosterilir.
+                onSubmit = {
+                    if (otpCode.length == 6) {
+                        isLoading = true
+                        isLoading = false
+                        showBackupPrompt = true
+                    } else {
+                        errorMessage = "Lütfen 6 haneli kodu tamamen girin"
+                    }
                 }
             )
 
@@ -327,9 +341,11 @@ fun OtpVerificationScreen(
 @Composable
 private fun OtpInputField(
     value: String,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    onSubmit: () -> Unit = {}
 ) {
     val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     val dark = LocalDarkTheme.current
 
     LaunchedEffect(Unit) {
@@ -343,7 +359,16 @@ private fun OtpInputField(
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    keyboardController?.hide()
+                    onSubmit()
+                }
+            ),
             modifier = Modifier.focusRequester(focusRequester),
             decorationBox = { _ ->
                 Row(

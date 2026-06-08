@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,7 +17,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -52,6 +55,61 @@ fun EmailOtpScreen(
     var smtpDisabled by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    /**
+     * Submit aksiyonu — Button'un onClick'inin ic mantigini tekrar kullanmak icin
+     * cikarildi. Hem buton tikinda hem klavyenin Done aksiyonunda cagrilir.
+     */
+    fun submitCurrentStep() {
+        if (loading) return
+        keyboardController?.hide()
+        if (step == 1) {
+            if (!email.matches(Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"))) {
+                error = "Geçerli bir e-posta girin"
+                return
+            }
+            loading = true
+            error = null
+            scope.launch {
+                val result = OtpApiClient.requestOtp(apiBaseUrl, email)
+                loading = false
+                when (result) {
+                    OtpApiClient.OtpResult.Sent -> {
+                        step = 2
+                        info = "Kod e-postanıza gönderildi"
+                    }
+                    OtpApiClient.OtpResult.SmtpDisabled -> {
+                        smtpDisabled = true
+                        error = "Sunucuda e-posta servisi yapılandırılmamış. Lütfen yöneticiyle iletişime geçin veya geliştirme modunda 'Atla' butonunu kullanın."
+                    }
+                    OtpApiClient.OtpResult.RateLimited -> {
+                        error = "Çok fazla deneme. Lütfen birkaç dakika bekleyin."
+                    }
+                    is OtpApiClient.OtpResult.Error -> {
+                        error = "Kod gönderilemedi: ${result.message}"
+                    }
+                }
+            }
+        } else {
+            if (otpCode.length != 6) {
+                error = "6 haneli kodu eksiksiz girin"
+                return
+            }
+            loading = true
+            error = null
+            scope.launch {
+                val token = OtpApiClient.verifyOtp(apiBaseUrl, email, otpCode)
+                loading = false
+                if (token != null) {
+                    onVerified(token)
+                } else {
+                    error = "Kod hatalı veya süresi dolmuş"
+                    otpCode = ""
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -117,9 +175,16 @@ fun EmailOtpScreen(
                         onValueChange = { email = it.trim(); error = null },
                         label = { Text("E-posta") },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Send
+                        ),
+                        keyboardActions = KeyboardActions(onSend = { submitCurrentStep() }),
                         modifier = Modifier.fillMaxWidth(),
-                        isError = error != null
+                        isError = error != null,
+                        supportingText = if (error != null) {
+                            { Text(error!!) }
+                        } else null
                     )
                 } else {
                     OutlinedTextField(
@@ -131,20 +196,19 @@ fun EmailOtpScreen(
                         },
                         label = { Text("6 Haneli Kod") },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { submitCurrentStep() }),
                         modifier = Modifier.fillMaxWidth(),
-                        isError = error != null
+                        isError = error != null,
+                        supportingText = if (error != null) {
+                            { Text(error!!) }
+                        } else null
                     )
                 }
 
-                if (error != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = error!!,
-                        color = MaterialTheme.colorScheme.error,
-                        fontSize = 13.sp
-                    )
-                }
                 if (info != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -157,56 +221,7 @@ fun EmailOtpScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Button(
-                    onClick = {
-                        if (loading) return@Button
-                        if (step == 1) {
-                            // Email valid mi?
-                            if (!email.matches(Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"))) {
-                                error = "Geçerli bir e-posta girin"
-                                return@Button
-                            }
-                            loading = true
-                            error = null
-                            scope.launch {
-                                val result = OtpApiClient.requestOtp(apiBaseUrl, email)
-                                loading = false
-                                when (result) {
-                                    OtpApiClient.OtpResult.Sent -> {
-                                        step = 2
-                                        info = "Kod e-postanıza gönderildi"
-                                    }
-                                    OtpApiClient.OtpResult.SmtpDisabled -> {
-                                        smtpDisabled = true
-                                        error = "Sunucuda e-posta servisi yapılandırılmamış. Lütfen yöneticiyle iletişime geçin veya geliştirme modunda 'Atla' butonunu kullanın."
-                                    }
-                                    OtpApiClient.OtpResult.RateLimited -> {
-                                        error = "Çok fazla deneme. Lütfen birkaç dakika bekleyin."
-                                    }
-                                    is OtpApiClient.OtpResult.Error -> {
-                                        error = "Kod gönderilemedi: ${result.message}"
-                                    }
-                                }
-                            }
-                        } else {
-                            // OTP verify
-                            if (otpCode.length != 6) {
-                                error = "6 haneli kodu girin"
-                                return@Button
-                            }
-                            loading = true
-                            error = null
-                            scope.launch {
-                                val token = OtpApiClient.verifyOtp(apiBaseUrl, email, otpCode)
-                                loading = false
-                                if (token != null) {
-                                    onVerified(token)
-                                } else {
-                                    error = "Kod hatalı veya süresi dolmuş"
-                                    otpCode = ""
-                                }
-                            }
-                        }
-                    },
+                    onClick = { submitCurrentStep() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)

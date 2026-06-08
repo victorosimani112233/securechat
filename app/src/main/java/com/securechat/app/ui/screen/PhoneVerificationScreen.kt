@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -51,12 +52,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import com.securechat.app.ui.util.PhoneFormValidation
 import com.securechat.contacts.PhoneNumberNormalizer
 import com.securechat.app.ui.theme.AzureDoodleBackdrop
 import com.securechat.app.ui.theme.LocalDarkTheme
@@ -76,6 +82,18 @@ fun PhoneVerificationScreen(
     var phoneNumber by remember { mutableStateOf("") }
     var countryCode by remember { mutableStateOf("+90") }
     var showContactsPermissionDialog by remember { mutableStateOf(false) }
+    // Submit-attempt bayragi: kullanici "Basla" butonuna basana kadar hatalar
+    // gosterilmez — typing sirasinda anlik kirmizi flash UX'i bozar. Submit'ten
+    // sonra hata + odaklanma + supportingText akisi devreye girer.
+    var submitAttempted by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    // Validation sonuclari — submitAttempted true ise UI'da gosterilir.
+    val nameError = PhoneFormValidation.validateName(displayName)
+    val countryCodeError = PhoneFormValidation.validateCountryCode(countryCode)
+    val phoneError = PhoneFormValidation.validatePhone(phoneNumber)
+    val isFormValid = nameError == null && countryCodeError == null && phoneError == null
 
     // Permission handling
     val context = LocalContext.current
@@ -140,6 +158,30 @@ fun PhoneVerificationScreen(
             phoneNumber = number
             android.util.Log.d("PhoneVerification", "SIM numara otomatik dolduruldu: ${number.take(4)}...")
         }
+    }
+
+    /** Validasyon hata mesajlari — UI label haritalama. Kullanici dostu metinler. */
+    fun nameErrorMessage(e: PhoneFormValidation.NameError?): String? = when (e) {
+        null -> null
+        PhoneFormValidation.NameError.Empty -> "Adınızı giriniz"
+        PhoneFormValidation.NameError.TooShort -> "En az ${PhoneFormValidation.MIN_NAME_LENGTH} karakter"
+        PhoneFormValidation.NameError.TooLong -> "En fazla ${PhoneFormValidation.MAX_NAME_LENGTH} karakter"
+        PhoneFormValidation.NameError.InvalidChars -> "Yalnızca harf, boşluk, tire ve kesme işareti"
+    }
+    fun countryCodeErrorMessage(e: PhoneFormValidation.CountryCodeError?): String? = when (e) {
+        null -> null
+        PhoneFormValidation.CountryCodeError.Empty -> "Ülke kodu boş"
+        PhoneFormValidation.CountryCodeError.MissingPlus -> "+ ile başlamalı"
+        PhoneFormValidation.CountryCodeError.NonDigit -> "Yalnızca rakam"
+        PhoneFormValidation.CountryCodeError.TooShort -> "En az 1 hane"
+        PhoneFormValidation.CountryCodeError.TooLong -> "En fazla 4 hane"
+    }
+    fun phoneErrorMessage(e: PhoneFormValidation.PhoneError?): String? = when (e) {
+        null -> null
+        PhoneFormValidation.PhoneError.Empty -> "Telefon numaranızı giriniz"
+        PhoneFormValidation.PhoneError.TooShort -> "10 hane gerekli"
+        PhoneFormValidation.PhoneError.TooLong -> "Sadece 10 hane"
+        PhoneFormValidation.PhoneError.NonDigit -> "Yalnızca rakam"
     }
 
     /** Kullanici adi icin tehlikeli karakterleri temizle. */
@@ -349,6 +391,7 @@ fun PhoneVerificationScreen(
                     Spacer(modifier = Modifier.height(28.dp))
 
                     // İsim girişi
+                    val showNameError = submitAttempted && nameError != null
                     OutlinedTextField(
                         value = displayName,
                         onValueChange = { displayName = it },
@@ -357,6 +400,17 @@ fun PhoneVerificationScreen(
                         singleLine = true,
                         placeholder = { Text("Örneğin: Ahmet Yılmaz") },
                         shape = RoundedCornerShape(12.dp),
+                        isError = showNameError,
+                        supportingText = if (showNameError) {
+                            { Text(nameErrorMessage(nameError) ?: "") }
+                        } else null,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color(0xFF3E7BFA),
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline,
@@ -371,14 +425,25 @@ fun PhoneVerificationScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        val showCountryError = submitAttempted && countryCodeError != null
                         OutlinedTextField(
                             value = countryCode,
                             onValueChange = { countryCode = it },
                             label = { Text("Kod") },
                             modifier = Modifier.width(90.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Phone,
+                                imeAction = ImeAction.Next
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onNext = { focusManager.moveFocus(FocusDirection.Right) }
+                            ),
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
+                            isError = showCountryError,
+                            supportingText = if (showCountryError) {
+                                { Text(countryCodeErrorMessage(countryCodeError) ?: "") }
+                            } else null,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color(0xFF3E7BFA),
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
@@ -386,16 +451,31 @@ fun PhoneVerificationScreen(
                             )
                         )
 
+                        val showPhoneError = submitAttempted && phoneError != null
                         OutlinedTextField(
                             value = phoneNumber,
                             onValueChange = { phoneNumber = it.filter { c -> c.isDigit() }.take(10) },
                             label = { Text("Telefon Numarası") },
                             modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Phone,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    keyboardController?.hide()
+                                    submitAttempted = true
+                                    if (isFormValid) requestPermissionsAndProceed()
+                                }
+                            ),
                             visualTransformation = com.securechat.app.util.PhoneVisualTransformation(),
                             singleLine = true,
                             placeholder = { Text("5XX XXX XX XX") },
                             shape = RoundedCornerShape(12.dp),
+                            isError = showPhoneError,
+                            supportingText = if (showPhoneError) {
+                                { Text(phoneErrorMessage(phoneError) ?: "") }
+                            } else null,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color(0xFF3E7BFA),
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
@@ -409,14 +489,27 @@ fun PhoneVerificationScreen(
             Spacer(modifier = Modifier.height(36.dp))
 
             // Başla butonu — azure pill
+            // Buton DAIMA enabled — kullanici tikladiginda submitAttempted true olur
+            // ve hatalar gosterilir (best practice: kullanici neden gidemedigini gorur).
+            // Form valid degilse onClick noop'a duser, kullanici hatalari gorur.
             Button(
                 onClick = {
-                    requestPermissionsAndProceed()
+                    submitAttempted = true
+                    if (isFormValid) {
+                        keyboardController?.hide()
+                        requestPermissionsAndProceed()
+                    } else {
+                        // Hatali alana focus ver — ilk hatali alana atla
+                        when {
+                            nameError != null -> focusManager.moveFocus(FocusDirection.Up)
+                            countryCodeError != null -> { /* zaten odak alabilir */ }
+                            phoneError != null -> { /* phone field zaten son */ }
+                        }
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                enabled = displayName.isNotBlank() && phoneNumber.length >= 10,
                 shape = RoundedCornerShape(100.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF3E7BFA),
