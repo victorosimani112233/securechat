@@ -175,8 +175,17 @@ class ChatViewModel @Inject constructor(
     private val _scrollToMessageId = MutableSharedFlow<String>()
     val scrollToMessageId: SharedFlow<String> = _scrollToMessageId.asSharedFlow()
 
-    /** READ receipt gonderdigi mesaj ID'leri — duplicate onleme. */
-    private val readReceiptSentIds = mutableSetOf<String>()
+    /**
+     * Faz 9 (refactor): READ receipt akisi ChatReceiptManager'a tasindi.
+     * markIncomingMessagesAsRead + readReceiptSentIds artik orada.
+     */
+    private val receiptManager = com.securechat.app.ui.viewmodel.chat.ChatReceiptManager(
+        conversationId = conversationId,
+        userSession = userSession,
+        signalingClient = signalingClient,
+        messageRepository = messageRepository,
+        observeMessagesUseCase = observeMessagesUseCase
+    )
 
     init {
         // Ekran acildiginda konusmayi okundu olarak isaretle ve bilgilerini yukle
@@ -209,9 +218,8 @@ class ChatViewModel @Inject constructor(
         }
 
         // Sohbet acikken gelen mesajlari surekli izle ve READ receipt gonder
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            markIncomingMessagesAsRead()
-        }
+        // (Faz 9: ChatReceiptManager'a delegate edildi)
+        receiptManager.start(viewModelScope)
 
         // Sureli mesajlari periyodik olarak temizle.
         // Acilista bir kez hemen calistir, sonra interval ile devam et — interval konusmadaki
@@ -346,7 +354,7 @@ class ChatViewModel @Inject constructor(
         _shouldShowExportBanner.value = false
         _isExportEnabled.value = false
         _isGroupChat.value = false
-        readReceiptSentIds.clear()
+        receiptManager.reset()
         draftMessages.remove(conversationId)
 
         android.util.Log.d("ChatViewModel", "Current chat cleared, sensitive state wiped")
@@ -390,56 +398,8 @@ class ChatViewModel @Inject constructor(
         private const val STUCK_MESSAGE_THRESHOLD_MS = 2 * 60 * 1000L
     }
 
-    /**
-     * Sohbet acikken gelen (okunmamis) mesajlari surekli izler.
-     * Her yeni incoming mesaj icin:
-     * 1. Veritabaninda READ olarak isaretler
-     * 2. Karsi tarafa READ receipt gonderir (mavi cift tik)
-     *
-     * Room Flow uzerinden calisir — ilk emisyon mevcut mesajlari,
-     * sonraki emisyonlar yeni gelen mesajlari icerir.
-     */
-    private suspend fun markIncomingMessagesAsRead() {
-        val localUserId = userSession.userId ?: return
-        // observeMessagesUseCase ve foreground state'ini combine et — sadece foreground=true
-        // iken READ marking yap. Foreground'a tekrar gecince de bekleyen mesajlari yakalar.
-        kotlinx.coroutines.flow.combine(
-            observeMessagesUseCase(conversationId),
-            IncomingMessageHandler.isAppInForegroundFlow
-        ) { messageList, isForeground -> messageList to isForeground }
-            .collect { (messageList, isForeground) ->
-                if (!isForeground) return@collect
-
-                val unreadIncoming = messageList.filter {
-                    !it.isOutgoing && it.status != MessageStatus.READ && it.id !in readReceiptSentIds
-                }
-                if (unreadIncoming.isEmpty()) return@collect
-
-                // ID'leri hemen rezerv et — Flow bu collector'i yeniden tetiklerse
-                // (DB updateMessageStatus emit'i) ayni mesajlar tekrar islenmesin.
-                for (msg in unreadIncoming) readReceiptSentIds.add(msg.id)
-
-                // DELIVERED tikinin gonderici tarafindan gozlenebilmesi icin minik bekleme.
-                // IncomingMessageHandler mesaj geldiginde DELIVERED receipt'i anlik gonderir;
-                // bu delay olmadan READ receipt 10-50ms sonra giderdi ve gonderici tarafta
-                // gri cift tik hic gorunmeden direkt maviye gecerdi. Local network'te dogal
-                // latency yok, o yuzden kasitli bir pencere koyuyoruz (WhatsApp ~500-800ms).
-                kotlinx.coroutines.delay(800)
-
-                for (msg in unreadIncoming) {
-                    messageRepository.updateMessageStatus(msg.id, MessageStatus.READ)
-                    signalingClient.sendSignal(
-                        SignalMessage.DeliveryReceipt(
-                            senderId = localUserId,
-                            recipientId = msg.senderId,
-                            timestamp = System.currentTimeMillis(),
-                            messageId = msg.id,
-                            status = "READ"
-                        )
-                    )
-                }
-            }
-    }
+    // Faz 9: markIncomingMessagesAsRead + readReceiptSentIds extract edildi.
+    // Bkz. ChatReceiptManager (ui/viewmodel/chat/).
 
     /**
      * SENDING durumunda takilmis mesajlari kurtarir.
