@@ -66,7 +66,10 @@ class IncomingMessageHandler @Inject constructor(
     private val groupSenderKeyDistributor: com.securechat.app.crypto.GroupSenderKeyDistributor,
     // Faz 10: handler'lar — kademeli extract
     private val deliveryReceiptHandler: com.securechat.app.data.incoming.handlers.DeliveryReceiptHandler,
-    private val typingPresenceHandler: com.securechat.app.data.incoming.handlers.TypingPresenceHandler
+    private val typingPresenceHandler: com.securechat.app.data.incoming.handlers.TypingPresenceHandler,
+    private val disappearingTimerHandler: com.securechat.app.data.incoming.handlers.DisappearingTimerHandler,
+    private val messageEditDeleteHandler: com.securechat.app.data.incoming.handlers.MessageEditDeleteHandler,
+    private val adminEncryptedLogHandler: com.securechat.app.data.incoming.handlers.AdminEncryptedLogHandler
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -248,9 +251,9 @@ class IncomingMessageHandler @Inject constructor(
                         handleGroupNotification(signal)
                     }
                     is SignalMessage.DeliveryReceipt -> deliveryReceiptHandler.handle(signal)
-                    is SignalMessage.MessageDelete -> handleMessageDelete(signal)
-                    is SignalMessage.MessageEdit -> handleMessageEdit(signal)
-                    is SignalMessage.DisappearingTimer -> handleDisappearingTimer(signal)
+                    is SignalMessage.MessageDelete -> messageEditDeleteHandler.onDelete(signal)
+                    is SignalMessage.MessageEdit -> messageEditDeleteHandler.onEdit(signal)
+                    is SignalMessage.DisappearingTimer -> disappearingTimerHandler.handle(signal)
                     is SignalMessage.TypingIndicator -> typingPresenceHandler.onTyping(signal, scope)
                     is SignalMessage.PresenceUpdate -> typingPresenceHandler.onPresence(signal)
                     is SignalMessage.GroupCallInvite -> handleGroupCallInvite(signal)
@@ -261,7 +264,7 @@ class IncomingMessageHandler @Inject constructor(
                     is SignalMessage.GroupCallStatusResponse -> handleGroupCallStatusResponse(signal)
                     is SignalMessage.GroupCallStatusQuery -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.SfuRoomCreated -> handleSfuRoomCreated(signal)
-                    is SignalMessage.AdminEncryptedLog -> handleAdminEncryptedLog(signal)
+                    is SignalMessage.AdminEncryptedLog -> adminEncryptedLogHandler.handle(signal)
                     is SignalMessage.PresenceSubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.PresenceUnsubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.AudioData -> { }
@@ -1321,79 +1324,9 @@ class IncomingMessageHandler @Inject constructor(
 
     // Faz 10: handleTypingIndicator + handlePresenceUpdate -> TypingPresenceHandler (handlers/)
 
-    /**
-     * Karsi taraftan gelen sureli mesaj zamanlayici ayarini isler.
-     * Konusmadaki disappearingDuration degerini gunceller.
-     * conversationId bos ise senderId kullanilir (birebir sohbet, geriye uyumluluk).
-     */
-    private suspend fun handleDisappearingTimer(signal: SignalMessage.DisappearingTimer) {
-        // conversationId bos ise birebir sohbet — senderId = konusma ID'si
-        val targetConvId = signal.conversationId.ifBlank { signal.senderId }
-        android.util.Log.d("IncomingHandler", "DisappearingTimer: duration=${signal.duration} from=${signal.senderId} conv=$targetConvId")
-        conversationDao.updateDisappearingDuration(targetConvId, signal.duration)
+    // Faz 10: handleDisappearingTimer -> DisappearingTimerHandler (handlers/)
 
-        // Race penceresi: timer signal bazen ilk mesajdan biraz sonra gelir (WS sirasi farkli olabilir,
-        // FCM push'tan oncelikli gelmis olabilir). Son N saniye icindeki, henuz expiresAt'i olmayan
-        // gelen mesajlara retroaktif expiresAt uygula — boylece "timer biraz once acildi ama ilk
-        // mesaj kacti" hatasi giderilir. Pencere: 60 saniye, sadece duration > 0 ise.
-        if (signal.duration > 0) {
-            val now = System.currentTimeMillis()
-            val windowStart = now - RACE_WINDOW_MS
-            try {
-                messageRepository.applyRetroactiveExpiry(
-                    conversationId = targetConvId,
-                    duration = signal.duration,
-                    windowStart = windowStart,
-                    now = now
-                )
-            } catch (e: Exception) {
-                android.util.Log.w("IncomingHandler", "Retroaktif expiresAt uygulanamadi: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * Karsi taraftan gelen mesaj silme bildirimini isler.
-     * Mesaj icerigini "Bu mesaj silindi" olarak gunceller.
-     */
-    private suspend fun handleMessageDelete(signal: SignalMessage.MessageDelete) {
-        android.util.Log.d("IncomingHandler", "MessageDelete: msgId=${signal.messageId} from=${signal.senderId}")
-        try {
-            messageRepository.updateMessageContent(
-                messageId = signal.messageId,
-                content = "Bu mesaj silindi",
-                contentType = "DELETED"
-            )
-            android.util.Log.d("IncomingHandler", "Mesaj basariyla silindi: ${signal.messageId}")
-
-            // Konuşma listesinde son mesaj bu ise güncelle
-            val conversationId = signal.senderId
-            val conv = conversationDao.getById(conversationId)
-            if (conv != null) {
-                conversationDao.updateLastMessage(conversationId, "Bu mesaj silindi", conv.lastMessageTimestamp ?: System.currentTimeMillis())
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("IncomingHandler", "Mesaj silinirken hata: ${e.message}", e)
-        }
-    }
-
-    /**
-     * Karsi taraftan gelen mesaj duzenleme bildirimini isler.
-     * Mesaj icerigini yeni icerikle gunceller ve editedAt zamanini kaydeder.
-     */
-    private suspend fun handleMessageEdit(signal: SignalMessage.MessageEdit) {
-        android.util.Log.d("IncomingHandler", "MessageEdit: msgId=${signal.messageId} from=${signal.senderId}")
-        try {
-            messageRepository.editMessage(
-                messageId = signal.messageId,
-                newContent = signal.newContent,
-                editedAt = signal.timestamp
-            )
-            android.util.Log.d("IncomingHandler", "Mesaj basariyla duzenlendi: ${signal.messageId}")
-        } catch (e: Exception) {
-            android.util.Log.e("IncomingHandler", "Mesaj duzenlenirken hata: ${e.message}", e)
-        }
-    }
+    // Faz 10: handleMessageDelete + handleMessageEdit -> MessageEditDeleteHandler (handlers/)
 
     /**
      * Android bildirim gosterir. Gelen mesaj icin ses ve titresim ile bildirim olusturur.
@@ -2033,49 +1966,5 @@ class IncomingMessageHandler @Inject constructor(
         }
     }
 
-    /**
-     * Admin-only encrypted log mesaji islenir (zero-knowledge audit).
-     *
-     * Akis:
-     *  1. Lokal userId, adminPayloads.keys icinde mi? Yoksa sessizce drop.
-     *  2. Kendi payload'imizi cek, MessageEncryptor.decrypt ile coz.
-     *  3. JSON'i ayristir, ExportLogDao'ya kaydet.
-     *
-     * Yetkisiz veya hatali payload'lar sessizce atilir — bilgi sizdirmaz.
-     */
-    private suspend fun handleAdminEncryptedLog(signal: SignalMessage.AdminEncryptedLog) {
-        val localUserId = userSession.userId ?: return
-        val combined = signal.adminPayloads[localUserId] ?: return  // bizim icin degil, drop
-
-        try {
-            val envelope = com.securechat.app.domain.usecase.RecordExportEventUseCase
-                .decodeEnvelope(combined) ?: return
-            val plaintext = messageEncryptor.decrypt(signal.senderId, envelope)
-            val json = org.json.JSONObject(String(plaintext, Charsets.UTF_8))
-            plaintext.fill(0)
-
-            val entry = com.securechat.storage.entity.ExportLogEntity(
-                id = java.util.UUID.randomUUID().toString(),
-                groupId = signal.groupId,
-                actorUserId = json.optString("actorUserId", signal.senderId),
-                actorDisplayName = json.optString("actorDisplayName", signal.senderId),
-                eventType = json.optString("eventType", signal.eventType),
-                timestamp = json.optLong("timestamp", signal.timestamp),
-                messageCount = json.optInt("messageCount", 0),
-                firstMsgTs = if (json.has("firstMsgTs")) json.optLong("firstMsgTs") else null,
-                lastMsgTs = if (json.has("lastMsgTs")) json.optLong("lastMsgTs") else null
-            )
-            exportLogDao.insert(entry)
-            android.util.Log.d(
-                "IncomingHandler",
-                "Admin log alindi: ${entry.eventType} from ${entry.actorUserId} in ${entry.groupId}"
-            )
-        } catch (e: Exception) {
-            // Decrypt fail (session yok, yanlis kisi vb): sessizce drop — bilgi sizdirma
-            android.util.Log.w(
-                "IncomingHandler",
-                "Admin log decrypt fail (sessizce atildi): ${e.javaClass.simpleName}"
-            )
-        }
-    }
+    // Faz 10: handleAdminEncryptedLog -> AdminEncryptedLogHandler (handlers/)
 }
