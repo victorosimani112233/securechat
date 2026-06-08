@@ -30,6 +30,7 @@ class RecordExportEventUseCase @Inject constructor(
     private val userSession: UserSession,
     private val signalingClient: SignalingClient,
     private val messageEncryptor: MessageEncryptor,
+    private val sessionEnsurer: com.securechat.app.crypto.SessionEnsurer,
     private val contactNameResolver: ContactNameResolver
 ) {
 
@@ -80,11 +81,22 @@ class RecordExportEventUseCase @Inject constructor(
         }
         val plaintext = payloadObj.toString().toByteArray(Charsets.UTF_8)
 
-        // Her admin icin ayri ciphertext uret. Session yoksa skip (yeni admin gecmis
-        // logu gormez davranisi ile uyumlu).
+        // Her admin icin ayri ciphertext uret.
+        // Faz 2: SessionEnsurer ile session yoksa PreKeyBundle fetch + X3DH yapilir,
+        // boylece YENI atanan ve henuz mesajlasmamis admin'ler de bundan SONRAKI
+        // log'lari alabilir (gecmis log'lar yine kasitli olarak gozukmez — eski
+        // payload'larda onlarin userId'si yoktur).
         val payloads = mutableMapOf<String, String>()
         for (adminId in adminIds) {
+            if (adminId == userId) continue  // kendine sifrelemeye gerek yok
             try {
+                if (!sessionEnsurer.ensureSession(adminId)) {
+                    android.util.Log.w(
+                        "RecordExportEvent",
+                        "Session kurulamadi, skip: $adminId (PreKeyBundle fetch fail veya server offline)"
+                    )
+                    continue
+                }
                 val envelope: EncryptedEnvelope = messageEncryptor.encrypt(adminId, plaintext)
                 // type + content + senderRegistrationId tek bir taşıyıcıda
                 val combined = encodeEnvelope(envelope)
