@@ -169,6 +169,10 @@ android {
             // bir test class JVM agent assertion ile cokunce sonraki testler de
             // yutuluyordu; izole fork OOM/agent crashlerinin etki alanini sinirlar.
             it.forkEvery = 1
+            // Paralel test runner kapali — mockk JVM agent paralelde "can't create
+            // name string" assertion ile cokuyordu (JPLISAgent.c thread-unsafe).
+            // Sirali calisma yavas ama deterministik.
+            it.maxParallelForks = 1
         }
     }
 }
