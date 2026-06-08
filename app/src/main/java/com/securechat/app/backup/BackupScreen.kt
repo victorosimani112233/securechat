@@ -337,7 +337,7 @@ private fun CreateBackupTab(viewModel: BackupViewModel, dark: Boolean) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        "%.2f MB".format(file.length() / (1024.0 * 1024.0)),
+                        formatFileSize(file.length()),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -595,5 +595,26 @@ private fun RestoreBackupTab(viewModel: BackupViewModel, dark: Boolean) {
         }
 
         Spacer(Modifier.height(32.dp))
+    }
+}
+
+/**
+ * Dosya boyutunu insan-okunabilir bicimde formatlar.
+ * Onceki "%.2f MB" sabit format'i 2 KB'lik dosyada "0.00 MB" gosteriyordu
+ * (KB seviyesinde sifira yuvarlaniyor). Bu helper boyuta gore birim secer:
+ *   < 1 KB   → "N B"
+ *   < 1 MB   → "N.N KB"
+ *   < 1 GB   → "N.NN MB"
+ *   >= 1 GB  → "N.NN GB"
+ */
+private fun formatFileSize(bytes: Long): String {
+    val kb = 1024.0
+    val mb = kb * 1024
+    val gb = mb * 1024
+    return when {
+        bytes < kb -> "$bytes B"
+        bytes < mb -> "%.1f KB".format(bytes / kb)
+        bytes < gb -> "%.2f MB".format(bytes / mb)
+        else -> "%.2f GB".format(bytes / gb)
     }
 }
