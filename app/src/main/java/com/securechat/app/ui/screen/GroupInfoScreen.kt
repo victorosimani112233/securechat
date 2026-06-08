@@ -26,7 +26,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Group
@@ -112,6 +115,7 @@ fun GroupInfoScreen(
     onBackClick: () -> Unit,
     onAddMember: () -> Unit = {},
     onMemberClick: (String) -> Unit = {},
+    onExportHistoryClick: () -> Unit = {},
     onMessageClick: (String) -> Unit = {},
     onMediaClick: (MessageEntity) -> Unit = {}
 ) {
@@ -124,6 +128,7 @@ fun GroupInfoScreen(
     val starredMessages by viewModel.starredMessages.collectAsStateWithLifecycle()
     val disappearingDuration by viewModel.disappearingDuration.collectAsStateWithLifecycle()
     val isLocked by viewModel.isLocked.collectAsStateWithLifecycle()
+    val isExportEnabled by viewModel.isExportEnabled.collectAsStateWithLifecycle()
 
     var currentTab by remember { mutableStateOf(GroupInfoTab.MAIN) }
     var showEditGroupDialog by remember { mutableStateOf(false) }
@@ -340,6 +345,48 @@ fun GroupInfoScreen(
                             title = if (isLocked) "Sohbet Kilitli" else "Sohbet Kilidi",
                             subtitle = if (isLocked) "Biyometrik doğrulama açık" else "Biyometrik kilit ekle",
                             onClick = { viewModel.toggleLocked(groupId) }
+                        )
+                    }
+
+                    // Disa Aktarma Gecmisi — sadece admin gorur. Lokal DB'den okur,
+                    // sunucudan veri cekilmez (zero-knowledge audit).
+                    if (isAdmin) {
+                        item {
+                            GroupInfoMenuItem(
+                                icon = Icons.Default.History,
+                                iconTint = Color(0xFF1976D2),
+                                title = "Dışa Aktarma Geçmişi",
+                                subtitle = "Bu grupta yapılan dışa aktarmaları görüntüle",
+                                onClick = onExportHistoryClick
+                            )
+                        }
+                    }
+
+                    // Sohbet disa aktarma izni (sadece admin toggle eder).
+                    // Kapaliyken: mesaj kopyalama + "Sohbeti Disa Aktar" menu item gizlenir.
+                    // Acikken: yeni katilanlara one-time bilgi banner gosterilir, export
+                    // yapildiginda diger admin'lere E2EE log gonderilir.
+                    item {
+                        val exportTitle = if (isExportEnabled) "Sohbet Dışa Aktarma Açık" else "Sohbet Dışa Aktarma Kapalı"
+                        val exportSubtitle = when {
+                            !isAdmin -> if (isExportEnabled)
+                                "Açık (sadece yönetici değiştirebilir)"
+                            else
+                                "Kapalı (sadece yönetici değiştirebilir)"
+                            isExportEnabled -> "Üyeler sohbeti dışa aktarabilir/kopyalayabilir"
+                            else -> "Kopyalama ve dışa aktarma engelli"
+                        }
+                        GroupInfoMenuItem(
+                            icon = if (isExportEnabled) Icons.Default.Share else Icons.Default.Block,
+                            iconTint = if (isExportEnabled) Color(0xFFEF6C00) else Color(0xFF78909C),
+                            title = exportTitle,
+                            subtitle = exportSubtitle,
+                            onClick = {
+                                if (isAdmin) {
+                                    viewModel.toggleExportEnabled(groupId)
+                                }
+                                // Admin degilse tiklama etkisiz
+                            }
                         )
                     }
 

@@ -290,6 +290,43 @@ sealed class SignalMessage {
     ) : SignalMessage()
 
     /**
+     * Admin'lere ozel sifrelenmis log mesaji (zero-knowledge audit).
+     *
+     * Bir grup uyesinin (admin olabilir veya olmayabilir) export/copy gibi
+     * gizlilik etkileyen bir eylem yaptiginda, olay grup admin'lerine ayri ayri
+     * Signal Protocol session'i ile sifrelenir. Server sadece relay yapar,
+     * mesaj icerigini goremez.
+     *
+     * adminPayloads: {adminUserId -> base64(SessionCipher.encrypt(eventJson))}
+     *   - Sadece adminPayloads.contains(localUserId) olan client mesaji cozebilir
+     *   - Diger uyeler (non-admin veya degisik grup uyeleri) decrypt yapamaz,
+     *     handler tarafinda sessizce filtrelenir
+     *   - Yeni atanan admin gecmis loglari GORMEZ (payloads map'inde yok)
+     *
+     * eventType: "EXPORT" | (gelecekte "COPY_BULK" gibi genisleyebilir)
+     * eventPayload: ek metadata JSON (ornek: {"count":42,"from":1700000000000,"to":...})
+     *   — payload zaten encrypted, plaintext bu alanda sizmaz; sadece serialization
+     *     icin disarida tutulur (cunku Map<String,String> her admin icin AYNI veriyi
+     *     sifreliyor — orijinal plaintext tek bir kez burada degerli olur degil, her
+     *     adminPayload icindeki ciphertext'ten gelir). adminPayloads cozuldukten sonra
+     *     icindeki JSON ayristirilir.
+     */
+    @Serializable
+    @SerialName("admin_encrypted_log")
+    data class AdminEncryptedLog(
+        override val senderId: String,
+        override val recipientId: String = "server", // Server her uyeye fanout yapar
+        override val timestamp: Long,
+        val groupId: String,
+        val eventType: String,
+        /**
+         * Her admin icin ayri ciphertext. Key: admin userId, value: base64-encoded
+         * SignalProtocolStore session uzerinden sifrelenmis JSON payload.
+         */
+        val adminPayloads: Map<String, String>
+    ) : SignalMessage()
+
+    /**
      * SFU room olusturuldu bildirimi.
      * 4+ katilimcili grup aramasinda sunucu Janus VideoRoom olusturur ve bu bilgiyi gonderir.
      * Client bu bilgiyle mesh yerine Janus SFU'ya baglanir.

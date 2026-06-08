@@ -8,6 +8,7 @@ import com.securechat.crypto.store.CryptoPreKeyStore
 import com.securechat.crypto.store.CryptoSessionStore
 import com.securechat.crypto.store.CryptoSignedPreKeyStore
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.securechat.crypto.KeyStoreManager
 import com.securechat.storage.SecureChatDatabase
@@ -86,6 +87,7 @@ object StorageModule {
             "securechat.db"
         )
             .openHelperFactory(factory)
+            .addMigrations(MIGRATION_17_18)
             .fallbackToDestructiveMigration()
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
@@ -106,6 +108,35 @@ object StorageModule {
     // Yedek-al-sil yolu CALISAN DB'leri yanlislikla siliyordu (kullanici sohbetleri her
     // acilista kayboluyordu). Artik passphrase deterministic, Room direkt SQLCipher ile
     // acar, hata varsa exception firlatir — DB SILMEK YOK.
+
+    /**
+     * v17 -> v18: Sohbet disa aktarma izni alani + export_log tablosu.
+     *  - ConversationEntity.is_export_enabled (BOOLEAN, default 0)
+     *  - export_log tablosu (admin-only encrypted log girdileri icin)
+     * Veri kaybi olmaz; mevcut konusmalarda export default kapali kalir.
+     */
+    private val MIGRATION_17_18 = object : Migration(17, 18) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE conversations ADD COLUMN is_export_enabled INTEGER NOT NULL DEFAULT 0")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS export_log (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    group_id TEXT NOT NULL,
+                    actor_user_id TEXT NOT NULL,
+                    actor_display_name TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    message_count INTEGER NOT NULL,
+                    first_msg_ts INTEGER,
+                    last_msg_ts INTEGER
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_export_log_group_id_timestamp ON export_log(group_id, timestamp)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_export_log_timestamp ON export_log(timestamp)")
+        }
+    }
 
     @Provides
     fun provideMessageDao(db: SecureChatDatabase): MessageDao = db.messageDao()
@@ -137,6 +168,10 @@ object StorageModule {
 
     @Provides
     fun provideIdentityDao(db: SecureChatDatabase): IdentityDao = db.identityDao()
+
+    @Provides
+    fun provideExportLogDao(db: SecureChatDatabase): com.securechat.storage.dao.ExportLogDao =
+        db.exportLogDao()
 
     @Provides
     @Singleton

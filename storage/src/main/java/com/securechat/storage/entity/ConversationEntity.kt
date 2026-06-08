@@ -35,5 +35,9 @@ data class ConversationEntity(
     @ColumnInfo(name = "disappearing_duration") val disappearingDuration: Long = 0, // milisaniye, 0 = kapali
     @ColumnInfo(name = "group_admins") val groupAdmins: String? = null, // virgul ile ayrilmis admin userId listesi
     @ColumnInfo(name = "is_favorite") val isFavorite: Boolean = false,
-    @ColumnInfo(name = "is_locked") val isLocked: Boolean = false // Biyometrik kilit
+    @ColumnInfo(name = "is_locked") val isLocked: Boolean = false, // Biyometrik kilit
+    // Sohbet disa aktarma izni — sadece grup admin'i toggle edebilir. Default kapali.
+    // Kapaliyken: tek tek mesaj kopyalama ve "Sohbeti Disa Aktar" menusu gizlenir.
+    // Acikken: izin uyarisi banner + admin'lere encrypted export log gonderilir.
+    @ColumnInfo(name = "is_export_enabled") val isExportEnabled: Boolean = false
 )

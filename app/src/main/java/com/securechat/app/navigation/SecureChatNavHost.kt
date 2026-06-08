@@ -269,7 +269,16 @@ fun SecureChatNavHost(
                     },
                     onMemberClick = { memberId ->
                         navController.navigate("chat_info/$memberId")
+                    },
+                    onExportHistoryClick = {
+                        navController.navigate("export_history/$groupId")
                     }
+                )
+            }
+
+            composable("export_history/{groupId}") {
+                com.securechat.app.ui.screen.ExportHistoryScreen(
+                    onBackClick = { navController.popBackStack() }
                 )
             }
 

@@ -57,7 +57,9 @@ class ChatViewModel @Inject constructor(
     private val signalingClient: SignalingClient,
     private val contactNameResolver: ContactNameResolver,
     private val sharedPreferences: SharedPreferences,
-    private val callManager: com.securechat.media.CallManager
+    private val callManager: com.securechat.media.CallManager,
+    private val exportBannerAckStore: com.securechat.app.data.ExportBannerAckStore,
+    private val recordExportEventUseCase: com.securechat.app.domain.usecase.RecordExportEventUseCase
 ) : ViewModel() {
 
     /** Navigation argument'inden alinan konusma kimlik numarasi. */
@@ -115,6 +117,32 @@ class ChatViewModel @Inject constructor(
     private val _disappearingDuration = MutableStateFlow(0L)
     val disappearingDuration: StateFlow<Long> = _disappearingDuration.asStateFlow()
 
+    /** Sohbet disa aktarma izni — grup sohbetleri icin. Kapali ise kopya engellenir. */
+    private val _isExportEnabled = MutableStateFlow(false)
+    val isExportEnabled: StateFlow<Boolean> = _isExportEnabled.asStateFlow()
+
+    /** Grup sohbeti mi? — UI'da export kararlari bunu kullanir (1:1 sohbet etkilenmez). */
+    private val _isGroupChat = MutableStateFlow(false)
+    val isGroupChat: StateFlow<Boolean> = _isGroupChat.asStateFlow()
+
+    /** Export izin banner'i — admin yeni katilanlari bilgilendirmek icin. */
+    private val _shouldShowExportBanner = MutableStateFlow(false)
+    val shouldShowExportBanner: StateFlow<Boolean> = _shouldShowExportBanner.asStateFlow()
+
+    /** Kullanici banner'i kapatti — bir daha ayni durum icin gosterme. */
+    fun acknowledgeExportBanner() {
+        exportBannerAckStore.acknowledge(conversationId)
+        _shouldShowExportBanner.value = false
+    }
+
+    /** Export durumu degistiginde banner gorunurlugunu yeniden hesapla. */
+    private fun refreshExportBannerVisibility() {
+        _shouldShowExportBanner.value =
+            _isGroupChat.value &&
+            _isExportEnabled.value &&
+            exportBannerAckStore.shouldShow(conversationId)
+    }
+
     /** Karsi taraf yaziyor mu. */
     val peerIsTyping: StateFlow<Boolean> = IncomingMessageHandler.typingStates
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
@@ -158,6 +186,20 @@ class ChatViewModel @Inject constructor(
             // Sureli mesaj ayarini yukle
             val conv = conversationDao.getById(conversationId)
             _disappearingDuration.value = conv?.disappearingDuration ?: 0
+            _isGroupChat.value = conv?.isGroup == true
+            _isExportEnabled.value = conv?.isExportEnabled == true
+        }
+
+        // Export izni admin tarafindan toggle edilince DB guncellenir + sistem mesaji
+        // gelir; Flow ile dinleyip live update — banner & kopya menusu anlik reaksiyon verir.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            conversationDao.observeById(conversationId).collect { entity ->
+                if (entity != null) {
+                    _isExportEnabled.value = entity.isExportEnabled
+                    _isGroupChat.value = entity.isGroup
+                    refreshExportBannerVisibility()
+                }
+            }
         }
 
         // Sohbet acildiginda SENDING durumunda takilmis mesajlari FAILED olarak isaretle
@@ -1154,6 +1196,25 @@ class ChatViewModel @Inject constructor(
             }
 
             _exportText.emit(sb.toString())
+
+            // Grup sohbetinde export olayini admin'lere E2EE log olarak gonder.
+            // Server icerigi goremez; non-admin client'lar sessizce filtreler.
+            // 1:1 sohbet veya admin'i olmayan gruplarda no-op.
+            if (_isGroupChat.value && _isExportEnabled.value) {
+                val firstTs = messages.minByOrNull { it.timestamp }?.timestamp
+                val lastTs = messages.maxByOrNull { it.timestamp }?.timestamp
+                runCatching {
+                    recordExportEventUseCase(
+                        groupId = conversationId,
+                        eventType = "EXPORT",
+                        messageCount = messages.size,
+                        firstMsgTs = firstTs,
+                        lastMsgTs = lastTs
+                    )
+                }.onFailure { e ->
+                    android.util.Log.w("ChatViewModel", "Export log kaydi basarisiz", e)
+                }
+            }
         }
     }
 

@@ -6,6 +6,7 @@ import androidx.room.TypeConverters
 import com.securechat.storage.dao.CallLogDao
 import com.securechat.storage.dao.ContactDao
 import com.securechat.storage.dao.ConversationDao
+import com.securechat.storage.dao.ExportLogDao
 import com.securechat.storage.dao.IdentityDao
 import com.securechat.storage.dao.MessageDao
 import com.securechat.storage.dao.PendingTimerUpdateDao
@@ -16,6 +17,7 @@ import com.securechat.storage.dao.ScheduledMessageDao
 import com.securechat.storage.entity.CallLogEntity
 import com.securechat.storage.entity.ContactEntity
 import com.securechat.storage.entity.ConversationEntity
+import com.securechat.storage.entity.ExportLogEntity
 import com.securechat.storage.entity.IdentityEntity
 import com.securechat.storage.entity.MessageEntity
 import com.securechat.storage.entity.PendingTimerUpdateEntity
@@ -39,9 +41,10 @@ import com.securechat.storage.entity.SignedPreKeyEntity
         IdentityEntity::class,
         CallLogEntity::class,
         ScheduledMessageEntity::class,
-        PendingTimerUpdateEntity::class
+        PendingTimerUpdateEntity::class,
+        ExportLogEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -56,4 +59,5 @@ abstract class SecureChatDatabase : RoomDatabase() {
     abstract fun callLogDao(): CallLogDao
     abstract fun scheduledMessageDao(): ScheduledMessageDao
     abstract fun pendingTimerUpdateDao(): PendingTimerUpdateDao
+    abstract fun exportLogDao(): ExportLogDao
 }

@@ -27,5 +27,12 @@ enum class GroupAction {
     UPDATE_ADMIN,
 
     /** Grup admin yetkisi alındı (düşürme) */
-    DEMOTE_ADMIN
+    DEMOTE_ADMIN,
+
+    /**
+     * Sohbet dışa aktarma izni değiştirildi (sadece admin tarafından).
+     * `targetMemberId` alanı "true" / "false" stringi olarak yeni durumu taşır
+     * (yeni alan eklemeden mevcut wire formatına geri-uyumlu kalmak için).
+     */
+    UPDATE_EXPORT_POLICY
 }

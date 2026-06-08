@@ -258,6 +258,9 @@ fun ChatScreen(
 
     // Aktif grup arama bilgisi — banner state'i
     val activeGroupCall by viewModel.activeGroupCallForChat.collectAsStateWithLifecycle()
+    val shouldShowExportBanner by viewModel.shouldShowExportBanner.collectAsStateWithLifecycle()
+    val isExportEnabled by viewModel.isExportEnabled.collectAsStateWithLifecycle()
+    val isGroupChat by viewModel.isGroupChat.collectAsStateWithLifecycle()
 
     // Mesaj duzenleme state'leri
     var editingMessageId by remember { mutableStateOf<String?>(null) }
@@ -496,7 +499,13 @@ fun ChatScreen(
                     onSearchClick = { isSearchMode = true },
                     onDisappearingClick = { showDisappearingDialog = true },
                     onMuteToggle = { viewModel.toggleMuted() },
-                    onExportClick = { viewModel.exportConversation() },
+                    // Grup sohbetinde admin export'u kapatmissa "Sohbeti Disa Aktar" menusunu
+                    // gizle (null -> ChatTopBar item'i gostermez). 1:1 sohbetler etkilenmez.
+                    onExportClick = if (isGroupChat && !isExportEnabled) {
+                        null
+                    } else {
+                        { viewModel.exportConversation() }
+                    },
                     onChatInfoClick = {
                         if (conversationInfo?.isGroup == true) {
                             onGroupInfoClick(conversationId)
@@ -505,6 +514,18 @@ fun ChatScreen(
                         }
                     }
                 )
+                // Sohbet disa aktarma uyarisi — admin export'u acmissa yeni katilanlara
+                // one-time banner. Kapatildiginda SharedPreferences'a ack yazilir; toggle
+                // KAPANIP tekrar acilirsa yine gosterilir (IncomingMessageHandler reset eder).
+                AnimatedVisibility(
+                    visible = shouldShowExportBanner,
+                    enter = slideInVertically(tween(200)) { -it } + fadeIn(tween(200)),
+                    exit = slideOutVertically(tween(200)) { -it } + fadeOut(tween(200))
+                ) {
+                    ExportEnabledBanner(
+                        onDismiss = { viewModel.acknowledgeExportBanner() }
+                    )
+                }
                 // Aktif grup arama banner'i — devam eden aramaya katilim
                 AnimatedVisibility(
                     visible = activeGroupCall != null && isGroup,
@@ -654,6 +675,7 @@ fun ChatScreen(
                                         MessageBubble(
                                             message = message,
                                             isGroupChat = isGroup,
+                                            exportEnabled = isExportEnabled,
                                             memberNames = conversationInfo?.memberNames ?: emptyMap(),
                                             replyToMessage = replyToMsg,
                                             uploadPercent = uploadProgress[message.id],
@@ -672,6 +694,7 @@ fun ChatScreen(
                                     MessageBubble(
                                         message = message,
                                         isGroupChat = isGroup,
+                                        exportEnabled = isExportEnabled,
                                         memberNames = conversationInfo?.memberNames ?: emptyMap(),
                                         isHighlighted = message.id == highlightedMessageId,
                                         searchQuery = if (isSearchMode) searchQuery else "",
@@ -1385,6 +1408,52 @@ private fun ActiveGroupCallBanner(
 }
 
 /**
+ * Sohbet disa aktarma izni acik oldugunda yeni katilanlara veya admin durumu acan
+ * uyelere gosterilen one-time bilgi banner'i. Kullanici X ile kapatinca SharedPrefs'e
+ * ack yazilir; toggle KAPANIP tekrar acilirsa banner tekrar belirir.
+ */
+@Composable
+private fun ExportEnabledBanner(onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFEF6C00))
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                Icons.Default.Share,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "Bu grupta sohbet dışa aktarma açık. Mesajlarınız diğer üyeler tarafından dışarı aktarılabilir.",
+                color = Color.White,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Kapat",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
  * Sistem mesajlarini (grup olaylari, arama bilgileri) ortada bilgilendirme olarak gosterir.
  * WhatsApp'taki gibi mesaj balonu yerine kucuk, ortalanmis metin.
  */
@@ -2028,6 +2097,12 @@ private fun senderNameColor(senderId: String): Color {
 fun MessageBubble(
     message: LocalMessage,
     isGroupChat: Boolean = false,
+    /**
+     * Grup admin'i "Sohbet Disa Aktarma" iznini acikmis mi?
+     * Grup sohbetlerinde KAPALIYKEN kopyalama menusu da gizlenir (in-app sizinti
+     * vektoru engellenir). 1:1 sohbetlerde bu parametre dikkate alinmaz.
+     */
+    exportEnabled: Boolean = false,
     memberNames: Map<String, String> = emptyMap(),
     isHighlighted: Boolean = false,
     searchQuery: String = "",
@@ -2418,8 +2493,10 @@ fun MessageBubble(
                     )
                 }
 
-                // Kopyala — dosya/silinmis/view-once disindaki mesajlarda
-                if (!message.isFileMessage && !message.isDeleted && !message.isViewOnce) {
+                // Kopyala — dosya/silinmis/view-once disinda + grup export izni saglanmissa.
+                // Grup admin'i export'u kapatmissa kopyalama da engellenir (in-app sizinti vektoru).
+                val copyAllowed = !isGroupChat || exportEnabled
+                if (copyAllowed && !message.isFileMessage && !message.isDeleted && !message.isViewOnce) {
                     val clipboardManager = LocalClipboardManager.current
                     val clipContext = LocalContext.current
                     val coroutineScope = rememberCoroutineScope()

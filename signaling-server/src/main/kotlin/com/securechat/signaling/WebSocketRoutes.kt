@@ -522,6 +522,24 @@ private suspend fun handleMessage(
             }
         }
 
+        // --- ADMIN_ENCRYPTED_LOG: zero-knowledge audit relay ---
+        // Bir grup uyesinin export/copy gibi gizlilik etkileyen eylemini admin'lere
+        // E2EE log olarak iletir. Server icerigi GOREMEZ, sadece relay yapar; PERSIST
+        // ETMEZ — log dagitik bicimde sadece admin cihazlarinda durur.
+        if (type == "admin_encrypted_log") {
+            val groupId = element["groupId"]?.jsonPrimitive?.contentOrNull
+            val payloadsObj = element["adminPayloads"]?.jsonObject
+            val ts = element["timestamp"]?.jsonPrimitive?.longOrNull ?: System.currentTimeMillis()
+            val eventType = element["eventType"]?.jsonPrimitive?.contentOrNull ?: "EXPORT"
+            if (groupId.isNullOrBlank() || payloadsObj == null || payloadsObj.isEmpty()) {
+                logger.warn("[!] admin_encrypted_log eksik alan: sender=$senderId")
+                return
+            }
+            val payloads = payloadsObj.mapValues { (_, v) -> v.jsonPrimitive.content }
+            connectionManager.handleAdminEncryptedLog(senderId, groupId, eventType, payloads, ts)
+            return
+        }
+
         // --- GROUP_MESSAGE_FANOUT: sunucu tarafinda grup mesaj dagitimi ---
         if (type == "group_message_fanout") {
             val groupId = element["groupId"]?.jsonPrimitive?.contentOrNull

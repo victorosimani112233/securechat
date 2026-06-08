@@ -35,6 +35,9 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): ConversationEntity?
 
+    @Query("SELECT * FROM conversations WHERE id = :id")
+    fun observeById(id: String): kotlinx.coroutines.flow.Flow<ConversationEntity?>
+
     @Query("SELECT * FROM conversations WHERE peer_id = :peerId LIMIT 1")
     suspend fun getByPeerId(peerId: String): ConversationEntity?
 
@@ -91,6 +94,11 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET is_locked = :isLocked WHERE id = :conversationId")
     suspend fun updateLocked(conversationId: String, isLocked: Boolean)
+
+    // Sohbet disa aktarma izni — sadece admin toggle eder, propagation icin
+    // GroupNotification + PendingExportPolicyFlusher kullanilir.
+    @Query("UPDATE conversations SET is_export_enabled = :isEnabled WHERE id = :conversationId")
+    suspend fun updateExportEnabled(conversationId: String, isEnabled: Boolean)
 
     /**
      * Belirtilen konusmadaki en son mesajin icerigini dondurur.

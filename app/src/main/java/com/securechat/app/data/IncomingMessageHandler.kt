@@ -58,7 +58,10 @@ class IncomingMessageHandler @Inject constructor(
     private val ringtonePlayer: com.securechat.media.RingtonePlayer,
     private val missedCallTracker: MissedCallTracker,
     private val themeManager: ThemeManager,
-    private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>
+    private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>,
+    private val exportBannerAckStore: ExportBannerAckStore,
+    private val messageEncryptor: com.securechat.crypto.MessageEncryptor,
+    private val exportLogDao: com.securechat.storage.dao.ExportLogDao
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -253,6 +256,7 @@ class IncomingMessageHandler @Inject constructor(
                     is SignalMessage.GroupCallStatusResponse -> handleGroupCallStatusResponse(signal)
                     is SignalMessage.GroupCallStatusQuery -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.SfuRoomCreated -> handleSfuRoomCreated(signal)
+                    is SignalMessage.AdminEncryptedLog -> handleAdminEncryptedLog(signal)
                     is SignalMessage.PresenceSubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.PresenceUnsubscribe -> { /* Sunucu tarafinda islenir */ }
                     is SignalMessage.AudioData -> { }
@@ -1979,9 +1983,87 @@ class IncomingMessageHandler @Inject constructor(
                 }
             }
 
+            com.securechat.network.model.GroupAction.UPDATE_EXPORT_POLICY -> {
+                // Sohbet disa aktarma izni admin tarafindan ac/kapat edildi.
+                // targetMemberId alani yeni durumu "true"/"false" stringi olarak tasir.
+                val groupConv = conversationDao.getById(signal.groupId)
+                if (groupConv != null) {
+                    val newEnabled = signal.targetMemberId?.toBooleanStrictOrNull() ?: false
+                    conversationDao.updateExportEnabled(signal.groupId, newEnabled)
+                    // Export ACILIRSA banner ack'ini sifirla — kullanici yeni durumu
+                    // gorebilsin diye one-time uyari tekrar gosterilir.
+                    if (newEnabled) exportBannerAckStore.reset(signal.groupId)
+
+                    val actorName = resolvePeerName(signal.senderId)
+                    val systemMessage = if (newEnabled) {
+                        "$actorName sohbet dışa aktarmayı açtı"
+                    } else {
+                        "$actorName sohbet dışa aktarmayı kapattı"
+                    }
+                    val message = com.securechat.storage.domain.LocalMessage(
+                        id = UUID.randomUUID().toString(),
+                        conversationId = signal.groupId,
+                        senderId = "SYSTEM",
+                        peerId = signal.groupId,
+                        content = systemMessage,
+                        contentType = MessageContentType.SYSTEM,
+                        timestamp = signal.timestamp,
+                        status = MessageStatus.DELIVERED,
+                        isOutgoing = false
+                    )
+                    messageRepository.saveMessage(message)
+                }
+            }
+
             else -> {
                 android.util.Log.d("IncomingHandler", "Bilinmeyen grup aksiyonu: ${signal.action}")
             }
+        }
+    }
+
+    /**
+     * Admin-only encrypted log mesaji islenir (zero-knowledge audit).
+     *
+     * Akis:
+     *  1. Lokal userId, adminPayloads.keys icinde mi? Yoksa sessizce drop.
+     *  2. Kendi payload'imizi cek, MessageEncryptor.decrypt ile coz.
+     *  3. JSON'i ayristir, ExportLogDao'ya kaydet.
+     *
+     * Yetkisiz veya hatali payload'lar sessizce atilir — bilgi sizdirmaz.
+     */
+    private suspend fun handleAdminEncryptedLog(signal: SignalMessage.AdminEncryptedLog) {
+        val localUserId = userSession.userId ?: return
+        val combined = signal.adminPayloads[localUserId] ?: return  // bizim icin degil, drop
+
+        try {
+            val envelope = com.securechat.app.domain.usecase.RecordExportEventUseCase
+                .decodeEnvelope(combined) ?: return
+            val plaintext = messageEncryptor.decrypt(signal.senderId, envelope)
+            val json = org.json.JSONObject(String(plaintext, Charsets.UTF_8))
+            plaintext.fill(0)
+
+            val entry = com.securechat.storage.entity.ExportLogEntity(
+                id = java.util.UUID.randomUUID().toString(),
+                groupId = signal.groupId,
+                actorUserId = json.optString("actorUserId", signal.senderId),
+                actorDisplayName = json.optString("actorDisplayName", signal.senderId),
+                eventType = json.optString("eventType", signal.eventType),
+                timestamp = json.optLong("timestamp", signal.timestamp),
+                messageCount = json.optInt("messageCount", 0),
+                firstMsgTs = if (json.has("firstMsgTs")) json.optLong("firstMsgTs") else null,
+                lastMsgTs = if (json.has("lastMsgTs")) json.optLong("lastMsgTs") else null
+            )
+            exportLogDao.insert(entry)
+            android.util.Log.d(
+                "IncomingHandler",
+                "Admin log alindi: ${entry.eventType} from ${entry.actorUserId} in ${entry.groupId}"
+            )
+        } catch (e: Exception) {
+            // Decrypt fail (session yok, yanlis kisi vb): sessizce drop — bilgi sizdirma
+            android.util.Log.w(
+                "IncomingHandler",
+                "Admin log decrypt fail (sessizce atildi): ${e.javaClass.simpleName}"
+            )
         }
     }
 }

@@ -271,6 +271,85 @@ class ConnectionManager(
     }
 
     /**
+     * Admin-only encrypted log relay (zero-knowledge audit).
+     *
+     * Sender'in adminPayloads map'inde belirledigi her grup uyesine ayri sifrelenmis
+     * payload gonderir. Sunucu icerigi cozemez, log persist etmez. Non-admin'ler de
+     * mesaji alir ama adminPayloads'ta kendi userId'leri olmadigi icin decrypt edemez
+     * — client tarafinda sessizce filtrelerler.
+     *
+     * Yetki: Sender grup uyesi olmali. adminPayloads'taki recipient'lar grup uyesi
+     * olmayanlari filtre edilir (grup uye listesi manipulasyonu engelli).
+     */
+    suspend fun handleAdminEncryptedLog(
+        senderId: String,
+        groupId: String,
+        eventType: String,
+        adminPayloads: Map<String, String>,
+        timestamp: Long
+    ) {
+        val members = GroupMemberStore.getMembers(groupId)
+        if (members.isEmpty()) {
+            log.warn("[!] admin_encrypted_log reddedildi: $senderId -> $groupId uye listesi bos")
+            return
+        }
+        if (senderId !in members) {
+            log.warn("[!] Yetkisiz admin_encrypted_log girisimi: $senderId -> $groupId")
+            return
+        }
+        // Sadece grup uyelerine fanout — sender'in saldirgan adminPayloads ile rastgele
+        // userId hedeflemesini engelle.
+        val validPayloads = adminPayloads.filterKeys { it in members && it != senderId }
+        if (validPayloads.isEmpty()) {
+            log.info("[AL] admin_encrypted_log: gecerli alici yok ($senderId -> $groupId)")
+            return
+        }
+
+        var onlineCount = 0
+        var offlineCount = 0
+        coroutineScope {
+            val deferreds = validPayloads.map { (recipientId, payload) ->
+                async {
+                    val individualMessage = buildJsonObject {
+                        put("type", "admin_encrypted_log")
+                        put("senderId", senderId)
+                        put("recipientId", recipientId)
+                        put("timestamp", timestamp)
+                        put("groupId", groupId)
+                        put("eventType", eventType)
+                        // Tek alici icin sadece kendi payload'i — ihtimal sizinti engellenir,
+                        // baska adminin payload'ini gormezler.
+                        put("adminPayloads", buildJsonObject { put(recipientId, payload) })
+                    }.toString()
+
+                    val session = connections[recipientId]
+                    if (session != null) {
+                        val sent = withTimeoutOrNull(2000L) {
+                            try {
+                                session.send(Frame.Text(individualMessage))
+                                true
+                            } catch (_: Exception) { false }
+                        } ?: false
+                        if (sent) recipientId to true
+                        else {
+                            queueAndNotify(senderId, recipientId, individualMessage)
+                            recipientId to false
+                        }
+                    } else {
+                        queueAndNotify(senderId, recipientId, individualMessage)
+                        recipientId to false
+                    }
+                }
+            }
+            val results = deferreds.awaitAll()
+            onlineCount = results.count { it.second }
+            offlineCount = results.count { !it.second }
+        }
+
+        log.info("[AL] admin_encrypted_log: $senderId -> $groupId event=$eventType (online:$onlineCount, offline:$offlineCount)")
+    }
+
+    /**
      * Typing indicator'i grup uyelerine fan-out eder.
      * Sadece online uyelere gonderilir (transient mesaj, offline queue'ya girmez).
      */

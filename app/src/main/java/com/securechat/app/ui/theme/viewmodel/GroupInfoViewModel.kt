@@ -40,6 +40,7 @@ class GroupInfoViewModel @Inject constructor(
     private val promoteToAdminUseCase: PromoteToAdminUseCase,
     private val removeGroupMemberUseCase: RemoveGroupMemberUseCase,
     private val updateGroupNameUseCase: UpdateGroupNameUseCase,
+    private val toggleExportPolicyUseCase: com.securechat.app.domain.usecase.ToggleExportPolicyUseCase,
     private val contactNameResolver: com.securechat.storage.resolver.ContactNameResolver,
     private val pendingTimerFlusher: PendingTimerFlusher
 ) : ViewModel() {
@@ -63,6 +64,10 @@ class GroupInfoViewModel @Inject constructor(
 
     private val _isLocked = MutableStateFlow(false)
     val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
+
+    /** Sohbet disa aktarma izni — sadece admin toggle eder. */
+    private val _isExportEnabled = MutableStateFlow(false)
+    val isExportEnabled: StateFlow<Boolean> = _isExportEnabled.asStateFlow()
 
     /** Sureli mesaj suresi (ms). 0 = kapali. */
     private val _disappearingDuration = MutableStateFlow(0L)
@@ -177,6 +182,7 @@ class GroupInfoViewModel @Inject constructor(
                 _isAdmin.value = isCurrentUserAdmin
                 _disappearingDuration.value = conversation.disappearingDuration
                 _isLocked.value = conversation.isLocked
+                _isExportEnabled.value = conversation.isExportEnabled
 
                 // Medya mesajlarini yukle
                 messageDao.getMediaMessages(groupId)
@@ -406,6 +412,23 @@ class GroupInfoViewModel @Inject constructor(
             val newLocked = !_isLocked.value
             conversationDao.updateLocked(groupId, newLocked)
             _isLocked.value = newLocked
+        }
+    }
+
+    /**
+     * Sohbet disa aktarma iznini ac/kapat (sadece admin).
+     * UseCase yetki kontrolu yapip diger uyelere GroupNotification yayar.
+     */
+    fun toggleExportEnabled(groupId: String) {
+        viewModelScope.launch {
+            try {
+                val newEnabled = !_isExportEnabled.value
+                toggleExportPolicyUseCase(groupId, newEnabled)
+                _isExportEnabled.value = newEnabled
+            } catch (e: Exception) {
+                android.util.Log.e("GroupInfoVM", "Export toggle hatasi", e)
+                _error.value = e.message ?: "Disa aktarma izni degistirilemedi"
+            }
         }
     }
 
