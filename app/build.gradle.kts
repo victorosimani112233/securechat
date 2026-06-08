@@ -13,23 +13,42 @@ android {
         applicationId = "com.securechat.app"
         minSdk = 26
         targetSdk = 34
-        // Versiyon her build'de commit count + short SHA ile artar — kullanici
-        // hangi build'i yukledigini telefondan dogrulayabilsin (Ayarlar > Hakkinda).
-        // Eski APK'lari "yukledigini sandi ama yuklenmedi" yanlislamalarini engeller.
-        val commitCount = runCatching {
+        // Versiyon priority: gradle property > VERSION dosyasi > git komutu > 1
+        //
+        // Online makine: git komutu calistirir, commit count + short SHA otomatik.
+        // Offline makine (git veya .git yok): VERSION dosyasini okur (online'da
+        //   refresh-version.sh ile guncellenir, repo'ya commit edilir).
+        // CI/manuel override: ./gradlew assembleDevRelease -PversionCode=49 -PversionName=1.0.49-abc
+        //
+        // Bu zincir sayesinde offline build "downgrade" olmaz; her zaman ya VERSION
+        // dosyasindaki guncel deger ya da explicit override kullanilir.
+        val gradlePropVc = providers.gradleProperty("versionCode").orNull?.toIntOrNull()
+        val gradlePropVn = providers.gradleProperty("versionName").orNull
+
+        val versionFile = rootDir.resolve("VERSION")
+        val (fileVc, fileVn) = if (versionFile.exists()) {
+            val lines = versionFile.readLines().map { it.trim() }.filter { it.isNotEmpty() }
+            val vc = lines.firstOrNull { it.startsWith("versionCode=") }?.substringAfter("=")?.toIntOrNull()
+            val vn = lines.firstOrNull { it.startsWith("versionName=") }?.substringAfter("=")
+            vc to vn
+        } else null to null
+
+        val gitVc = runCatching {
             providers.exec {
                 commandLine("git", "rev-list", "--count", "HEAD")
                 workingDir = rootDir
             }.standardOutput.asText.get().trim().toInt()
-        }.getOrDefault(1)
-        val shortSha = runCatching {
+        }.getOrNull()
+        val gitSha = runCatching {
             providers.exec {
                 commandLine("git", "rev-parse", "--short", "HEAD")
                 workingDir = rootDir
             }.standardOutput.asText.get().trim()
-        }.getOrDefault("dev")
-        versionCode = commitCount
-        versionName = "1.0.$commitCount-$shortSha"
+        }.getOrNull()
+        val gitVn = if (gitVc != null && gitSha != null) "1.0.$gitVc-$gitSha" else null
+
+        versionCode = gradlePropVc ?: fileVc ?: gitVc ?: 1
+        versionName = gradlePropVn ?: fileVn ?: gitVn ?: "1.0.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
