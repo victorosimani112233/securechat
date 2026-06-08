@@ -146,11 +146,7 @@ class FileTransferManager @Inject constructor(
         // bekle (max 8sn). Boylece ilk chunk drop edilmez. ensureConnected zaten bagliysa
         // hemen doner; basarisizsa retry per-chunk loop devreye girer.
         runCatching {
-            signalingClient.ensureConnected(
-                userId = localUserId,
-                authToken = "token_$localUserId",
-                timeoutMs = 8_000L
-            )
+            signalingClient.ensureConnected(timeoutMs = 8_000L)
         }
 
         // Grup chunk'lari GroupCipher ile sifrelenir (Sender Keys). 1:1 transfer ve
@@ -237,11 +233,7 @@ class FileTransferManager @Inject constructor(
                 if (attempt > 0) {
                     kotlinx.coroutines.delay(2_000L)
                     runCatching {
-                        signalingClient.ensureConnected(
-                            userId = localUserId,
-                            authToken = "token_$localUserId",
-                            timeoutMs = 3_000L
-                        )
+                        signalingClient.ensureConnected(timeoutMs = 3_000L)
                     }
                 }
                 sent = if (isGroup && groupMembers.isNotEmpty()) {

@@ -63,20 +63,35 @@ class AppLifecycleObserver @Inject constructor(
                 }
             }
 
-            signalingClient.connect(
-                userId = userId,
-                authToken = "token_$userId",
-                customUrl = BuildConfig.SIGNALING_URL
-            )
+            // GUVENLIK (Faz 1): Gercek JWT access token kullanilir. Eski "token_$userId"
+            // sahte string server tarafinda AuthService.verifyToken'da reject ediliyordu
+            // (jti+sub claim sart). Bu yuzden eski APK kullanicilarinin WS_AUTH_INVALID
+            // ile reddedildigini audit_log'da gorduk (154 reject / 24 saat).
+            // Token yoksa WS hic acilmaz — server kabul etmezdi zaten, kullanici yeniden
+            // login olmali (PhoneVerificationScreen).
+            val accessToken = userSession.accessToken
+            if (accessToken.isNullOrBlank()) {
+                Log.w("AppLifecycle", "accessToken null/blank — WS acilamaz, kullanici tekrar giris yapmali")
+            } else {
+                signalingClient.connect(
+                    userId = userId,
+                    authToken = accessToken,
+                    customUrl = BuildConfig.SIGNALING_URL
+                )
+            }
 
             // Bug 016, 024: Ag izlemeyi baslat — ucak modu ve WiFi/Mobile gecislerini yakala
             networkMonitor.onNetworkAvailable = onNetworkAvailable@{
                 Log.d("AppLifecycle", "Network available — reconnecting SignalingClient")
                 if (userSession.isLoggedIn) {
                     val uid = userSession.userId ?: return@onNetworkAvailable
+                    val token = userSession.accessToken ?: run {
+                        Log.w("AppLifecycle", "accessToken null on network available — skip")
+                        return@onNetworkAvailable
+                    }
                     signalingClient.connect(
                         userId = uid,
-                        authToken = "token_$uid",
+                        authToken = token,
                         customUrl = BuildConfig.SIGNALING_URL
                     )
                 }

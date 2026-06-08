@@ -221,6 +221,25 @@ class SignalingClient @Inject constructor(
     }
 
     /**
+     * Parametresiz ensureConnected — onceden connect() cagrildiysa saklanan
+     * currentUserId + currentAuthToken kullanir. Boylece app modulu disindaki
+     * cagiranlar (FileTransferManager, media modulu) UserSession'a erisemese
+     * bile mevcut WS credentials ile reconnect bekleyebilir.
+     *
+     * Onceden hic connect cagrilmadiysa false doner (credentials yok).
+     */
+    suspend fun ensureConnected(timeoutMs: Long = 8_000L): Boolean {
+        if (_connectionState.value is ConnectionState.Connected && webSocket != null) return true
+        val uid = currentUserId ?: return false
+        val tok = currentAuthToken ?: return false
+        connect(uid, tok)
+        val result = withTimeoutOrNull(timeoutMs) {
+            connectionState.first { it is ConnectionState.Connected }
+        }
+        return result != null
+    }
+
+    /**
      * Signaling mesajini WebSocket uzerinden gonderir.
      *
      * @param signal Gonderilecek signaling mesaji

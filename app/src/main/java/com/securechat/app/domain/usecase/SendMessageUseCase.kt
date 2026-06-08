@@ -103,7 +103,7 @@ class SendMessageUseCase @Inject constructor(
         runCatching {
             signalingClient.ensureConnected(
                 userId = senderId,
-                authToken = "token_$senderId",
+                authToken = userSession.accessToken ?: "",
                 timeoutMs = 8_000L
             )
         }
@@ -133,7 +133,7 @@ class SendMessageUseCase @Inject constructor(
             runCatching {
                 signalingClient.ensureConnected(
                     userId = senderId,
-                    authToken = "token_$senderId",
+                    authToken = userSession.accessToken ?: "",
                     timeoutMs = 3_000L
                 )
             }
