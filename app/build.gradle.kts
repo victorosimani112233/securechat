@@ -217,6 +217,9 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-messaging")
 
+    // Faz 15: WindowSizeClass — tablet/foldable responsive layout
+    implementation("androidx.compose.material3:material3-window-size-class:1.2.1")
+
     // WorkManager — arka plan gorevleri (FCM drain, sureli mesaj temizligi)
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.hilt:hilt-work:1.1.0")
