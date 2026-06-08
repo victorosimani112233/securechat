@@ -1233,119 +1233,21 @@ class IncomingMessageHandler @Inject constructor(
      *
      * @return Triple(originalMessageId, replyToId, actualContent)
      */
-    data class PollVoteRef(val pollMessageId: String, val optionIndex: Int)
+    // Faz 10: Pure parsing logic 'data/incoming/parser/MessageEnvelopeParser.kt'ye
+    // extract edildi. Buradaki private helper'lar parser'a delegate eder.
 
-    data class ParsedMessage(
-        val messageId: String?,
-        val replyToId: String?,
-        val content: String,
-        val contentType: MessageContentType = MessageContentType.TEXT,
-        val pollVote: PollVoteRef? = null,
-        /** EXP prefix'ten alinan mutlak expiresAt (ms). Yoksa null. */
-        val absoluteExpiresAt: Long? = null,
-        /** VIEWONCE prefix bayragi — tek gosterimlik metin mesaji. */
-        val isViewOnce: Boolean = false
-    )
+    private fun parseMessageId(content: String): Pair<String?, String> =
+        com.securechat.app.data.incoming.parser.MessageEnvelopeParser.parseMessageId(content)
 
-    private fun parseMessageId(content: String): Pair<String?, String> {
-        val parsed = parseMessageEnvelope(content)
-        return Pair(parsed.messageId, parsed.content)
-    }
-
-    private fun parseMessageEnvelope(content: String): ParsedMessage {
-        var remaining = content
-        var messageId: String? = null
-        var replyToId: String? = null
-        var absoluteExpiresAt: Long? = null
-        var isViewOnce = false
-
-        // MSGID prefix
-        if (remaining.startsWith("MSGID:")) {
-            val firstColon = remaining.indexOf(':')
-            val secondColon = remaining.indexOf(':', firstColon + 1)
-            if (secondColon > firstColon) {
-                messageId = remaining.substring(firstColon + 1, secondColon)
-                remaining = remaining.substring(secondColon + 1)
-            }
-        }
-
-        // REPLY prefix
-        if (remaining.startsWith("REPLY:")) {
-            val firstColon = remaining.indexOf(':')
-            val secondColon = remaining.indexOf(':', firstColon + 1)
-            if (secondColon > firstColon) {
-                replyToId = remaining.substring(firstColon + 1, secondColon)
-                remaining = remaining.substring(secondColon + 1)
-            }
-        }
-
-        // EXP prefix — sureli mesaj icin mutlak expiresAt (ms). REPLY'dan sonra, POLL'den once.
-        if (remaining.startsWith("EXP:")) {
-            val firstColon = remaining.indexOf(':')
-            val secondColon = remaining.indexOf(':', firstColon + 1)
-            if (secondColon > firstColon) {
-                absoluteExpiresAt = remaining.substring(firstColon + 1, secondColon).toLongOrNull()
-                remaining = remaining.substring(secondColon + 1)
-            }
-        }
-
-        // VIEWONCE prefix — tek gosterimlik metin mesaji bayragi (icerik degeri tasimaz).
-        // POLL'den ONCE parse edilir, cunku POLL gorunce parser kalan her seyi icerik kabul eder.
-        if (remaining.startsWith("VIEWONCE:")) {
-            isViewOnce = true
-            remaining = remaining.removePrefix("VIEWONCE:")
-        }
-
-        // POLLVOTE: prefix — anket oy guncellemesi (yeni mesaj olarak kaydedilmez,
-        // mevcut anket mesajinin votes alanini gunceller)
-        // Format: POLLVOTE:<pollMsgId>:<optionIndex>
-        if (remaining.startsWith("POLLVOTE:")) {
-            val parts = remaining.removePrefix("POLLVOTE:").split(":", limit = 2)
-            if (parts.size == 2) {
-                val pollMsgId = parts[0]
-                val optionIdx = parts[1].toIntOrNull()
-                if (optionIdx != null) {
-                    return ParsedMessage(
-                        messageId = messageId,
-                        replyToId = null,
-                        content = "",
-                        contentType = MessageContentType.TEXT,
-                        pollVote = PollVoteRef(pollMsgId, optionIdx),
-                        absoluteExpiresAt = absoluteExpiresAt,
-                        isViewOnce = isViewOnce
-                    )
-                }
-            }
-        }
-
-        // POLL: prefix — anket mesaji
-        if (remaining.startsWith("POLL:")) {
-            return ParsedMessage(
-                messageId = messageId,
-                replyToId = replyToId,
-                content = remaining.removePrefix("POLL:"),
-                contentType = MessageContentType.POLL,
-                pollVote = null,
-                absoluteExpiresAt = absoluteExpiresAt,
-                isViewOnce = isViewOnce
-            )
-        }
-
-        return ParsedMessage(
-            messageId = messageId,
-            replyToId = replyToId,
-            content = remaining,
-            absoluteExpiresAt = absoluteExpiresAt,
-            isViewOnce = isViewOnce
-        )
-    }
+    private fun parseMessageEnvelope(content: String): com.securechat.app.data.incoming.parser.ParsedEnvelope =
+        com.securechat.app.data.incoming.parser.MessageEnvelopeParser.parse(content)
 
     /**
      * Karsi taraftan gelen oy bilgisini lokal anket mesajina uygular.
      * Var olan votes JSON'unu gunceller; tek secim modunda eski oyunu kaldirir,
      * toggle (zaten varsa cikarir) mantigiyla calisir.
      */
-    private suspend fun applyRemotePollVote(senderId: String, vote: PollVoteRef) {
+    private suspend fun applyRemotePollVote(senderId: String, vote: com.securechat.app.data.incoming.parser.PollVoteRef) {
         val pollMessage = messageRepository.getMessageById(vote.pollMessageId) ?: return
         if (pollMessage.contentType != MessageContentType.POLL) return
         val json = try { org.json.JSONObject(pollMessage.content) } catch (_: Exception) { return }
