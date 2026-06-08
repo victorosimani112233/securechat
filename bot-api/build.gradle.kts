@@ -2,29 +2,25 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
     application
-    id("com.github.johnrengelman.shadow") version "8.1.1"
+    // Shadow plugin KALDIRILDI:
+    //  - infra/Dockerfile.bot-api zaten 'build/install/bot-api/lib + bin'
+    //    (application plugin'in installDist task'i) kullaniyor, fat JAR'a
+    //    ihtiyac yok.
+    //  - Shadow transitif BOM zinciri (jackson-bom, junit-bom, spring-bom,
+    //    jakartaee-bom, log4j-bom, ant-parent vs.) offline build ortamlarinda
+    //    configuration asamasinda sorun cikariyordu (50+ pom indirme).
+    //  - Application + installDist multi-layer Docker caching ile de daha verimli.
 }
 
 application {
     mainClass.set("com.securechat.botapi.ApplicationKt")
 }
 
-// Shadow JAR — META-INF/services'i mergeServiceFiles ile birlestirir.
-// libsignal/protobuf reflection meta'sinin korunmasi icin standart fat JAR
-// yetmiyor; protobuf'in GeneratedMessageLite reflection cagrilari fail olur.
-tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
-    archiveClassifier.set("all")
-    archiveFileName.set("bot-api-all.jar")
-    mergeServiceFiles()
-    manifest {
-        attributes["Main-Class"] = "com.securechat.botapi.ApplicationKt"
-    }
-    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
-}
-
-// fatJar alias — eski deploy komutlariyla uyum
+// fatJar alias — eski deploy komutlariyla uyum. Artik 'installDist' altinda
+// build/install/bot-api/ uretir (lib/*.jar + bin/bot-api launcher).
 tasks.register("fatJar") {
-    dependsOn("shadowJar")
+    dependsOn("installDist")
+    description = "Eski deploy script uyumlulugu — installDist'e yonlendirir."
 }
 
 dependencies {
