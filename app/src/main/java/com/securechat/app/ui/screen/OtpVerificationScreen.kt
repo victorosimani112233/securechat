@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,12 +80,15 @@ fun OtpVerificationScreen(
     onBackupRestore: (() -> Unit)? = null,
     onBackClick: () -> Unit = {}
 ) {
-    var otpCode by remember { mutableStateOf("") }
+    // Form girdileri + UI ilerleme + dialog flag = rememberSaveable.
+    // isLoading saveable degil — devam eden coroutine rotation'i restart eder,
+    // spinner'i kalintidan tasimak yaniltici (gercek istek devam etmiyor olabilir).
+    var otpCode by rememberSaveable { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
-    var countdown by remember { mutableStateOf(60) }
-    var canResend by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf("") }
-    var showBackupPrompt by remember { mutableStateOf(false) }
+    var countdown by rememberSaveable { mutableStateOf(60) }
+    var canResend by rememberSaveable { mutableStateOf(false) }
+    var errorMessage by rememberSaveable { mutableStateOf("") }
+    var showBackupPrompt by rememberSaveable { mutableStateOf(false) }
 
     // Geri sayım timer
     LaunchedEffect(Unit) {

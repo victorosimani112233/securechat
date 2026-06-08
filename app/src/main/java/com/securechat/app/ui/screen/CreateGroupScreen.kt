@@ -49,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -108,8 +109,14 @@ fun CreateGroupScreen(
     val phoneNotFound by viewModel.phoneNotFound.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
-    var showPhoneInput by remember { mutableStateOf(false) }
-    var selectedCountryCode by remember { mutableStateOf(COUNTRY_CODES.first()) }
+    // Telefon input panelinin aciklik durumu saveable — rotation'da kapanmasin.
+    var showPhoneInput by rememberSaveable { mutableStateOf(false) }
+    // CountryCode data class Parcelable degil; bunun yerine seçili kod ID'sini
+    // saklayip COUNTRY_CODES'ten lookup yapariz. Default: ilk girdi (+90).
+    var selectedCountryCodeId by rememberSaveable { mutableStateOf(COUNTRY_CODES.first().code) }
+    val selectedCountryCode = remember(selectedCountryCodeId) {
+        COUNTRY_CODES.firstOrNull { it.code == selectedCountryCodeId } ?: COUNTRY_CODES.first()
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     // Grup oluşturulunca sohbet ekranına navigate et
@@ -305,7 +312,7 @@ fun CreateGroupScreen(
                     ) {
                         CountryCodePicker(
                             selectedCode = selectedCountryCode,
-                            onCodeSelected = { selectedCountryCode = it }
+                            onCodeSelected = { selectedCountryCodeId = it.code }
                         )
                         OutlinedTextField(
                             value = phoneInput,

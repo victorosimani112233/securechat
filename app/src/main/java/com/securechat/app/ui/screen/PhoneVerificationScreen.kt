@@ -46,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,14 +79,17 @@ import com.securechat.app.ui.theme.DisplayFamily
 fun PhoneVerificationScreen(
     onVerified: (name: String, phone: String) -> Unit
 ) {
-    var displayName by remember { mutableStateOf("") }
-    var phoneNumber by remember { mutableStateOf("") }
-    var countryCode by remember { mutableStateOf("+90") }
-    var showContactsPermissionDialog by remember { mutableStateOf(false) }
+    // Form girdileri ve UI ilerleme `rememberSaveable` ile saklanir — rotation veya
+    // process death sonrasi kullanicinin yazdiklari korunur. Dialog flag'leri de
+    // saveable: orientation degisirken dialog kapanmaz.
+    var displayName by rememberSaveable { mutableStateOf("") }
+    var phoneNumber by rememberSaveable { mutableStateOf("") }
+    var countryCode by rememberSaveable { mutableStateOf("+90") }
+    var showContactsPermissionDialog by rememberSaveable { mutableStateOf(false) }
     // Submit-attempt bayragi: kullanici "Basla" butonuna basana kadar hatalar
     // gosterilmez — typing sirasinda anlik kirmizi flash UX'i bozar. Submit'ten
     // sonra hata + odaklanma + supportingText akisi devreye girer.
-    var submitAttempted by remember { mutableStateOf(false) }
+    var submitAttempted by rememberSaveable { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 

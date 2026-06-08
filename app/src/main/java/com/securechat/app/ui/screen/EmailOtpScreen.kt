@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,13 +47,16 @@ fun EmailOtpScreen(
     onBackClick: () -> Unit,
     apiBaseUrl: String
 ) {
-    var email by remember { mutableStateOf("") }
-    var otpCode by remember { mutableStateOf("") }
-    var step by remember { mutableStateOf(1) } // 1=email, 2=otp
+    // Form girdileri + UI ilerleme saveable — rotation/process death dayanikli.
+    // `loading` saveable degil — coroutine rotation'da restart edilmez, eski spinner
+    // zombi kalir.
+    var email by rememberSaveable { mutableStateOf("") }
+    var otpCode by rememberSaveable { mutableStateOf("") }
+    var step by rememberSaveable { mutableStateOf(1) } // 1=email, 2=otp
     var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var info by remember { mutableStateOf<String?>(null) }
-    var smtpDisabled by remember { mutableStateOf(false) }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
+    var info by rememberSaveable { mutableStateOf<String?>(null) }
+    var smtpDisabled by rememberSaveable { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
