@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import com.securechat.app.R
 import com.securechat.app.ui.theme.AzureDoodleBackdrop
 import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.azure
 import com.securechat.app.ui.theme.glass
 import com.securechat.app.ui.theme.MonoFamily
 import com.securechat.app.ui.theme.DisplayFamily
@@ -122,7 +123,7 @@ fun OtpVerificationScreen(
                         onVerified()
                     }
                 }) {
-                    Text("Evet, yedegi geri yukle", color = Color(0xFF3E7BFA))
+                    Text("Evet, yedegi geri yukle", color = MaterialTheme.azure.azure)
                 }
             },
             dismissButton = {
@@ -182,8 +183,8 @@ fun OtpVerificationScreen(
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                Color(0xFF3E7BFA).copy(alpha = 0.2f),
-                                Color(0xFF3E7BFA).copy(alpha = 0.05f)
+                                MaterialTheme.azure.azure.copy(alpha = 0.2f),
+                                MaterialTheme.azure.azure.copy(alpha = 0.05f)
                             )
                         )
                     ),
@@ -193,7 +194,7 @@ fun OtpVerificationScreen(
                     imageVector = Icons.Default.Shield,
                     contentDescription = null,
                     modifier = Modifier.size(64.dp),
-                    tint = Color(0xFF3E7BFA)
+                    tint = MaterialTheme.azure.azure
                 )
             }
 
@@ -267,7 +268,7 @@ fun OtpVerificationScreen(
             // Loading indicator
             if (isLoading) {
                 CircularProgressIndicator(
-                    color = Color(0xFF3E7BFA),
+                    color = MaterialTheme.azure.azure,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -288,7 +289,7 @@ fun OtpVerificationScreen(
                 ) {
                     Text(
                         "Kodu Tekrar Gönder",
-                        color = Color(0xFF3E7BFA),
+                        color = MaterialTheme.azure.azure,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -320,7 +321,7 @@ fun OtpVerificationScreen(
                     .height(56.dp),
                 enabled = otpCode.length == 6 && !isLoading,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF3E7BFA),
+                    containerColor = MaterialTheme.azure.azure,
                     contentColor = Color.White
                 ),
                 shape = RoundedCornerShape(100.dp)
@@ -389,7 +390,7 @@ private fun OtpInputField(
                                 .then(
                                     if (isFocused) Modifier.border(
                                         width = 2.dp,
-                                        color = Color(0xFF3E7BFA),
+                                        color = MaterialTheme.azure.azure,
                                         shape = RoundedCornerShape(12.dp)
                                     ) else Modifier
                                 ),

@@ -67,6 +67,7 @@ import com.securechat.app.ui.util.PhoneFormValidation
 import com.securechat.contacts.PhoneNumberNormalizer
 import com.securechat.app.ui.theme.AzureDoodleBackdrop
 import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.azure
 import com.securechat.app.ui.theme.glass
 import com.securechat.app.ui.theme.MonoFamily
 import com.securechat.app.ui.theme.DisplayFamily
@@ -324,7 +325,7 @@ fun PhoneVerificationScreen(
             Text(
                 text = "ELÇİM",
                 style = MaterialTheme.typography.headlineLarge,
-                color = Color(0xFF3E7BFA),
+                color = MaterialTheme.azure.azure,
                 fontWeight = FontWeight.Bold
             )
 
@@ -416,9 +417,9 @@ fun PhoneVerificationScreen(
                             onNext = { focusManager.moveFocus(FocusDirection.Down) }
                         ),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF3E7BFA),
+                            focusedBorderColor = MaterialTheme.azure.azure,
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                            cursorColor = Color(0xFF3E7BFA)
+                            cursorColor = MaterialTheme.azure.azure
                         )
                     )
 
@@ -449,9 +450,9 @@ fun PhoneVerificationScreen(
                                 { Text(countryCodeErrorMessage(countryCodeError) ?: "") }
                             } else null,
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF3E7BFA),
+                                focusedBorderColor = MaterialTheme.azure.azure,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                                cursorColor = Color(0xFF3E7BFA)
+                                cursorColor = MaterialTheme.azure.azure
                             )
                         )
 
@@ -481,9 +482,9 @@ fun PhoneVerificationScreen(
                                 { Text(phoneErrorMessage(phoneError) ?: "") }
                             } else null,
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF3E7BFA),
+                                focusedBorderColor = MaterialTheme.azure.azure,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                                cursorColor = Color(0xFF3E7BFA)
+                                cursorColor = MaterialTheme.azure.azure
                             )
                         )
                     }
@@ -516,7 +517,7 @@ fun PhoneVerificationScreen(
                     .height(52.dp),
                 shape = RoundedCornerShape(100.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF3E7BFA),
+                    containerColor = MaterialTheme.azure.azure,
                     contentColor = Color.White
                 )
             ) {
