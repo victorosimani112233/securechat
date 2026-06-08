@@ -314,10 +314,14 @@ class IncomingMessageHandler @Inject constructor(
             is com.securechat.app.data.incoming.EnvelopeFormat.DirectE2EE -> handleDirectE2EE(signal, format)
             is com.securechat.app.data.incoming.EnvelopeFormat.GroupV1 -> handleGroupV1(senderId, format)
             is com.securechat.app.data.incoming.EnvelopeFormat.Skdm -> handleSkdm(senderId, format)
-            is com.securechat.app.data.incoming.EnvelopeFormat.GroupLegacy -> handleGroupMessage(
-                senderId, format.groupId, format.payload, format.groupName
-            )
-            is com.securechat.app.data.incoming.EnvelopeFormat.DirectLegacy -> handleDirectMessage(senderId, format.payload)
+            is com.securechat.app.data.incoming.EnvelopeFormat.GroupLegacy -> {
+                com.securechat.app.diagnostics.HybridLegacyTelemetry.recordGroupLegacy()
+                handleGroupMessage(senderId, format.groupId, format.payload, format.groupName)
+            }
+            is com.securechat.app.data.incoming.EnvelopeFormat.DirectLegacy -> {
+                com.securechat.app.diagnostics.HybridLegacyTelemetry.recordDirectLegacy()
+                handleDirectMessage(senderId, format.payload)
+            }
             com.securechat.app.data.incoming.EnvelopeFormat.Unknown ->
                 android.util.Log.w("IncomingHandler", "Bilinmeyen envelope formati: from=$senderId")
         }
