@@ -69,7 +69,8 @@ class IncomingMessageHandler @Inject constructor(
     private val typingPresenceHandler: com.securechat.app.data.incoming.handlers.TypingPresenceHandler,
     private val disappearingTimerHandler: com.securechat.app.data.incoming.handlers.DisappearingTimerHandler,
     private val messageEditDeleteHandler: com.securechat.app.data.incoming.handlers.MessageEditDeleteHandler,
-    private val adminEncryptedLogHandler: com.securechat.app.data.incoming.handlers.AdminEncryptedLogHandler
+    private val adminEncryptedLogHandler: com.securechat.app.data.incoming.handlers.AdminEncryptedLogHandler,
+    private val groupCallStateHandler: com.securechat.app.data.incoming.handlers.GroupCallStateHandler
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -217,61 +218,84 @@ class IncomingMessageHandler @Inject constructor(
         scope.launch {
             signalingClient.incomingSignals.collect { signal ->
                 android.util.Log.d("IncomingHandler", "Sinyal geldi: ${signal::class.simpleName} from=${signal.senderId}")
-                when (signal) {
-                    is SignalMessage.EncryptedMessage -> handleEncryptedMessage(signal)
-                    is SignalMessage.FileTransfer -> handleFileTransfer(signal)
-                    is SignalMessage.SdpOffer -> {
-                        // Grup aramasi aktifse grup SDP Offer olarak isle
-                        if (callManager.isCurrentCallGroup) {
-                            callManager.handleGroupSdpOffer(signal)
-                        } else {
-                            handleIncomingCall(signal)
-                        }
-                    }
-                    is SignalMessage.SdpAnswer -> {
-                        if (callManager.isCurrentCallGroup) {
-                            callManager.handleGroupSdpAnswer(signal)
-                        } else {
-                            callManager.handleSdpAnswer(signal)
-                        }
-                    }
-                    is SignalMessage.IceCandidate -> {
-                        if (callManager.isCurrentCallGroup) {
-                            callManager.handleGroupIceCandidate(signal)
-                        } else {
-                            callManager.handleIceCandidate(signal)
-                        }
-                    }
-                    is SignalMessage.CallControl -> {
-                        android.util.Log.d("IncomingHandler", "CallControl: ${signal.action}")
-                        handleCallControl(signal)
-                    }
-                    is SignalMessage.GroupNotification -> {
-                        android.util.Log.d("IncomingHandler", "GroupNotification: ${signal.action} for group ${signal.groupId}")
-                        handleGroupNotification(signal)
-                    }
-                    is SignalMessage.DeliveryReceipt -> deliveryReceiptHandler.handle(signal)
-                    is SignalMessage.MessageDelete -> messageEditDeleteHandler.onDelete(signal)
-                    is SignalMessage.MessageEdit -> messageEditDeleteHandler.onEdit(signal)
-                    is SignalMessage.DisappearingTimer -> disappearingTimerHandler.handle(signal)
-                    is SignalMessage.TypingIndicator -> typingPresenceHandler.onTyping(signal, scope)
-                    is SignalMessage.PresenceUpdate -> typingPresenceHandler.onPresence(signal)
-                    is SignalMessage.GroupCallInvite -> handleGroupCallInvite(signal)
-                    is SignalMessage.GroupCallMemberJoined -> callManager.handleGroupCallMemberJoined(signal)
-                    is SignalMessage.GroupCallMemberLeft -> callManager.handleGroupCallMemberLeft(signal)
-                    is SignalMessage.GroupCallCoordinatorChanged -> callManager.handleGroupCallCoordinatorChanged(signal)
-                    is SignalMessage.GroupCallJoinRequest -> callManager.handleGroupCallJoinRequest(signal)
-                    is SignalMessage.GroupCallStatusResponse -> handleGroupCallStatusResponse(signal)
-                    is SignalMessage.GroupCallStatusQuery -> { /* Sunucu tarafinda islenir */ }
-                    is SignalMessage.SfuRoomCreated -> handleSfuRoomCreated(signal)
-                    is SignalMessage.AdminEncryptedLog -> adminEncryptedLogHandler.handle(signal)
-                    is SignalMessage.PresenceSubscribe -> { /* Sunucu tarafinda islenir */ }
-                    is SignalMessage.PresenceUnsubscribe -> { /* Sunucu tarafinda islenir */ }
-                    is SignalMessage.AudioData -> { }
-                    is SignalMessage.VideoData -> { /* WebRTC P2P — artik kullanilmiyor */ }
-                    else -> { }
-                }
+                dispatchSignal(signal)
             }
+        }
+    }
+
+    /**
+     * Tek bir signal'i isler. Flow contract:
+     *   - CancellationException PROPAGATE edilir (yapisal coroutine iptal saygisi).
+     *   - Diger Throwable'lar yakalanir ve drop edilir — collect lambdasi cancel edilmez,
+     *     aksi takdirde signalingClient.incomingSignals flow'u kapanir ve WebSocket
+     *     reconnect dongusune girer (kullanici "mesajlar gitmiyor" hatasi).
+     *
+     * Per-signal hata izolasyonu: bir signal'in islenmesi diger signal'larin akisini
+     * etkilemez. Bu tasarim Signal Protocol decrypt fail (NoSession, InvalidMessage)
+     * gibi expected exception'larin WS state'ini bozmasini onler.
+     */
+    private suspend fun dispatchSignal(signal: SignalMessage) {
+        try {
+            // Signal isleme Dispatchers.Default'a kaydirilir — Signal Protocol senkron
+            // callback'leri (SessionStore, SenderKeyStore) `runBlocking(Dispatchers.IO)`
+            // kullanir. Eger collect lambdasi da IO'daysa (mevcut scope IO),
+            // runBlocking ayni IO thread'ini bloke eder, WebSocket frame okuma durur,
+            // server ping timeout uygulayip baglantiyi koparir. Default dispatcher'ina
+            // gecmek bu deadlock-benzeri darbogazi kaldirir.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            when (signal) {
+                is SignalMessage.EncryptedMessage -> handleEncryptedMessage(signal)
+                is SignalMessage.FileTransfer -> handleFileTransfer(signal)
+                is SignalMessage.SdpOffer -> {
+                    if (callManager.isCurrentCallGroup) callManager.handleGroupSdpOffer(signal)
+                    else handleIncomingCall(signal)
+                }
+                is SignalMessage.SdpAnswer -> {
+                    if (callManager.isCurrentCallGroup) callManager.handleGroupSdpAnswer(signal)
+                    else callManager.handleSdpAnswer(signal)
+                }
+                is SignalMessage.IceCandidate -> {
+                    if (callManager.isCurrentCallGroup) callManager.handleGroupIceCandidate(signal)
+                    else callManager.handleIceCandidate(signal)
+                }
+                is SignalMessage.CallControl -> {
+                    android.util.Log.d("IncomingHandler", "CallControl: ${signal.action}")
+                    handleCallControl(signal)
+                }
+                is SignalMessage.GroupNotification -> {
+                    android.util.Log.d("IncomingHandler", "GroupNotification: ${signal.action} for group ${signal.groupId}")
+                    handleGroupNotification(signal)
+                }
+                is SignalMessage.DeliveryReceipt -> deliveryReceiptHandler.handle(signal)
+                is SignalMessage.MessageDelete -> messageEditDeleteHandler.onDelete(signal)
+                is SignalMessage.MessageEdit -> messageEditDeleteHandler.onEdit(signal)
+                is SignalMessage.DisappearingTimer -> disappearingTimerHandler.handle(signal)
+                is SignalMessage.TypingIndicator -> typingPresenceHandler.onTyping(signal, scope)
+                is SignalMessage.PresenceUpdate -> typingPresenceHandler.onPresence(signal)
+                is SignalMessage.GroupCallInvite -> handleGroupCallInvite(signal)
+                is SignalMessage.GroupCallMemberJoined -> callManager.handleGroupCallMemberJoined(signal)
+                is SignalMessage.GroupCallMemberLeft -> callManager.handleGroupCallMemberLeft(signal)
+                is SignalMessage.GroupCallCoordinatorChanged -> callManager.handleGroupCallCoordinatorChanged(signal)
+                is SignalMessage.GroupCallJoinRequest -> callManager.handleGroupCallJoinRequest(signal)
+                is SignalMessage.GroupCallStatusResponse -> groupCallStateHandler.onStatusResponse(signal)
+                is SignalMessage.GroupCallStatusQuery -> { /* Sunucu tarafinda islenir */ }
+                is SignalMessage.SfuRoomCreated -> groupCallStateHandler.onSfuRoomCreated(signal)
+                is SignalMessage.AdminEncryptedLog -> adminEncryptedLogHandler.handle(signal)
+                is SignalMessage.PresenceSubscribe -> { /* Sunucu tarafinda islenir */ }
+                is SignalMessage.PresenceUnsubscribe -> { /* Sunucu tarafinda islenir */ }
+                is SignalMessage.AudioData -> { }
+                is SignalMessage.VideoData -> { /* WebRTC P2P — artik kullanilmiyor */ }
+                else -> { }
+            }
+            }  // withContext(Default)
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            android.util.Log.e(
+                "IncomingHandler",
+                "Signal islenirken yakalanmamis hata (${signal::class.simpleName} from=${signal.senderId}): ${t.message}",
+                t
+            )
         }
     }
 
@@ -320,8 +344,17 @@ class IncomingMessageHandler @Inject constructor(
             val s = String(plain, Charsets.UTF_8)
             plain.fill(0)
             s
+        } catch (e: org.whispersystems.libsignal.DuplicateMessageException) {
+            android.util.Log.d("IncomingHandler", "1:1 duplicate mesaj, ignore: $senderId")
+            return
+        } catch (e: org.whispersystems.libsignal.InvalidMessageException) {
+            android.util.Log.w("IncomingHandler", "1:1 bozuk mesaj (InvalidMessage): $senderId — ${e.message}")
+            return
+        } catch (e: org.whispersystems.libsignal.NoSessionException) {
+            android.util.Log.w("IncomingHandler", "1:1 session yok (gondericinin session'i bizim store'da yok): $senderId")
+            return
         } catch (e: Exception) {
-            android.util.Log.w("IncomingHandler", "1:1 decrypt fail (${e.javaClass.simpleName}): ${e.message}")
+            android.util.Log.w("IncomingHandler", "1:1 decrypt beklenmeyen hata (${e.javaClass.simpleName}): ${e.message}")
             return
         }
 
@@ -911,61 +944,7 @@ class IncomingMessageHandler @Inject constructor(
      * SFU room olusturuldu — koordinator veya davet edilen uye burada Janus'a baglanir.
      * 4+ kisilik grup aramasinda server otomatik olarak bu mesaji broadcast eder.
      */
-    private fun handleSfuRoomCreated(signal: SignalMessage.SfuRoomCreated) {
-        val localUserId = userSession.userId ?: return
-        val session = callManager.currentSession ?: return
-        if (!session.isGroupCall || session.groupId != signal.groupId) {
-            android.util.Log.d("IncomingHandler", "SfuRoomCreated atlandi — aktif grup arama uyusmuyor")
-            return
-        }
-        if (session.state != com.securechat.media.model.CallState.ACTIVE) {
-            android.util.Log.d("IncomingHandler", "SfuRoomCreated atlandi — call ACTIVE degil")
-            return
-        }
-        val info = com.securechat.media.CallManager.SfuRoomBindInfo(
-            roomId = signal.roomId,
-            janusWsUrl = signal.janusWsUrl
-        )
-        callManager.bindSfuRoomFromInvite(localUserId, info)
-
-        // activeGroupCalls state'inde SFU bilgisini ekle (sonradan katilim icin)
-        val current = activeGroupCalls.value.toMutableMap()
-        val existing = current[signal.groupId]
-        if (existing != null) {
-            current[signal.groupId] = existing.copy(
-                mode = "SFU",
-                sfuRoomId = signal.roomId,
-                janusWsUrl = signal.janusWsUrl
-            )
-            activeGroupCalls.value = current
-        }
-    }
-
-    /**
-     * Sunucudan aktif grup arama durum cevabi — ChatScreen banner state'ini gunceller.
-     */
-    private fun handleGroupCallStatusResponse(signal: SignalMessage.GroupCallStatusResponse) {
-        val current = activeGroupCalls.value.toMutableMap()
-        val callId = signal.callId
-        val coordinatorId = signal.coordinatorId
-        val callType = signal.callType
-        if (signal.isActive && callId != null && coordinatorId != null && callType != null) {
-            current[signal.groupId] = ActiveGroupCallInfo(
-                groupId = signal.groupId,
-                callId = callId,
-                coordinatorId = coordinatorId,
-                callType = callType,
-                participants = signal.participants,
-                mode = signal.mode ?: "MESH",
-                sfuRoomId = signal.sfuRoomId,
-                janusWsUrl = signal.janusWsUrl
-            )
-        } else {
-            current.remove(signal.groupId)
-        }
-        activeGroupCalls.value = current
-        android.util.Log.d("IncomingHandler", "Grup arama durum guncellendi: ${signal.groupId} active=${signal.isActive}")
-    }
+    // Faz 10: handleSfuRoomCreated + handleGroupCallStatusResponse -> GroupCallStateHandler
 
     /**
      * Gelen grup arama davetiyesini isler.

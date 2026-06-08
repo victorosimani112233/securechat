@@ -76,7 +76,13 @@ class IncomingMessageHandlerTest {
             messageEncryptor = mockk(relaxed = true),
             exportLogDao = mockk(relaxed = true),
             senderKeyStore = mockk(relaxed = true),
-            groupSenderKeyDistributor = mockk(relaxed = true)
+            groupSenderKeyDistributor = mockk(relaxed = true),
+            deliveryReceiptHandler = mockk(relaxed = true),
+            typingPresenceHandler = mockk(relaxed = true),
+            disappearingTimerHandler = mockk(relaxed = true),
+            messageEditDeleteHandler = mockk(relaxed = true),
+            adminEncryptedLogHandler = mockk(relaxed = true),
+            groupCallStateHandler = mockk(relaxed = true)
         )
     }
 
