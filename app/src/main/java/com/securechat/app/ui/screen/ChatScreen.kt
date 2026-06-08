@@ -3,6 +3,9 @@ package com.securechat.app.ui.screen
 // Faz 8: Extract edilen composable'lar
 import com.securechat.app.ui.screen.chat.ActiveGroupCallBanner
 import com.securechat.app.ui.screen.chat.ExportEnabledBanner
+import com.securechat.app.ui.screen.chat.ViewOnceImageViewer
+import com.securechat.app.ui.screen.chat.ViewOnceTextViewer
+import com.securechat.app.ui.screen.chat.bubble.MessageStatusIcon
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -940,141 +943,7 @@ fun ChatScreen(
     }
 }
 
-/**
- * Tek gosterimlik fotograf icin uygulama-ici tam ekran goruntuleyici.
- * SecureChatActivity FLAG_SECURE oldugu icin ekran goruntusu sistem tarafindan engellenir.
- * Recents karti da bos gosterilir, kayit araclari (Scrcpy gibi) siyah ekran goruntuler.
- */
-@Composable
-private fun ViewOnceImageViewer(
-    filePath: String,
-    onDismiss: () -> Unit
-) {
-    val ctx = LocalContext.current
-    androidx.activity.compose.BackHandler(onBack = onDismiss)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { onDismiss() })
-            }
-    ) {
-        coil.compose.AsyncImage(
-            model = coil.request.ImageRequest.Builder(ctx)
-                .data(java.io.File(filePath))
-                .crossfade(true)
-                .build(),
-            contentDescription = "Tek gösterimlik fotoğraf",
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            contentScale = androidx.compose.ui.layout.ContentScale.Fit
-        )
-        // Ust bilgi cubugu — kullanici dokunarak kapatabilir
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Lock,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Tek gösterimlik · ekran görüntüsü engellendi",
-                color = Color.White.copy(alpha = 0.85f),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Kapat",
-                    tint = Color.White
-                )
-            }
-        }
-    }
-}
-
-/**
- * Tek gosterimlik metin mesaji icin uygulama-ici tam ekran goruntuleyici.
- * SecureChatActivity FLAG_SECURE oldugu icin ekran goruntusu engellenir.
- * Dismiss callback'i caller'da markViewOnceAsViewed cagrir.
- */
-@Composable
-private fun ViewOnceTextViewer(
-    content: String,
-    onDismiss: () -> Unit
-) {
-    androidx.activity.compose.BackHandler(onBack = onDismiss)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { onDismiss() })
-            }
-    ) {
-        // Ust bilgi cubugu — "tek gosterimlik" + kapat ikonu
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Lock,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Tek gösterimlik · ekran görüntüsü engellendi",
-                color = Color.White.copy(alpha = 0.85f),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Kapat",
-                    tint = Color.White
-                )
-            }
-        }
-        // Icerik — ortada, secilemez (SelectionContainer YOK); kopyalama engellenir
-        Text(
-            text = content,
-            color = Color.White,
-            style = MaterialTheme.typography.headlineSmall,
-            lineHeight = 32.sp,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = 32.dp, vertical = 80.dp)
-        )
-        // Alt bilgi — dokun/geri ile kapat ipucu
-        Text(
-            text = "Kapatmak için dokunun · bir daha açılamaz",
-            color = Color.White.copy(alpha = 0.55f),
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 24.dp)
-        )
-    }
-}
+// Faz 8: ViewOnceImageViewer + ViewOnceTextViewer -> ui/screen/chat/ViewOnceViewers.kt
 
 /**
  * Tek gosterimlik metin baloncugu — placeholder.
@@ -3127,28 +2996,7 @@ private fun formatFileSize(bytes: Long): String {
     }
 }
 
-/**
- * Mesaj durum ikonu.
- * SENDING: saat, SENT: tek tik, DELIVERED: çift tik, READ: cyan çift tik, FAILED: hata.
- */
-@Composable
-fun MessageStatusIcon(status: MessageStatus) {
-    val (icon, tint) = when (status) {
-        MessageStatus.SENDING -> Icons.Default.Schedule to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.4f)
-        MessageStatus.SENT -> Icons.Default.Check to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
-        MessageStatus.DELIVERED -> Icons.Default.DoneAll to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
-        MessageStatus.READ -> Icons.Default.DoneAll to Color(0xFF3E7BFA)
-        MessageStatus.FAILED -> Icons.Default.Error to MaterialTheme.colorScheme.error
-    }
-    Icon(
-        imageVector = icon,
-        contentDescription = status.name,
-        modifier = Modifier
-            .padding(start = 2.dp)
-            .size(16.dp),
-        tint = tint
-    )
-}
+// Faz 8: MessageStatusIcon -> ui/screen/chat/bubble/MessageStatusIcon.kt
 
 /**
  * Mesaj giriş çubuğu.
