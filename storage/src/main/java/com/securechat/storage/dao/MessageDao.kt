@@ -123,6 +123,16 @@ interface MessageDao {
     @Query("SELECT DISTINCT conversation_id FROM messages WHERE expires_at IS NOT NULL AND expires_at < :now")
     suspend fun getExpiredConversationIds(now: Long): List<String>
 
+    // Sureli mesaj — silinecek MEDYA tipindeki mesajlarin (FILE/IMAGE/VOICE_NOTE) content
+    // alanini doner. content = "fileName|mimeType|fileSize|filePath" formati; caller
+    // path'i parse edip fiziksel dosyayi siler (DB delete sonrasi).
+    @Query("""
+        SELECT content FROM messages
+        WHERE expires_at IS NOT NULL AND expires_at < :now
+          AND content_type IN ('FILE', 'IMAGE', 'VOICE_NOTE')
+    """)
+    suspend fun getExpiredMediaContents(now: Long): List<String>
+
     // Konusmadaki en son geriye kalan mesaj (suresi dolmamis) — lastMessage senkronu icin.
     @Query("SELECT * FROM messages WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatestMessage(conversationId: String): MessageEntity?

@@ -252,7 +252,27 @@ class MessageRepositoryImpl @Inject constructor(
         // Etkilenecek konusma id'lerini SILMEDEN once topla — sonra her birinin lastMessage'ini
         // tazeleyebilelim (konusma listesinde bayat preview kalmasin).
         val affectedConvIds = messageDao.getExpiredConversationIds(now)
+        // Faz 12: Medya mesajlarinin fiziksel dosyalarini DB'den onceki toplada al,
+        // DB silmeden once kayit et — sonra ana silme + filesystem cleanup.
+        val expiredMediaContents = runCatching {
+            messageDao.getExpiredMediaContents(now)
+        }.getOrDefault(emptyList())
+
         val deleted = messageDao.deleteExpiredMessages(now)
+
+        // DB silindi → simdi fiziksel dosyalari sil. Hata olursa sessizce devam et;
+        // disappearing icin kullanici beklemiyor. content = "name|mime|size|path"
+        for (content in expiredMediaContents) {
+            val parts = content.split("|")
+            val filePath = parts.getOrNull(3)?.takeIf { it.isNotBlank() } ?: continue
+            runCatching {
+                val file = java.io.File(filePath)
+                if (file.exists() && file.isFile) file.delete()
+            }.onFailure { e ->
+                android.util.Log.w("MsgRepo", "Expired media dosya silinemedi: $filePath (${e.javaClass.simpleName})")
+            }
+        }
+
         for (convId in affectedConvIds) {
             val latest = messageDao.getLatestMessage(convId)
             if (latest == null) {
