@@ -64,6 +64,10 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
     override fun onCreate() {
         super.onCreate()
 
+        // Crash reporter — EN ERKEN kurulmali ki sonraki init kodu cokerse
+        // disk'e rapor yazilabilsin. Harici SDK yok, dosya tabanli.
+        com.securechat.app.diagnostics.CrashReporter.install(this)
+
         // Uygulama guncelleme sonrasi uyumsuz onbellegi temizle
         clearCacheOnVersionUpdate()
 
