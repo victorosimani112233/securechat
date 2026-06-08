@@ -1,5 +1,5 @@
 # Bu dosya online makinede ./scripts/refresh-version.sh ile guncellenir.
 # Offline build (git veya .git yok) bu dosyadan okur.
 # Manuel override: ./gradlew assembleDevRelease -PversionCode=NN -PversionName=...
-versionCode=73
-versionName=1.0.73-d782593
+versionCode=75
+versionName=1.0.75-e7220e8
