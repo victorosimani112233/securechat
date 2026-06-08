@@ -32,6 +32,10 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations ORDER BY is_pinned DESC, last_message_timestamp DESC")
     suspend fun getAllImmediate(): List<ConversationEntity>
 
+    /** Sender Key rotation worker icin: tum aktif grup konusmalari. */
+    @Query("SELECT * FROM conversations WHERE is_group = 1")
+    suspend fun getAllGroups(): List<ConversationEntity>
+
     @Query("SELECT * FROM conversations WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): ConversationEntity?
 

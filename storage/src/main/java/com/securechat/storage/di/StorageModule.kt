@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.room.Room
 import com.securechat.crypto.store.CryptoIdentityStore
 import com.securechat.crypto.store.CryptoPreKeyStore
+import com.securechat.crypto.store.CryptoSenderKeyStore
 import com.securechat.crypto.store.CryptoSessionStore
 import com.securechat.crypto.store.CryptoSignedPreKeyStore
 import androidx.room.RoomDatabase
@@ -15,6 +16,7 @@ import com.securechat.storage.SecureChatDatabase
 import javax.inject.Named
 import com.securechat.storage.crypto.CryptoIdentityStoreImpl
 import com.securechat.storage.crypto.CryptoPreKeyStoreImpl
+import com.securechat.storage.crypto.CryptoSenderKeyStoreImpl
 import com.securechat.storage.crypto.CryptoSessionStoreImpl
 import com.securechat.storage.crypto.CryptoSignedPreKeyStoreImpl
 import com.securechat.storage.dao.CallLogDao
@@ -24,6 +26,7 @@ import com.securechat.storage.dao.ConversationDao
 import com.securechat.storage.dao.IdentityDao
 import com.securechat.storage.dao.MessageDao
 import com.securechat.storage.dao.PreKeyDao
+import com.securechat.storage.dao.SenderKeyDao
 import com.securechat.storage.dao.SessionDao
 import com.securechat.storage.dao.SignedPreKeyDao
 import com.securechat.storage.repository.MessageRepository
@@ -87,7 +90,7 @@ object StorageModule {
             "securechat.db"
         )
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_17_18)
+            .addMigrations(MIGRATION_17_18, MIGRATION_18_19)
             .fallbackToDestructiveMigration()
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
@@ -138,6 +141,28 @@ object StorageModule {
         }
     }
 
+    /**
+     * v18 -> v19: Grup mesajlasmasi (Sender Keys protokolu) icin sender_keys tablosu.
+     * Her (groupId, senderId, deviceId) ucluse karsilik bir SenderKeyRecord persist edilir.
+     * Veri kaybi olmaz; mevcut gruplarda SK ilk mesajda lazy uretilir.
+     */
+    private val MIGRATION_18_19 = object : Migration(18, 19) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS sender_keys (
+                    group_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    device_id INTEGER NOT NULL,
+                    record BLOB NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY(group_id, sender_id, device_id)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
     @Provides
     fun provideMessageDao(db: SecureChatDatabase): MessageDao = db.messageDao()
 
@@ -165,6 +190,9 @@ object StorageModule {
 
     @Provides
     fun provideSessionDao(db: SecureChatDatabase): SessionDao = db.sessionDao()
+
+    @Provides
+    fun provideSenderKeyDao(db: SecureChatDatabase): SenderKeyDao = db.senderKeyDao()
 
     @Provides
     fun provideIdentityDao(db: SecureChatDatabase): IdentityDao = db.identityDao()
@@ -199,6 +227,10 @@ abstract class StorageBindingsModule {
     @Binds
     @Singleton
     abstract fun bindCryptoSessionStore(impl: CryptoSessionStoreImpl): CryptoSessionStore
+
+    @Binds
+    @Singleton
+    abstract fun bindCryptoSenderKeyStore(impl: CryptoSenderKeyStoreImpl): CryptoSenderKeyStore
 
     @Binds
     @Singleton

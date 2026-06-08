@@ -33,6 +33,8 @@ dependencies {
     implementation(project(":common"))
     implementation(project(":network"))
     implementation(project(":storage"))
+    // crypto: FileTransferManager grup chunk'larini GroupCipher ile sifrelemek icin.
+    implementation(project(":crypto"))
 
     // WebRTC
     implementation(libs.webrtc)

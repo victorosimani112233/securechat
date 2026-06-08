@@ -46,7 +46,7 @@ class CryptoIdentityStoreImplTest {
             java.util.Base64.getDecoder().decode(firstArg<String>())
         }
 
-        store = CryptoIdentityStoreImpl(identityDao, prefs)
+        store = CryptoIdentityStoreImpl(identityDao, prefs, mockk(relaxed = true))
     }
 
     @After

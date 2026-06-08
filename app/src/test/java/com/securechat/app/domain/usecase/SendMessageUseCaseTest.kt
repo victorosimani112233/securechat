@@ -1,6 +1,12 @@
 package com.securechat.app.domain.usecase
 
+import com.securechat.app.crypto.GroupSenderKeyDistributor
+import com.securechat.app.crypto.SessionEnsurer
 import com.securechat.app.data.UserSession
+import com.securechat.crypto.MessageEncryptor
+import com.securechat.crypto.SecureChatSenderKeyStore
+import com.securechat.crypto.model.EncryptedEnvelope
+import com.securechat.crypto.model.EnvelopeType
 import com.securechat.network.SignalingClient
 import com.securechat.storage.domain.LocalMessage
 import com.securechat.storage.model.MessageContentType
@@ -26,6 +32,10 @@ class SendMessageUseCaseTest {
     private lateinit var signalingClient: SignalingClient
     private lateinit var userSession: UserSession
     private lateinit var conversationDao: com.securechat.storage.dao.ConversationDao
+    private lateinit var messageEncryptor: MessageEncryptor
+    private lateinit var sessionEnsurer: SessionEnsurer
+    private lateinit var groupSenderKeyDistributor: GroupSenderKeyDistributor
+    private lateinit var senderKeyStore: SecureChatSenderKeyStore
     private lateinit var sendMessageUseCase: SendMessageUseCase
 
     @Before
@@ -34,9 +44,22 @@ class SendMessageUseCaseTest {
         signalingClient = mockk(relaxed = true)
         userSession = mockk(relaxed = true)
         conversationDao = mockk(relaxed = true)
+        messageEncryptor = mockk(relaxed = true)
+        sessionEnsurer = mockk(relaxed = true)
+        groupSenderKeyDistributor = mockk(relaxed = true)
+        senderKeyStore = mockk(relaxed = true)
         every { userSession.userId } returns "local_user"
         every { signalingClient.sendSignal(any()) } returns true
-        sendMessageUseCase = SendMessageUseCase(messageRepository, signalingClient, userSession, conversationDao)
+        // Varsayilan: session yok → plaintext fallback (mevcut testlerin assertion'lari korunur).
+        // E2EE pozitif testler bu davranisi override eder.
+        coEvery { sessionEnsurer.ensureSession(any()) } returns false
+        coEvery { groupSenderKeyDistributor.ensureDistributed(any()) } returns true
+        // Grup encrypt yolu: GroupCipher senderKeyStore relaxed mock ile cagrilirsa
+        // exception atar → plaintext fallback'e duser (mevcut grup testleri korunur).
+        sendMessageUseCase = SendMessageUseCase(
+            messageRepository, signalingClient, userSession, conversationDao,
+            messageEncryptor, sessionEnsurer, groupSenderKeyDistributor, senderKeyStore
+        )
     }
 
     @Test
@@ -291,5 +314,58 @@ class SendMessageUseCaseTest {
         coVerify { signalingClient.sendSignal(capture(signalSlot)) }
         val envelope = (signalSlot.captured as com.securechat.network.SignalMessage.EncryptedMessage).envelope
         assertTrue("Envelope EXP prefix icermemeli: $envelope", !envelope.contains("EXP:"))
+    }
+
+    // ---- E2EE 1:1 (FAZ 0) ----
+
+    @Test
+    fun `1to1 - session kurulduysa envelope E2EE_v1 prefix ile gider`() = runTest {
+        coEvery { conversationDao.getById("conv_1") } returns null
+        coEvery { sessionEnsurer.ensureSession("conv_1") } returns true
+        every { messageEncryptor.encrypt(eq("conv_1"), any()) } returns EncryptedEnvelope(
+            type = EnvelopeType.PREKEY,
+            content = byteArrayOf(0x01, 0x02, 0x03),
+            timestamp = 1L,
+            senderRegistrationId = 42
+        )
+
+        sendMessageUseCase("conv_1", "Selam")
+
+        val signalSlot = slot<com.securechat.network.SignalMessage>()
+        coVerify { signalingClient.sendSignal(capture(signalSlot)) }
+        val envelope = (signalSlot.captured as com.securechat.network.SignalMessage.EncryptedMessage).envelope
+        assertTrue("Envelope E2EE:v1: prefix ile baslamali: $envelope", envelope.startsWith("E2EE:v1:PREKEY:42:"))
+    }
+
+    @Test
+    fun `1to1 - session yok ise legacy plaintext envelope gider`() = runTest {
+        coEvery { conversationDao.getById("conv_1") } returns null
+        coEvery { sessionEnsurer.ensureSession("conv_1") } returns false
+
+        sendMessageUseCase("conv_1", "Selam")
+
+        val signalSlot = slot<com.securechat.network.SignalMessage>()
+        coVerify { signalingClient.sendSignal(capture(signalSlot)) }
+        val envelope = (signalSlot.captured as com.securechat.network.SignalMessage.EncryptedMessage).envelope
+        assertTrue("Plaintext fallback MSGID prefix icermeli: $envelope", envelope.startsWith("MSGID:"))
+    }
+
+    @Test
+    fun `grup mesaji - sessionEnsurer cagrilmaz`() = runTest {
+        val groupId = "g_xyz"
+        coEvery { conversationDao.getById(groupId) } returns com.securechat.storage.entity.ConversationEntity(
+            id = groupId,
+            peerId = groupId,
+            peerName = "Test Grup",
+            peerPhone = "",
+            lastMessage = null,
+            lastMessageTimestamp = null,
+            isGroup = true,
+            groupMembers = "user_a,user_b"
+        )
+
+        sendMessageUseCase(groupId, "selam grup")
+
+        coVerify(exactly = 0) { sessionEnsurer.ensureSession(any()) }
     }
 }

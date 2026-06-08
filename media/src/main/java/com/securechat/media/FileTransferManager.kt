@@ -31,7 +31,8 @@ import javax.inject.Singleton
 @Singleton
 class FileTransferManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val signalingClient: SignalingClient
+    private val signalingClient: SignalingClient,
+    private val senderKeyStore: com.securechat.crypto.SecureChatSenderKeyStore
 ) {
     companion object {
         /** WebSocket uzerinden gonderilebilecek maksimum dosya boyutu (1GB). */
@@ -152,13 +153,56 @@ class FileTransferManager @Inject constructor(
             )
         }
 
+        // Grup chunk'lari GroupCipher ile sifrelenir (Sender Keys). 1:1 transfer ve
+        // group caption ayni sema ile sifrelenir; flag = "gsk-v1". 1:1 file encrypt
+        // hibrit donem boyunca plaintext kalir (sonraki release'te SessionCipher ile).
+        val groupCipher = if (isGroup) {
+            try {
+                val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
+                    recipientId,
+                    org.whispersystems.libsignal.SignalProtocolAddress(localUserId, 1)
+                )
+                org.whispersystems.libsignal.groups.GroupCipher(senderKeyStore, senderKeyName)
+            } catch (e: Exception) {
+                android.util.Log.w("FileTransferManager", "GroupCipher init fail, plaintext fallback: ${e.message}")
+                null
+            }
+        } else null
+
         while (true) {
             val bytesRead = stream.readNBytes(buffer, CHUNK_SIZE)
             if (bytesRead <= 0) break
 
             totalRead += bytesRead
             val chunkData = if (bytesRead == buffer.size) buffer else buffer.copyOf(bytesRead)
-            val encoded = Base64.getEncoder().encodeToString(chunkData)
+
+            // Sifreleme: grup ise chunkData GroupCipher ile encrypt, sonra Base64;
+            // 1:1 ise direkt Base64 (legacy plaintext).
+            val (encodedData, encryption) = if (groupCipher != null) {
+                try {
+                    val ciphertext = groupCipher.encrypt(chunkData)
+                    Pair(Base64.getEncoder().encodeToString(ciphertext), "gsk-v1")
+                } catch (e: Exception) {
+                    android.util.Log.w("FileTransferManager", "Grup chunk encrypt fail, plaintext fallback: ${e.message}")
+                    Pair(Base64.getEncoder().encodeToString(chunkData), null)
+                }
+            } else {
+                Pair(Base64.getEncoder().encodeToString(chunkData), null)
+            }
+
+            // Caption (son chunk) — grup ise ayni GroupCipher ile sifrele, sonra Base64.
+            val rawCaption = if (chunkIndex == totalChunks - 1) caption else null
+            val finalCaption = if (rawCaption != null && groupCipher != null && encryption == "gsk-v1") {
+                try {
+                    val capBytes = rawCaption.toByteArray(Charsets.UTF_8)
+                    val capCt = groupCipher.encrypt(capBytes)
+                    capBytes.fill(0)
+                    Base64.getEncoder().encodeToString(capCt)
+                } catch (e: Exception) {
+                    android.util.Log.w("FileTransferManager", "Caption encrypt fail, plaintext fallback: ${e.message}")
+                    rawCaption
+                }
+            } else rawCaption
 
             val signal = SignalMessage.FileTransfer(
                 senderId = localUserId,
@@ -167,7 +211,7 @@ class FileTransferManager @Inject constructor(
                 fileName = fileName,
                 mimeType = mimeType,
                 fileSize = totalSize,
-                data = encoded,
+                data = encodedData,
                 groupId = if (isGroup) recipientId else null,
                 groupName = if (isGroup) groupName else null,
                 transferId = transferId,
@@ -175,12 +219,13 @@ class FileTransferManager @Inject constructor(
                 totalChunks = totalChunks,
                 // Caption ve view-once meta verisi yalnizca son chunk'ta tasinir,
                 // alici tarafta tum parcalar birlestirildikten sonra mesaj olusturulurken kullanilir.
-                caption = if (chunkIndex == totalChunks - 1) caption else null,
+                caption = finalCaption,
                 isViewOnce = isViewOnce,
                 originalMessageId = if (chunkIndex == totalChunks - 1) originalMessageId else null,
                 // Sureli mesaj: sadece son chunk'ta tasi (alici tum chunk'lari birlestirince mesaji
                 // olusturur, oradan expiresAt kullanilir).
-                absoluteExpiresAt = if (chunkIndex == totalChunks - 1) absoluteExpiresAt else null
+                absoluteExpiresAt = if (chunkIndex == totalChunks - 1) absoluteExpiresAt else null,
+                encryption = encryption
             )
 
             // Chunk gonderim — basarisizsa max 3 retry, her retry oncesi ensureConnected.

@@ -96,6 +96,12 @@ class SecureChatApplication : Application(), Configuration.Provider, ImageLoader
                 com.securechat.app.scheduler.ScheduledMessageWorker.enqueue(this@SecureChatApplication)
             }
 
+            // Grup Sender Key rotation (7 gun periodic) — perfect forward secrecy icin
+            // tum aktif gruplarin yerel sender key'ini rotate eder.
+            android.os.Handler(mainLooper).post {
+                com.securechat.app.data.SenderKeyRotationWorker.schedule(this@SecureChatApplication)
+            }
+
             // Rehber degisikliklerini dinle — telefon rehberinde yeni eklenen kisi
             // Elcim'e kayitliysa otomatik olarak isaretlenir.
             android.os.Handler(mainLooper).post {

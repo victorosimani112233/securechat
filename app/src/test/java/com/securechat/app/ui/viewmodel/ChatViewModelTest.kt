@@ -88,7 +88,9 @@ class ChatViewModelTest {
             signalingClient = signalingClient,
             contactNameResolver = contactNameResolver,
             sharedPreferences = sharedPreferences,
-            callManager = mockk(relaxed = true)
+            callManager = mockk(relaxed = true),
+            exportBannerAckStore = mockk(relaxed = true),
+            recordExportEventUseCase = mockk(relaxed = true)
         )
     }
 

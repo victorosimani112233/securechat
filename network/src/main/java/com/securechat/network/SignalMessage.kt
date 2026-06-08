@@ -167,7 +167,15 @@ sealed class SignalMessage {
          * Sureli mesaj mutlak expiresAt (ms). Gonderici envelope'a goz acik attigi anda hesaplar.
          * null ise alici lokal disappearingDuration'a fallback yapar (eski client uyumu).
          */
-        val absoluteExpiresAt: Long? = null
+        val absoluteExpiresAt: Long? = null,
+        /**
+         * Sifreleme bayragi:
+         * - null  → legacy plaintext chunk (hibrit donem, 30 gun)
+         * - "gsk-v1" → data alani GroupCipher ile sifrelenmis (grup, Sender Keys)
+         * Ileride 1:1 file encrypt eklenirse "e2ee-v1" tip da burada tasinabilir.
+         * Caption alani da ayni sema ile sifrelenir (yalniz son chunk'ta tasinir).
+         */
+        val encryption: String? = null
     ) : SignalMessage()
 
     /**

@@ -51,7 +51,8 @@ class CreateGroupViewModel @Inject constructor(
     private val signalingClient: SignalingClient,
     private val contactSearchManager: ContactSearchManager,
     private val userDiscoveryService: UserDiscoveryService,
-    private val discoveryApiService: DiscoveryApiService
+    private val discoveryApiService: DiscoveryApiService,
+    private val groupSenderKeyDistributor: com.securechat.app.crypto.GroupSenderKeyDistributor
 ) : ViewModel() {
 
     companion object {
@@ -265,6 +266,11 @@ class CreateGroupViewModel @Inject constructor(
                 val sent = signalingClient.sendSignal(notification)
                 android.util.Log.d("CreateGroupVM", "Grup bildirimi recipientId=$memberId (type=${memberId.take(8)}): sent=$sent")
             }
+
+            // Sender Keys: grup olusturulduktan sonra yerel sender key uretip tum
+            // uyelere SKDM olarak dagit (1:1 E2EE session uzerinden). Boylece
+            // ilk grup mesaji gonderildiginde uyeler dogrudan decrypt edebilir.
+            launch { groupSenderKeyDistributor.ensureDistributed(groupId) }
 
             _createdGroupId.value = groupId
         }

@@ -61,7 +61,9 @@ class IncomingMessageHandler @Inject constructor(
     private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>,
     private val exportBannerAckStore: ExportBannerAckStore,
     private val messageEncryptor: com.securechat.crypto.MessageEncryptor,
-    private val exportLogDao: com.securechat.storage.dao.ExportLogDao
+    private val exportLogDao: com.securechat.storage.dao.ExportLogDao,
+    private val senderKeyStore: com.securechat.crypto.SecureChatSenderKeyStore,
+    private val groupSenderKeyDistributor: com.securechat.app.crypto.GroupSenderKeyDistributor
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -267,28 +269,133 @@ class IncomingMessageHandler @Inject constructor(
         }
     }
 
+    /**
+     * NoSessionException nedeniyle bekleyen grup mesajlarini gec gelen SKDM
+     * tarafindan yeniden islenmek uzere tutar. Her grup icin max 50 entry RAM'de.
+     * Key: groupId, Value: pending ciphertext + sender bilgisi.
+     */
+    private data class PendingGroupMsg(val senderId: String, val groupId: String, val groupName: String, val ciphertextB64: String)
+    private val pendingGroupMessages =
+        java.util.concurrent.ConcurrentHashMap<String, MutableList<PendingGroupMsg>>()
+
     private suspend fun handleEncryptedMessage(signal: SignalMessage.EncryptedMessage) {
         val senderId = signal.senderId
-        val content = signal.envelope
+        when (val format = com.securechat.app.data.incoming.EnvelopeFormatDetector.detect(signal.envelope)) {
+            is com.securechat.app.data.incoming.EnvelopeFormat.DirectE2EE -> handleDirectE2EE(signal, format)
+            is com.securechat.app.data.incoming.EnvelopeFormat.GroupV1 -> handleGroupV1(senderId, format)
+            is com.securechat.app.data.incoming.EnvelopeFormat.Skdm -> handleSkdm(senderId, format)
+            is com.securechat.app.data.incoming.EnvelopeFormat.GroupLegacy -> handleGroupMessage(
+                senderId, format.groupId, format.payload, format.groupName
+            )
+            is com.securechat.app.data.incoming.EnvelopeFormat.DirectLegacy -> handleDirectMessage(senderId, format.payload)
+            com.securechat.app.data.incoming.EnvelopeFormat.Unknown ->
+                android.util.Log.w("IncomingHandler", "Bilinmeyen envelope formati: from=$senderId")
+        }
+    }
 
-        if (content.startsWith("GROUP:")) {
-            // Yeni format: "GROUP:groupId:groupName:gercekIcerik" (4 parca)
-            // Eski format: "GROUP:groupId:gercekIcerik" (3 parca) — geriye uyumluluk
-            val parts = content.split(":", limit = 4)
-            if (parts.size >= 4) {
-                val groupId = parts[1]
-                val groupName = parts[2]
-                val actualContent = parts[3]
-                handleGroupMessage(senderId, groupId, actualContent, groupName)
-            } else if (parts.size >= 3) {
-                // Eski format — grup adi bilinmiyor
-                val groupId = parts[1]
-                val actualContent = parts[2]
-                handleGroupMessage(senderId, groupId, actualContent, null)
-            }
-        } else {
-            // Birebir mesaj
-            handleDirectMessage(senderId, content)
+    /**
+     * 1:1 E2EE mesaji decrypt edip uygun handler'a yonlendirir.
+     * Decrypt sonucu ya plaintext direct mesaj ya da legacy "GROUP:" wrapper olabilir.
+     */
+    private suspend fun handleDirectE2EE(
+        signal: SignalMessage.EncryptedMessage,
+        format: com.securechat.app.data.incoming.EnvelopeFormat.DirectE2EE
+    ) {
+        val senderId = signal.senderId
+        val plainStr: String = try {
+            val cipherBytes = java.util.Base64.getDecoder().decode(format.ciphertextB64)
+            val envelope = com.securechat.crypto.model.EncryptedEnvelope(
+                type = format.type,
+                content = cipherBytes,
+                timestamp = signal.timestamp,
+                senderRegistrationId = format.regId
+            )
+            val plain = messageEncryptor.decrypt(senderId, envelope)
+            val s = String(plain, Charsets.UTF_8)
+            plain.fill(0)
+            s
+        } catch (e: Exception) {
+            android.util.Log.w("IncomingHandler", "1:1 decrypt fail (${e.javaClass.simpleName}): ${e.message}")
+            return
+        }
+
+        // Decrypt edilmis icerik SKDM olabilir — 1:1 session uzerinden tasiyoruz (K3)
+        when (val inner = com.securechat.app.data.incoming.EnvelopeFormatDetector.detect(plainStr)) {
+            is com.securechat.app.data.incoming.EnvelopeFormat.Skdm -> handleSkdm(senderId, inner)
+            else -> handleDirectMessage(senderId, plainStr)
+        }
+    }
+
+    /** Grup E2EE (GROUPSK:v1) mesaji — GroupCipher ile decrypt. */
+    private suspend fun handleGroupV1(
+        senderId: String,
+        format: com.securechat.app.data.incoming.EnvelopeFormat.GroupV1
+    ) {
+        val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
+            format.groupId,
+            org.whispersystems.libsignal.SignalProtocolAddress(senderId, com.securechat.app.crypto.GroupSenderKeyDistributor.DEVICE_ID)
+        )
+        val groupCipher = org.whispersystems.libsignal.groups.GroupCipher(senderKeyStore, senderKeyName)
+        val ciphertext = try {
+            java.util.Base64.getDecoder().decode(format.ciphertextB64)
+        } catch (e: Exception) {
+            android.util.Log.w("IncomingHandler", "Grup ciphertext base64 bozuk: ${e.message}")
+            return
+        }
+        try {
+            val plain = groupCipher.decrypt(ciphertext)
+            val plainStr = String(plain, Charsets.UTF_8)
+            plain.fill(0)
+            handleGroupMessage(senderId, format.groupId, plainStr, format.groupName)
+        } catch (e: org.whispersystems.libsignal.NoSessionException) {
+            // SKDM henuz islenmedi — gec gelmesini bekle, queue'la.
+            android.util.Log.w("IncomingHandler", "Grup mesaji SKDM bekliyor: $senderId / ${format.groupId}")
+            queuePendingGroupMessage(senderId, format.groupId, format.groupName, format.ciphertextB64)
+        } catch (e: Exception) {
+            android.util.Log.w("IncomingHandler", "Grup decrypt fail (${e.javaClass.simpleName}): ${e.message}")
+        }
+    }
+
+    /** SKDM (SenderKeyDistributionMessage) — gondericinin grup sender key'ini process eder. */
+    private suspend fun handleSkdm(
+        senderId: String,
+        format: com.securechat.app.data.incoming.EnvelopeFormat.Skdm
+    ) {
+        try {
+            val bytes = java.util.Base64.getDecoder().decode(format.skdmB64)
+            val skdm = org.whispersystems.libsignal.protocol.SenderKeyDistributionMessage(bytes)
+            val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
+                format.groupId,
+                org.whispersystems.libsignal.SignalProtocolAddress(senderId, com.securechat.app.crypto.GroupSenderKeyDistributor.DEVICE_ID)
+            )
+            org.whispersystems.libsignal.groups.GroupSessionBuilder(senderKeyStore)
+                .process(senderKeyName, skdm)
+            android.util.Log.d("IncomingHandler", "SKDM islendi: sender=$senderId group=${format.groupId}")
+            // SKDM islendikten sonra bekleyen grup mesajlarini retry et
+            retryPendingGroupMessages(senderId, format.groupId)
+        } catch (e: Exception) {
+            android.util.Log.w("IncomingHandler", "SKDM islenemedi (${e.javaClass.simpleName}): ${e.message}")
+        }
+    }
+
+    private fun queuePendingGroupMessage(senderId: String, groupId: String, groupName: String, ciphertextB64: String) {
+        val key = "$groupId:$senderId"
+        val list = pendingGroupMessages.computeIfAbsent(key) { mutableListOf() }
+        synchronized(list) {
+            if (list.size >= 50) list.removeAt(0)
+            list.add(PendingGroupMsg(senderId, groupId, groupName, ciphertextB64))
+        }
+    }
+
+    private suspend fun retryPendingGroupMessages(senderId: String, groupId: String) {
+        val key = "$groupId:$senderId"
+        val list = pendingGroupMessages.remove(key) ?: return
+        val snapshot = synchronized(list) { list.toList() }
+        for (m in snapshot) {
+            handleGroupV1(
+                senderId,
+                com.securechat.app.data.incoming.EnvelopeFormat.GroupV1(m.groupId, m.groupName, m.ciphertextB64)
+            )
         }
     }
 
@@ -307,6 +414,52 @@ class IncomingMessageHandler @Inject constructor(
             return
         }
 
+        // Sender Keys decrypt: grup chunk'i "gsk-v1" ile sifrelenmisse base64 ciphertext'i
+        // GroupCipher ile coz, sonra plaintext'i base64 tekrar encode et — receiveChunk
+        // mevcut akiş Base64 bekliyor. NoSessionException ise SKDM henuz islenmedi; chunk
+        // drop edilir (bir sonraki gonderim/SKDM ile retry karsi tarafta saglanmaz, ama
+        // sender SKDM dagitir, sonraki transfer guvenli yola dusur).
+        val chunkB64 = if (signal.encryption == "gsk-v1" && !signal.groupId.isNullOrBlank()) {
+            try {
+                val ct = java.util.Base64.getDecoder().decode(signal.data)
+                val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
+                    signal.groupId!!,
+                    org.whispersystems.libsignal.SignalProtocolAddress(senderId, com.securechat.app.crypto.GroupSenderKeyDistributor.DEVICE_ID)
+                )
+                val cipher = org.whispersystems.libsignal.groups.GroupCipher(senderKeyStore, senderKeyName)
+                val pt = cipher.decrypt(ct)
+                java.util.Base64.getEncoder().encodeToString(pt)
+            } catch (e: Exception) {
+                android.util.Log.w("IncomingHandler", "Grup chunk decrypt fail (${e.javaClass.simpleName}): ${e.message}")
+                return
+            }
+        } else {
+            signal.data
+        }
+
+        // Caption decrypt — sadece son chunk'ta tasinir.
+        val decryptedCaption: String? = if (
+            signal.encryption == "gsk-v1" &&
+            !signal.groupId.isNullOrBlank() &&
+            !signal.caption.isNullOrBlank()
+        ) {
+            try {
+                val ct = java.util.Base64.getDecoder().decode(signal.caption)
+                val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
+                    signal.groupId!!,
+                    org.whispersystems.libsignal.SignalProtocolAddress(senderId, com.securechat.app.crypto.GroupSenderKeyDistributor.DEVICE_ID)
+                )
+                val cipher = org.whispersystems.libsignal.groups.GroupCipher(senderKeyStore, senderKeyName)
+                val pt = cipher.decrypt(ct)
+                val s = String(pt, Charsets.UTF_8)
+                pt.fill(0)
+                s
+            } catch (e: Exception) {
+                android.util.Log.w("IncomingHandler", "Caption decrypt fail, plaintext as-is: ${e.message}")
+                signal.caption
+            }
+        } else signal.caption
+
         // Chunk destekli dosya alma — tek parcali veya coklu parcali
         val savedUri = fileTransferManager.receiveChunk(
             transferId = signal.transferId,
@@ -315,7 +468,7 @@ class IncomingMessageHandler @Inject constructor(
             fileName = signal.fileName,
             mimeType = signal.mimeType,
             fileSize = signal.fileSize,
-            data = signal.data
+            data = chunkB64
         )
 
         // Henuz tum chunk'lar gelmedi — mesaj kaydetme, bekle
@@ -396,7 +549,7 @@ class IncomingMessageHandler @Inject constructor(
                 status = MessageStatus.DELIVERED,
                 isOutgoing = false,
                 expiresAt = groupFileExpiresAt,
-                caption = signal.caption?.takeIf { it.isNotBlank() },
+                caption = decryptedCaption?.takeIf { it.isNotBlank() },
                 isViewOnce = signal.isViewOnce
             )
             messageRepository.saveMessage(message)
@@ -411,7 +564,7 @@ class IncomingMessageHandler @Inject constructor(
                 val senderName = resolvePeerName(senderId)
                 val convForNotif = conversationDao.getById(groupId)
                 val displayGroupName = convForNotif?.peerName ?: "Grup"
-                val notifBody = signal.caption?.takeIf { it.isNotBlank() } ?: "Dosya: ${signal.fileName}"
+                val notifBody = decryptedCaption?.takeIf { it.isNotBlank() } ?: "Dosya: ${signal.fileName}"
                 showMessageNotification("$senderName ($displayGroupName)", notifBody, groupId)
             }
         } else {
@@ -456,7 +609,7 @@ class IncomingMessageHandler @Inject constructor(
                 status = MessageStatus.DELIVERED,
                 isOutgoing = false,
                 expiresAt = fileExpiresAt,
-                caption = signal.caption?.takeIf { it.isNotBlank() },
+                caption = decryptedCaption?.takeIf { it.isNotBlank() },
                 isViewOnce = signal.isViewOnce
             )
             messageRepository.saveMessage(message)
@@ -466,7 +619,7 @@ class IncomingMessageHandler @Inject constructor(
 
             // Birebir sohbet kapaliysa bildirim goster — caption varsa ozet olarak kullan
             if (!isFileChatOpen) {
-                val notifBody = signal.caption?.takeIf { it.isNotBlank() } ?: "Dosya: ${signal.fileName}"
+                val notifBody = decryptedCaption?.takeIf { it.isNotBlank() } ?: "Dosya: ${signal.fileName}"
                 showMessageNotification(senderName, notifBody, senderId)
             }
 
@@ -1860,6 +2013,16 @@ class IncomingMessageHandler @Inject constructor(
                         isOutgoing = false
                     )
                     messageRepository.saveMessage(message)
+
+                    // Sender Keys: yeni uye eklenince kendi sender key'imizi ona dagit.
+                    // Diger uyeler de ayni branch'i alip kendi key'lerini gonderir — sonucta
+                    // yeni uye herkesin SK'sini elde eder.
+                    val newMemberId = signal.targetMemberId
+                    if (newMemberId != null && newMemberId != localUserId) {
+                        scope.launch {
+                            groupSenderKeyDistributor.distributeToMember(signal.groupId, newMemberId)
+                        }
+                    }
                 }
             }
 
@@ -1923,6 +2086,15 @@ class IncomingMessageHandler @Inject constructor(
                         )
                         messageRepository.saveMessage(message)
                     }
+
+                    // Sender Keys: uye cikarildi → forward secrecy icin kendi sender key'imizi rotate et.
+                    // Bizim kendimiz cikarildiysa rotate gereksiz — gruptan ayrildigimiz icin
+                    // artik o gruba mesaj atmayacagiz.
+                    if (targetMember != localUserId) {
+                        scope.launch {
+                            groupSenderKeyDistributor.rotate(signal.groupId)
+                        }
+                    }
                 }
             }
 
@@ -1949,6 +2121,14 @@ class IncomingMessageHandler @Inject constructor(
                         isOutgoing = false
                     )
                     messageRepository.saveMessage(leaveMessage)
+
+                    // Sender Keys: bir uye ayrildi → forward secrecy icin sender key'imizi rotate et.
+                    // Kendi LEAVE_GROUP bildirimimizi kendimiz islemeyiz (signal recipient != self).
+                    if (signal.senderId != localUserId) {
+                        scope.launch {
+                            groupSenderKeyDistributor.rotate(signal.groupId)
+                        }
+                    }
                 }
             }
 

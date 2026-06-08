@@ -80,7 +80,9 @@ class CallManagerTest {
             audioManager = audioManager,
             ringtonePlayer = ringtonePlayer,
             incomingCallHandler = incomingCallHandler,
-            callLogDao = callLogDao
+            callLogDao = callLogDao,
+            messageRepository = mockk(relaxed = true),
+            sharedOkHttpClient = mockk(relaxed = true)
         )
     }
 

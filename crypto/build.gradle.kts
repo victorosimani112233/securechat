@@ -28,8 +28,10 @@ android {
 dependencies {
     implementation(project(":common"))
 
-    // Signal Protocol
-    implementation(libs.signal.protocol)
+    // Signal Protocol — api scope: tipler (PreKeyBundle, SignalProtocolAddress, vs.)
+    // crypto modulunden tuketicilere (app) transitive sizar. Aksi takdirde app icindeki
+    // PreKeyBundleFetcher / SessionEnsurer libsignal tipini goremez.
+    api(libs.signal.protocol)
 
     // Hilt
     implementation(libs.hilt.android)

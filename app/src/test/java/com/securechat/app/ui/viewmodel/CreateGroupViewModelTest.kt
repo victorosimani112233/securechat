@@ -64,7 +64,8 @@ class CreateGroupViewModelTest {
 
         viewModel = CreateGroupViewModel(
             conversationDao, userSession, signalingClient,
-            contactSearchManager, userDiscoveryService, discoveryApiService
+            contactSearchManager, userDiscoveryService, discoveryApiService,
+            mockk(relaxed = true)
         )
     }
 

@@ -71,7 +71,12 @@ class IncomingMessageHandlerTest {
             ringtonePlayer = mockk(relaxed = true),
             missedCallTracker = missedCallTracker,
             themeManager = themeManager,
-            phoneAccountRegistrar = mockk(relaxed = true)
+            phoneAccountRegistrar = mockk(relaxed = true),
+            exportBannerAckStore = mockk(relaxed = true),
+            messageEncryptor = mockk(relaxed = true),
+            exportLogDao = mockk(relaxed = true),
+            senderKeyStore = mockk(relaxed = true),
+            groupSenderKeyDistributor = mockk(relaxed = true)
         )
     }
 

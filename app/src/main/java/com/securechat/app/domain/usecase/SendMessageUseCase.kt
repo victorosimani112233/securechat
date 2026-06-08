@@ -1,7 +1,14 @@
 package com.securechat.app.domain.usecase
 
+import com.securechat.app.crypto.GroupSenderKeyDistributor
+import com.securechat.app.crypto.SessionEnsurer
 import com.securechat.app.data.UserSession
+import com.securechat.crypto.MessageEncryptor
+import com.securechat.crypto.SecureChatSenderKeyStore
 import com.securechat.network.SignalMessage
+import org.whispersystems.libsignal.SignalProtocolAddress
+import org.whispersystems.libsignal.groups.GroupCipher
+import org.whispersystems.libsignal.groups.SenderKeyName
 import com.securechat.network.SignalingClient
 import com.securechat.storage.dao.ConversationDao
 import com.securechat.storage.domain.LocalMessage
@@ -9,6 +16,7 @@ import com.securechat.storage.model.MessageContentType
 import com.securechat.storage.model.MessageStatus
 import com.securechat.storage.repository.MessageRepository
 import kotlinx.coroutines.delay
+import java.util.Base64
 import java.util.UUID
 import javax.inject.Inject
 
@@ -24,7 +32,11 @@ class SendMessageUseCase @Inject constructor(
     private val messageRepository: MessageRepository,
     private val signalingClient: SignalingClient,
     private val userSession: UserSession,
-    private val conversationDao: ConversationDao
+    private val conversationDao: ConversationDao,
+    private val messageEncryptor: MessageEncryptor,
+    private val sessionEnsurer: SessionEnsurer,
+    private val groupSenderKeyDistributor: GroupSenderKeyDistributor,
+    private val senderKeyStore: SecureChatSenderKeyStore
 ) {
     companion object {
         /** Mesaj gonderim denemesi basarisiz oldugunda maksimum yeniden deneme sayisi. */
@@ -96,8 +108,16 @@ class SendMessageUseCase @Inject constructor(
             )
         }
 
+        // E2EE encrypt — SADECE BIR KEZ. Ratchet/sender chain ileri tasindigi icin retry'larda
+        // ayni ciphertext'i tekrar gondeririz. Encrypt fail ederse hibrit donem icin plaintext'e dus.
+        val wireEnvelope: String = if (isGroup) {
+            buildGroupWireEnvelope(senderId, conversationId, envelopeContent, conversation)
+        } else {
+            buildDirectWireEnvelope(conversationId, envelopeContent)
+        }
+
         // Ilk deneme
-        val sent = attemptSend(senderId, conversationId, timestamp, envelopeContent, isGroup, conversation)
+        val sent = attemptSend(senderId, conversationId, timestamp, wireEnvelope, isGroup, conversation)
 
         if (sent) {
             messageRepository.updateMessageStatus(message.id, MessageStatus.SENT)
@@ -117,7 +137,7 @@ class SendMessageUseCase @Inject constructor(
                     timeoutMs = 3_000L
                 )
             }
-            val retryResult = attemptSend(senderId, conversationId, timestamp, envelopeContent, isGroup, conversation)
+            val retryResult = attemptSend(senderId, conversationId, timestamp, wireEnvelope, isGroup, conversation)
             if (retryResult) {
                 messageRepository.updateMessageStatus(message.id, MessageStatus.SENT)
                 android.util.Log.d("SendMessage", "Yeniden deneme basarili (deneme #$attempt): ${message.id}")
@@ -140,15 +160,15 @@ class SendMessageUseCase @Inject constructor(
         senderId: String,
         conversationId: String,
         timestamp: Long,
-        envelopeContent: String,
+        wireEnvelope: String,
         isGroup: Boolean,
         conversation: com.securechat.storage.entity.ConversationEntity?
     ): Boolean {
         return if (isGroup) {
-            val groupName = conversation?.peerName ?: ""
             val members = conversation?.groupMembers?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
-            // Server-side fanout: tek mesajda tum uyelerin payloadini gonder
-            val payloads = members.associateWith { "GROUP:$conversationId:$groupName:$envelopeContent" }
+            // Sender Keys: tum uyelere AYNI ciphertext gonderilir; her uye kendi
+            // SKDM ile turetilmis grup anahtariyla decrypt eder.
+            val payloads = members.associateWith { wireEnvelope }
             signalingClient.sendSignal(
                 SignalMessage.GroupMessageFanout(
                     senderId = senderId,
@@ -163,9 +183,59 @@ class SendMessageUseCase @Inject constructor(
                     senderId = senderId,
                     recipientId = conversationId,
                     timestamp = timestamp,
-                    envelope = envelopeContent
+                    envelope = wireEnvelope
                 )
             )
+        }
+    }
+
+    /**
+     * Grup mesaji icin GroupCipher ile sifreleyip "GROUPSK:v1:..." wire envelope dondurur.
+     * SKDM dagitimi yoksa best-effort dagitir (asenkron olarak diger uyelere ulasir).
+     * Encrypt patlarsa hibrit donem icin eski "GROUP:..." plaintext format'a duser.
+     */
+    private suspend fun buildGroupWireEnvelope(
+        senderId: String,
+        groupId: String,
+        envelopeContent: String,
+        conversation: com.securechat.storage.entity.ConversationEntity?
+    ): String {
+        val groupName = conversation?.peerName ?: ""
+        // SKDM dagitim — best-effort, basarisiz olsa bile encrypt deneriz.
+        groupSenderKeyDistributor.ensureDistributed(groupId)
+
+        val plainBytes = envelopeContent.toByteArray(Charsets.UTF_8)
+        return try {
+            val senderKeyName = SenderKeyName(groupId, SignalProtocolAddress(senderId, GroupSenderKeyDistributor.DEVICE_ID))
+            val groupCipher = GroupCipher(senderKeyStore, senderKeyName)
+            val ciphertext = groupCipher.encrypt(plainBytes)
+            val ctB64 = Base64.getEncoder().encodeToString(ciphertext)
+            "GROUPSK:v1:$groupId:$groupName:$ctB64"
+        } catch (e: Exception) {
+            android.util.Log.w("SendMessage", "Grup encrypt fail, plaintext fallback: ${e.message}")
+            "GROUP:$groupId:$groupName:$envelopeContent"
+        } finally {
+            plainBytes.fill(0)
+        }
+    }
+
+    /** 1:1 mesaj icin SessionCipher ile sifreleyip "E2EE:v1:..." wire envelope dondurur. */
+    private suspend fun buildDirectWireEnvelope(recipientId: String, envelopeContent: String): String {
+        val sessionOk = sessionEnsurer.ensureSession(recipientId)
+        if (!sessionOk) {
+            android.util.Log.w("SendMessage", "Session kurulamadi, plaintext fallback: $recipientId")
+            return envelopeContent
+        }
+        val plainBytes = envelopeContent.toByteArray(Charsets.UTF_8)
+        return try {
+            val cipher = messageEncryptor.encrypt(recipientId, plainBytes)
+            val cipherB64 = Base64.getEncoder().encodeToString(cipher.content)
+            "E2EE:v1:${cipher.type.name}:${cipher.senderRegistrationId}:$cipherB64"
+        } catch (e: Exception) {
+            android.util.Log.w("SendMessage", "1:1 encrypt fail, plaintext fallback: ${e.message}")
+            envelopeContent
+        } finally {
+            plainBytes.fill(0)
         }
     }
 }

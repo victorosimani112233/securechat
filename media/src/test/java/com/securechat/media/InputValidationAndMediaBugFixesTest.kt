@@ -39,7 +39,7 @@ class InputValidationAndMediaBugFixesTest {
         signalingClient = mockk(relaxed = true)
 
         every { context.contentResolver } returns contentResolver
-        fileTransferManager = FileTransferManager(context, signalingClient)
+        fileTransferManager = FileTransferManager(context, signalingClient, mockk(relaxed = true))
     }
 
     // =====================================================================
