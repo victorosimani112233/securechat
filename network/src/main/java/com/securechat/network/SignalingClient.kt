@@ -140,6 +140,7 @@ class SignalingClient @Inject constructor(
                 isConnecting = false
                 _connectionState.value = ConnectionState.Connected
                 reconnectJob?.cancel()
+                com.securechat.network.telemetry.WebSocketTelemetry.recordConnected()
                 onConnectedListener?.invoke()
 
                 // Bug 001: Yeniden baglanti kuruldugunda offline kuyrugu otomatik flush et
@@ -176,6 +177,7 @@ class SignalingClient @Inject constructor(
                 Log.e("SecureChat", "❌ WebSocket FAILED: ${t.javaClass.simpleName} — ${t.message}")
                 isConnecting = false
                 _connectionState.value = ConnectionState.Error(t)
+                com.securechat.network.telemetry.WebSocketTelemetry.recordFailure(t, response?.code)
                 onConnectionLostListener?.invoke()
                 scheduleReconnect(url)
             }
@@ -184,6 +186,9 @@ class SignalingClient @Inject constructor(
                 Log.w("SecureChat", "❌ WebSocket closed (code=$code, reason=$reason)")
                 isConnecting = false
                 _connectionState.value = ConnectionState.Disconnected
+                // Kullanici disconnect cagirdiysa currentUserId null'a cekilmistir.
+                val normalClose = currentUserId == null
+                com.securechat.network.telemetry.WebSocketTelemetry.recordDisconnected(normal = normalClose)
                 onConnectionLostListener?.invoke()
                 // Kullanici disconnect() cagirmadiysa yeniden baglan
                 if (currentUserId != null) {
@@ -272,6 +277,7 @@ class SignalingClient @Inject constructor(
                 delay(currentDelay + jitter)
                 // Baglanti zaten kurulduysa (baska bir yerden) cik
                 if (_connectionState.value is ConnectionState.Connected) break
+                com.securechat.network.telemetry.WebSocketTelemetry.recordReconnectAttempt()
                 try {
                     connect(userId, authToken, url)
                 } catch (_: Exception) { }
