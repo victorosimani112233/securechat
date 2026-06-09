@@ -50,6 +50,22 @@ class I18nPolicyTest {
         ),
         "app/src/main/java/com/securechat/app/ui/screen/AddGroupMemberScreen.kt" to listOf(
             "\"Davet Gönder\"", "\"Kapat\"", "\"Kişi ara...\""
+        ),
+        // Sprint 7 kapsamlari
+        "app/src/main/java/com/securechat/app/ui/screen/SettingsScreen.kt" to listOf(
+            "\"Tüm Sohbetleri Sil\"", "\"Ayarlar\"", "\"Sohbet Teması\"",
+            "\"Bildirim Sesi\"", "\"Uçtan uca şifreleme\"", "\"Yedekleme\""
+        ),
+        "app/src/main/java/com/securechat/app/ui/screen/ConversationsScreen.kt" to listOf(
+            "\"Yeni Sohbet\"", "\"Yeni Grup\"", "\"Toplu Mesaj\"",
+            "\"Sohbeti Sil\"", "\"Tümü\"", "\"Okunmamış\""
+        ),
+        "app/src/main/java/com/securechat/app/ui/screen/GroupInfoScreen.kt" to listOf(
+            "\"Grup Adını Düzenle\"", "\"Üyeyi Çıkar\"", "\"Gruptan Çıkar\"",
+            "\"Profili Görüntüle\""
+        ),
+        "app/src/main/java/com/securechat/app/ui/screen/ChatInfoScreen.kt" to listOf(
+            "\"Not\"", "\"Mesajlarda ara...\""
         )
     )
 

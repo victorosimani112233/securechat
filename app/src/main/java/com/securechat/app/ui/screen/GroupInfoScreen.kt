@@ -77,6 +77,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import com.securechat.app.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -431,12 +433,12 @@ fun GroupInfoScreen(
     if (showEditGroupDialog) {
         AlertDialog(
             onDismissRequest = { showEditGroupDialog = false },
-            title = { Text("Grup Adını Düzenle") },
+            title = { Text(stringResource(R.string.edit_group_name)) },
             text = {
                 OutlinedTextField(
                     value = editedGroupName,
                     onValueChange = { editedGroupName = it },
-                    label = { Text("Grup Adı") },
+                    label = { Text(stringResource(R.string.group_name)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -459,7 +461,7 @@ fun GroupInfoScreen(
                         contentColor = Color.White
                     )
                 ) {
-                    Text("Kaydet")
+                    Text(stringResource(R.string.save))
                 }
             },
             dismissButton = {
@@ -467,7 +469,7 @@ fun GroupInfoScreen(
                     showEditGroupDialog = false
                     editedGroupName = ""
                 }) {
-                    Text("İptal")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -478,7 +480,7 @@ fun GroupInfoScreen(
         val memberName = groupInfo?.memberNames?.get(memberId) ?: memberId
         AlertDialog(
             onDismissRequest = { showRemoveMemberDialog = null },
-            title = { Text("Üyeyi Çıkar") },
+            title = { Text(stringResource(R.string.remove_member_confirm)) },
             text = { Text("$memberName kullanıcısını gruptan çıkarmak istediğinizden emin misiniz?") },
             confirmButton = {
                 Button(
@@ -490,12 +492,12 @@ fun GroupInfoScreen(
                         containerColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("Çıkar")
+                    Text(stringResource(R.string.remove))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveMemberDialog = null }) {
-                    Text("İptal")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -648,7 +650,7 @@ private fun MemberItem(
                     onDismissRequest = { showMenu = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Profili Görüntüle") },
+                        text = { Text(stringResource(R.string.group_view_profile)) },
                         onClick = {
                             showMenu = false
                             onViewProfile()
@@ -687,7 +689,7 @@ private fun MemberItem(
                     }
                     if (canRemove) {
                         DropdownMenuItem(
-                            text = { Text("Gruptan Çıkar", color = MaterialTheme.colorScheme.error) },
+                            text = { Text(stringResource(R.string.group_leave), color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 showMenu = false
                                 onRemoveClick()

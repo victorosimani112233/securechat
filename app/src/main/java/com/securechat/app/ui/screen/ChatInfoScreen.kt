@@ -69,6 +69,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import com.securechat.app.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -338,7 +340,7 @@ private fun NoteDialog(
             OutlinedTextField(
                 value = noteText,
                 onValueChange = { noteText = it },
-                label = { Text("Not") },
+                label = { Text(stringResource(R.string.chat_info_note_label)) },
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 5,
                 shape = RoundedCornerShape(12.dp)
@@ -346,12 +348,12 @@ private fun NoteDialog(
         },
         confirmButton = {
             TextButton(onClick = { onSave(noteText) }) {
-                Text("Kaydet", color = MaterialTheme.colorScheme.primary)
+                Text(stringResource(R.string.save), color = MaterialTheme.colorScheme.primary)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("İptal", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
         containerColor = MaterialTheme.colorScheme.surface,
@@ -690,7 +692,7 @@ private fun SearchContent(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
-            label = { Text("Mesajlarda ara...") },
+            label = { Text(stringResource(R.string.chat_info_search_placeholder)) },
             leadingIcon = {
                 Icon(Icons.Default.Search, contentDescription = null)
             },

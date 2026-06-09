@@ -84,6 +84,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import com.securechat.app.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -344,28 +346,28 @@ fun ConversationsScreen(
                                 onDismissRequest = { showMoreMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Yeni Sohbet") },
+                                    text = { Text(stringResource(R.string.conv_new_chat)) },
                                     onClick = { showMoreMenu = false; onNewChat() },
                                     leadingIcon = {
                                         Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(20.dp))
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Yeni Grup") },
+                                    text = { Text(stringResource(R.string.conv_new_group)) },
                                     onClick = { showMoreMenu = false; onNewGroup() },
                                     leadingIcon = {
                                         Icon(Icons.Default.GroupAdd, null, modifier = Modifier.size(20.dp))
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Toplu Mesaj") },
+                                    text = { Text(stringResource(R.string.conv_bulk_message)) },
                                     onClick = { showMoreMenu = false; onBulkMessage() },
                                     leadingIcon = {
                                         Icon(Icons.AutoMirrored.Filled.Chat, null, modifier = Modifier.size(20.dp))
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Planlı Mesajlar") },
+                                    text = { Text(stringResource(R.string.conv_scheduled_messages)) },
                                     onClick = { showMoreMenu = false; onScheduledMessages() },
                                     leadingIcon = {
                                         Icon(Icons.Default.EditCalendar, null, modifier = Modifier.size(20.dp))
@@ -566,7 +568,7 @@ private fun FilterChipRow(
         FilterChip(
             selected = activeFilter == ConversationFilter.NONE,
             onClick = { onFilterChange(ConversationFilter.NONE) },
-            label = { Text("Tümü", fontSize = 13.sp) },
+            label = { Text(stringResource(R.string.conv_filter_all), fontSize = 13.sp) },
             colors = FilterChipDefaults.filterChipColors(
                 selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
                 selectedLabelColor = MaterialTheme.colorScheme.primary,
@@ -583,7 +585,7 @@ private fun FilterChipRow(
         FilterChip(
             selected = activeFilter == ConversationFilter.UNREAD,
             onClick = { onFilterChange(ConversationFilter.UNREAD) },
-            label = { Text("Okunmamış", fontSize = 13.sp) },
+            label = { Text(stringResource(R.string.conv_filter_unread), fontSize = 13.sp) },
             colors = FilterChipDefaults.filterChipColors(
                 selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
                 selectedLabelColor = MaterialTheme.colorScheme.primary,
@@ -600,7 +602,7 @@ private fun FilterChipRow(
         FilterChip(
             selected = activeFilter == ConversationFilter.GROUPS,
             onClick = { onFilterChange(ConversationFilter.GROUPS) },
-            label = { Text("Gruplar", fontSize = 13.sp) },
+            label = { Text(stringResource(R.string.conv_filter_groups), fontSize = 13.sp) },
             colors = FilterChipDefaults.filterChipColors(
                 selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
                 selectedLabelColor = MaterialTheme.colorScheme.primary,
@@ -617,7 +619,7 @@ private fun FilterChipRow(
         FilterChip(
             selected = activeFilter == ConversationFilter.FAVORITES,
             onClick = { onFilterChange(ConversationFilter.FAVORITES) },
-            label = { Text("Favoriler", fontSize = 13.sp) },
+            label = { Text(stringResource(R.string.conv_filter_favorites), fontSize = 13.sp) },
             leadingIcon = if (activeFilter == ConversationFilter.FAVORITES) {
                 { Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp)) }
             } else null,
@@ -774,7 +776,7 @@ private fun SwipeableConversationItem(
             ) {
                 if (onInfoClick != null) {
                     DropdownMenuItem(
-                        text = { Text("Bilgi") },
+                        text = { Text(stringResource(R.string.conv_info)) },
                         onClick = { showContextMenu = false; onInfoClick() },
                         leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
                     )
@@ -810,13 +812,13 @@ private fun SwipeableConversationItem(
                 }
                 if (onArchiveRequest != null) {
                     DropdownMenuItem(
-                        text = { Text("Arşivle") },
+                        text = { Text(stringResource(R.string.conv_archive)) },
                         onClick = { showContextMenu = false; onArchiveRequest() },
                         leadingIcon = { Icon(Icons.Default.Archive, contentDescription = null, tint = Color(0xFF00897B)) }
                     )
                 }
                 DropdownMenuItem(
-                    text = { Text("Sohbeti Sil", color = MaterialTheme.colorScheme.error) },
+                    text = { Text(stringResource(R.string.conv_delete_chat), color = MaterialTheme.colorScheme.error) },
                     onClick = { showContextMenu = false; onDeleteRequest() },
                     leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
                 )
@@ -972,7 +974,7 @@ private fun DeleteConversationDialog(
 ) {
     GlassDialog(onDismissRequest = onDismiss) {
         Text(
-            "Sohbeti Sil",
+            text = stringResource(R.string.conv_delete_chat),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
@@ -988,7 +990,7 @@ private fun DeleteConversationDialog(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End
         ) {
-            TextButton(onClick = onDismiss) { Text("İptal") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
             Spacer(modifier = Modifier.width(8.dp))
             TextButton(onClick = onConfirm) {
                 Text("Sil", color = MaterialTheme.colorScheme.error)

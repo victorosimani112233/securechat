@@ -143,4 +143,22 @@
     <string name="settings_backup">Yedekleme</string>
     <string name="settings_backup_desc">Sohbetleri şifreli olarak yedekle veya geri yükle</string>
     <string name="settings_storage_usage">Depolama Kullanımı</string>
+
+    <!-- Sprint 7-B: ChatInfo + Conversations + GroupInfo -->
+    <string name="chat_info_note_label">Not</string>
+    <string name="chat_info_search_placeholder">Mesajlarda ara…</string>
+    <string name="conv_new_chat">Yeni Sohbet</string>
+    <string name="conv_new_group">Yeni Grup</string>
+    <string name="conv_bulk_message">Toplu Mesaj</string>
+    <string name="conv_scheduled_messages">Planlı Mesajlar</string>
+    <string name="conv_filter_all">Tümü</string>
+    <string name="conv_filter_unread">Okunmamış</string>
+    <string name="conv_filter_groups">Gruplar</string>
+    <string name="conv_filter_favorites">Favoriler</string>
+    <string name="conv_archive">Arşivle</string>
+    <string name="conv_delete">Sil</string>
+    <string name="conv_info">Bilgi</string>
+    <string name="conv_delete_chat">Sohbeti Sil</string>
+    <string name="group_view_profile">Profili Görüntüle</string>
+    <string name="group_leave">Gruptan Çıkar</string>
 </resources>

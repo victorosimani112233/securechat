@@ -1019,7 +1019,7 @@ fun SettingsScreen(
                         }
 
                         ListItem(
-                            headlineContent = { Text("Tüm Sohbetleri Sil", color = MaterialTheme.colorScheme.error) },
+                            headlineContent = { Text(stringResource(R.string.settings_nuke_dialog_title), color = MaterialTheme.colorScheme.error) },
                             supportingContent = { Text("Tüm mesajlar ve sohbetler kalıcı olarak silinir", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) },
                             leadingContent = {
                                 Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
@@ -1231,7 +1231,7 @@ private fun ThemeSelectionDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Sohbet Teması") },
+        title = { Text(stringResource(R.string.settings_chat_theme)) },
         text = {
             Column {
                 ThemeOption(

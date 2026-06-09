@@ -144,4 +144,22 @@
     <string name="settings_backup">Backup</string>
     <string name="settings_backup_desc">Back up chats encrypted or restore</string>
     <string name="settings_storage_usage">Storage Usage</string>
+
+    <!-- Sprint 7-B: ChatInfo + Conversations + GroupInfo -->
+    <string name="chat_info_note_label">Note</string>
+    <string name="chat_info_search_placeholder">Search messages…</string>
+    <string name="conv_new_chat">New Chat</string>
+    <string name="conv_new_group">New Group</string>
+    <string name="conv_bulk_message">Bulk Message</string>
+    <string name="conv_scheduled_messages">Scheduled Messages</string>
+    <string name="conv_filter_all">All</string>
+    <string name="conv_filter_unread">Unread</string>
+    <string name="conv_filter_groups">Groups</string>
+    <string name="conv_filter_favorites">Favorites</string>
+    <string name="conv_archive">Archive</string>
+    <string name="conv_delete">Delete</string>
+    <string name="conv_info">Info</string>
+    <string name="conv_delete_chat">Delete Chat</string>
+    <string name="group_view_profile">View Profile</string>
+    <string name="group_leave">Leave Group</string>
 </resources>
