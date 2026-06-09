@@ -109,4 +109,9 @@
     <string name="cd_search">Search</string>
     <string name="cd_clear">Clear</string>
     <string name="cd_add">Add</string>
+
+    <!-- Sprint 6-B: Contacts + AddGroupMember -->
+    <string name="network_error_title">Connection Error</string>
+    <string name="contacts_grant_permission">Grant Contacts Access</string>
+    <string name="contacts_invite_short">Invite</string>
 </resources>

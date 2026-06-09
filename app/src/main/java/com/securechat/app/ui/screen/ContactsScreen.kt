@@ -69,6 +69,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import com.securechat.app.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -132,6 +134,9 @@ fun ContactsScreen(
 
     // LazyColumn scroll state — sayfalama icin listenin sonunu tespit eder
     val listState = rememberLazyListState()
+
+    // Composable-disi cagrida kullanmak icin (Intent.createChooser) tek seferlik resolve.
+    val inviteChooserTitle = stringResource(R.string.invite_chooser_title)
 
     // Listenin sonuna yaklastiginda daha fazla kisi yukle
     val shouldLoadMore by remember {
@@ -217,7 +222,7 @@ fun ContactsScreen(
                                 "Elçim uygulamasını indir, güvenli bir şekilde mesajlaşalım! https://elcim.app"
                             )
                         }
-                        context.startActivity(Intent.createChooser(shareIntent, "Davet gönder"))
+                        context.startActivity(Intent.createChooser(shareIntent, inviteChooserTitle))
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -228,11 +233,11 @@ fun ContactsScreen(
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Davet Gönder")
+                    Text(stringResource(R.string.create_group_send_invite))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 TextButton(onClick = { viewModel.consumeUserNotFound() }) {
-                    Text("Kapat")
+                    Text(stringResource(R.string.create_group_close))
                 }
             }
         }
@@ -253,7 +258,7 @@ fun ContactsScreen(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "Bağlantı Hatası",
+                    text = stringResource(R.string.network_error_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -267,7 +272,7 @@ fun ContactsScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 TextButton(onClick = { viewModel.consumeNetworkError() }) {
-                    Text("Kapat")
+                    Text(stringResource(R.string.create_group_close))
                 }
             }
         }
@@ -386,7 +391,7 @@ fun ContactsScreen(
                     value = searchQuery,
                     onValueChange = { viewModel.onSearchQueryChanged(it) },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Kişi ara...") },
+                    placeholder = { Text(stringResource(R.string.create_group_search_placeholder)) },
                     leadingIcon = {
                         Icon(
                             Icons.Default.Search,
@@ -533,7 +538,7 @@ fun ContactsScreen(
                 items(phoneContacts, key = { "phone_${it.id}_${it.phoneNumber}" }) { contact ->
                     // BUGFIX: Eslesme phoneHash bazli yapilir (tum DB'den, pagination disinda).
                     // Onceden `contacts` (paginated, max 50 kisi) ile normalize string karsilastirma
-                    // yapiliyordu — sayfalanmamis kullanicilar "Davet Et" gosteriyordu.
+                    // yapiliyordu — sayfalanmamis kullanicilar invite butonu gosteriyordu.
                     val contactHash = remember(contact.phoneNumber) {
                         com.securechat.contacts.UserDiscoveryService.hashPhoneNumber(contact.phoneNumber)
                     }
@@ -665,7 +670,7 @@ private fun PermissionRequestSection(
                     contentColor = Color.White
                 )
             ) {
-                Text("Rehber Erişimi Ver")
+                Text(stringResource(R.string.contacts_grant_permission))
             }
         }
     }
@@ -740,7 +745,7 @@ fun ContactItem(
 
 /**
  * Telefon rehberindeki tek bir kişi satırı.
- * Kayıtlı değilse "Davet Et" butonu gösterir.
+ * Kayıtlı değilse contacts_invite_short butonu gösterir.
  */
 @Composable
 fun PhoneContactItem(
@@ -777,6 +782,7 @@ fun PhoneContactItem(
         },
         trailingContent = if (!isRegistered) {
             {
+                val inviteTitle = stringResource(R.string.invite_chooser_title)
                 Button(
                     onClick = {
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -786,7 +792,7 @@ fun PhoneContactItem(
                                 "Elçim uygulamasını indir, güvenli bir şekilde mesajlaşalım! https://elcim.app"
                             )
                         }
-                        context.startActivity(Intent.createChooser(shareIntent, "Davet gönder"))
+                        context.startActivity(Intent.createChooser(shareIntent, inviteTitle))
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
@@ -803,7 +809,7 @@ fun PhoneContactItem(
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Davet Et", fontSize = 12.sp)
+                    Text(stringResource(R.string.contacts_invite_short), fontSize = 12.sp)
                 }
             }
         } else null,

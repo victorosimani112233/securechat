@@ -42,6 +42,14 @@ class I18nPolicyTest {
         "app/src/main/java/com/securechat/app/ui/screen/CreateGroupScreen.kt" to listOf(
             "\"Yeni Grup\"", "\"Oluştur\"", "\"Grup Adı\"", "\"Kişi ara...\"",
             "\"Numara ile Ekle\"", "\"Kayıtlı Kişiler\"", "\"Kullanıcı Bulunamadı\""
+        ),
+        // Sprint 6-B kapsamlari
+        "app/src/main/java/com/securechat/app/ui/screen/ContactsScreen.kt" to listOf(
+            "\"Davet Gönder\"", "\"Kapat\"", "\"Kişi ara...\"",
+            "\"Rehber Erişimi Ver\"", "\"Davet Et\"", "\"Bağlantı Hatası\""
+        ),
+        "app/src/main/java/com/securechat/app/ui/screen/AddGroupMemberScreen.kt" to listOf(
+            "\"Davet Gönder\"", "\"Kapat\"", "\"Kişi ara...\""
         )
     )
 

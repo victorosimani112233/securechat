@@ -108,4 +108,9 @@
     <string name="cd_search">Ara</string>
     <string name="cd_clear">Temizle</string>
     <string name="cd_add">Ekle</string>
+
+    <!-- Sprint 6-B: Contacts + AddGroupMember -->
+    <string name="network_error_title">Bağlantı Hatası</string>
+    <string name="contacts_grant_permission">Rehber Erişimi Ver</string>
+    <string name="contacts_invite_short">Davet Et</string>
 </resources>
