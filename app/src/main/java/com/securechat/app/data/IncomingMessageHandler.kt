@@ -64,6 +64,7 @@ class IncomingMessageHandler @Inject constructor(
     private val exportLogDao: com.securechat.storage.dao.ExportLogDao,
     private val senderKeyStore: com.securechat.crypto.SecureChatSenderKeyStore,
     private val groupSenderKeyDistributor: com.securechat.app.crypto.GroupSenderKeyDistributor,
+    private val oneToOneFileCipher: com.securechat.media.crypto.OneToOneFileCipher,
     // Faz 10: handler'lar — kademeli extract
     private val deliveryReceiptHandler: com.securechat.app.data.incoming.handlers.DeliveryReceiptHandler,
     private val typingPresenceHandler: com.securechat.app.data.incoming.handlers.TypingPresenceHandler,
@@ -457,51 +458,79 @@ class IncomingMessageHandler @Inject constructor(
             return
         }
 
-        // Sender Keys decrypt: grup chunk'i "gsk-v1" ile sifrelenmisse base64 ciphertext'i
-        // GroupCipher ile coz, sonra plaintext'i base64 tekrar encode et — receiveChunk
-        // mevcut akiş Base64 bekliyor. NoSessionException ise SKDM henuz islenmedi; chunk
-        // drop edilir (bir sonraki gonderim/SKDM ile retry karsi tarafta saglanmaz, ama
-        // sender SKDM dagitir, sonraki transfer guvenli yola dusur).
-        val chunkB64 = if (signal.encryption == "gsk-v1" && !signal.groupId.isNullOrBlank()) {
-            try {
-                val ct = java.util.Base64.getDecoder().decode(signal.data)
-                val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
-                    signal.groupId!!,
-                    org.whispersystems.libsignal.SignalProtocolAddress(senderId, com.securechat.app.crypto.GroupSenderKeyDistributor.DEVICE_ID)
-                )
-                val cipher = org.whispersystems.libsignal.groups.GroupCipher(senderKeyStore, senderKeyName)
-                val pt = cipher.decrypt(ct)
-                java.util.Base64.getEncoder().encodeToString(pt)
-            } catch (e: Exception) {
-                android.util.Log.w("IncomingHandler", "Grup chunk decrypt fail (${e.javaClass.simpleName}): ${e.message}")
-                return
+        // Decrypt:
+        //   - "gsk-v1" grup → GroupCipher (Sender Keys)
+        //   - "e2ee-v1" 1:1 → SessionCipher (Double Ratchet, Sprint 6-A)
+        //   - null → plaintext (hibrit donem)
+        val chunkB64 = when {
+            signal.encryption == "gsk-v1" && !signal.groupId.isNullOrBlank() -> {
+                try {
+                    val ct = java.util.Base64.getDecoder().decode(signal.data)
+                    val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
+                        signal.groupId!!,
+                        org.whispersystems.libsignal.SignalProtocolAddress(senderId, com.securechat.app.crypto.GroupSenderKeyDistributor.DEVICE_ID)
+                    )
+                    val cipher = org.whispersystems.libsignal.groups.GroupCipher(senderKeyStore, senderKeyName)
+                    val pt = cipher.decrypt(ct)
+                    java.util.Base64.getEncoder().encodeToString(pt)
+                } catch (e: Exception) {
+                    android.util.Log.w("IncomingHandler", "Grup chunk decrypt fail (${e.javaClass.simpleName}): ${e.message}")
+                    return
+                }
             }
-        } else {
-            signal.data
+            signal.encryption == "e2ee-v1" && signal.groupId.isNullOrBlank() -> {
+                val ct = try {
+                    java.util.Base64.getDecoder().decode(signal.data)
+                } catch (e: Exception) {
+                    android.util.Log.w("IncomingHandler", "1:1 chunk base64 bozuk: ${e.message}")
+                    return
+                }
+                val pt = oneToOneFileCipher.decrypt(senderId, ct)
+                if (pt == null) {
+                    android.util.Log.w("IncomingHandler", "1:1 chunk decrypt fail — chunk drop")
+                    return
+                }
+                java.util.Base64.getEncoder().encodeToString(pt)
+            }
+            else -> signal.data
         }
 
-        // Caption decrypt — sadece son chunk'ta tasinir.
-        val decryptedCaption: String? = if (
-            signal.encryption == "gsk-v1" &&
-            !signal.groupId.isNullOrBlank() &&
-            !signal.caption.isNullOrBlank()
-        ) {
-            try {
-                val ct = java.util.Base64.getDecoder().decode(signal.caption)
-                val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
-                    signal.groupId!!,
-                    org.whispersystems.libsignal.SignalProtocolAddress(senderId, com.securechat.app.crypto.GroupSenderKeyDistributor.DEVICE_ID)
-                )
-                val cipher = org.whispersystems.libsignal.groups.GroupCipher(senderKeyStore, senderKeyName)
-                val pt = cipher.decrypt(ct)
-                val s = String(pt, Charsets.UTF_8)
-                pt.fill(0)
-                s
-            } catch (e: Exception) {
-                android.util.Log.w("IncomingHandler", "Caption decrypt fail, plaintext as-is: ${e.message}")
-                signal.caption
+        // Caption decrypt — chunk ile ayni cipher.
+        val decryptedCaption: String? = when {
+            signal.caption.isNullOrBlank() -> signal.caption
+            signal.encryption == "gsk-v1" && !signal.groupId.isNullOrBlank() -> {
+                try {
+                    val ct = java.util.Base64.getDecoder().decode(signal.caption)
+                    val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
+                        signal.groupId!!,
+                        org.whispersystems.libsignal.SignalProtocolAddress(senderId, com.securechat.app.crypto.GroupSenderKeyDistributor.DEVICE_ID)
+                    )
+                    val cipher = org.whispersystems.libsignal.groups.GroupCipher(senderKeyStore, senderKeyName)
+                    val pt = cipher.decrypt(ct)
+                    val s = String(pt, Charsets.UTF_8)
+                    pt.fill(0)
+                    s
+                } catch (e: Exception) {
+                    android.util.Log.w("IncomingHandler", "Caption (group) decrypt fail, plaintext as-is: ${e.message}")
+                    signal.caption
+                }
             }
-        } else signal.caption
+            signal.encryption == "e2ee-v1" && signal.groupId.isNullOrBlank() -> {
+                try {
+                    val ct = java.util.Base64.getDecoder().decode(signal.caption)
+                    val pt = oneToOneFileCipher.decrypt(senderId, ct)
+                    if (pt != null) {
+                        val s = String(pt, Charsets.UTF_8)
+                        pt.fill(0)
+                        s
+                    } else signal.caption
+                } catch (e: Exception) {
+                    android.util.Log.w("IncomingHandler", "Caption (1:1) decrypt fail, plaintext as-is: ${e.message}")
+                    signal.caption
+                }
+            }
+            else -> signal.caption
+        }
 
         // Chunk destekli dosya alma — tek parcali veya coklu parcali
         val savedUri = fileTransferManager.receiveChunk(
