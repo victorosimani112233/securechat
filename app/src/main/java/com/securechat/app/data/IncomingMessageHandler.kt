@@ -389,23 +389,40 @@ class IncomingMessageHandler @Inject constructor(
     /**
      * Session healing: alici decrypt fail edince tetiklenir.
      *
-     * 1) Bu peer icin local SessionCipher session'i silinir (artik geçersiz)
-     * 2) Gondericiye SessionResetRequest yollanir → o da kendi tarafindaki session'i siler
-     * 3) Sonraki encrypt iki tarafta da PreKeyBundle fetch + yeni session ile baslar
+     * Asimetrik priority (crossed-PreKey race fix): iki taraf ayni anda fail edip
+     * ayni anda yeni session kurarsa, her birinin sessionId'si farkli olur ve
+     * ratchet uyumsuzlugu sonsuza dek devam eder. Bunu kirmak icin **sadece
+     * userId'si daha "buyuk" (lexicographic) olan taraf** session resetlemeyi
+     * baslatma yetkisine sahiptir:
      *
-     * Per-peer dedup: ayni peer icin 30sn icinde tekrar tetiklenmez (mesaj firtinasinda
-     * gereksiz reset paketi spam'ini onler).
+     *   - INITIATOR (myId > peerId): local session sil + reset request gonder.
+     *     Sonraki encrypt'te PreKey ile yeni session kurar, PREKEY message atar.
+     *   - RESPONDER (myId < peerId): SADECE local session sil. Yeni session
+     *     kurmayi BEKLER — karsidan gelecek PREKEY message yeni session'i kuracak.
+     *     Reset request gondermez (initiator tarafi zaten gonderecek).
+     *
+     * Bu sayede sadece initiator tarafi PreKeyBundle fetch eder, race ortadan
+     * kalkar.
+     *
+     * Per-peer 5sn dedup: ayni peer icin spam'i onler ama hizli iyilesmeye izin verir.
      */
     private val recentHealRequests = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private fun triggerSessionHealing(peerId: String, reason: String) {
+        val myId = userSession.userId
+        if (myId == null) {
+            android.util.Log.w("IncomingHandler", "Auto-heal: userId yok, atlandi")
+            return
+        }
+
         val now = System.currentTimeMillis()
         val last = recentHealRequests[peerId] ?: 0L
-        if (now - last < 30_000L) {
-            android.util.Log.d("IncomingHandler", "Session heal dedup (son 30sn icinde): $peerId")
+        if (now - last < 5_000L) {
+            android.util.Log.d("IncomingHandler", "Session heal dedup (son 5sn icinde): $peerId")
             return
         }
         recentHealRequests[peerId] = now
 
+        // Her durumda local bozuk session'i sil
         try {
             sessionManager.resetSession(peerId)
             android.util.Log.d("IncomingHandler", "Local session silindi: $peerId")
@@ -413,8 +430,14 @@ class IncomingMessageHandler @Inject constructor(
             android.util.Log.w("IncomingHandler", "Local session silinemedi: $peerId — ${e.message}")
         }
 
-        val sent = signalingClient.sendSessionResetRequest(peerId, reason)
-        android.util.Log.d("IncomingHandler", "SessionResetRequest gonderildi ($peerId, reason=$reason): $sent")
+        // Asimetrik priority: sadece INITIATOR (buyuk userId) reset request gonderir
+        val amInitiator = myId > peerId
+        if (amInitiator) {
+            val sent = signalingClient.sendSessionResetRequest(peerId, reason)
+            android.util.Log.d("IncomingHandler", "[INITIATOR] SessionResetRequest gonderildi ($peerId, reason=$reason): $sent")
+        } else {
+            android.util.Log.d("IncomingHandler", "[RESPONDER] Karsi tarafin PREKEY mesajini bekliyor: $peerId")
+        }
     }
 
     /**
