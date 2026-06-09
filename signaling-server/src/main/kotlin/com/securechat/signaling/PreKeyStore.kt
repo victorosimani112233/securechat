@@ -29,17 +29,67 @@ object PreKeyStore {
         val oneTimePreKey: OneTimePreKey?
     )
 
-    /** Identity key ve registration_id kaydeder/gunceller. */
+    /**
+     * Identity key ve registration_id kaydeder/gunceller.
+     *
+     * KRITIK: Identity degisirse (client reinstall sonrasi yeni keypair uretti),
+     * mevcut signed_prekeys ve one_time_prekeys eski identity'ye ait private key'lerle
+     * eslesir — yeni identity ile X3DH yapilirsa mismatch olur ve "No valid sessions"
+     * hatasi alinir. Bu yuzden identity degisikligini tespit edip eski prekey'leri
+     * atomik olarak silmek zorundayiz. Sonraki client upload'u taze prekey'ler ile
+     * dolduracak.
+     *
+     * Identity ayni kaliyorsa (no-op update) prekey'lere dokunmayiz — replenish'i bozmamak icin.
+     */
     fun setIdentityKey(userId: String, publicKey: ByteArray, registrationId: Int) {
         try {
             Database.getConnection().use { conn ->
-                conn.prepareStatement(
-                    "UPDATE users SET identity_public_key = ?, registration_id = ? WHERE user_id = ?::uuid"
-                ).use { stmt ->
-                    stmt.setBytes(1, publicKey)
-                    stmt.setInt(2, registrationId)
-                    stmt.setString(3, userId)
-                    stmt.executeUpdate()
+                conn.autoCommit = false
+                try {
+                    // Mevcut identity'yi oku — gercekten degisip degismedigini kontrol et
+                    val oldKey: ByteArray? = conn.prepareStatement(
+                        "SELECT identity_public_key FROM users WHERE user_id = ?::uuid"
+                    ).use { stmt ->
+                        stmt.setString(1, userId)
+                        stmt.executeQuery().use { rs ->
+                            if (rs.next()) rs.getBytes("identity_public_key") else null
+                        }
+                    }
+
+                    conn.prepareStatement(
+                        "UPDATE users SET identity_public_key = ?, registration_id = ? WHERE user_id = ?::uuid"
+                    ).use { stmt ->
+                        stmt.setBytes(1, publicKey)
+                        stmt.setInt(2, registrationId)
+                        stmt.setString(3, userId)
+                        stmt.executeUpdate()
+                    }
+
+                    val identityChanged = oldKey != null && !oldKey.contentEquals(publicKey)
+                    if (identityChanged) {
+                        // Eski identity'ye ait prekey'leri tamamen sil — yeni upload taze setle dolduracak.
+                        val otpkDeleted = conn.prepareStatement(
+                            "DELETE FROM one_time_prekeys WHERE user_id = ?::uuid"
+                        ).use { stmt ->
+                            stmt.setString(1, userId)
+                            stmt.executeUpdate()
+                        }
+                        val spkDeleted = conn.prepareStatement(
+                            "DELETE FROM signed_prekeys WHERE user_id = ?::uuid"
+                        ).use { stmt ->
+                            stmt.setString(1, userId)
+                            stmt.executeUpdate()
+                        }
+                        log.warn(
+                            "[PreKey] Identity degisti: userId={}, eski OTPK={} SPK={} silindi — taze upload bekleniyor",
+                            userId, otpkDeleted, spkDeleted
+                        )
+                    }
+                    conn.commit()
+                } catch (e: Exception) {
+                    conn.rollback(); throw e
+                } finally {
+                    conn.autoCommit = true
                 }
             }
         } catch (e: Exception) {
