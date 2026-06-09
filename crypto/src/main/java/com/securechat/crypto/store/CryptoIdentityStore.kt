@@ -8,6 +8,12 @@ package com.securechat.crypto.store
 interface CryptoIdentityStore {
     suspend fun loadIdentity(name: String): ByteArray?
     suspend fun storeIdentity(name: String, identityKey: ByteArray): Boolean
+    /**
+     * Bir peer icin saklanan identity key'i siler. Auto-session-healing sirasinda
+     * (peer reinstall yaptiginda identity rotasyonu) cagrilir; bir sonraki
+     * PreKeyBundle fetch'inde yeni identity TOFU kuralina gore yeniden trust edilir.
+     */
+    suspend fun deleteIdentity(name: String)
     suspend fun getLocalRegistrationId(): Int
     suspend fun storeLocalRegistrationId(registrationId: Int)
     suspend fun getIdentityKeyPair(): ByteArray?

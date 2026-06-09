@@ -62,11 +62,21 @@ class SessionManager @Inject constructor(
 
     /**
      * Bir peer icin tum session kayitlarini siler (session healing).
-     * Decrypt fail (InvalidMessage / NoSession) sonrasi tetiklenir; bir sonraki
-     * encrypt PreKeyBundle fetch + yeni session ile baslar.
+     * Decrypt fail (InvalidMessage / NoSession / UntrustedIdentity) sonrasi tetiklenir;
+     * bir sonraki encrypt PreKeyBundle fetch + yeni session ile baslar.
+     *
+     * UntrustedIdentity fix (2026-06-09): identity store'daki ESKI identity de silinir.
+     * Aksi takdirde peer reinstall yaptiktan sonra (yeni identity uretti) bizim TOFU
+     * tarafi yeni PreKeyBundle'i reddediyor ("untrusted_identity") ve sonsuz reset
+     * dongusune giriyordu. Identity de silinince yeni PreKeyBundle TOFU kuralina
+     * gore yeniden trust edilir, session basariyla kurulur.
      */
     fun resetSession(recipientId: String, deviceId: Int = 1) {
         val address = SignalProtocolAddress(recipientId, deviceId)
         protocolStore.deleteSession(address)
+        // Identity'yi de sil — UntrustedIdentity dongusunu kir
+        kotlinx.coroutines.runBlocking {
+            protocolStore.deleteIdentity(recipientId)
+        }
     }
 }

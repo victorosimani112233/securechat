@@ -46,7 +46,10 @@ class SessionEnsurer @Inject constructor(
                 Log.d("SessionEnsurer", "Yeni Signal session kuruldu: $recipientId")
                 true
             } catch (e: Exception) {
-                Log.e("SessionEnsurer", "Session olusturma hatasi ($recipientId): ${e.message}")
+                // Stack trace + class name — asıl libsignal exception'i gormek icin
+                Log.e("SessionEnsurer",
+                    "Session olusturma hatasi ($recipientId): " +
+                    "${e.javaClass.name} — ${e.message}", e)
                 false
             }
         }

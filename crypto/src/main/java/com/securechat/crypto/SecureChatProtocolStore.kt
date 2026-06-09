@@ -79,6 +79,15 @@ class SecureChatProtocolStore @Inject constructor(
         identityStore.loadIdentity(address.name)?.let { IdentityKey(it, 0) }
     }
 
+    /**
+     * Auto-session-healing: bir peer icin saklanan identity key'i siler.
+     * Bir sonraki PreKeyBundle fetch + SessionBuilder.process'inde yeni identity
+     * TOFU kuralina gore (mevcut entry yok) kabul edilir.
+     */
+    suspend fun deleteIdentity(name: String) {
+        identityStore.deleteIdentity(name)
+    }
+
     // --- PreKeyStore ---
 
     override fun loadPreKey(preKeyId: Int): PreKeyRecord = ioBlocking {

@@ -54,6 +54,10 @@ class CryptoIdentityStoreImpl @Inject constructor(
         return existing != null && !existing.identityKey.contentEquals(identityKey)
     }
 
+    override suspend fun deleteIdentity(name: String) {
+        identityDao.delete(name)
+    }
+
     override suspend fun getLocalRegistrationId(): Int {
         return prefs.getInt(KEY_REGISTRATION_ID, -1)
     }
