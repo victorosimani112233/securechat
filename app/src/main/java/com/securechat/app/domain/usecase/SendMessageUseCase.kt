@@ -109,11 +109,18 @@ class SendMessageUseCase @Inject constructor(
         }
 
         // E2EE encrypt — SADECE BIR KEZ. Ratchet/sender chain ileri tasindigi icin retry'larda
-        // ayni ciphertext'i tekrar gondeririz. Encrypt fail ederse hibrit donem icin plaintext'e dus.
-        val wireEnvelope: String = if (isGroup) {
-            buildGroupWireEnvelope(senderId, conversationId, envelopeContent, conversation)
-        } else {
-            buildDirectWireEnvelope(conversationId, envelopeContent)
+        // ayni ciphertext'i tekrar gondeririz. Encrypt fail → mesaj FAILED isaretlenir;
+        // plaintext fallback YOK (guvenlik fix 2026-06-09).
+        val wireEnvelope: String = try {
+            if (isGroup) {
+                buildGroupWireEnvelope(senderId, conversationId, envelopeContent, conversation)
+            } else {
+                buildDirectWireEnvelope(conversationId, envelopeContent)
+            }
+        } catch (e: EncryptionFailedException) {
+            android.util.Log.w("SendMessage", "Encrypt fail, mesaj FAILED: ${message.id} — ${e.message}")
+            messageRepository.updateMessageStatus(message.id, MessageStatus.FAILED)
+            return
         }
 
         // Ilk deneme
@@ -212,8 +219,9 @@ class SendMessageUseCase @Inject constructor(
             val ctB64 = Base64.getEncoder().encodeToString(ciphertext)
             "GROUPSK:v1:$groupId:$groupName:$ctB64"
         } catch (e: Exception) {
-            android.util.Log.w("SendMessage", "Grup encrypt fail, plaintext fallback: ${e.message}")
-            "GROUP:$groupId:$groupName:$envelopeContent"
+            // Plaintext fallback KALDIRILDI (2026-06-09 guvenlik fix).
+            // Grup encrypt fail → mesaj FAILED isaretlenir, UI'da kullanici yeniden dener.
+            throw EncryptionFailedException("Grup encrypt fail: ${e.message}", e)
         } finally {
             plainBytes.fill(0)
         }
@@ -223,8 +231,10 @@ class SendMessageUseCase @Inject constructor(
     private suspend fun buildDirectWireEnvelope(recipientId: String, envelopeContent: String): String {
         val sessionOk = sessionEnsurer.ensureSession(recipientId)
         if (!sessionOk) {
-            android.util.Log.w("SendMessage", "Session kurulamadi, plaintext fallback: $recipientId")
-            return envelopeContent
+            // Plaintext fallback KALDIRILDI (2026-06-09 guvenlik fix).
+            // Session kurulamadi → mesaj FAILED isaretlenir; PreKeyBundle fetch'i bir
+            // sonraki gonderim denemesinde tekrar tetiklenir (network gecici sorunu).
+            throw EncryptionFailedException("Session kurulamadi: $recipientId")
         }
         val plainBytes = envelopeContent.toByteArray(Charsets.UTF_8)
         return try {
@@ -232,10 +242,16 @@ class SendMessageUseCase @Inject constructor(
             val cipherB64 = Base64.getEncoder().encodeToString(cipher.content)
             "E2EE:v1:${cipher.type.name}:${cipher.senderRegistrationId}:$cipherB64"
         } catch (e: Exception) {
-            android.util.Log.w("SendMessage", "1:1 encrypt fail, plaintext fallback: ${e.message}")
-            envelopeContent
+            throw EncryptionFailedException("1:1 encrypt fail: ${e.message}", e)
         } finally {
             plainBytes.fill(0)
         }
     }
 }
+
+/**
+ * Encrypt veya session kurulumu basarisiz oldugunda firlatilir.
+ * SendMessageUseCase ana akisinda yakalanir → mesaj FAILED isaretlenir.
+ * Plaintext fallback'in (mesaji sifresiz gonderme) yerini alir.
+ */
+class EncryptionFailedException(message: String, cause: Throwable? = null) : Exception(message, cause)

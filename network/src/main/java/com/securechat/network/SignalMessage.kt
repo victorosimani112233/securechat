@@ -66,6 +66,23 @@ sealed class SignalMessage {
         val envelope: String
     ) : SignalMessage()
 
+    /**
+     * Session healing — alici decrypt fail edince (InvalidMessage/NoSession)
+     * gondericiye yollar. Gonderici alinca o peer icin local session'i siler;
+     * sonraki encrypt PreKey ile yeni session kurar (PREKEY message).
+     *
+     * Server transparent relay yapar; ozel handling yok.
+     */
+    @Serializable
+    @SerialName("session_reset_request")
+    data class SessionResetRequest(
+        override val senderId: String,
+        override val recipientId: String,
+        override val timestamp: Long,
+        /** Hata sebebi (debug/telemetri): "invalid_message" | "no_session" */
+        val reason: String
+    ) : SignalMessage()
+
     /** X3DH key agreement icin PreKey bundle mesaji. */
     @Serializable
     @SerialName("prekey_bundle")

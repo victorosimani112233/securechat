@@ -44,6 +44,11 @@
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
 
+# SignalMessage hiyerarsisi — logcat'te tip isimleri obfuscated cikmasin
+# (decrypt fail tanisinda "Sinyal geldi: i3" yerine gercek isim okunsun).
+-keepnames class com.securechat.network.SignalMessage
+-keepnames class com.securechat.network.SignalMessage$* { *; }
+
 # Genel kurallar
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile

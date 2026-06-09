@@ -61,6 +61,7 @@ class IncomingMessageHandler @Inject constructor(
     private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>,
     private val exportBannerAckStore: ExportBannerAckStore,
     private val messageEncryptor: com.securechat.crypto.MessageEncryptor,
+    private val sessionManager: com.securechat.crypto.SessionManager,
     private val exportLogDao: com.securechat.storage.dao.ExportLogDao,
     private val senderKeyStore: com.securechat.crypto.SecureChatSenderKeyStore,
     private val groupSenderKeyDistributor: com.securechat.app.crypto.GroupSenderKeyDistributor,
@@ -282,6 +283,7 @@ class IncomingMessageHandler @Inject constructor(
                 is SignalMessage.GroupCallStatusQuery -> { /* Sunucu tarafinda islenir */ }
                 is SignalMessage.SfuRoomCreated -> groupCallStateHandler.onSfuRoomCreated(signal)
                 is SignalMessage.AdminEncryptedLog -> adminEncryptedLogHandler.handle(signal)
+                is SignalMessage.SessionResetRequest -> handleSessionResetRequest(signal)
                 is SignalMessage.PresenceSubscribe -> { /* Sunucu tarafinda islenir */ }
                 is SignalMessage.PresenceUnsubscribe -> { /* Sunucu tarafinda islenir */ }
                 is SignalMessage.AudioData -> { }
@@ -353,10 +355,24 @@ class IncomingMessageHandler @Inject constructor(
             android.util.Log.d("IncomingHandler", "1:1 duplicate mesaj, ignore: $senderId")
             return
         } catch (e: org.whispersystems.libsignal.InvalidMessageException) {
-            android.util.Log.w("IncomingHandler", "1:1 bozuk mesaj (InvalidMessage): $senderId — ${e.message}")
+            android.util.Log.w("IncomingHandler", "1:1 bozuk mesaj (InvalidMessage): $senderId — ${e.message}; auto-heal tetikleniyor")
+            triggerSessionHealing(senderId, "invalid_message")
             return
         } catch (e: org.whispersystems.libsignal.NoSessionException) {
-            android.util.Log.w("IncomingHandler", "1:1 session yok (gondericinin session'i bizim store'da yok): $senderId")
+            android.util.Log.w("IncomingHandler", "1:1 session yok (gondericinin session'i bizim store'da yok): $senderId; auto-heal tetikleniyor")
+            triggerSessionHealing(senderId, "no_session")
+            return
+        } catch (e: org.whispersystems.libsignal.InvalidKeyException) {
+            android.util.Log.w("IncomingHandler", "1:1 identity mismatch (InvalidKey): $senderId — ${e.message}; auto-heal tetikleniyor")
+            triggerSessionHealing(senderId, "invalid_key")
+            return
+        } catch (e: org.whispersystems.libsignal.InvalidKeyIdException) {
+            android.util.Log.w("IncomingHandler", "1:1 prekey id bulunamadi: $senderId — ${e.message}; auto-heal tetikleniyor")
+            triggerSessionHealing(senderId, "invalid_key_id")
+            return
+        } catch (e: org.whispersystems.libsignal.UntrustedIdentityException) {
+            android.util.Log.w("IncomingHandler", "1:1 untrusted identity: $senderId — ${e.message}; auto-heal tetikleniyor")
+            triggerSessionHealing(senderId, "untrusted_identity")
             return
         } catch (e: Exception) {
             android.util.Log.w("IncomingHandler", "1:1 decrypt beklenmeyen hata (${e.javaClass.simpleName}): ${e.message}")
@@ -367,6 +383,52 @@ class IncomingMessageHandler @Inject constructor(
         when (val inner = com.securechat.app.data.incoming.EnvelopeFormatDetector.detect(plainStr)) {
             is com.securechat.app.data.incoming.EnvelopeFormat.Skdm -> handleSkdm(senderId, inner)
             else -> handleDirectMessage(senderId, plainStr)
+        }
+    }
+
+    /**
+     * Session healing: alici decrypt fail edince tetiklenir.
+     *
+     * 1) Bu peer icin local SessionCipher session'i silinir (artik geçersiz)
+     * 2) Gondericiye SessionResetRequest yollanir → o da kendi tarafindaki session'i siler
+     * 3) Sonraki encrypt iki tarafta da PreKeyBundle fetch + yeni session ile baslar
+     *
+     * Per-peer dedup: ayni peer icin 30sn icinde tekrar tetiklenmez (mesaj firtinasinda
+     * gereksiz reset paketi spam'ini onler).
+     */
+    private val recentHealRequests = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun triggerSessionHealing(peerId: String, reason: String) {
+        val now = System.currentTimeMillis()
+        val last = recentHealRequests[peerId] ?: 0L
+        if (now - last < 30_000L) {
+            android.util.Log.d("IncomingHandler", "Session heal dedup (son 30sn icinde): $peerId")
+            return
+        }
+        recentHealRequests[peerId] = now
+
+        try {
+            sessionManager.resetSession(peerId)
+            android.util.Log.d("IncomingHandler", "Local session silindi: $peerId")
+        } catch (e: Exception) {
+            android.util.Log.w("IncomingHandler", "Local session silinemedi: $peerId — ${e.message}")
+        }
+
+        val sent = signalingClient.sendSessionResetRequest(peerId, reason)
+        android.util.Log.d("IncomingHandler", "SessionResetRequest gonderildi ($peerId, reason=$reason): $sent")
+    }
+
+    /**
+     * Karsi taraftan gelen session reset talebi — bizim tarafta da session'i siler.
+     * Bir sonraki encrypt PreKeyBundle fetch + yeni session ile baslar (PREKEY message).
+     */
+    private fun handleSessionResetRequest(signal: SignalMessage.SessionResetRequest) {
+        val peerId = signal.senderId
+        android.util.Log.d("IncomingHandler", "SessionResetRequest alindi: $peerId (reason=${signal.reason})")
+        try {
+            sessionManager.resetSession(peerId)
+            android.util.Log.d("IncomingHandler", "Local session silindi (peer talebi): $peerId")
+        } catch (e: Exception) {
+            android.util.Log.w("IncomingHandler", "Session silinemedi: $peerId — ${e.message}")
         }
     }
 

@@ -379,6 +379,21 @@ class SignalingClient @Inject constructor(
         Log.e("SecureChat", "❌ All connection attempts failed")
     }
 
+    /**
+     * Session healing — alici decrypt fail edince gondericiye yollar.
+     * Gonderici kendi taraftaki session'i siler, sonraki encrypt PreKey
+     * ile yeni session kurar.
+     */
+    fun sendSessionResetRequest(peerId: String, reason: String): Boolean {
+        val uid = currentUserId ?: return false
+        return sendSignal(SignalMessage.SessionResetRequest(
+            senderId = uid,
+            recipientId = peerId,
+            timestamp = System.currentTimeMillis(),
+            reason = reason
+        ))
+    }
+
     fun sendPresenceUpdate(userId: String, isOnline: Boolean, hideLastSeen: Boolean = false) {
         val signal = SignalMessage.PresenceUpdate(
             senderId = userId,

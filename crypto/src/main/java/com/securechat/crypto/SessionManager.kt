@@ -59,4 +59,14 @@ class SessionManager @Inject constructor(
         val address = SignalProtocolAddress(recipientId, deviceId)
         return protocolStore.containsSession(address)
     }
+
+    /**
+     * Bir peer icin tum session kayitlarini siler (session healing).
+     * Decrypt fail (InvalidMessage / NoSession) sonrasi tetiklenir; bir sonraki
+     * encrypt PreKeyBundle fetch + yeni session ile baslar.
+     */
+    fun resetSession(recipientId: String, deviceId: Int = 1) {
+        val address = SignalProtocolAddress(recipientId, deviceId)
+        protocolStore.deleteSession(address)
+    }
 }
