@@ -113,4 +113,34 @@
     <string name="network_error_title">Bağlantı Hatası</string>
     <string name="contacts_grant_permission">Rehber Erişimi Ver</string>
     <string name="contacts_invite_short">Davet Et</string>
+
+    <!-- Sprint 7-A: Settings -->
+    <string name="settings_title">Ayarlar</string>
+    <string name="settings_nuke_dialog_title">Tüm Sohbetleri Sil</string>
+    <string name="settings_nuke_dialog_body">Tüm sohbetler ve mesajlar kalıcı olarak silinecektir. Bu işlem geri alınamaz.</string>
+    <string name="settings_nuke_confirm">Sil</string>
+    <string name="settings_nuke_backup_first">Önce Yedekleme Yap</string>
+    <string name="settings_nuke_all_data_warning">Tüm mesajlarınız, kişileriniz ve ayarlarınız silinecek.</string>
+    <string name="settings_nuke_type_to_confirm">Onaylamak için \"SİL\" yazın:</string>
+    <string name="settings_nuke_type_placeholder">SİL</string>
+    <string name="settings_chat_theme">Sohbet Teması</string>
+    <string name="settings_language">Dil</string>
+    <string name="settings_backdrop">Arka Plan Deseni</string>
+    <string name="settings_fullscreen">Tam Ekran Modu</string>
+    <string name="settings_show_message_preview">Mesaj içeriğini göster</string>
+    <string name="settings_notification_sound">Bildirim Sesi</string>
+    <string name="settings_incoming_call_screen">Gelen arama ekranı</string>
+    <string name="settings_missed_call">Aramaları kaçırma</string>
+    <string name="settings_battery_optimization">Pil optimizasyonu</string>
+    <string name="settings_scheduled_messages">Planlı Mesajlar</string>
+    <string name="settings_manage_scheduled">Planlı Mesajları Yönet</string>
+    <string name="settings_manage_scheduled_desc">Mevcut planlı mesajları görüntüle ve düzenle</string>
+    <string name="settings_e2ee">Uçtan uca şifreleme</string>
+    <string name="settings_e2ee_desc">Mesajlarınız Signal Protocol ile şifrelenir</string>
+    <string name="settings_last_seen">Son görülme zamanı</string>
+    <string name="settings_message_storage">Mesaj Depolama Politikası</string>
+    <string name="settings_message_storage_desc">Mesajlar yalnızca bu cihazda saklanır</string>
+    <string name="settings_backup">Yedekleme</string>
+    <string name="settings_backup_desc">Sohbetleri şifreli olarak yedekle veya geri yükle</string>
+    <string name="settings_storage_usage">Depolama Kullanımı</string>
 </resources>

@@ -114,4 +114,34 @@
     <string name="network_error_title">Connection Error</string>
     <string name="contacts_grant_permission">Grant Contacts Access</string>
     <string name="contacts_invite_short">Invite</string>
+
+    <!-- Sprint 7-A: Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_nuke_dialog_title">Delete All Chats</string>
+    <string name="settings_nuke_dialog_body">All chats and messages will be permanently deleted. This cannot be undone.</string>
+    <string name="settings_nuke_confirm">Delete</string>
+    <string name="settings_nuke_backup_first">Back Up First</string>
+    <string name="settings_nuke_all_data_warning">All your messages, contacts and settings will be deleted.</string>
+    <string name="settings_nuke_type_to_confirm">Type \"DELETE\" to confirm:</string>
+    <string name="settings_nuke_type_placeholder">DELETE</string>
+    <string name="settings_chat_theme">Chat Theme</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_backdrop">Backdrop Pattern</string>
+    <string name="settings_fullscreen">Fullscreen Mode</string>
+    <string name="settings_show_message_preview">Show message content</string>
+    <string name="settings_notification_sound">Notification Sound</string>
+    <string name="settings_incoming_call_screen">Incoming call screen</string>
+    <string name="settings_missed_call">Missed call alerts</string>
+    <string name="settings_battery_optimization">Battery optimization</string>
+    <string name="settings_scheduled_messages">Scheduled Messages</string>
+    <string name="settings_manage_scheduled">Manage Scheduled Messages</string>
+    <string name="settings_manage_scheduled_desc">View and edit existing scheduled messages</string>
+    <string name="settings_e2ee">End-to-end encryption</string>
+    <string name="settings_e2ee_desc">Your messages are encrypted with Signal Protocol</string>
+    <string name="settings_last_seen">Last seen time</string>
+    <string name="settings_message_storage">Message Storage Policy</string>
+    <string name="settings_message_storage_desc">Messages are stored on this device only</string>
+    <string name="settings_backup">Backup</string>
+    <string name="settings_backup_desc">Back up chats encrypted or restore</string>
+    <string name="settings_storage_usage">Storage Usage</string>
 </resources>

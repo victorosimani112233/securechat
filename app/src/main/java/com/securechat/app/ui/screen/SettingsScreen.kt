@@ -86,6 +86,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
+import com.securechat.app.R
 import com.securechat.app.ui.components.GlassDialog
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
@@ -177,18 +179,18 @@ fun SettingsScreen(
     if (showNukeDialog) {
         AlertDialog(
             onDismissRequest = { showNukeDialog = false },
-            title = { Text("Tüm Sohbetleri Sil") },
-            text = { Text("Tüm sohbetler ve mesajlar kalıcı olarak silinecektir. Bu işlem geri alınamaz.") },
+            title = { Text(stringResource(R.string.settings_nuke_dialog_title)) },
+            text = { Text(stringResource(R.string.settings_nuke_dialog_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.nukeAllData()
                     showNukeDialog = false
                 }) {
-                    Text("Sil", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.settings_nuke_confirm), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showNukeDialog = false }) { Text("İptal") }
+                TextButton(onClick = { showNukeDialog = false }) { Text(stringResource(R.string.cancel)) }
             },
             icon = {
                 Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
@@ -235,7 +237,7 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Önce Yedekleme Yap", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.settings_nuke_backup_first), fontWeight = FontWeight.Bold)
                     }
                     Text(
                         "Silmeden önce verilerinizi yedeklemenizi öneriyoruz.",
@@ -251,20 +253,20 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.error
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Tüm mesajlarınız, kişileriniz ve ayarlarınız silinecek.")
+                    Text(stringResource(R.string.settings_nuke_all_data_warning))
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         "Bu işlem geri alınamaz.",
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Onaylamak için \"SİL\" yazın:")
+                    Text(stringResource(R.string.settings_nuke_type_to_confirm))
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = deleteConfirmText,
                         onValueChange = { deleteConfirmText = it },
                         singleLine = true,
-                        placeholder = { Text("SİL") },
+                        placeholder = { Text(stringResource(R.string.settings_nuke_type_placeholder)) },
                         enabled = !isDeleting,
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -302,7 +304,7 @@ fun SettingsScreen(
             dismissButton = {
                 if (!isDeleting) {
                     TextButton(onClick = { showDeleteAccountDialog = false }) {
-                        Text("İptal")
+                        Text(stringResource(R.string.cancel))
                     }
                 }
             },
@@ -359,7 +361,7 @@ fun SettingsScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Ayarlar", color = MaterialTheme.colorScheme.onSurface) },
+                    title = { Text(stringResource(R.string.settings_title), color = MaterialTheme.colorScheme.onSurface) },
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri", tint = MaterialTheme.colorScheme.onSurface)
@@ -414,7 +416,7 @@ fun SettingsScreen(
                             else -> "Açık Tema"
                         }
                         ListItem(
-                            headlineContent = { Text("Sohbet Teması") },
+                            headlineContent = { Text(stringResource(R.string.settings_chat_theme)) },
                             supportingContent = { Text(themeLabel) },
                             leadingContent = {
                                 Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -440,7 +442,7 @@ fun SettingsScreen(
                             else -> "Sistem Dili"
                         }
                         ListItem(
-                            headlineContent = { Text("Dil") },
+                            headlineContent = { Text(stringResource(R.string.settings_language)) },
                             supportingContent = { Text(currentLangLabel) },
                             leadingContent = {
                                 Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -456,7 +458,7 @@ fun SettingsScreen(
                         )
 
                         ListItem(
-                            headlineContent = { Text("Arka Plan Deseni") },
+                            headlineContent = { Text(stringResource(R.string.settings_backdrop)) },
                             supportingContent = {
                                 Text(if (useDoodleBackground) "Doodle desenli arka plan" else "Düz renk arka plan")
                             },
@@ -485,7 +487,7 @@ fun SettingsScreen(
                         )
 
                         ListItem(
-                            headlineContent = { Text("Tam Ekran Modu") },
+                            headlineContent = { Text(stringResource(R.string.settings_fullscreen)) },
                             supportingContent = {
                                 Text(if (fullscreenMode) "Sistem navigasyon çubuğu gizli" else "Sistem navigasyon çubuğu görünür")
                             },
@@ -526,7 +528,7 @@ fun SettingsScreen(
                         SectionHeader("Bildirimler")
 
                         ListItem(
-                            headlineContent = { Text("Mesaj içeriğini göster") },
+                            headlineContent = { Text(stringResource(R.string.settings_show_message_preview)) },
                             supportingContent = {
                                 Text(
                                     if (showNotificationContent) "Gönderici adı ve mesaj içeriği gösterilir"
@@ -584,7 +586,7 @@ fun SettingsScreen(
                         }
 
                         ListItem(
-                            headlineContent = { Text("Bildirim Sesi") },
+                            headlineContent = { Text(stringResource(R.string.settings_notification_sound)) },
                             supportingContent = { Text(soundLabel) },
                             leadingContent = {
                                 Icon(Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -687,7 +689,7 @@ fun SettingsScreen(
                         }
 
                         ListItem(
-                            headlineContent = { Text("Gelen arama ekranı") },
+                            headlineContent = { Text(stringResource(R.string.settings_incoming_call_screen)) },
                             supportingContent = {
                                 Text(
                                     if (canDrawOverlays) "Arama geldiğinde tam ekran açılır"
@@ -722,7 +724,7 @@ fun SettingsScreen(
 
                         // Aramaları kaçırma — kapsamlı izin yönetim ekranı
                         ListItem(
-                            headlineContent = { Text("Aramaları kaçırma") },
+                            headlineContent = { Text(stringResource(R.string.settings_missed_call)) },
                             supportingContent = {
                                 val state = remember { com.securechat.app.util.CallReadinessHelper.currentState(context) }
                                 Text(
@@ -764,7 +766,7 @@ fun SettingsScreen(
                             onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
                         }
                         ListItem(
-                            headlineContent = { Text("Pil optimizasyonu") },
+                            headlineContent = { Text(stringResource(R.string.settings_battery_optimization)) },
                             supportingContent = {
                                 Text(
                                     if (batteryOptimized) "Kapalı — aramalar gerçek zamanlı gelir"
@@ -809,7 +811,7 @@ fun SettingsScreen(
                         SectionHeader("Planlı Mesajlar")
 
                         ListItem(
-                            headlineContent = { Text("Planlı Mesajlar") },
+                            headlineContent = { Text(stringResource(R.string.settings_scheduled_messages)) },
                             supportingContent = {
                                 Text(
                                     if (scheduledMessagesEnabled) "Planlı mesajlar aktif"
@@ -841,8 +843,8 @@ fun SettingsScreen(
                         )
 
                         ListItem(
-                            headlineContent = { Text("Planlı Mesajları Yönet") },
-                            supportingContent = { Text("Mevcut planlı mesajları görüntüle ve düzenle") },
+                            headlineContent = { Text(stringResource(R.string.settings_manage_scheduled)) },
+                            supportingContent = { Text(stringResource(R.string.settings_manage_scheduled_desc)) },
                             leadingContent = {
                                 Icon(Icons.Default.EditCalendar, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
@@ -873,8 +875,8 @@ fun SettingsScreen(
                         SectionHeader("Güvenlik")
 
                         ListItem(
-                            headlineContent = { Text("Uçtan uca şifreleme") },
-                            supportingContent = { Text("Mesajlarınız Signal Protocol ile şifrelenir") },
+                            headlineContent = { Text(stringResource(R.string.settings_e2ee)) },
+                            supportingContent = { Text(stringResource(R.string.settings_e2ee_desc)) },
                             leadingContent = {
                                 Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
@@ -896,7 +898,7 @@ fun SettingsScreen(
                         SectionHeader("Gizlilik")
 
                         ListItem(
-                            headlineContent = { Text("Son görülme zamanı") },
+                            headlineContent = { Text(stringResource(R.string.settings_last_seen)) },
                             supportingContent = {
                                 Text(
                                     if (shareLastSeen) "Diğer kullanıcılar son görülme zamanınızı görebilir"
@@ -940,8 +942,8 @@ fun SettingsScreen(
                         SectionHeader("Veri Yönetimi")
 
                         ListItem(
-                            headlineContent = { Text("Mesaj Depolama Politikası") },
-                            supportingContent = { Text("Mesajlar yalnızca bu cihazda saklanır") },
+                            headlineContent = { Text(stringResource(R.string.settings_message_storage)) },
+                            supportingContent = { Text(stringResource(R.string.settings_message_storage_desc)) },
                             leadingContent = {
                                 Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
@@ -955,8 +957,8 @@ fun SettingsScreen(
                         )
 
                         ListItem(
-                            headlineContent = { Text("Yedekleme") },
-                            supportingContent = { Text("Sohbetleri şifreli olarak yedekle veya geri yükle") },
+                            headlineContent = { Text(stringResource(R.string.settings_backup)) },
+                            supportingContent = { Text(stringResource(R.string.settings_backup_desc)) },
                             leadingContent = {
                                 Icon(Icons.Default.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
@@ -973,7 +975,7 @@ fun SettingsScreen(
                         // Depolama bilgisi
                         storageInfo?.let { info ->
                             ListItem(
-                                headlineContent = { Text("Depolama Kullanimi") },
+                                headlineContent = { Text(stringResource(R.string.settings_storage_usage)) },
                                 supportingContent = {
                                     Column {
                                         Text("Toplam: ${formatStorageSize(info.totalSize)}")
