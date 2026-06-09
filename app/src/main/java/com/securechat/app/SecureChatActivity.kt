@@ -223,13 +223,13 @@ class SecureChatActivity : AppCompatActivity() {
                         lifecycleScope.launch {
                             registerUserOnServer(userSession.userId!!, phone, registrationToken)
 
-                            val token = userSession.accessToken
-                            if (!token.isNullOrBlank()) {
+                            if (!userSession.accessToken.isNullOrBlank()) {
+                                // Reactive provider: AppLifecycleObserver tarafindan onTokenRefreshRequired
+                                // zaten set edildi; burada sadece ilk connect tetiklenir.
                                 signalingClient.connect(
                                     userId = userSession.userId!!,
-                                    authToken = token,
                                     customUrl = BuildConfig.SIGNALING_URL
-                                )
+                                ) { userSession.accessToken }
                             } else {
                                 Log.e("SecureChat", "Access token alinamadi, WS baglanti atlandi")
                             }

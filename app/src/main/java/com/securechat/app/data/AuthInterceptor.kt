@@ -86,6 +86,17 @@ class AuthInterceptor @Inject constructor(
     }
 
     /**
+     * Public wrapper — WebSocket 1008 (token rejected) durumunda SignalingClient
+     * tarafindan cagrilir. HTTP 401 akisi disinda manuel refresh tetikler.
+     *
+     * @return yeni access token veya null (refresh fail → kullanici tekrar login)
+     */
+    fun refreshNow(): String? {
+        val stale = userSession.accessToken ?: return null
+        return tryRefreshToken(stale)
+    }
+
+    /**
      * Refresh token ile yeni access+refresh ciftti al. Thread-safe — birden fazla concurrent
      * 401 ayni anda refresh tetiklemez; ilki refresh yapar, digerleri yeni token'i kullanir.
      */

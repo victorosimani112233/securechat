@@ -38,7 +38,8 @@ class AppLifecycleObserver @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val offlineMessageQueue: OfflineMessageQueue,
     private val stuckMessageRecovery: StuckMessageRecovery,
-    private val pendingTimerFlusher: PendingTimerFlusher
+    private val pendingTimerFlusher: PendingTimerFlusher,
+    private val authInterceptor: AuthInterceptor
 ) : DefaultLifecycleObserver {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -63,21 +64,22 @@ class AppLifecycleObserver @Inject constructor(
                 }
             }
 
-            // GUVENLIK (Faz 1): Gercek JWT access token kullanilir. Eski "token_$userId"
-            // sahte string server tarafinda AuthService.verifyToken'da reject ediliyordu
-            // (jti+sub claim sart). Bu yuzden eski APK kullanicilarinin WS_AUTH_INVALID
-            // ile reddedildigini audit_log'da gorduk (154 reject / 24 saat).
-            // Token yoksa WS hic acilmaz — server kabul etmezdi zaten, kullanici yeniden
-            // login olmali (PhoneVerificationScreen).
-            val accessToken = userSession.accessToken
-            if (accessToken.isNullOrBlank()) {
+            // GUVENLIK (Faz 1): Gercek JWT access token kullanilir.
+            // Reactive provider: her reconnect denemesinde UserSession'dan TAZE token okur.
+            // 1008 (token expired) durumunda otomatik refresh + retry yapilir.
+            if (userSession.accessToken.isNullOrBlank()) {
                 Log.w("AppLifecycle", "accessToken null/blank — WS acilamaz, kullanici tekrar giris yapmali")
             } else {
+                // 1008 alindiginda HTTP refresh akisini tetikle
+                signalingClient.onTokenRefreshRequired = {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        authInterceptor.refreshNow()
+                    }
+                }
                 signalingClient.connect(
                     userId = userId,
-                    authToken = accessToken,
                     customUrl = BuildConfig.SIGNALING_URL
-                )
+                ) { userSession.accessToken }
             }
 
             // Bug 016, 024: Ag izlemeyi baslat — ucak modu ve WiFi/Mobile gecislerini yakala
@@ -85,15 +87,14 @@ class AppLifecycleObserver @Inject constructor(
                 Log.d("AppLifecycle", "Network available — reconnecting SignalingClient")
                 if (userSession.isLoggedIn) {
                     val uid = userSession.userId ?: return@onNetworkAvailable
-                    val token = userSession.accessToken ?: run {
+                    if (userSession.accessToken.isNullOrBlank()) {
                         Log.w("AppLifecycle", "accessToken null on network available — skip")
                         return@onNetworkAvailable
                     }
                     signalingClient.connect(
                         userId = uid,
-                        authToken = token,
                         customUrl = BuildConfig.SIGNALING_URL
-                    )
+                    ) { userSession.accessToken }
                 }
             }
             networkMonitor.onNetworkLost = {

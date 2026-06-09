@@ -26,6 +26,7 @@ object WebSocketTelemetry {
     private val _disconnects = AtomicInteger(0)
     private val _failures = AtomicInteger(0)
     private val _reconnectAttempts = AtomicInteger(0)
+    private val _authRejections = AtomicInteger(0)
 
     private val _lastFailure = MutableStateFlow<FailureRecord?>(null)
     val lastFailure: StateFlow<FailureRecord?> = _lastFailure.asStateFlow()
@@ -60,6 +61,15 @@ object WebSocketTelemetry {
     /** Reconnect denemesi planlandi (backoff'tan ciktiktan sonra). */
     fun recordReconnectAttempt() {
         _reconnectAttempts.incrementAndGet()
+        publishSnapshot()
+    }
+
+    /**
+     * 1008 (VIOLATED_POLICY) — server token'i reddetti. Genelde access token
+     * expired/invalid; token refresh + retry mekanizmasi tetiklenir.
+     */
+    fun recordAuthRejected() {
+        _authRejections.incrementAndGet()
         publishSnapshot()
     }
 

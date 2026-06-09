@@ -73,17 +73,15 @@ class WebSocketDrainWorker @AssistedInject constructor(
 
         try {
             // GUVENLIK: JWT access token zorunlu
-            val token = userSession.accessToken
-            if (token.isNullOrBlank()) {
+            if (userSession.accessToken.isNullOrBlank()) {
                 Log.w("DrainWorker", "Access token yok — drain atlandi")
                 return Result.failure()
             }
-            // WebSocket baglan
+            // WebSocket baglan — reactive provider ile (token expire olursa 1008 → refresh + retry)
             signalingClient.connect(
                 userId = userId,
-                authToken = token,
                 customUrl = BuildConfig.SIGNALING_URL
-            )
+            ) { userSession.accessToken }
 
             // Connected durumunu bekle (maks 10s)
             val connected = withTimeoutOrNull(CONNECTION_TIMEOUT_MS) {

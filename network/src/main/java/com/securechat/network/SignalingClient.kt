@@ -67,6 +67,20 @@ class SignalingClient @Inject constructor(
     private val reconnectScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var currentUserId: String? = null
     private var currentAuthToken: String? = null
+
+    /**
+     * Reactive token sağlayıcı — her connect/reconnect denemesinde TAZE access token okur.
+     * Bu sayede HTTP tarafında AuthInterceptor refresh ettiğinde WS reconnect döngüsü
+     * de yeni token ile bağlanır (eski expired token'a takılıp 1008'e girmez).
+     */
+    private var authTokenProvider: (() -> String?)? = null
+
+    /**
+     * 1008 (VIOLATED_POLICY) close kodu — access token expired/invalid sinyali.
+     * Bu callback set edildiğinde, 1008 alındığında çağrılır ve dönen yeni token
+     * ile reconnect başlatılır. Null ise klasik reconnect döngüsü devam eder.
+     */
+    var onTokenRefreshRequired: (suspend () -> String?)? = null
     /** Yeniden baglanti sirasinda ayni anda birden fazla connect() cagrilmasini onler */
     private var isConnecting = false
     /** Server shutdown bildirimi alindi — reconnect oncesi ek bekleme */
@@ -98,11 +112,22 @@ class SignalingClient @Inject constructor(
      * Mevcut baglanti varsa once kapatir (duplicate baglanti onlemi).
      *
      * @param userId Baglanan kullanicinin ID'si
-     * @param authToken Yetkilendirme token'i (Bearer)
+     * @param authToken Yetkilendirme token'i (Bearer). Geriye uyumluluk icin korundu.
+     *                  Yeni cagriler `tokenProvider` overload'unu kullanmali — token
+     *                  expire olursa reconnect'te taze token okumaya izin verir.
      * @param customUrl Opsiyonel custom URL, null ise injected URL kullanılır
      */
-    @Synchronized
     fun connect(userId: String, authToken: String, customUrl: String? = null) {
+        // Geriye uyumluluk: sabit token'i ezen bir provider
+        connect(userId, customUrl) { authToken }
+    }
+
+    /**
+     * Reactive token sağlayıcı ile bağlanır — her reconnect denemesinde tokenProvider
+     * tekrar çağrılır, böylece AuthInterceptor refresh sonrası eski token'a takılı kalmaz.
+     */
+    @Synchronized
+    fun connect(userId: String, customUrl: String? = null, tokenProvider: () -> String?) {
         // Zaten baglaniyorsak veya bagliyysak tekrar deneme
         if (isConnecting) {
             Log.d("SecureChat", "connect() skipped — already connecting")
@@ -110,6 +135,15 @@ class SignalingClient @Inject constructor(
         }
         if (_connectionState.value is ConnectionState.Connected && webSocket != null) {
             Log.d("SecureChat", "connect() skipped — already connected")
+            return
+        }
+
+        val authToken = tokenProvider() ?: run {
+            Log.w("SecureChat", "connect() skipped — tokenProvider null/blank dondu")
+            return
+        }
+        if (authToken.isBlank()) {
+            Log.w("SecureChat", "connect() skipped — token blank")
             return
         }
 
@@ -125,6 +159,7 @@ class SignalingClient @Inject constructor(
 
         currentUserId = userId
         currentAuthToken = authToken
+        authTokenProvider = tokenProvider
         _connectionState.value = ConnectionState.Connecting
 
         val finalUrl = "$url/ws?userId=$userId"
@@ -192,7 +227,15 @@ class SignalingClient @Inject constructor(
                 onConnectionLostListener?.invoke()
                 // Kullanici disconnect() cagirmadiysa yeniden baglan
                 if (currentUserId != null) {
-                    scheduleReconnect(url)
+                    // 1008 (VIOLATED_POLICY): access token expired/invalid — exponential backoff
+                    // reconnect'i eski token'la sonsuza dek denemek yerine TOKEN REFRESH tetikle.
+                    if (code == 1008) {
+                        Log.w("SecureChat", "WS 1008 (policy violation) — token refresh tetikleniyor")
+                        com.securechat.network.telemetry.WebSocketTelemetry.recordAuthRejected()
+                        triggerTokenRefreshAndReconnect(url)
+                    } else {
+                        scheduleReconnect(url)
+                    }
                 }
             }
 
@@ -218,7 +261,15 @@ class SignalingClient @Inject constructor(
         timeoutMs: Long = 8_000L
     ): Boolean {
         if (_connectionState.value is ConnectionState.Connected && webSocket != null) return true
-        connect(userId, authToken, customUrl)
+        // Eger AppLifecycleObserver lifecycle baslarken authTokenProvider set ettiyse
+        // (her zaman taze access token okur), parametre snapshot'i yerine onu kullan —
+        // 1008 refresh dongusunde sabit token'a takili kalmamak icin.
+        val provider = authTokenProvider
+        if (provider != null) {
+            connect(userId, customUrl, provider)
+        } else {
+            connect(userId, authToken, customUrl)
+        }
         val result = withTimeoutOrNull(timeoutMs) {
             connectionState.first { it is ConnectionState.Connected }
         }
@@ -236,8 +287,14 @@ class SignalingClient @Inject constructor(
     suspend fun ensureConnected(timeoutMs: Long = 8_000L): Boolean {
         if (_connectionState.value is ConnectionState.Connected && webSocket != null) return true
         val uid = currentUserId ?: return false
-        val tok = currentAuthToken ?: return false
-        connect(uid, tok)
+        // Reactive provider varsa onu kullan (taze token); yoksa snapshot'a fallback
+        val provider = authTokenProvider
+        if (provider != null) {
+            connect(uid, null, provider)
+        } else {
+            val tok = currentAuthToken ?: return false
+            connect(uid, tok)
+        }
         val result = withTimeoutOrNull(timeoutMs) {
             connectionState.first { it is ConnectionState.Connected }
         }
@@ -263,7 +320,11 @@ class SignalingClient @Inject constructor(
     private fun scheduleReconnect(url: String) {
         reconnectJob?.cancel()
         val userId = currentUserId ?: return
-        val authToken = currentAuthToken ?: return
+        // Token provider snapshot — her denemede taze token okumak icin.
+        val provider = authTokenProvider ?: run {
+            Log.w("SecureChat", "scheduleReconnect: tokenProvider yok, reconnect atlandi")
+            return
+        }
         reconnectJob = reconnectScope.launch {
             var currentDelay = INITIAL_RECONNECT_DELAY_MS
             // Server shutdown bildirimi alindiysa ilk denemede 5sn ekle
@@ -279,11 +340,48 @@ class SignalingClient @Inject constructor(
                 if (_connectionState.value is ConnectionState.Connected) break
                 com.securechat.network.telemetry.WebSocketTelemetry.recordReconnectAttempt()
                 try {
-                    connect(userId, authToken, url)
+                    connect(userId, url, provider)
                 } catch (_: Exception) { }
                 // Baglanti basariliysa dongu zaten sonlanir (Connected check)
                 // Degilse backoff artir
                 currentDelay = (currentDelay * 2).coerceAtMost(MAX_RECONNECT_DELAY_MS)
+            }
+        }
+    }
+
+    /**
+     * 1008 (token rejected) durumunda — onTokenRefreshRequired callback'i ile
+     * yeni token al, ardindan tek seferlik reconnect dene. Refresh basarisizsa
+     * (refresh token de expired) klasik backoff'a duser; bu da kullaniciyi
+     * login ekranina yonlendirme yapan UI tarafindan handle edilir.
+     */
+    private fun triggerTokenRefreshAndReconnect(url: String) {
+        reconnectJob?.cancel()
+        val userId = currentUserId ?: return
+        val refreshCallback = onTokenRefreshRequired
+        if (refreshCallback == null) {
+            Log.w("SecureChat", "onTokenRefreshRequired set edilmemis — klasik backoff'a dusuluyor")
+            scheduleReconnect(url)
+            return
+        }
+        reconnectJob = reconnectScope.launch {
+            try {
+                val newToken = refreshCallback.invoke()
+                if (newToken.isNullOrBlank()) {
+                    Log.w("SecureChat", "Token refresh basarisiz — refresh token da gecersiz olabilir")
+                    // UI tarafi yeniden login akisini tetiklemeli
+                    _connectionState.value = ConnectionState.Error(
+                        IllegalStateException("Token refresh basarisiz, yeniden login gerekli")
+                    )
+                    return@launch
+                }
+                Log.d("SecureChat", "Token refresh basarili — yeni token ile reconnect")
+                // Provider zaten taze UserSession.accessToken'i okuyacak; sadece connect tetikle
+                val provider = authTokenProvider ?: return@launch
+                connect(userId, url, provider)
+            } catch (e: Exception) {
+                Log.e("SecureChat", "Token refresh exception: ${e.message}")
+                scheduleReconnect(url)
             }
         }
     }
