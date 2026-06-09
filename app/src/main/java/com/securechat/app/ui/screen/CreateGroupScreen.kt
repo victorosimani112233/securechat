@@ -290,7 +290,7 @@ fun CreateGroupScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // Dekoratif tuş takimi ikonu — yanindaki "Numara ile Ekle" metni okur.
+                        // Dekoratif tuş takimi ikonu — yanindaki buton metni okur.
                         Icon(
                             Icons.Default.Dialpad,
                             contentDescription = null,

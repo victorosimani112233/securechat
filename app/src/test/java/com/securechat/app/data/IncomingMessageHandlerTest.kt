@@ -78,6 +78,7 @@ class IncomingMessageHandlerTest {
             senderKeyStore = mockk(relaxed = true),
             groupSenderKeyDistributor = mockk(relaxed = true),
             oneToOneFileCipher = mockk(relaxed = true),
+            sessionManager = mockk(relaxed = true),
             deliveryReceiptHandler = mockk(relaxed = true),
             typingPresenceHandler = mockk(relaxed = true),
             disappearingTimerHandler = mockk(relaxed = true),
