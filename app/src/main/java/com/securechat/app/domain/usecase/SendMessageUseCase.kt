@@ -109,15 +109,8 @@ class SendMessageUseCase @Inject constructor(
         }
 
         // E2EE encrypt — SADECE BIR KEZ. Ratchet/sender chain ileri tasindigi icin retry'larda
-        // ayni ciphertext'i tekrar gondeririz.
-        //
-        // GECICI PLAINTEXT FALLBACK (2026-06-09): SessionEnsurer / PreKeyBundle fetch
-        // dongusunu cozecek kalici fix'i (auto-heal) calistirana kadar mesajlasma
-        // tamamen durmamasi icin geri eklendi. Plaintext yine MSGID/REPLY/EXP prefix'leri
-        // ile gider — alici parse edebilir; sadece E2EE zarf yok. Bu zaman icinde
-        // SessionEnsurer log'larindan asil session olusturma hatasi izlenecek.
-        // TODO(2026-06-XX): Kalici session healing + identity sync dogrulandiktan sonra
-        // bu fallback'i geri kaldir.
+        // ayni ciphertext'i tekrar gondeririz. Encrypt fail olursa mesaj FAILED isaretlenir;
+        // plaintext fallback KESINLIKLE yok — guvenlik kuralina aykiri (CLAUDE.md).
         val wireEnvelope: String = try {
             if (isGroup) {
                 buildGroupWireEnvelope(senderId, conversationId, envelopeContent, conversation)
@@ -125,9 +118,10 @@ class SendMessageUseCase @Inject constructor(
                 buildDirectWireEnvelope(conversationId, envelopeContent)
             }
         } catch (e: EncryptionFailedException) {
-            android.util.Log.w("SendMessage",
-                "Encrypt fail, plaintext fallback (gecici): ${message.id} — ${e.message}")
-            envelopeContent
+            android.util.Log.e("SendMessage",
+                "Encrypt fail — mesaj FAILED isaretleniyor: ${message.id} — ${e.message}")
+            messageRepository.updateMessageStatus(message.id, MessageStatus.FAILED)
+            return
         }
 
         // Ilk deneme
