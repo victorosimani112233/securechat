@@ -161,4 +161,20 @@
     <string name="conv_delete_chat">Sohbeti Sil</string>
     <string name="group_view_profile">Profili Görüntüle</string>
     <string name="group_leave">Gruptan Çıkar</string>
+
+    <!-- Sprint 7-C: ChatScreen message menu + dialogs -->
+    <string name="chat_search_in_chat">Sohbette Ara</string>
+    <string name="chat_export">Sohbeti Dışa Aktar</string>
+    <string name="action_close">Kapat</string>
+    <string name="chat_custom_duration">Özel Süre</string>
+    <string name="msg_action_reply">Yanıtla</string>
+    <string name="msg_action_copy">Kopyala</string>
+    <string name="msg_action_edit">Düzenle</string>
+    <string name="msg_action_edit_history">Düzenleme Geçmişi</string>
+    <string name="msg_action_info">Bilgi</string>
+    <string name="msg_action_forward">İlet</string>
+    <string name="msg_action_delete_for_me">Benden Sil</string>
+    <string name="msg_delete_title">Mesajı sil</string>
+    <string name="msg_delete_cancel">Vazgeç</string>
+    <string name="msg_edit_title">Mesajı Düzenle</string>
 </resources>

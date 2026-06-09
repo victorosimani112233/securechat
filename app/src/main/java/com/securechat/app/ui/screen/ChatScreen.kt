@@ -125,6 +125,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.res.stringResource
+import com.securechat.app.R
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -786,7 +788,7 @@ fun ChatScreen(
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "İlet",
+                                contentDescription = stringResource(R.string.msg_action_forward),
                                 tint = if (selectedMessageIds.isNotEmpty())
                                     MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
@@ -1455,7 +1457,7 @@ fun ChatTopBar(
                 ) {
                     if (onSearchClick != null) {
                         DropdownMenuItem(
-                            text = { Text("Sohbette Ara") },
+                            text = { Text(stringResource(R.string.chat_search_in_chat)) },
                             onClick = {
                                 showMenu = false
                                 onSearchClick()
@@ -1506,7 +1508,7 @@ fun ChatTopBar(
                     }
                     if (onExportClick != null) {
                         DropdownMenuItem(
-                            text = { Text("Sohbeti Dışa Aktar") },
+                            text = { Text(stringResource(R.string.chat_export)) },
                             onClick = {
                                 showMenu = false
                                 onExportClick()
@@ -1671,7 +1673,7 @@ private fun CustomDurationPickerDialog(
 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Özel Süre") },
+        title = { Text(stringResource(R.string.chat_custom_duration)) },
         text = {
             Column {
                 Text(
@@ -2144,7 +2146,7 @@ fun MessageBubble(
                 // Yanitla — view-once mesajlarda kapali (reply preview icerigi sizdirir)
                 if (onReplyToMessage != null && !message.isViewOnce) {
                     DropdownMenuItem(
-                        text = { Text("Yanıtla", style = MaterialTheme.typography.bodyMedium) },
+                        text = { Text(stringResource(R.string.msg_action_reply), style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             onReplyToMessage()
@@ -2197,7 +2199,7 @@ fun MessageBubble(
                     val clipContext = LocalContext.current
                     val coroutineScope = rememberCoroutineScope()
                     DropdownMenuItem(
-                        text = { Text("Kopyala", style = MaterialTheme.typography.bodyMedium) },
+                        text = { Text(stringResource(R.string.msg_action_copy), style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(message.content))
@@ -2230,7 +2232,7 @@ fun MessageBubble(
                     val canEdit = (System.currentTimeMillis() - message.timestamp) < 15 * 60 * 1000L
                     if (canEdit) {
                         DropdownMenuItem(
-                            text = { Text("Düzenle", style = MaterialTheme.typography.bodyMedium) },
+                            text = { Text(stringResource(R.string.msg_action_edit), style = MaterialTheme.typography.bodyMedium) },
                             onClick = {
                                 showPopupMenu = false
                                 onEditMessage(message.content)
@@ -2252,7 +2254,7 @@ fun MessageBubble(
                 // Duzenleme gecmisi (duzenlenmis mesajlarda; view-once mesajlarda gizli)
                 if (message.isEdited && !message.editHistory.isNullOrBlank() && !message.isViewOnce) {
                     DropdownMenuItem(
-                        text = { Text("Düzenleme Geçmişi", style = MaterialTheme.typography.bodyMedium) },
+                        text = { Text(stringResource(R.string.msg_action_edit_history), style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             showEditHistoryDialog = true
@@ -2273,7 +2275,7 @@ fun MessageBubble(
                 // Bilgi seçeneği (sadece grup giden mesajlarında)
                 if (onInfoClick != null) {
                     DropdownMenuItem(
-                        text = { Text("Bilgi", style = MaterialTheme.typography.bodyMedium) },
+                        text = { Text(stringResource(R.string.msg_action_info), style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             onInfoClick()
@@ -2321,7 +2323,7 @@ fun MessageBubble(
                 // İlet — view-once mesajlarda gizli (icerigi disari sizdirir)
                 if (onForwardMessage != null && !message.isViewOnce) {
                     DropdownMenuItem(
-                        text = { Text("İlet", style = MaterialTheme.typography.bodyMedium) },
+                        text = { Text(stringResource(R.string.msg_action_forward), style = MaterialTheme.typography.bodyMedium) },
                         onClick = {
                             showPopupMenu = false
                             onForwardMessage()
@@ -2341,7 +2343,7 @@ fun MessageBubble(
 
                 // Benden sil
                 DropdownMenuItem(
-                    text = { Text("Benden Sil", style = MaterialTheme.typography.bodyMedium) },
+                    text = { Text(stringResource(R.string.msg_action_delete_for_me), style = MaterialTheme.typography.bodyMedium) },
                     onClick = {
                         showPopupMenu = false
                         onDeleteMessage?.invoke()
@@ -2438,7 +2440,7 @@ fun MessageBubble(
                 }
                 AlertDialog(
                     onDismissRequest = { showEditHistoryDialog = false },
-                    title = { Text("Düzenleme Geçmişi") },
+                    title = { Text(stringResource(R.string.msg_action_edit_history)) },
                     text = {
                         Column {
                             historyEntries.forEachIndexed { index, (content, editedAt) ->
@@ -2530,7 +2532,7 @@ fun MessageBubble(
                     tint = MaterialTheme.colorScheme.error
                 )
             },
-            title = { Text("Mesajı sil") },
+            title = { Text(stringResource(R.string.msg_delete_title)) },
             text = {
                 Text(
                     "Silmek istediğinize emin misiniz? Silinen mesajın geri getirilmesi mümkün olmayacaktır."
@@ -2965,7 +2967,7 @@ private fun EditMessageDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Mesajı Düzenle") },
+        title = { Text(stringResource(R.string.msg_edit_title)) },
         text = {
             OutlinedTextField(
                 value = editedText,
@@ -3042,7 +3044,7 @@ private fun SwipeableMessageBubble(
         if (animatedOffset > 30f) {
             Icon(
                 Icons.AutoMirrored.Filled.Send,
-                contentDescription = "Yanıtla",
+                contentDescription = stringResource(R.string.msg_action_reply),
                 tint = MaterialTheme.colorScheme.primary.copy(
                     alpha = (animatedOffset / 200f).coerceIn(0f, 1f)
                 ),

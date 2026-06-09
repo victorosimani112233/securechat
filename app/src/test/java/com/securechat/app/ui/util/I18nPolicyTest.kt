@@ -66,6 +66,13 @@ class I18nPolicyTest {
         ),
         "app/src/main/java/com/securechat/app/ui/screen/ChatInfoScreen.kt" to listOf(
             "\"Not\"", "\"Mesajlarda ara...\""
+        ),
+        // Sprint 7-C: ChatScreen — sadece mesaj menusu + buyuk dialog'lar kapsamda.
+        // Bubble/timestamp/system message gibi alt-composable'lar Sprint 8+.
+        "app/src/main/java/com/securechat/app/ui/screen/ChatScreen.kt" to listOf(
+            "\"Yanıtla\"", "\"Kopyala\"", "\"Düzenle\"", "\"Düzenleme Geçmişi\"",
+            "\"İlet\"", "\"Benden Sil\"", "\"Mesajı sil\"", "\"Mesajı Düzenle\"",
+            "\"Sohbette Ara\"", "\"Sohbeti Dışa Aktar\""
         )
     )
 
