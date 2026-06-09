@@ -7,10 +7,13 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
 import io.mockk.slot
+import io.mockk.unmockkConstructor
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -47,7 +50,27 @@ class FileTransferManagerTest {
 
         every { context.contentResolver } returns contentResolver
 
-        fileTransferManager = FileTransferManager(context, signalingClient, mockk(relaxed = true))
+        // 1:1 file cipher mock'u: encrypt-zorunlu akista ensureSession=true ve
+        // encrypt non-null donmeli; aksi takdirde transfer "Sifreli oturum kurulamadi"
+        // ile iptal olur. ensureSession/encrypt suspend → coEvery gerekli.
+        val cipher = mockk<com.securechat.media.crypto.OneToOneFileCipher>(relaxed = true)
+        coEvery { cipher.ensureSession(any()) } returns true
+        coEvery { cipher.encrypt(any(), any()) } answers { secondArg<ByteArray>() }
+
+        // Grup testlerinde production kod inline GroupCipher olusturur ve encrypt cagirir.
+        // mockkConstructor ile bunlari intercept et — gercek Sender Key state'i olmadan
+        // testler isleyebilsin (plaintext fallback artik yok).
+        mockkConstructor(org.whispersystems.libsignal.groups.GroupCipher::class)
+        every { anyConstructed<org.whispersystems.libsignal.groups.GroupCipher>().encrypt(any()) } answers {
+            firstArg<ByteArray>()
+        }
+
+        fileTransferManager = FileTransferManager(context, signalingClient, mockk(relaxed = true), cipher)
+    }
+
+    @org.junit.After
+    fun teardown() {
+        unmockkConstructor(org.whispersystems.libsignal.groups.GroupCipher::class)
     }
 
     // ---- sendFile testleri ----

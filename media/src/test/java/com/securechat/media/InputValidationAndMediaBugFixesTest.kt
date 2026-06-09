@@ -39,7 +39,12 @@ class InputValidationAndMediaBugFixesTest {
         signalingClient = mockk(relaxed = true)
 
         every { context.contentResolver } returns contentResolver
-        fileTransferManager = FileTransferManager(context, signalingClient, mockk(relaxed = true))
+        // Plaintext fallback kaldirildi — cipher ensureSession=true ve encrypt
+        // non-null donmeli; aksi takdirde transfer iptal olur.
+        val cipher = mockk<com.securechat.media.crypto.OneToOneFileCipher>(relaxed = true)
+        io.mockk.coEvery { cipher.ensureSession(any()) } returns true
+        io.mockk.coEvery { cipher.encrypt(any(), any()) } answers { secondArg<ByteArray>() }
+        fileTransferManager = FileTransferManager(context, signalingClient, mockk(relaxed = true), cipher)
     }
 
     // =====================================================================

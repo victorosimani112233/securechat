@@ -155,8 +155,8 @@ class FileTransferManager @Inject constructor(
         }
 
         // Grup chunk'lari GroupCipher (Sender Keys). 1:1 chunk'lari SessionCipher
-        // (Double Ratchet) — Sprint 6-A'da eklendi. Cipher binding'i yoksa
-        // (test/dev) plaintext fallback.
+        // (Double Ratchet). Plaintext fallback YOK — encrypt zorunlu (CLAUDE.md
+        // guvenlik kurali: mesaj icerigi sunucuya ASLA gonderilmez).
         val groupCipher = if (isGroup) {
             try {
                 val senderKeyName = org.whispersystems.libsignal.groups.SenderKeyName(
@@ -165,16 +165,23 @@ class FileTransferManager @Inject constructor(
                 )
                 org.whispersystems.libsignal.groups.GroupCipher(senderKeyStore, senderKeyName)
             } catch (e: Exception) {
-                android.util.Log.w("FileTransferManager", "GroupCipher init fail, plaintext fallback: ${e.message}")
-                null
+                android.util.Log.e("FileTransferManager", "GroupCipher init fail: ${e.message}")
+                return FileTransferResult.Error("Grup sifreleme baslatilamadi")
             }
         } else null
 
-        // 1:1 cipher session'i kur — production'da cipher null degilse SessionEnsurer
-        // PreKeyBundle fetch + X3DH yapar. Basarisizsa "e2eeReady=false" → plaintext.
-        val oneToOneReady = if (!isGroup && oneToOneFileCipher != null) {
-            oneToOneFileCipher.ensureSession(recipientId)
-        } else false
+        // 1:1 cipher session'i kur — production'da Hilt cipher saglar. Null gelirse
+        // (test/dev) veya ensureSession fail ederse transfer abort.
+        if (!isGroup) {
+            if (oneToOneFileCipher == null) {
+                android.util.Log.e("FileTransferManager", "1:1 cipher binding yok — transfer iptal")
+                return FileTransferResult.Error("1:1 sifreleme yapilandirilmamis")
+            }
+            if (!oneToOneFileCipher.ensureSession(recipientId)) {
+                android.util.Log.e("FileTransferManager", "1:1 session kurulamadi: $recipientId")
+                return FileTransferResult.Error("Sifreli oturum kurulamadi")
+            }
+        }
 
         while (true) {
             val bytesRead = stream.readNBytes(buffer, CHUNK_SIZE)
@@ -183,54 +190,61 @@ class FileTransferManager @Inject constructor(
             totalRead += bytesRead
             val chunkData = if (bytesRead == buffer.size) buffer else buffer.copyOf(bytesRead)
 
-            // Sifreleme:
-            //   - grup → GroupCipher (Sender Keys), flag = "gsk-v1"
-            //   - 1:1 (cipher ready) → SessionCipher (Double Ratchet), flag = "e2ee-v1"
-            //   - aksi → plaintext fallback (hibrit donem)
+            // Sifreleme: grup → GroupCipher (gsk-v1), 1:1 → SessionCipher (e2ee-v1).
+            // Encrypt fail KESINLIKLE plaintext'e dusmez — transfer abort.
             val (encodedData, encryption) = when {
                 groupCipher != null -> {
                     try {
                         val ciphertext = groupCipher.encrypt(chunkData)
                         Pair(Base64.getEncoder().encodeToString(ciphertext), "gsk-v1")
                     } catch (e: Exception) {
-                        android.util.Log.w("FileTransferManager", "Grup chunk encrypt fail, plaintext fallback: ${e.message}")
-                        Pair(Base64.getEncoder().encodeToString(chunkData), null)
+                        android.util.Log.e("FileTransferManager",
+                            "Grup chunk encrypt fail (chunk=$chunkIndex): ${e.message}")
+                        _transferProgress.value = null
+                        return FileTransferResult.Error("Sifreleme hatasi — gonderim iptal")
                     }
                 }
-                oneToOneReady && oneToOneFileCipher != null -> {
-                    val ct = oneToOneFileCipher.encrypt(recipientId, chunkData)
-                    if (ct != null) {
-                        Pair(Base64.getEncoder().encodeToString(ct), "e2ee-v1")
-                    } else {
-                        android.util.Log.w("FileTransferManager", "1:1 chunk encrypt fail, plaintext fallback")
-                        Pair(Base64.getEncoder().encodeToString(chunkData), null)
+                else -> {
+                    // oneToOneFileCipher null check yukarida transfer baslangicinda yapildi —
+                    // buraya gelindiginde non-null garantili. ensureSession da basarili.
+                    val ct = oneToOneFileCipher!!.encrypt(recipientId, chunkData)
+                    if (ct == null) {
+                        android.util.Log.e("FileTransferManager",
+                            "1:1 chunk encrypt null (chunk=$chunkIndex): $recipientId")
+                        _transferProgress.value = null
+                        return FileTransferResult.Error("Sifreleme hatasi — gonderim iptal")
                     }
+                    Pair(Base64.getEncoder().encodeToString(ct), "e2ee-v1")
                 }
-                else -> Pair(Base64.getEncoder().encodeToString(chunkData), null)
             }
 
-            // Caption (son chunk) — chunk ile ayni cipher kullanir.
+            // Caption (son chunk) — chunk ile ayni cipher kullanir. Encrypt fail = abort.
             val rawCaption = if (chunkIndex == totalChunks - 1) caption else null
-            val finalCaption = when {
+            val finalCaption: String? = when {
                 rawCaption == null -> null
-                groupCipher != null && encryption == "gsk-v1" -> {
+                groupCipher != null -> {
                     try {
                         val capBytes = rawCaption.toByteArray(Charsets.UTF_8)
                         val capCt = groupCipher.encrypt(capBytes)
                         capBytes.fill(0)
                         Base64.getEncoder().encodeToString(capCt)
                     } catch (e: Exception) {
-                        android.util.Log.w("FileTransferManager", "Caption encrypt fail, plaintext fallback: ${e.message}")
-                        rawCaption
+                        android.util.Log.e("FileTransferManager", "Caption encrypt fail: ${e.message}")
+                        _transferProgress.value = null
+                        return FileTransferResult.Error("Caption sifreleme hatasi")
                     }
                 }
-                encryption == "e2ee-v1" && oneToOneFileCipher != null -> {
+                else -> {
                     val capBytes = rawCaption.toByteArray(Charsets.UTF_8)
-                    val capCt = oneToOneFileCipher.encrypt(recipientId, capBytes)
+                    val capCt = oneToOneFileCipher!!.encrypt(recipientId, capBytes)
                     capBytes.fill(0)
-                    if (capCt != null) Base64.getEncoder().encodeToString(capCt) else rawCaption
+                    if (capCt == null) {
+                        android.util.Log.e("FileTransferManager", "1:1 caption encrypt null")
+                        _transferProgress.value = null
+                        return FileTransferResult.Error("Caption sifreleme hatasi")
+                    }
+                    Base64.getEncoder().encodeToString(capCt)
                 }
-                else -> rawCaption
             }
 
             val signal = SignalMessage.FileTransfer(
