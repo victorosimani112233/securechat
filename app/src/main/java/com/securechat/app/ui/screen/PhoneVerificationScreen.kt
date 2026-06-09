@@ -39,6 +39,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -79,8 +82,22 @@ import com.securechat.app.ui.theme.DisplayFamily
  */
 @Composable
 fun PhoneVerificationScreen(
-    onVerified: (name: String, phone: String) -> Unit
+    onVerified: (name: String, phone: String) -> Unit,
+    /** Register fail durumunda gosterilecek hata mesaji (Snackbar). null = hata yok. */
+    errorMessage: String? = null,
+    /** Snackbar gosterildikten sonra cagrilir — caller flag'i temizler ki ekran rotasyonunda
+     *  tekrar gosterilmesin. */
+    onErrorShown: () -> Unit = {}
 ) {
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(errorMessage) {
+        val msg = errorMessage
+        if (!msg.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(msg)
+            onErrorShown()
+        }
+    }
+
     // Form girdileri ve UI ilerleme `rememberSaveable` ile saklanir — rotation veya
     // process death sonrasi kullanicinin yazdiklari korunur. Dialog flag'leri de
     // saveable: orientation degisirken dialog kapanmaz.
@@ -295,7 +312,8 @@ fun PhoneVerificationScreen(
         AzureDoodleBackdrop(dark = dark)
 
     Scaffold(
-        containerColor = Color.Transparent
+        containerColor = Color.Transparent,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier

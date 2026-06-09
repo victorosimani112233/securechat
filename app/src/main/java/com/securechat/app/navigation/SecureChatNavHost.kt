@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
@@ -102,9 +103,26 @@ fun SecureChatNavHost(
     startDestination: String = MAIN_ROUTE,
     skipSplash: Boolean = false,
     onUserRegistered: (name: String, phone: String, registrationToken: String?) -> Unit = { _, _, _ -> },
-    apiBaseUrl: String = ""
+    apiBaseUrl: String = "",
+    registerError: kotlinx.coroutines.flow.MutableStateFlow<String?>? = null
 ) {
+    // Register fail oldugunda PhoneVerificationScreen'e geri don ve hatayi goster.
+    val registerErrorFlow = registerError ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
+    val registerErrorValue by registerErrorFlow.collectAsStateWithLifecycle()
     val actualStartDestination = if (skipSplash) startDestination else "splash"
+
+    // Register fail edip kullanici call_readiness/conversations'ta kalmissa onu auth'a geri al.
+    // Hata mesaji PhoneVerificationScreen'e param olarak gecirilir; UI snackbar gosterir.
+    LaunchedEffect(registerErrorValue) {
+        if (registerErrorValue.isNullOrBlank()) return@LaunchedEffect
+        val current = navController.currentDestination?.route
+        if (current != null && current != "auth/phone" && current != "splash" &&
+            current != "onboarding" && current != "permissions_walkthrough") {
+            navController.navigate("auth/phone") {
+                popUpTo(navController.graph.startDestinationId) { inclusive = true }
+            }
+        }
+    }
 
     // NavHost tam ekran, bottom bar overlay olarak ustune biner.
     // Boylece bottom bar gizlendiginde NavHost boyutu degismez, animasyon bozulmaz.
@@ -181,7 +199,9 @@ fun SecureChatNavHost(
                         navController.navigate("auth/email_otp/${java.net.URLEncoder.encode(name, "UTF-8")}/${java.net.URLEncoder.encode(phone, "UTF-8")}") {
                             popUpTo("auth/phone") { inclusive = true }
                         }
-                    }
+                    },
+                    errorMessage = registerErrorValue,
+                    onErrorShown = { registerErrorFlow.value = null }
                 )
             }
 

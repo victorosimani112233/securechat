@@ -79,7 +79,11 @@ class UserSession @Inject constructor(
         prefs.edit().remove("access_token").remove("refresh_token").apply()
     }
 
-    val isLoggedIn: Boolean get() = userId != null
+    // accessToken kontrolu zorunlu: register basarisiz olup token alamadigimiz
+    // durumda kullanicinin "logged in" zannedilip ConversationsScreen'e gonderilmesini
+    // engeller. WebSocket connect token olmadan zaten 1008 reddedilir; UI'in da gercegi
+    // yansitmasi icin isLoggedIn token gelmeden true donmemeli.
+    val isLoggedIn: Boolean get() = userId != null && !accessToken.isNullOrBlank()
 
     fun login(name: String, phone: String) {
         // userId = rastgele UUID — telefon numarasiyla hicbir iliskisi yok
@@ -87,6 +91,22 @@ class UserSession @Inject constructor(
         userId = UUID.randomUUID().toString()
         displayName = name
         phoneNumber = phone
+    }
+
+    /**
+     * Register basarisiz oldugunda cagrilir: login() ile yazilan kismi state'i temizler.
+     * accessToken zaten yok — userId/name/phone'u silince isLoggedIn=false olur ve bir
+     * sonraki acilis kullaniciyi auth ekranina geri gonderir. saveTokens(...) cagrildiysa
+     * bu method cagrilmamalidir (basari yolu).
+     */
+    fun clearLoginState() {
+        prefs.edit()
+            .remove("user_id")
+            .remove("display_name")
+            .remove("phone_number")
+            .remove("access_token")
+            .remove("refresh_token")
+            .apply()
     }
 
     /**

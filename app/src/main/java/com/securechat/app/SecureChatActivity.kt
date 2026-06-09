@@ -62,6 +62,13 @@ class SecureChatActivity : AppCompatActivity() {
     val pendingShareText = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val pendingShareUri = kotlinx.coroutines.flow.MutableStateFlow<android.net.Uri?>(null)
 
+    /**
+     * Register basarisiz oldugunda UI'a sinyal — NavHost bunu izleyip
+     * kullaniciyi PhoneVerificationScreen'e geri yonlendirir ve mesaji Snackbar olarak gosterir.
+     * null = aktif hata yok.
+     */
+    val registerError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
     private val requestRecordAudioPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -218,35 +225,41 @@ class SecureChatActivity : AppCompatActivity() {
                     onUserRegistered = { name, phone, registrationToken ->
                         Log.d("SecureChat", "onUserRegistered (regToken=${if (registrationToken != null) "yes" else "no"})")
 
+                        // login() prefs'e yazar (userId, name, phone) — register fail edersek
+                        // clearLoginState ile geri silinir. Bu sayede in-flight surede displayName
+                        // gosterilebilir; fail durumunda state tutarli kalir.
                         userSession.login(name, phone)
 
                         lifecycleScope.launch {
-                            registerUserOnServer(userSession.userId!!, phone, registrationToken)
+                            val ok = registerUserOnServer(userSession.userId!!, phone, registrationToken)
 
-                            if (!userSession.accessToken.isNullOrBlank()) {
-                                // Reactive provider: AppLifecycleObserver tarafindan onTokenRefreshRequired
-                                // zaten set edildi; burada sadece ilk connect tetiklenir.
-                                signalingClient.connect(
-                                    userId = userSession.userId!!,
-                                    customUrl = BuildConfig.SIGNALING_URL
-                                ) { userSession.accessToken }
-                            } else {
-                                Log.e("SecureChat", "Access token alinamadi, WS baglanti atlandi")
+                            if (!ok) {
+                                Log.e("SecureChat", "Register basarisiz — state temizleniyor, kullanici auth'a geri yonlendiriliyor")
+                                userSession.clearLoginState()
+                                registerError.value =
+                                    "Kayit tamamlanamadi. Lutfen birkac dakika sonra tekrar deneyin."
+                                return@launch
                             }
+
+                            // Reactive provider: AppLifecycleObserver tarafindan onTokenRefreshRequired
+                            // zaten set edildi; burada sadece ilk connect tetiklenir.
+                            signalingClient.connect(
+                                userId = userSession.userId!!,
+                                customUrl = BuildConfig.SIGNALING_URL
+                            ) { userSession.accessToken }
 
                             fcmTokenManager.registerTokenOnServer()
 
                             // Signal Protocol PreKey bundle'i yukle (yalnizca yeni kayit oldugunda)
                             // Mevcut kullanici icin replenish yeterli
                             try {
-                                if (!userSession.accessToken.isNullOrBlank()) {
-                                    preKeyUploader.uploadInitialBundle()
-                                }
+                                preKeyUploader.uploadInitialBundle()
                             } catch (e: Exception) {
                                 Log.w("SecureChat", "PreKey upload hatasi: ${e.message}")
                             }
                         }
-                    }
+                    },
+                    registerError = registerError
                 )
             }
         }
@@ -316,14 +329,17 @@ class SecureChatActivity : AppCompatActivity() {
     /**
      * Sunucuya UUID + phoneHash + sifreli telefon numarasi kaydeder.
      * Plaintext numara GONDERILMEZ — AES-GCM ile sifrelenir, sunucu cozemez.
+     *
+     * Sunucu ayni phoneHash icin kayit bulursa mevcut userId'yi dondurur — yerel userId
+     * guncellenir, boylece ayni numara her zaman ayni UUID'yi kullanir.
+     *
+     * Donus degeri: true => accessToken kaydedildi, kullanici gercek anlamda logged-in.
+     * false => OTP eksik / rate-limit / network / 5xx. Bu durumda accessToken yok,
+     * isLoggedIn=false, kullanici auth ekranina geri yonlendirilmeli. Cagiranin
+     * clearLoginState() cagirmasi beklenir (state'i tutarsiz birakmamak icin).
      */
-    /**
-     * Sunucuya UUID + phoneHash + sifreli telefon numarasi kaydeder.
-     * Sunucu ayni phoneHash icin kayit bulursa mevcut userId'yi dondurur.
-     * Bu durumda yerel userId guncellenir — boylece ayni numara her zaman ayni UUID'yi kullanir.
-     */
-    private suspend fun registerUserOnServer(userId: String, phone: String, registrationToken: String? = null) {
-        try {
+    private suspend fun registerUserOnServer(userId: String, phone: String, registrationToken: String? = null): Boolean {
+        return try {
             val phoneDigits = com.securechat.contacts.PhoneNumberNormalizer.normalizeDigits(phone)
             val phoneHash = com.securechat.contacts.UserDiscoveryService.hashPhoneNumber(phoneDigits)
             Log.d("SecureChat", "Kayit: phone=${phone.take(4)}***, normalized=$phoneDigits, hash=${phoneHash.take(12)}...")
@@ -346,34 +362,47 @@ class SecureChatActivity : AppCompatActivity() {
 
                     if (response.code == 403 && responseBody?.contains("registrationToken") == true) {
                         Log.e("SecureChat", "registrationToken zorunlu — OTP dogrulamasi gerekli")
-                        return@use
+                        return@withContext false
                     }
-                    if (response.isSuccessful && responseBody != null) {
-                        val responseJson = org.json.JSONObject(responseBody)
-                        val serverUserId = responseJson.optString("userId", "")
-                        val isNew = responseJson.optBoolean("isNew", true)
-                        val accessToken = responseJson.optString("accessToken", "")
-                        val refreshToken = responseJson.optString("refreshToken", "")
+                    if (!response.isSuccessful || responseBody == null) {
+                        Log.e("SecureChat", "Sunucu kaydi reddedildi: ${response.code} — ${responseBody?.take(200)}")
+                        return@withContext false
+                    }
+                    val responseJson = org.json.JSONObject(responseBody)
+                    val serverUserId = responseJson.optString("userId", "")
+                    val isNew = responseJson.optBoolean("isNew", true)
+                    val accessToken = responseJson.optString("accessToken", "")
+                    val refreshToken = responseJson.optString("refreshToken", "")
 
-                        if (!isNew && serverUserId.isNotBlank() && serverUserId != userId) {
-                            Log.d("SecureChat", "Mevcut kullanici bulundu, userId guncelleniyor: $userId -> $serverUserId")
-                            userSession.userId = serverUserId
-                        }
+                    if (!isNew && serverUserId.isNotBlank() && serverUserId != userId) {
+                        Log.d("SecureChat", "Mevcut kullanici bulundu, userId guncelleniyor: $userId -> $serverUserId")
+                        userSession.userId = serverUserId
+                    }
 
-                        // GUVENLIK: Atomic olarak access+refresh token sakla
-                        if (accessToken.isNotBlank() && refreshToken.isNotBlank()) {
+                    // GUVENLIK: Atomic olarak access+refresh token sakla. Token yoksa kayit
+                    // basarisiz sayilir — UI'a fail bildirilecek.
+                    when {
+                        accessToken.isNotBlank() && refreshToken.isNotBlank() -> {
                             userSession.saveTokens(accessToken, refreshToken)
                             Log.d("SecureChat", "Access+refresh token kaydedildi")
-                        } else if (accessToken.isNotBlank()) {
-                            // Eski API: sadece accessToken
+                            true
+                        }
+                        accessToken.isNotBlank() -> {
+                            // Eski API: sadece accessToken — refresh yok ama login yine de gecerli
                             userSession.accessToken = accessToken
                             Log.w("SecureChat", "Sadece access token alindi, refresh yok")
+                            true
+                        }
+                        else -> {
+                            Log.e("SecureChat", "Sunucu yanitinda accessToken yok — kayit basarisiz")
+                            false
                         }
                     }
                 }
             }
         } catch (e: Exception) {
             Log.e("SecureChat", "Sunucu kaydi basarisiz: ${e.message}")
+            false
         }
     }
 
