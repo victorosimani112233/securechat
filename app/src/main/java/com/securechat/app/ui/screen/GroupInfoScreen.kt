@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Share
@@ -131,6 +132,7 @@ fun GroupInfoScreen(
     val disappearingDuration by viewModel.disappearingDuration.collectAsStateWithLifecycle()
     val isLocked by viewModel.isLocked.collectAsStateWithLifecycle()
     val isExportEnabled by viewModel.isExportEnabled.collectAsStateWithLifecycle()
+    val isReadOnly by viewModel.isReadOnly.collectAsStateWithLifecycle()
 
     var currentTab by remember { mutableStateOf(GroupInfoTab.MAIN) }
     var showEditGroupDialog by remember { mutableStateOf(false) }
@@ -388,6 +390,30 @@ fun GroupInfoScreen(
                                     viewModel.toggleExportEnabled(groupId)
                                 }
                                 // Admin degilse tiklama etkisiz
+                            }
+                        )
+                    }
+
+                    // "Sadece adminler yazabilir" duyuru kanali bayragi (sadece admin toggle eder).
+                    item {
+                        val readOnlyTitle = if (isReadOnly) "Sadece adminler yazabilir" else "Tüm üyeler yazabilir"
+                        val readOnlySubtitle = when {
+                            !isAdmin -> if (isReadOnly)
+                                "Duyuru kanalı (sadece yönetici değiştirebilir)"
+                            else
+                                "Sohbet modu (sadece yönetici değiştirebilir)"
+                            isReadOnly -> "Üyeler okur, sadece adminler mesaj atar"
+                            else -> "Klasik grup sohbeti — herkes yazabilir"
+                        }
+                        GroupInfoMenuItem(
+                            icon = if (isReadOnly) Icons.Default.Campaign else Icons.Default.Group,
+                            iconTint = if (isReadOnly) Color(0xFF3E7BFA) else Color(0xFF78909C),
+                            title = readOnlyTitle,
+                            subtitle = readOnlySubtitle,
+                            onClick = {
+                                if (isAdmin) {
+                                    viewModel.toggleReadOnly(groupId)
+                                }
                             }
                         )
                     }

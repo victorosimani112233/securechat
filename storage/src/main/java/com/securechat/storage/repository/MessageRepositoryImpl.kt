@@ -414,5 +414,6 @@ internal fun ConversationEntity.toDomain(): Conversation = Conversation(
     disappearingDuration = disappearingDuration,
     isFavorite = isFavorite,
     isLocked = isLocked,
-    manuallyUnread = manuallyUnread
+    manuallyUnread = manuallyUnread,
+    isReadOnly = isReadOnly
 )

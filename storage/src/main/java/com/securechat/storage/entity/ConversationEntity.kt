@@ -43,5 +43,9 @@ data class ConversationEntity(
     // Manuel "Okunmadı işaretle" — kullanici tekrar donmek istiyorsa konusmayi
     // okunmamis olarak isaretleyebilir. unreadCount > 0 || manuallyUnread olarak
     // hasUnread hesaplanir. ChatScreen acilinca otomatik false'a doner.
-    @ColumnInfo(name = "manually_unread") val manuallyUnread: Boolean = false
+    @ColumnInfo(name = "manually_unread") val manuallyUnread: Boolean = false,
+    // "Sadece admin yazabilir" duyuru kanali bayragi (sadece grup sohbette).
+    // Server zero-knowledge — yetki client-side enforce edilir; alici taraf da
+    // is_read_only && !admin gondericiden gelen mesaji dropla.
+    @ColumnInfo(name = "is_read_only") val isReadOnly: Boolean = false
 )

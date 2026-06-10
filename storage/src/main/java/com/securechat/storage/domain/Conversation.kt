@@ -23,7 +23,9 @@ data class Conversation(
     val isFavorite: Boolean = false,
     val isLocked: Boolean = false,
     /** Manuel "Okunmadi isaretle" — ChatScreen acilinca otomatik temizlenir. */
-    val manuallyUnread: Boolean = false
+    val manuallyUnread: Boolean = false,
+    /** "Sadece admin yazabilir" duyuru kanali bayragi (yalniz grup sohbetlerinde anlamli). */
+    val isReadOnly: Boolean = false
 ) {
     /**
      * Konusma okunmamis durumu — unread_count > 0 VEYA manuel olarak isaretlendi.

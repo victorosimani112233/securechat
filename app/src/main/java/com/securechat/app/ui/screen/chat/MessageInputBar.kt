@@ -52,10 +52,32 @@ fun MessageInputBar(
     text: String,
     onTextChange: (String) -> Unit,
     onSend: (isViewOnce: Boolean) -> Unit,
-    onAttachClick: () -> Unit
+    onAttachClick: () -> Unit,
+    isReadOnlyLocked: Boolean = false
 ) {
     val dark = LocalDarkTheme.current
     var isViewOnce by remember { mutableStateOf(false) }
+
+    if (isReadOnlyLocked) {
+        // Read-only grup ve kullanici admin degil → input gizlenir, bilgilendirme banner gosterilir
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .glass(dark = dark, shape = RoundedCornerShape(20.dp))
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "Sadece adminler yazabilir",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570),
+                fontWeight = FontWeight.Medium
+            )
+        }
+        return
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()

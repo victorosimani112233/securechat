@@ -90,7 +90,13 @@ object StorageModule {
             "securechat.db"
         )
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
+            .addMigrations(
+                MIGRATION_17_18,
+                MIGRATION_18_19,
+                MIGRATION_19_20,
+                MIGRATION_20_21,
+                MIGRATION_21_22
+            )
             .fallbackToDestructiveMigration()
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
@@ -186,6 +192,17 @@ object StorageModule {
     private val MIGRATION_20_21 = object : Migration(20, 21) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE conversations ADD COLUMN manually_unread INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    /**
+     * v21 -> v22: Read-only grup (duyuru kanali) destegi.
+     *   - ConversationEntity.is_read_only (BOOLEAN, default 0)
+     * Veri kaybi olmaz; mevcut gruplar default acik (read-only kapali) kalir.
+     */
+    private val MIGRATION_21_22 = object : Migration(21, 22) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE conversations ADD COLUMN is_read_only INTEGER NOT NULL DEFAULT 0")
         }
     }
 

@@ -2075,6 +2075,46 @@ class IncomingMessageHandler @Inject constructor(
                 }
             }
 
+            com.securechat.network.model.GroupAction.SET_READ_ONLY -> {
+                // "Sadece admin yazabilir" duyuru kanali bayragi admin tarafindan toggle edildi.
+                // targetMemberId alani yeni durumu "true"/"false" stringi olarak tasir.
+                // Yetki: sender admin olmalidir (UPDATE_EXPORT_POLICY ile ayni pattern).
+                val groupConv = conversationDao.getById(signal.groupId)
+                if (groupConv != null) {
+                    val admins = groupConv.groupAdmins
+                        ?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                    if (signal.senderId !in admins) {
+                        android.util.Log.w(
+                            "IncomingHandler",
+                            "SET_READ_ONLY: gonderici admin degil, signal dropluyor: ${signal.senderId}"
+                        )
+                        return
+                    }
+
+                    val newReadOnly = signal.targetMemberId?.toBooleanStrictOrNull() ?: false
+                    conversationDao.updateReadOnly(signal.groupId, newReadOnly)
+
+                    val actorName = resolvePeerName(signal.senderId)
+                    val systemMessage = if (newReadOnly) {
+                        "$actorName grubu duyuru kanaline cevirdi (sadece adminler yazabilir)"
+                    } else {
+                        "$actorName duyuru kanali ayarini kapatti"
+                    }
+                    val message = com.securechat.storage.domain.LocalMessage(
+                        id = UUID.randomUUID().toString(),
+                        conversationId = signal.groupId,
+                        senderId = "SYSTEM",
+                        peerId = signal.groupId,
+                        content = systemMessage,
+                        contentType = MessageContentType.SYSTEM,
+                        timestamp = signal.timestamp,
+                        status = MessageStatus.DELIVERED,
+                        isOutgoing = false
+                    )
+                    messageRepository.saveMessage(message)
+                }
+            }
+
             else -> {
                 android.util.Log.d("IncomingHandler", "Bilinmeyen grup aksiyonu: ${signal.action}")
             }

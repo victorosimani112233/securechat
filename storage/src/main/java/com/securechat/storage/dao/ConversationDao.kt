@@ -147,4 +147,11 @@ interface ConversationDao {
      */
     @Query("UPDATE conversations SET manually_unread = :manuallyUnread WHERE id = :conversationId")
     suspend fun updateManuallyUnread(conversationId: String, manuallyUnread: Boolean)
+
+    /**
+     * "Sadece admin yazabilir" read-only flag'ini guncelle (sadece grup sohbette).
+     * UseCase yetki kontrolu (admin only) yapar; DAO yetki gozetmez.
+     */
+    @Query("UPDATE conversations SET is_read_only = :isReadOnly WHERE id = :conversationId")
+    suspend fun updateReadOnly(conversationId: String, isReadOnly: Boolean)
 }

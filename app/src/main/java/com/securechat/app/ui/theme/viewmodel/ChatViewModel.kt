@@ -144,6 +144,14 @@ class ChatViewModel @Inject constructor(
         .observeLatestPinnedMessage(conversationId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    /** Read-only grup: "Sadece admin yazabilir" duyuru kanali bayragi. */
+    private val _isReadOnlyGroup = MutableStateFlow(false)
+    val isReadOnlyGroup: StateFlow<Boolean> = _isReadOnlyGroup.asStateFlow()
+
+    /** Local kullanici grup admini mi (input devre disi karari icin). */
+    private val _isLocalUserAdmin = MutableStateFlow(false)
+    val isLocalUserAdmin: StateFlow<Boolean> = _isLocalUserAdmin.asStateFlow()
+
     /** Export izin banner'i — admin yeni katilanlari bilgilendirmek icin. */
     private val _shouldShowExportBanner = MutableStateFlow(false)
     val shouldShowExportBanner: StateFlow<Boolean> = _shouldShowExportBanner.asStateFlow()
@@ -195,6 +203,12 @@ class ChatViewModel @Inject constructor(
                 if (entity != null) {
                     _isExportEnabled.value = entity.isExportEnabled
                     _isGroupChat.value = entity.isGroup
+                    _isReadOnlyGroup.value = entity.isReadOnly
+                    // Yerel kullanici admin mi
+                    val localUserId = userSession.userId ?: ""
+                    val admins = entity.groupAdmins
+                        ?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                    _isLocalUserAdmin.value = localUserId in admins
                     refreshExportBannerVisibility()
                 }
             }

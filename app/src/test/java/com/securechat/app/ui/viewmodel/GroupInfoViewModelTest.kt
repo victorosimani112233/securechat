@@ -66,7 +66,8 @@ class GroupInfoViewModelTest {
             updateGroupNameUseCase = updateGroupNameUseCase,
             contactNameResolver = contactNameResolver,
             pendingTimerFlusher = mockk(relaxed = true),
-            toggleExportPolicyUseCase = mockk(relaxed = true)
+            toggleExportPolicyUseCase = mockk(relaxed = true),
+            setGroupReadOnlyUseCase = mockk(relaxed = true)
         )
     }
 

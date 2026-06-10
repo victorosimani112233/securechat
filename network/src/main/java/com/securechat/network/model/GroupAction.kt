@@ -34,5 +34,12 @@ enum class GroupAction {
      * `targetMemberId` alanı "true" / "false" stringi olarak yeni durumu taşır
      * (yeni alan eklemeden mevcut wire formatına geri-uyumlu kalmak için).
      */
-    UPDATE_EXPORT_POLICY
+    UPDATE_EXPORT_POLICY,
+
+    /**
+     * "Sadece admin yazabilir" duyuru kanalı bayrağı değiştirildi (sadece admin).
+     * `targetMemberId` alanı "true" / "false" stringi olarak yeni durumu taşır
+     * (UPDATE_EXPORT_POLICY ile aynı geri-uyumlu pattern).
+     */
+    SET_READ_ONLY
 }

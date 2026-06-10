@@ -205,6 +205,8 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val conversationInfo by viewModel.conversationInfo.collectAsStateWithLifecycle()
+    val isReadOnlyGroup by viewModel.isReadOnlyGroup.collectAsStateWithLifecycle()
+    val isLocalUserAdmin by viewModel.isLocalUserAdmin.collectAsStateWithLifecycle()
     var messageText by remember { mutableStateOf(viewModel.getDraft()) }
     var replyingToMessage by remember { mutableStateOf<LocalMessage?>(null) }
     // Mesaj iletme (forward) multi-select modu
@@ -962,7 +964,8 @@ fun ChatScreen(
                 },
                 onAttachClick = {
                     showAttachMenu = !showAttachMenu
-                }
+                },
+                isReadOnlyLocked = isReadOnlyGroup && !isLocalUserAdmin
             )
             }
         }
