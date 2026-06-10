@@ -485,28 +485,30 @@ fun SettingsScreen(
                         .glass(dark = dark, shape = RoundedCornerShape(16.dp))
                 ) {
                     Column {
-                        SectionHeader("Görünüm")
+                        if (settingsSearchQuery.isBlank()) SectionHeader("Görünüm")
 
                         val themeLabel = when {
                             followSystem -> "Sistemi Takip Et"
                             isDark -> "Koyu Tema"
                             else -> "Açık Tema"
                         }
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_chat_theme)) },
-                            supportingContent = { Text(themeLabel) },
-                            leadingContent = {
-                                Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable { showThemeDialog = true }
-                        )
-
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
+                        val themeTitle = stringResource(R.string.settings_chat_theme)
+                        SearchableSetting(settingsSearchQuery, themeTitle, themeLabel, "Görünüm") {
+                            ListItem(
+                                headlineContent = { Text(themeTitle) },
+                                supportingContent = { Text(themeLabel) },
+                                leadingContent = {
+                                    Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { showThemeDialog = true }
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
 
                         // === Dil Secimi ===
                         val currentLocale = androidx.appcompat.app.AppCompatDelegate.getApplicationLocales()
@@ -518,77 +520,82 @@ fun SettingsScreen(
                             currentLangTag.startsWith("tr") -> "Türkçe"
                             else -> "Sistem Dili"
                         }
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_language)) },
-                            supportingContent = { Text(currentLangLabel) },
-                            leadingContent = {
-                                Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable { showLanguageDialog = true }
-                        )
+                        val langTitle = stringResource(R.string.settings_language)
+                        SearchableSetting(settingsSearchQuery, langTitle, currentLangLabel, "dil", "language") {
+                            ListItem(
+                                headlineContent = { Text(langTitle) },
+                                supportingContent = { Text(currentLangLabel) },
+                                leadingContent = {
+                                    Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { showLanguageDialog = true }
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
 
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_backdrop)) },
-                            supportingContent = {
-                                Text(if (useDoodleBackground) "Doodle desenli arka plan" else "Düz renk arka plan")
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.Wallpaper, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = useDoodleBackground,
-                                    onCheckedChange = { viewModel.setUseDoodleBackground(it) },
-                                    colors = SwitchDefaults.colors(
-                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
-                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        val backdropTitle = stringResource(R.string.settings_backdrop)
+                        val backdropSubtitle = if (useDoodleBackground) "Doodle desenli arka plan" else "Düz renk arka plan"
+                        SearchableSetting(settingsSearchQuery, backdropTitle, backdropSubtitle, "arka plan", "doodle") {
+                            ListItem(
+                                headlineContent = { Text(backdropTitle) },
+                                supportingContent = { Text(backdropSubtitle) },
+                                leadingContent = {
+                                    Icon(Icons.Default.Wallpaper, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = useDoodleBackground,
+                                        onCheckedChange = { viewModel.setUseDoodleBackground(it) },
+                                        colors = SwitchDefaults.colors(
+                                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
                                     )
-                                )
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
 
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_fullscreen)) },
-                            supportingContent = {
-                                Text(if (fullscreenMode) "Sistem navigasyon çubuğu gizli" else "Sistem navigasyon çubuğu görünür")
-                            },
-                            leadingContent = {
-                                Icon(
-                                    if (fullscreenMode) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = fullscreenMode,
-                                    onCheckedChange = { viewModel.setFullscreenMode(it) },
-                                    colors = SwitchDefaults.colors(
-                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
-                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        val fullscreenTitle = stringResource(R.string.settings_fullscreen)
+                        val fullscreenSubtitle = if (fullscreenMode) "Sistem navigasyon çubuğu gizli" else "Sistem navigasyon çubuğu görünür"
+                        SearchableSetting(settingsSearchQuery, fullscreenTitle, fullscreenSubtitle, "tam ekran", "fullscreen") {
+                            ListItem(
+                                headlineContent = { Text(fullscreenTitle) },
+                                supportingContent = { Text(fullscreenSubtitle) },
+                                leadingContent = {
+                                    Icon(
+                                        if (fullscreenMode) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
-                                )
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = fullscreenMode,
+                                        onCheckedChange = { viewModel.setFullscreenMode(it) },
+                                        colors = SwitchDefaults.colors(
+                                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                        }
                     }
                 }
 
@@ -602,47 +609,57 @@ fun SettingsScreen(
                         .glass(dark = dark, shape = RoundedCornerShape(16.dp))
                 ) {
                     Column {
-                        SectionHeader("Bildirimler")
+                        if (settingsSearchQuery.isBlank()) SectionHeader("Bildirimler")
 
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_show_message_preview)) },
-                            supportingContent = {
-                                Text(
-                                    if (showNotificationContent) "Gönderici adı ve mesaj içeriği gösterilir"
-                                    else "Sadece 'Yeni mesaj' gösterilir"
-                                )
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = showNotificationContent,
-                                    onCheckedChange = { viewModel.setShowNotificationContent(it) },
-                                    colors = SwitchDefaults.colors(
-                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
-                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        val notifPreviewTitle = stringResource(R.string.settings_show_message_preview)
+                        val notifPreviewSubtitle = if (showNotificationContent) "Gönderici adı ve mesaj içeriği gösterilir"
+                            else "Sadece 'Yeni mesaj' gösterilir"
+                        SearchableSetting(settingsSearchQuery, notifPreviewTitle, notifPreviewSubtitle, "bildirim", "onizleme", "preview") {
+                            ListItem(
+                                headlineContent = { Text(notifPreviewTitle) },
+                                supportingContent = { Text(notifPreviewSubtitle) },
+                                leadingContent = {
+                                    Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = showNotificationContent,
+                                        onCheckedChange = { viewModel.setShowNotificationContent(it) },
+                                        colors = SwitchDefaults.colors(
+                                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
                                     )
-                                )
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
 
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        val soundLabel = if (notificationSoundUri.isEmpty()) {
-                            "Varsayılan"
-                        } else {
-                            try {
-                                val ringtone = RingtoneManager.getRingtone(context, Uri.parse(notificationSoundUri))
-                                ringtone?.getTitle(context) ?: "Varsayılan"
-                            } catch (_: Exception) { "Varsayılan" }
+                        // RingtoneManager.getRingtone() + getTitle() disk I/O yapar — ana
+                        // thread'de composition icinde calistirilirsa SettingsScreen'e gecis
+                        // animasyonunda donmaya yol acar. produceState ile IO dispatcher'a tasiyoruz;
+                        // baslangic degeri "Varsayilan", sonra arka planda gercek isim resolve edilir.
+                        val soundLabel by androidx.compose.runtime.produceState(
+                            initialValue = "Varsayılan",
+                            notificationSoundUri
+                        ) {
+                            if (notificationSoundUri.isEmpty()) {
+                                value = "Varsayılan"
+                                return@produceState
+                            }
+                            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    RingtoneManager.getRingtone(context, Uri.parse(notificationSoundUri))
+                                        ?.getTitle(context) ?: "Varsayılan"
+                                } catch (_: Exception) { "Varsayılan" }
+                            }
                         }
 
                         // Ses onizleme icin MediaPlayer durumu
@@ -662,8 +679,10 @@ fun SettingsScreen(
                             }
                         }
 
+                        val soundTitle = stringResource(R.string.settings_notification_sound)
+                        SearchableSetting(settingsSearchQuery, soundTitle, soundLabel, "bildirim sesi", "ses", "sound", "ringtone") {
                         ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_notification_sound)) },
+                            headlineContent = { Text(soundTitle) },
                             supportingContent = { Text(soundLabel) },
                             leadingContent = {
                                 Icon(Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -746,6 +765,7 @@ fun SettingsScreen(
                                 soundPickerLauncher.launch(intent)
                             }
                         )
+                        }
                     }
                 }
 
@@ -759,119 +779,133 @@ fun SettingsScreen(
                         .glass(dark = dark, shape = RoundedCornerShape(16.dp))
                 ) {
                     Column {
-                        SectionHeader("Arama")
+                        if (settingsSearchQuery.isBlank()) SectionHeader("Arama")
 
                         val canDrawOverlays = remember {
                             android.provider.Settings.canDrawOverlays(context)
                         }
 
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_incoming_call_screen)) },
-                            supportingContent = {
-                                Text(
-                                    if (canDrawOverlays) "Arama geldiğinde tam ekran açılır"
-                                    else "İzin ver — arama geldiğinde ekran açılsın"
-                                )
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            trailingContent = {
-                                if (!canDrawOverlays) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                }
-                            },
-                            modifier = Modifier.clickable {
-                                if (!canDrawOverlays) {
-                                    val intent = android.content.Intent(
-                                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        android.net.Uri.parse("package:${context.packageName}")
-                                    )
-                                    context.startActivity(intent)
-                                }
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
-
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        // Aramaları kaçırma — kapsamlı izin yönetim ekranı
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_missed_call)) },
-                            supportingContent = {
-                                val state = remember { com.securechat.app.util.CallReadinessHelper.currentState(context) }
-                                Text(
-                                    if (state.allGranted) "Tüm izinler verildi"
-                                    else "Aramaların gerçek zamanlı gelmesi için ayarları kontrol et"
-                                )
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            trailingContent = {
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            modifier = Modifier.clickable {
-                                onNavigateToCallReadiness()
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
-
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        // Pil optimizasyonu — uygulama kapaliyken aramalarin gec gelmemesi icin
-                        var batteryOptimized by remember {
-                            mutableStateOf(com.securechat.app.util.BatteryOptimizationHelper.isIgnoring(context))
+                        val incomingCallTitle = stringResource(R.string.settings_incoming_call_screen)
+                        val incomingCallSubtitle = if (canDrawOverlays) "Arama geldiğinde tam ekran açılır"
+                            else "İzin ver — arama geldiğinde ekran açılsın"
+                        SearchableSetting(settingsSearchQuery, incomingCallTitle, incomingCallSubtitle, "arama", "tam ekran") {
+                            ListItem(
+                                headlineContent = { Text(incomingCallTitle) },
+                                supportingContent = { Text(incomingCallSubtitle) },
+                                leadingContent = {
+                                    Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                trailingContent = {
+                                    if (!canDrawOverlays) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                },
+                                modifier = Modifier.clickable {
+                                    if (!canDrawOverlays) {
+                                        val intent = android.content.Intent(
+                                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            android.net.Uri.parse("package:${context.packageName}")
+                                        )
+                                        context.startActivity(intent)
+                                    }
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
                         }
-                        // Settings'ten donunce durumu yenile
+
+                        // Aramaları kaçırma — kapsamlı izin yönetim ekranı.
+                        // CallReadinessHelper.currentState() permission check + bircok sistem call yapar;
+                        // ilk composition'da main-thread'i bloklayip transition jank'ina sebep oluyor.
+                        // produceState ile IO'ya tasiyip baslangic state'i "tum izinler verildi varsayilan"
+                        // ile composition'a hizli giriyoruz.
+                        val missedCallTitle = stringResource(R.string.settings_missed_call)
+                        val missedCallAllGranted by androidx.compose.runtime.produceState(
+                            initialValue = true
+                        ) {
+                            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                com.securechat.app.util.CallReadinessHelper.currentState(context).allGranted
+                            }
+                        }
+                        val missedCallSubtitle = if (missedCallAllGranted) "Tüm izinler verildi"
+                            else "Aramaların gerçek zamanlı gelmesi için ayarları kontrol et"
+                        SearchableSetting(settingsSearchQuery, missedCallTitle, missedCallSubtitle, "arama", "kacirma", "izin") {
+                            ListItem(
+                                headlineContent = { Text(missedCallTitle) },
+                                supportingContent = { Text(missedCallSubtitle) },
+                                leadingContent = {
+                                    Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                trailingContent = {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                modifier = Modifier.clickable {
+                                    onNavigateToCallReadiness()
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
+
+                        // Pil optimizasyonu — BatteryOptimizationHelper.isIgnoring PowerManager
+                        // sorgu yapar; ilk composition'da main thread'i bloklamasin diye initial
+                        // state "true" (en az alarm dolu) ve LaunchedEffect ile asenkron resolve.
+                        var batteryOptimized by remember { mutableStateOf(true) }
                         androidx.compose.runtime.DisposableEffect(Unit) {
                             val lifecycleOwner = (context as? androidx.lifecycle.LifecycleOwner)
                             val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                                 if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                                    // ON_RESUME zaten arka planda calisir, dogrudan oku.
                                     batteryOptimized = com.securechat.app.util.BatteryOptimizationHelper.isIgnoring(context)
                                 }
                             }
                             lifecycleOwner?.lifecycle?.addObserver(observer)
                             onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
                         }
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_battery_optimization)) },
-                            supportingContent = {
-                                Text(
-                                    if (batteryOptimized) "Kapalı — aramalar gerçek zamanlı gelir"
-                                    else "Açık — kapat ki kapalı uygulamada aramalar geç gelmesin"
-                                )
-                            },
-                            leadingContent = {
-                                Icon(
-                                    Icons.Default.BatteryFull,
-                                    contentDescription = null,
-                                    tint = if (batteryOptimized) MaterialTheme.colorScheme.primary
-                                           else MaterialTheme.colorScheme.error
-                                )
-                            },
-                            trailingContent = {
-                                if (!batteryOptimized) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                } else {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                }
-                            },
-                            modifier = Modifier.clickable {
-                                if (!batteryOptimized) {
-                                    com.securechat.app.util.BatteryOptimizationHelper.requestExemption(context)
-                                }
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
+                        // Ilk durumu IO'da resolve et — main thread'i bloklamadan
+                        LaunchedEffect(Unit) {
+                            batteryOptimized = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                com.securechat.app.util.BatteryOptimizationHelper.isIgnoring(context)
+                            }
+                        }
+                        val batteryTitle = stringResource(R.string.settings_battery_optimization)
+                        val batterySubtitle = if (batteryOptimized) "Kapalı — aramalar gerçek zamanlı gelir"
+                            else "Açık — kapat ki kapalı uygulamada aramalar geç gelmesin"
+                        SearchableSetting(settingsSearchQuery, batteryTitle, batterySubtitle, "pil", "battery", "optimizasyon") {
+                            ListItem(
+                                headlineContent = { Text(batteryTitle) },
+                                supportingContent = { Text(batterySubtitle) },
+                                leadingContent = {
+                                    Icon(
+                                        Icons.Default.BatteryFull,
+                                        contentDescription = null,
+                                        tint = if (batteryOptimized) MaterialTheme.colorScheme.primary
+                                               else MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                trailingContent = {
+                                    if (!batteryOptimized) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    } else {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                },
+                                modifier = Modifier.clickable {
+                                    if (!batteryOptimized) {
+                                        com.securechat.app.util.BatteryOptimizationHelper.requestExemption(context)
+                                    }
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                        }
                     }
                 }
 
@@ -885,57 +919,59 @@ fun SettingsScreen(
                         .glass(dark = dark, shape = RoundedCornerShape(16.dp))
                 ) {
                     Column {
-                        SectionHeader("Planlı Mesajlar")
+                        if (settingsSearchQuery.isBlank()) SectionHeader("Planlı Mesajlar")
 
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_scheduled_messages)) },
-                            supportingContent = {
-                                Text(
-                                    if (scheduledMessagesEnabled) "Planlı mesajlar aktif"
-                                    else "Planlı mesajlar devre dışı"
-                                )
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.EditCalendar, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = scheduledMessagesEnabled,
-                                    onCheckedChange = { viewModel.setScheduledMessagesEnabled(it) },
-                                    colors = SwitchDefaults.colors(
-                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
-                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        val schedToggleTitle = stringResource(R.string.settings_scheduled_messages)
+                        val schedToggleSubtitle = if (scheduledMessagesEnabled) "Planlı mesajlar aktif" else "Planlı mesajlar devre dışı"
+                        SearchableSetting(settingsSearchQuery, schedToggleTitle, schedToggleSubtitle, "planli mesaj", "scheduled") {
+                            ListItem(
+                                headlineContent = { Text(schedToggleTitle) },
+                                supportingContent = { Text(schedToggleSubtitle) },
+                                leadingContent = {
+                                    Icon(Icons.Default.EditCalendar, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = scheduledMessagesEnabled,
+                                        onCheckedChange = { viewModel.setScheduledMessagesEnabled(it) },
+                                        colors = SwitchDefaults.colors(
+                                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
                                     )
-                                )
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
 
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_manage_scheduled)) },
-                            supportingContent = { Text(stringResource(R.string.settings_manage_scheduled_desc)) },
-                            leadingContent = {
-                                Icon(Icons.Default.EditCalendar, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            trailingContent = {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable { onScheduledMessages() }
-                        )
+                        val schedManageTitle = stringResource(R.string.settings_manage_scheduled)
+                        val schedManageSubtitle = stringResource(R.string.settings_manage_scheduled_desc)
+                        SearchableSetting(settingsSearchQuery, schedManageTitle, schedManageSubtitle, "planli mesaj") {
+                            ListItem(
+                                headlineContent = { Text(schedManageTitle) },
+                                supportingContent = { Text(schedManageSubtitle) },
+                                leadingContent = {
+                                    Icon(Icons.Default.EditCalendar, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                trailingContent = {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { onScheduledMessages() }
+                            )
+                        }
                     }
                 }
 
@@ -949,16 +985,20 @@ fun SettingsScreen(
                         .glass(dark = dark, shape = RoundedCornerShape(16.dp))
                 ) {
                     Column {
-                        SectionHeader("Güvenlik")
+                        if (settingsSearchQuery.isBlank()) SectionHeader("Güvenlik")
 
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_e2ee)) },
-                            supportingContent = { Text(stringResource(R.string.settings_e2ee_desc)) },
-                            leadingContent = {
-                                Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
+                        val e2eeTitle = stringResource(R.string.settings_e2ee)
+                        val e2eeSubtitle = stringResource(R.string.settings_e2ee_desc)
+                        SearchableSetting(settingsSearchQuery, e2eeTitle, e2eeSubtitle, "uctan uca", "e2ee", "guvenlik", "sifreleme") {
+                            ListItem(
+                                headlineContent = { Text(e2eeTitle) },
+                                supportingContent = { Text(e2eeSubtitle) },
+                                leadingContent = {
+                                    Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                        }
                     }
                 }
 
@@ -972,37 +1012,37 @@ fun SettingsScreen(
                         .glass(dark = dark, shape = RoundedCornerShape(16.dp))
                 ) {
                     Column {
-                        SectionHeader("Gizlilik")
+                        if (settingsSearchQuery.isBlank()) SectionHeader("Gizlilik")
 
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_last_seen)) },
-                            supportingContent = {
-                                Text(
-                                    if (shareLastSeen) "Diğer kullanıcılar son görülme zamanınızı görebilir"
-                                    else "Son görülme zamanınız gizli"
-                                )
-                            },
-                            leadingContent = {
-                                Icon(
-                                    if (shareLastSeen) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = shareLastSeen,
-                                    onCheckedChange = { viewModel.setShareLastSeen(it) },
-                                    colors = SwitchDefaults.colors(
-                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
-                                        uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        val lastSeenTitle = stringResource(R.string.settings_last_seen)
+                        val lastSeenSubtitle = if (shareLastSeen) "Diğer kullanıcılar son görülme zamanınızı görebilir"
+                            else "Son görülme zamanınız gizli"
+                        SearchableSetting(settingsSearchQuery, lastSeenTitle, lastSeenSubtitle, "son gorulme", "gizlilik", "last seen") {
+                            ListItem(
+                                headlineContent = { Text(lastSeenTitle) },
+                                supportingContent = { Text(lastSeenSubtitle) },
+                                leadingContent = {
+                                    Icon(
+                                        if (shareLastSeen) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
-                                )
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = shareLastSeen,
+                                        onCheckedChange = { viewModel.setShareLastSeen(it) },
+                                        colors = SwitchDefaults.colors(
+                                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                            uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                        }
                     }
                 }
 
@@ -1016,106 +1056,19 @@ fun SettingsScreen(
                         .glass(dark = dark, shape = RoundedCornerShape(16.dp))
                 ) {
                     Column {
-                        SectionHeader("Veri Yönetimi")
+                        if (settingsSearchQuery.isBlank()) SectionHeader("Veri Yönetimi")
 
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_message_storage)) },
-                            supportingContent = { Text(stringResource(R.string.settings_message_storage_desc)) },
-                            leadingContent = {
-                                Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                        )
-
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_backup)) },
-                            supportingContent = { Text(stringResource(R.string.settings_backup_desc)) },
-                            leadingContent = {
-                                Icon(Icons.Default.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable { onBackupClick() }
-                        )
-
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        // Depolama bilgisi — tiklaninca per-chat detay ekranina gider
-                        storageInfo?.let { info ->
+                        val msgStorageTitle = stringResource(R.string.settings_message_storage)
+                        val msgStorageSubtitle = stringResource(R.string.settings_message_storage_desc)
+                        SearchableSetting(settingsSearchQuery, msgStorageTitle, msgStorageSubtitle, "mesaj saklama", "depolama") {
                             ListItem(
-                                headlineContent = { Text(stringResource(R.string.settings_storage_usage)) },
-                                supportingContent = {
-                                    Column {
-                                        Text("Toplam: ${formatStorageSize(info.totalSize)}")
-                                        Text(
-                                            "Veritabani: ${formatStorageSize(info.dbSize)} | " +
-                                            "Onbellek: ${formatStorageSize(info.cacheSize)} | " +
-                                            "Dosyalar: ${formatStorageSize(info.filesSize)}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
+                                headlineContent = { Text(msgStorageTitle) },
+                                supportingContent = { Text(msgStorageSubtitle) },
                                 leadingContent = {
-                                    Icon(Icons.Default.SdStorage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                modifier = Modifier.clickable { onStorageUsageClick() }
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                             )
-
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                thickness = 0.5.dp,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
-
-                            // Onbellek temizleme butonu
-                            ListItem(
-                                headlineContent = { Text("Onbellegi Temizle") },
-                                supportingContent = { Text("Onbellek: ${formatStorageSize(info.cacheSize)}") },
-                                leadingContent = {
-                                    Icon(Icons.Default.CleaningServices, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                modifier = Modifier.clickable { viewModel.clearCache() }
-                            )
-
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                thickness = 0.5.dp,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
-
-                            // Otomatik indirme ayarlari
-                            ListItem(
-                                headlineContent = { Text("Otomatik İndirme") },
-                                supportingContent = {
-                                    Text(
-                                        "Wi-Fi ve hücresel veride medya indirme kuralları",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                },
-                                leadingContent = {
-                                    Icon(
-                                        Icons.Default.Download,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                modifier = Modifier.clickable { onAutoDownloadClick() }
-                            )
-
                             HorizontalDivider(
                                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
                                 thickness = 0.5.dp,
@@ -1123,31 +1076,140 @@ fun SettingsScreen(
                             )
                         }
 
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.settings_nuke_dialog_title), color = MaterialTheme.colorScheme.error) },
-                            supportingContent = { Text("Tüm mesajlar ve sohbetler kalıcı olarak silinir", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) },
-                            leadingContent = {
-                                Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable { showNukeDialog = true }
-                        )
+                        val backupTitle = stringResource(R.string.settings_backup)
+                        val backupSubtitle = stringResource(R.string.settings_backup_desc)
+                        SearchableSetting(settingsSearchQuery, backupTitle, backupSubtitle, "yedek", "backup", "geri yukle") {
+                            ListItem(
+                                headlineContent = { Text(backupTitle) },
+                                supportingContent = { Text(backupSubtitle) },
+                                leadingContent = {
+                                    Icon(Icons.Default.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { onBackupClick() }
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
 
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            thickness = 0.5.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
+                        // Depolama bilgisi — tiklaninca per-chat detay ekranina gider
+                        storageInfo?.let { info ->
+                            val storageUsageTitle = stringResource(R.string.settings_storage_usage)
+                            val storageUsageSubtitle = "Toplam: ${formatStorageSize(info.totalSize)}"
+                            SearchableSetting(settingsSearchQuery, storageUsageTitle, storageUsageSubtitle, "depolama", "kullanim") {
+                                ListItem(
+                                    headlineContent = { Text(storageUsageTitle) },
+                                    supportingContent = {
+                                        Column {
+                                            Text("Toplam: ${formatStorageSize(info.totalSize)}")
+                                            Text(
+                                                "Veritabani: ${formatStorageSize(info.dbSize)} | " +
+                                                "Onbellek: ${formatStorageSize(info.cacheSize)} | " +
+                                                "Dosyalar: ${formatStorageSize(info.filesSize)}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    leadingContent = {
+                                        Icon(Icons.Default.SdStorage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    },
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                    modifier = Modifier.clickable { onStorageUsageClick() }
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                    thickness = 0.5.dp,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
 
-                        ListItem(
-                            headlineContent = { Text("Hesabı Sil", color = MaterialTheme.colorScheme.error) },
-                            supportingContent = { Text("Hesabınız ve tüm verileriniz kalıcı olarak silinir", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) },
-                            leadingContent = {
-                                Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable { showDeleteAccountDialog = true }
-                        )
+                            // Onbellek temizleme butonu
+                            val cacheTitle = "Onbellegi Temizle"
+                            val cacheSubtitle = "Onbellek: ${formatStorageSize(info.cacheSize)}"
+                            SearchableSetting(settingsSearchQuery, cacheTitle, cacheSubtitle, "onbellek", "cache", "temizle") {
+                                ListItem(
+                                    headlineContent = { Text(cacheTitle) },
+                                    supportingContent = { Text(cacheSubtitle) },
+                                    leadingContent = {
+                                        Icon(Icons.Default.CleaningServices, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    },
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                    modifier = Modifier.clickable { viewModel.clearCache() }
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                    thickness = 0.5.dp,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
+
+                            // Otomatik indirme ayarlari
+                            val autoDlTitle = "Otomatik İndirme"
+                            val autoDlSubtitle = "Wi-Fi ve hücresel veride medya indirme kuralları"
+                            SearchableSetting(settingsSearchQuery, autoDlTitle, autoDlSubtitle, "indirme", "download", "medya") {
+                                ListItem(
+                                    headlineContent = { Text(autoDlTitle) },
+                                    supportingContent = {
+                                        Text(
+                                            autoDlSubtitle,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    },
+                                    leadingContent = {
+                                        Icon(
+                                            Icons.Default.Download,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                    modifier = Modifier.clickable { onAutoDownloadClick() }
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                    thickness = 0.5.dp,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
+                        }
+
+                        val nukeTitle = stringResource(R.string.settings_nuke_dialog_title)
+                        val nukeSubtitle = "Tüm mesajlar ve sohbetler kalıcı olarak silinir"
+                        SearchableSetting(settingsSearchQuery, nukeTitle, nukeSubtitle, "sil", "temizle", "nuke") {
+                            ListItem(
+                                headlineContent = { Text(nukeTitle, color = MaterialTheme.colorScheme.error) },
+                                supportingContent = { Text(nukeSubtitle, color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) },
+                                leadingContent = {
+                                    Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { showNukeDialog = true }
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
+
+                        val deleteAccTitle = "Hesabı Sil"
+                        val deleteAccSubtitle = "Hesabınız ve tüm verileriniz kalıcı olarak silinir"
+                        SearchableSetting(settingsSearchQuery, deleteAccTitle, deleteAccSubtitle, "hesap sil", "delete account") {
+                            ListItem(
+                                headlineContent = { Text(deleteAccTitle, color = MaterialTheme.colorScheme.error) },
+                                supportingContent = { Text(deleteAccSubtitle, color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)) },
+                                leadingContent = {
+                                    Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { showDeleteAccountDialog = true }
+                            )
+                        }
                     }
                 }
 
@@ -1164,27 +1226,29 @@ fun SettingsScreen(
                         .glass(dark = dark, shape = RoundedCornerShape(16.dp))
                 ) {
                     Column {
-                        SectionHeader("Hakkında")
+                        if (settingsSearchQuery.isBlank()) SectionHeader("Hakkında")
 
-                        ListItem(
-                            headlineContent = { Text("Uygulama Versiyonu") },
-                            // BuildConfig'den dinamik — versionName'e git SHA gomulu, kullanici
-                            // hangi build'i yukledigini buradan kesin dogrulayabilir.
-                            supportingContent = { Text(com.securechat.app.BuildConfig.VERSION_NAME) },
-                            leadingContent = {
-                                Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                if (!showEasterEgg) {
-                                    versionTapCount++
-                                    if (versionTapCount >= 5) {
-                                        showEasterEgg = true
-                                        versionTapCount = 0
+                        val versionTitle = "Uygulama Versiyonu"
+                        val versionSubtitle = com.securechat.app.BuildConfig.VERSION_NAME
+                        SearchableSetting(settingsSearchQuery, versionTitle, versionSubtitle, "versiyon", "version", "hakkinda") {
+                            ListItem(
+                                headlineContent = { Text(versionTitle) },
+                                supportingContent = { Text(versionSubtitle) },
+                                leadingContent = {
+                                    Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable {
+                                    if (!showEasterEgg) {
+                                        versionTapCount++
+                                        if (versionTapCount >= 5) {
+                                            showEasterEgg = true
+                                            versionTapCount = 0
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
 
