@@ -85,6 +85,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import com.securechat.app.R
 import androidx.compose.ui.graphics.Color
@@ -101,6 +103,7 @@ import com.securechat.app.ui.components.GlassDropdownMenu
 import com.securechat.app.ui.theme.AzureDoodleBackdrop
 import com.securechat.app.ui.theme.DisplayFamily
 import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.azure
 import com.securechat.app.ui.theme.glass
 import com.securechat.app.ui.viewmodel.ConversationsViewModel
 import com.securechat.network.model.ConnectionState
@@ -702,8 +705,11 @@ private fun SwipeableConversationItem(
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
 
+    // Threshold %50 — kullanici kararliligini gostermek icin yarim ekran kaydirmali.
+    // confirmValueChange yalnizca threshold gercekten asildiginda tetiklenir; kullanici
+    // azar (0.3-0.4) kaydirip biraktiginda aksiyon olmaz (eski %40 yanlislikla siliyordu).
     val dismissState = rememberSwipeToDismissBoxState(
-        positionalThreshold = { totalDistance -> totalDistance * 0.4f },
+        positionalThreshold = { totalDistance -> totalDistance * 0.5f },
         confirmValueChange = { dismissValue ->
             when (dismissValue) {
                 SwipeToDismissBoxValue.EndToStart -> {
@@ -723,40 +729,23 @@ private fun SwipeableConversationItem(
         state = dismissState,
         backgroundContent = {
             val direction = dismissState.dismissDirection
-            if (direction == SwipeToDismissBoxValue.StartToEnd) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF00897B)),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.Archive, contentDescription = "Arşivle", tint = Color.White)
-                        Text("Arşivle", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-            } else if (direction == SwipeToDismissBoxValue.EndToStart) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.error),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    Row(
-                        modifier = Modifier.padding(end = 24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = "Sil", tint = MaterialTheme.colorScheme.onError)
-                        Text("Sil", color = MaterialTheme.colorScheme.onError, fontWeight = FontWeight.Bold)
-                    }
-                }
+            val az = MaterialTheme.azure
+            when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> SwipeActionBackground(
+                    progress = dismissState.progress,
+                    accentColor = az.azureGlow,
+                    icon = Icons.Default.Archive,
+                    contentDescription = "Arşivle",
+                    alignStart = true
+                )
+                SwipeToDismissBoxValue.EndToStart -> SwipeActionBackground(
+                    progress = dismissState.progress,
+                    accentColor = az.danger,
+                    icon = Icons.Default.Delete,
+                    contentDescription = "Sil",
+                    alignStart = false
+                )
+                else -> {}
             }
         },
         enableDismissFromStartToEnd = onArchiveRequest != null,
@@ -1186,7 +1175,7 @@ private fun SwipeableArchivedItem(
     var showContextMenu by remember { mutableStateOf(false) }
 
     val dismissState = rememberSwipeToDismissBoxState(
-        positionalThreshold = { totalDistance -> totalDistance * 0.4f },
+        positionalThreshold = { totalDistance -> totalDistance * 0.5f },
         confirmValueChange = { dismissValue ->
             when (dismissValue) {
                 SwipeToDismissBoxValue.StartToEnd -> {
@@ -1206,40 +1195,23 @@ private fun SwipeableArchivedItem(
         state = dismissState,
         backgroundContent = {
             val direction = dismissState.dismissDirection
-            if (direction == SwipeToDismissBoxValue.StartToEnd) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF00897B)),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.Unarchive, contentDescription = "Arşivden Çıkar", tint = Color.White)
-                        Text("Arşivden Çıkar", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-            } else if (direction == SwipeToDismissBoxValue.EndToStart) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.error),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    Row(
-                        modifier = Modifier.padding(end = 24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = "Sil", tint = MaterialTheme.colorScheme.onError)
-                        Text("Sil", color = MaterialTheme.colorScheme.onError, fontWeight = FontWeight.Bold)
-                    }
-                }
+            val az = MaterialTheme.azure
+            when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> SwipeActionBackground(
+                    progress = dismissState.progress,
+                    accentColor = az.azureGlow,
+                    icon = Icons.Default.Unarchive,
+                    contentDescription = "Arşivden Çıkar",
+                    alignStart = true
+                )
+                SwipeToDismissBoxValue.EndToStart -> SwipeActionBackground(
+                    progress = dismissState.progress,
+                    accentColor = az.danger,
+                    icon = Icons.Default.Delete,
+                    contentDescription = "Sil",
+                    alignStart = false
+                )
+                else -> {}
             }
         },
         enableDismissFromStartToEnd = true,
@@ -1366,6 +1338,63 @@ private fun GlobalSearchResultItem(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 11.sp
+        )
+    }
+}
+
+/**
+ * Swipe arka plani — arsivle/sil/arsivden cikar gibi aksiyonlar icin Azure cam temasi ile uyumlu
+ * yumusak accent kart. Threshold (%50) gecildiginde gorsel olarak vurgulanir + haptic verilir
+ * boylece kullanici "yeterli, birak simdi" sinyalini parmagi ekrandayken alir.
+ *
+ * progress < 0.5  → soft alpha (0.10..0.30), kucuk ikon (0.7..1.05x), ince border
+ * progress >= 0.5 → solid alpha (~0.55), buyuk ikon (1.20..1.35x), kalin ve parlak border + haptic
+ */
+@Composable
+private fun SwipeActionBackground(
+    progress: Float,
+    accentColor: Color,
+    icon: ImageVector,
+    contentDescription: String,
+    alignStart: Boolean
+) {
+    val haptic = com.securechat.app.ui.components.rememberHaptic()
+    val thresholdMet = progress >= 0.5f
+
+    // Threshold ilk gecildiginde bir kez haptic at — kullanici uyarilsin.
+    androidx.compose.runtime.LaunchedEffect(thresholdMet) {
+        if (thresholdMet) haptic.light()
+    }
+
+    val iconScale = if (thresholdMet) {
+        (1.20f + (progress - 0.5f) * 0.30f).coerceAtMost(1.35f)
+    } else {
+        (0.70f + progress * 0.70f).coerceIn(0.70f, 1.05f)
+    }
+    val containerAlpha = if (thresholdMet) 0.55f else (0.10f + progress * 0.30f).coerceIn(0.10f, 0.35f)
+    val borderAlpha = if (thresholdMet) 0.85f else 0.30f
+    val borderWidth = if (thresholdMet) 1.5.dp else 1.dp
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(16.dp))
+            .background(accentColor.copy(alpha = containerAlpha))
+            .border(
+                width = borderWidth,
+                color = accentColor.copy(alpha = borderAlpha),
+                shape = RoundedCornerShape(16.dp)
+            ),
+        contentAlignment = if (alignStart) Alignment.CenterStart else Alignment.CenterEnd
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = accentColor,
+            modifier = Modifier
+                .padding(start = if (alignStart) 28.dp else 0.dp, end = if (alignStart) 0.dp else 28.dp)
+                .size(28.dp)
+                .scale(iconScale)
         )
     }
 }
