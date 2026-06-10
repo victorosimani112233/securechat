@@ -64,6 +64,7 @@ import com.securechat.app.ui.screen.PhoneVerificationScreen
 import com.securechat.app.ui.screen.ScheduledMessagesScreen
 import com.securechat.app.ui.screen.SettingsScreen
 import com.securechat.app.ui.screen.StorageUsageScreen
+import com.securechat.app.ui.screen.AutoDownloadSettingsScreen
 import com.securechat.app.ui.screen.OnboardingScreen
 import com.securechat.app.ui.screen.PermissionWalkthroughScreen
 import com.securechat.app.ui.screen.SplashScreen
@@ -420,6 +421,12 @@ fun SecureChatNavHost(
                 )
             }
 
+            composable("auto_download") {
+                AutoDownloadSettingsScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
             composable("scheduled_messages") {
                 ScheduledMessagesScreen(
                     onBackClick = { navController.popBackStack() }
@@ -497,6 +504,7 @@ private fun MainPagerScreen(
                     onScheduledMessages = { navController.navigate("scheduled_messages/1") },
                     onBackupClick = { navController.navigate("backup") },
                     onStorageUsageClick = { navController.navigate("storage_usage") },
+                    onAutoDownloadClick = { navController.navigate("auto_download") },
                     onAccountDeleted = {
                         navController.navigate("auth/phone") {
                             popUpTo(0) { inclusive = true }

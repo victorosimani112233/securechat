@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Info
@@ -123,6 +124,7 @@ fun SettingsScreen(
     onScheduledMessages: () -> Unit = {},
     onBackupClick: () -> Unit = {},
     onStorageUsageClick: () -> Unit = {},
+    onAutoDownloadClick: () -> Unit = {},
     onAccountDeleted: () -> Unit = {},
     onNavigateToCallReadiness: () -> Unit = {}
 ) {
@@ -1011,6 +1013,33 @@ fun SettingsScreen(
                                 },
                                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                                 modifier = Modifier.clickable { viewModel.clearCache() }
+                            )
+
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+
+                            // Otomatik indirme ayarlari
+                            ListItem(
+                                headlineContent = { Text("Otomatik İndirme") },
+                                supportingContent = {
+                                    Text(
+                                        "Wi-Fi ve hücresel veride medya indirme kuralları",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                leadingContent = {
+                                    Icon(
+                                        Icons.Default.Download,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { onAutoDownloadClick() }
                             )
 
                             HorizontalDivider(

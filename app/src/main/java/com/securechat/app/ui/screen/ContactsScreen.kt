@@ -90,6 +90,7 @@ import com.securechat.contacts.model.DeviceContact
 import com.securechat.contacts.model.RegisteredContact
 import com.securechat.app.ui.theme.AzureDoodleBackdrop
 import com.securechat.app.ui.theme.LocalDarkTheme
+import com.securechat.app.ui.theme.azure
 import com.securechat.app.ui.theme.glass
 import com.securechat.app.ui.theme.MonoFamily
 import com.securechat.app.ui.theme.DisplayFamily
@@ -140,6 +141,32 @@ fun ContactsScreen(
             val h = com.securechat.contacts.UserDiscoveryService.hashPhoneNumber(contact.phoneNumber)
             h !in registeredPhoneHashes
         }
+    }
+
+    // Alfabetik gruplama — kayitsiz rehber kisileri ilk harfe gore bucket'lanir.
+    // Turkce locale ile uppercase (İ/I, Ç, Ğ vb. dogru islenir). Harf disi karakterler (digit,
+    // emoji, ozel) "#" bucket'inda toplanir ve listede en sona koyulur. Sirayi tr Collator
+    // belirler — A B C Ç D E F G Ğ H I İ J K L M N O Ö P Q R S Ş T U Ü V W X Y Z, sonra "#".
+    val groupedUnregistered = remember(unregisteredPhoneContacts) {
+        val trLocale = java.util.Locale("tr", "TR")
+        val collator = java.text.Collator.getInstance(trLocale)
+        val raw = unregisteredPhoneContacts.groupBy { contact ->
+            val ch = contact.displayName.firstOrNull { !it.isWhitespace() }
+            if (ch != null && ch.isLetter()) ch.toString().uppercase(trLocale) else "#"
+        }
+        // Her bucket icindeki kisileri de tr collator'a gore sirala — A altinda Ali, Ayşe, Aysu...
+        val sorted = raw.mapValues { (_, list) ->
+            list.sortedWith(compareBy(collator) { it.displayName })
+        }
+        // Bucket key'lerini collator ile sirala; "#" en sona
+        sorted.toSortedMap(Comparator { a, b ->
+            when {
+                a == "#" && b == "#" -> 0
+                a == "#" -> 1
+                b == "#" -> -1
+                else -> collator.compare(a, b)
+            }
+        })
     }
 
     // LazyColumn scroll state — sayfalama icin listenin sonunu tespit eder
@@ -427,31 +454,25 @@ fun ContactsScreen(
                 )
             }
 
-            // Keşif işlemi devam ederken gösterge
+            // Keşif işlemi devam ederken — ince linear progress + minimal metin.
+            // Eskiden tum genislikte goz alici bir kart vardi; akisi kesiyordu.
+            // Simdi 2dp ince cubuk + kucuk caps metin — fonksiyon ayni, dikkat dagilmiyor.
             if (isDiscovering) {
                 item {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        androidx.compose.material3.LinearProgressIndicator(
                             modifier = Modifier
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Kişiler taranıyor...",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
+                                .fillMaxWidth()
+                                .height(2.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                        )
+                        Text(
+                            text = "Rehber taranıyor",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
                     }
                 }
             }
@@ -492,18 +513,17 @@ fun ContactsScreen(
                 }
             }
 
-            // Kayıtlı (Elçim kullanan) kişiler
+            // Kayıtlı (Elçim kullanan) kişiler — sticky header + count badge.
             if (contacts.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Elçim Kullanıcıları",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                val registeredList = contacts.distinctBy { it.userId }
+                stickyHeader(key = "header_registered") {
+                    SectionHeaderBar(
+                        title = "Elçim Kullanıcıları",
+                        count = registeredList.size,
+                        accentColor = MaterialTheme.colorScheme.primary
                     )
                 }
-                items(contacts.distinctBy { it.userId }, key = { "reg_${it.userId}" }) { contact ->
+                items(registeredList, key = { "reg_${it.userId}" }) { contact ->
                     ContactItem(
                         contact = contact,
                         onClick = { onContactClick(contact.userId) }
@@ -534,37 +554,111 @@ fun ContactsScreen(
                 }
             }
 
-            // Telefon rehberindeki **KAYITSIZ** kişiler — registered'lar yukari section'da.
-            // unregisteredPhoneContacts ContactsScreen scope'unda hesaplandi (remember ile).
+            // Telefon rehberindeki **KAYITSIZ** kişiler — sticky header + count badge +
+            // alfabetik bucket'lar (her harf icin ayri stickyHeader). LazyColumn ayni anda
+            // tek bir sticky tutar; ust section header'i scroll edilince harf header'i ona
+            // yapisik kalir — WhatsApp/iOS rehber pattern'i.
             if (unregisteredPhoneContacts.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Rehberdeki Diğer Kişiler",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.secondary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                stickyHeader(key = "header_others") {
+                    SectionHeaderBar(
+                        title = "Rehberdeki Diğer Kişiler",
+                        count = unregisteredPhoneContacts.size,
+                        accentColor = MaterialTheme.colorScheme.secondary
                     )
                 }
-                items(unregisteredPhoneContacts, key = { "phone_${it.id}_${it.phoneNumber}" }) { contact ->
-                    PhoneContactItem(
-                        contact = contact,
-                        isRegistered = false,
-                        onClick = {
-                            // Kayitsiz kisi — sadece invite akisi tetiklenebilir.
-                            // (Tiklama davranisi PhoneContactItem'a ait; burada noop.)
-                        }
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(start = 72.dp),
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                        thickness = 0.5.dp
-                    )
+                groupedUnregistered.forEach { (letter, contactsForLetter) ->
+                    stickyHeader(key = "letter_$letter") {
+                        LetterHeaderBar(letter = letter)
+                    }
+                    items(contactsForLetter, key = { "phone_${it.id}_${it.phoneNumber}" }) { contact ->
+                        PhoneContactItem(
+                            contact = contact,
+                            isRegistered = false,
+                            onClick = {
+                                // Kayitsiz kisi — sadece invite akisi tetiklenebilir.
+                            }
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 72.dp),
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                            thickness = 0.5.dp
+                        )
+                    }
                 }
             }
         }
     }
     } // Box
+}
+
+/**
+ * Bolum baslik bandi — "Elçim Kullanıcıları · 12" formatinda.
+ * stickyHeader olarak kullanilir — scroll'da yukarida sabitlenir.
+ * Arka plan opak surface gradient: alttaki LazyColumn content sticky uzerinden gecince gozukmesin.
+ */
+@Composable
+private fun SectionHeaderBar(
+    title: String,
+    count: Int,
+    accentColor: Color
+) {
+    val dark = LocalDarkTheme.current
+    val az = MaterialTheme.azure
+    // Stickyheader transparent kalirsa altinda akan icerik gorulur — bu yuzden temaya gore
+    // opak surface uzerine yerlestirilir (light: paper, dark: nightRaise).
+    Surface(
+        color = if (dark) az.nightRaise else az.paper,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = accentColor,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            // Sayi badge'i — pill seklinde. Kullanici listede kac kisi oldugunu anlik gorur.
+            Surface(
+                color = accentColor.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(
+                    text = count.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = accentColor,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Alfabetik harf basligi — "A", "B", "Ç" vb. stickyHeader olarak harf gecisinde sabitlenir.
+ * Section header'dan daha kucuk; ikincil seviye visual hierarchy.
+ */
+@Composable
+private fun LetterHeaderBar(letter: String) {
+    val dark = LocalDarkTheme.current
+    val az = MaterialTheme.azure
+    Surface(
+        color = if (dark) az.nightRaise else az.paper,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = letter,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
+        )
+    }
 }
 
 /**
