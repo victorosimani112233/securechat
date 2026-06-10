@@ -603,7 +603,7 @@ fun CallScreen(
                 // Alt kisim: kontrol butonlari
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(bottom = 96.dp)
+                    modifier = Modifier.padding(bottom = 48.dp)
                 ) {
                     if (isIncomingRinging) {
                         // Gelen arama: 2 ayri swipe-up buton (Reddet + Cevapla)
