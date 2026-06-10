@@ -50,6 +50,7 @@ class ChatViewModel @Inject constructor(
     private val sendMessageUseCase: SendMessageUseCase,
     private val observeMessagesUseCase: ObserveMessagesUseCase,
     private val markAsReadUseCase: MarkAsReadUseCase,
+    private val pinMessageUseCase: com.securechat.app.domain.usecase.PinMessageUseCase,
     private val messageRepository: MessageRepository,
     private val conversationDao: ConversationDao,
     private val fileTransferManager: FileTransferManager,
@@ -134,6 +135,14 @@ class ChatViewModel @Inject constructor(
     /** Grup sohbeti mi? — UI'da export kararlari bunu kullanir (1:1 sohbet etkilenmez). */
     private val _isGroupChat = MutableStateFlow(false)
     val isGroupChat: StateFlow<Boolean> = _isGroupChat.asStateFlow()
+
+    /**
+     * Sabitlenmis (pin) son mesaj — chat header altinda banner gosterilir.
+     * Birden fazla pin varsa observeLatestPinned en yenisini dondurur.
+     */
+    val pinnedMessage: StateFlow<LocalMessage?> = messageRepository
+        .observeLatestPinnedMessage(conversationId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** Export izin banner'i — admin yeni katilanlari bilgilendirmek icin. */
     private val _shouldShowExportBanner = MutableStateFlow(false)
@@ -566,6 +575,21 @@ class ChatViewModel @Inject constructor(
                 val replyToId = failedMessage.replyToId
                 messageRepository.deleteMessage(messageId)
                 sendMessageUseCase(conversationId, content, replyToId)
+            }
+        }
+    }
+
+    /**
+     * Mesaji sabitler veya pin'i kaldirir.
+     * Grup mesajinda yetki kontrolu use case icinde — admin degilse IllegalAccessException.
+     * UI hata olursa snackbar/log ile gosterir.
+     */
+    fun togglePinMessage(messageId: String, isPinned: Boolean) {
+        viewModelScope.launch {
+            try {
+                pinMessageUseCase(conversationId, messageId, isPinned)
+            } catch (e: Exception) {
+                android.util.Log.w("ChatViewModel", "Pin islemi basarisiz: ${e.message}")
             }
         }
     }

@@ -271,6 +271,7 @@ class IncomingMessageHandler @Inject constructor(
                 is SignalMessage.DeliveryReceipt -> deliveryReceiptHandler.handle(signal)
                 is SignalMessage.MessageDelete -> messageEditDeleteHandler.onDelete(signal)
                 is SignalMessage.MessageEdit -> messageEditDeleteHandler.onEdit(signal)
+                is SignalMessage.MessagePin -> handleMessagePin(signal)
                 is SignalMessage.DisappearingTimer -> disappearingTimerHandler.handle(signal)
                 is SignalMessage.TypingIndicator -> typingPresenceHandler.onTyping(signal, scope)
                 is SignalMessage.PresenceUpdate -> typingPresenceHandler.onPresence(signal)
@@ -2081,4 +2082,52 @@ class IncomingMessageHandler @Inject constructor(
     }
 
     // Faz 10: handleAdminEncryptedLog -> AdminEncryptedLogHandler (handlers/)
+
+    /**
+     * MessagePin signal handler — karsi taraf bir mesaji sabitledi/pin kaldirdi.
+     *
+     * Yetki tekrar kontrolu: grup mesajinda sender admin degilse signal'i sessizce
+     * dropla (server zero-knowledge — kotu niyetli client her zaman gonderebilir,
+     * client-side enforce yapmaliyiz).
+     *
+     * Lokal mesaj DB'de yoksa (gec gelen signal veya silinmis mesaj) sessizce yok say.
+     */
+    private suspend fun handleMessagePin(signal: SignalMessage.MessagePin) {
+        val localUserId = userSession.userId ?: return
+        val message = messageRepository.getMessageById(signal.messageId) ?: run {
+            android.util.Log.d(
+                "IncomingHandler",
+                "MessagePin: mesaj bulunamadi (silinmis veya gec geldi): ${signal.messageId}"
+            )
+            return
+        }
+
+        // Grup mesajinda admin kontrolu
+        val conversationId = signal.groupId ?: message.conversationId
+        val conv = conversationDao.getById(conversationId)
+        if (conv?.isGroup == true) {
+            val admins = conv.groupAdmins?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+            if (signal.senderId !in admins) {
+                android.util.Log.w(
+                    "IncomingHandler",
+                    "MessagePin: gonderici admin degil, signal dropluyor: ${signal.senderId} -> ${signal.groupId}"
+                )
+                return
+            }
+        }
+
+        // Kendi cihazimizdaki pin durumu zaten guncel (sender = biz). Yine de
+        // multi-device senaryosunda gelirse idempotent guncelleme yapariz.
+        if (signal.senderId == localUserId) return
+
+        messageRepository.updateMessagePinned(
+            messageId = signal.messageId,
+            isPinned = signal.isPinned,
+            pinnedAt = signal.pinnedAt
+        )
+        android.util.Log.d(
+            "IncomingHandler",
+            "MessagePin uygulandi: ${signal.messageId} isPinned=${signal.isPinned}"
+        )
+    }
 }

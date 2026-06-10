@@ -30,7 +30,9 @@ data class LocalMessage(
     val reactions: String? = null, // Emoji reaksiyonlari JSON: {"👍":["userId1"],"❤️":["userId2"]}
     val caption: String? = null, // Medya altyazisi — resim/video ile ayni baloncukta
     val isViewOnce: Boolean = false, // Tek gosterimlik medya
-    val isViewed: Boolean = false // Tek gosterimlik medya goruntulendi mi
+    val isViewed: Boolean = false, // Tek gosterimlik medya goruntulendi mi
+    val isPinned: Boolean = false, // Mesaj sabitlenmis mi (chat-icinde pin)
+    val pinnedAt: Long? = null // Pin zaman damgasi (ms)
 ) {
     /** Bu mesaj duzenlenmis mi. */
     val isEdited: Boolean

@@ -329,6 +329,16 @@ class MessageRepositoryImpl @Inject constructor(
             .sortedBy { it.timestamp }
             .map { it.toDomain() }
     }
+
+    override suspend fun updateMessagePinned(messageId: String, isPinned: Boolean, pinnedAt: Long?) {
+        messageDao.updatePinned(messageId, isPinned, pinnedAt)
+    }
+
+    override fun observeLatestPinnedMessage(conversationId: String): Flow<LocalMessage?> {
+        return messageDao.observeLatestPinned(conversationId).map { entity ->
+            entity?.toDomain()
+        }
+    }
 }
 
 // --- Extension fonksiyonlari: Entity <-> Domain donusumleri ---
@@ -351,7 +361,9 @@ internal fun LocalMessage.toEntity(): MessageEntity = MessageEntity(
     reactions = reactions,
     caption = caption,
     isViewOnce = isViewOnce,
-    isViewed = isViewed
+    isViewed = isViewed,
+    isPinned = isPinned,
+    pinnedAt = pinnedAt
 )
 
 /**
@@ -377,7 +389,9 @@ internal fun MessageEntity.toDomain(): LocalMessage = LocalMessage(
     reactions = reactions,
     caption = caption,
     isViewOnce = isViewOnce,
-    isViewed = isViewed
+    isViewed = isViewed,
+    isPinned = isPinned,
+    pinnedAt = pinnedAt
 )
 
 /** ConversationEntity'yi Conversation domain modeline donusturur. */

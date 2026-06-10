@@ -52,5 +52,10 @@ data class MessageEntity(
     // Tek gosterimlik medya — bir kez goruntulendiginde icerik silinir
     @ColumnInfo(name = "is_view_once") val isViewOnce: Boolean = false,
     // Tek gosterimlik medya goruntulendi mi (alici tarafinda izlenince true)
-    @ColumnInfo(name = "is_viewed") val isViewed: Boolean = false
+    @ColumnInfo(name = "is_viewed") val isViewed: Boolean = false,
+    // Sabitlenmis mesaj — chat header altinda banner olarak gosterilir.
+    // 1:1: her iki taraf da pin/unpin yapabilir; grup: yalniz admin.
+    @ColumnInfo(name = "is_pinned") val isPinned: Boolean = false,
+    // Pin zaman damgasi — birden fazla pin varsa en sonuncusu banner'da gosterilir.
+    @ColumnInfo(name = "pinned_at") val pinnedAt: Long? = null
 )

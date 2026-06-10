@@ -90,7 +90,7 @@ object StorageModule {
             "securechat.db"
         )
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_17_18, MIGRATION_18_19)
+            .addMigrations(MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
             .fallbackToDestructiveMigration()
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
@@ -160,6 +160,21 @@ object StorageModule {
                 )
                 """.trimIndent()
             )
+        }
+    }
+
+    /**
+     * v19 -> v20: Mesaj sabitleme (pin) destegi.
+     *   - MessageEntity.is_pinned (BOOLEAN, default 0)
+     *   - MessageEntity.pinned_at (INTEGER NULL, ms timestamp)
+     * Veri kaybi olmaz; mevcut mesajlar default sabitlenmemis kalir.
+     * Banner sorgusu icin index gerekmez — conversation_id + pinned + pinned_at
+     * cogu durumda sub-100-mesaj scope'ta hizli.
+     */
+    private val MIGRATION_19_20 = object : Migration(19, 20) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE messages ADD COLUMN pinned_at INTEGER")
         }
     }
 

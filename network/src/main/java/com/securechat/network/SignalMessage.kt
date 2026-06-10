@@ -240,6 +240,30 @@ sealed class SignalMessage {
     ) : SignalMessage()
 
     /**
+     * Mesaj sabitleme/cikarma bildirimi (chat-icinde pin/unpin).
+     *
+     * 1:1 sohbette her iki taraf da pin/unpin yapabilir; grupta yalniz admin
+     * (yetki kontrolu client-side enforce). Server transparent relay.
+     *
+     * isPinned=true: sabitle (pinnedAt server timestamp ile birlikte gonderilir)
+     * isPinned=false: pin'i kaldir (pinnedAt onemsiz, null gonderilebilir)
+     *
+     * groupId set ise grup mesajidir — server tum uyelere fanout yapabilir veya
+     * gonderici tarafinda her uyeye ayri MessagePin gonderilir (basit yol).
+     */
+    @Serializable
+    @SerialName("message_pin")
+    data class MessagePin(
+        override val senderId: String,
+        override val recipientId: String,
+        override val timestamp: Long,
+        val messageId: String,
+        val isPinned: Boolean,
+        val pinnedAt: Long? = null,
+        val groupId: String? = null
+    ) : SignalMessage()
+
+    /**
      * Mesaj duzenleme bildirimi.
      * Gonderici kendi mesajini duzenledikten sonra karsi tarafa iletilir.
      * Sadece 15 dakika icinde gonderilmis mesajlar duzenlenebilir.

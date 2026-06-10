@@ -81,6 +81,7 @@ class ChatViewModelTest {
             sendMessageUseCase = sendMessageUseCase,
             observeMessagesUseCase = observeMessagesUseCase,
             markAsReadUseCase = markAsReadUseCase,
+            pinMessageUseCase = mockk(relaxed = true),
             messageRepository = messageRepository,
             conversationDao = conversationDao,
             fileTransferManager = fileTransferManager,

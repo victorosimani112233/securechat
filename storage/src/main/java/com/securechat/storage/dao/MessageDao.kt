@@ -167,4 +167,30 @@ interface MessageDao {
     // Emoji reaksiyon guncelleme
     @Query("UPDATE messages SET reactions = :reactions WHERE id = :messageId")
     suspend fun updateReactions(messageId: String, reactions: String?)
+
+    // 📌 Pin mesaj — sabitleme/cikarma
+    @Query("UPDATE messages SET is_pinned = :isPinned, pinned_at = :pinnedAt WHERE id = :messageId")
+    suspend fun updatePinned(messageId: String, isPinned: Boolean, pinnedAt: Long?)
+
+    // Konusmadaki son sabitlenmis mesaj — banner icin. Birden fazla pin varsa
+    // en sonuncusu (pinned_at DESC) one cikar. NULL pinned_at kayitlarini dahil etmemek
+    // icin is_pinned = 1 + pinned_at NOT NULL.
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE conversation_id = :conversationId AND is_pinned = 1 AND pinned_at IS NOT NULL
+        ORDER BY pinned_at DESC LIMIT 1
+        """
+    )
+    fun observeLatestPinned(conversationId: String): Flow<MessageEntity?>
+
+    // Tum sabitli mesajlar (en yenisinden eskiye) — gelecekte "pinler listesi" ekrani icin.
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE conversation_id = :conversationId AND is_pinned = 1
+        ORDER BY pinned_at DESC
+        """
+    )
+    fun getPinnedMessages(conversationId: String): Flow<List<MessageEntity>>
 }

@@ -115,4 +115,15 @@ interface MessageRepository {
      * @return Guncellenen mesaj sayisi
      */
     suspend fun markStuckMessagesAsFailed(cutoff: Long): Int
+
+    /**
+     * Mesaj sabitleme/cikarma.
+     * @param messageId Mesaj kimligi
+     * @param isPinned true = sabitle, false = pin'i kaldir
+     * @param pinnedAt Pin zamani (ms) — isPinned=false ise null gecilebilir
+     */
+    suspend fun updateMessagePinned(messageId: String, isPinned: Boolean, pinnedAt: Long?)
+
+    /** Konusmadaki en son sabitlenmis mesaj — banner icin reaktif akis. */
+    fun observeLatestPinnedMessage(conversationId: String): Flow<LocalMessage?>
 }
