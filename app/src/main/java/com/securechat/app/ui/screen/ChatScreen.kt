@@ -98,8 +98,11 @@ import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -117,6 +120,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -223,14 +227,46 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var initialScrollDone by remember { mutableStateOf(false) }
 
+    // LazyColumn'daki gercek son item index'i — encryption_info(1) + tarih separator'lari + mesajlar.
+    // animateScrollToItem(messages.size - 1) yanlisti; bu helper ile dogru index'e gideriz.
+    fun lastLazyIndex(): Int {
+        if (messages.isEmpty()) return 0
+        val grouped = groupMessagesByDate(messages)
+        return (1 + grouped.size + messages.size - 1).coerceAtLeast(0)
+    }
+
+    // Kullanici listenin dibinde mi? Son gorulen item index'i totalItemsCount-1'e esit veya yakinsa evet.
+    // Yeni mesaj geldiginde sadece dibe yakinsa otomatik scroll yapariz; yoksa FAB gosteririz.
+    val isAtBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()
+            // Bos liste = "dipte" sayilir; aksi takdirde son gorulen item, gercek son item olmali.
+            last == null || last.index >= info.totalItemsCount - 1
+        }
+    }
+
+    // Kullanicinin "gordugu" en son mesaj id'si — dipteyken son mesaja set edilir.
+    // Bunun uzerine eklenen her yeni mesaj "okunmadi" sayilir → unseenCount.
+    var lastSeenMessageId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(isAtBottom, messages) {
+        if (isAtBottom && messages.isNotEmpty()) {
+            lastSeenMessageId = messages.last().id
+        }
+    }
+    val unseenCount by remember(messages, lastSeenMessageId) {
+        derivedStateOf {
+            val seenId = lastSeenMessageId ?: return@derivedStateOf 0
+            val idx = messages.indexOfFirst { it.id == seenId }
+            if (idx < 0) 0 else (messages.size - 1 - idx).coerceAtLeast(0)
+        }
+    }
+    val scrollScope = rememberCoroutineScope()
+
     // Sohbet acildiginda en alta scroll (animasyonsuz, anlik)
-    // NOT: buildFlatItemList yerine groupedMessages'dan hesapla — cift gruplama onlenir
     LaunchedEffect(messages) {
         if (!initialScrollDone && messages.isNotEmpty()) {
-            // encryption_info(1) + her tarih grubu icin separator(1) + mesaj sayisi
-            val grouped = groupMessagesByDate(messages)
-            val totalItems = 1 + grouped.size + messages.size
-            listState.scrollToItem(maxOf(0, totalItems - 1))
+            listState.scrollToItem(lastLazyIndex())
             initialScrollDone = true
         }
     }
@@ -359,19 +395,25 @@ fun ChatScreen(
         }
     }
 
-    // Yeni mesaj gelince en alta scroll (arama modunda değil)
+    // Yeni mesaj gelince en alta scroll — SADECE kullanici zaten dipteyse.
+    // Kullanici eski mesajlari okurken yeni mesaj gelirse yerinden firlatma; bunun yerine
+    // FAB gosterilir (asagida) ve unseenCount artar. Initial scroll tamamlanmadan tetiklenmez,
+    // aksi takdirde messages cogalirken her cogalmada scroll yarisir.
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty() && !isSearchMode) {
-            listState.animateScrollToItem(messages.size - 1)
+        if (messages.isNotEmpty() && !isSearchMode && isAtBottom && initialScrollDone) {
+            listState.animateScrollToItem(lastLazyIndex())
         }
     }
 
-    // Klavye açıldığında en alta scroll
+    // Klavye açıldığında en alta scroll — yazma alanına tiklamak "context gormek istiyorum"
+    // niyetidir, yukarida olsa bile dibe gel. Ek olarak lastSeenMessageId guncellenir ki
+    // FAB badge'i de temizlensin (zaten dibe iniyoruz).
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
     LaunchedEffect(imeBottom) {
         if (imeBottom > 0 && messages.isNotEmpty() && !isSearchMode) {
-            listState.animateScrollToItem(messages.size - 1)
+            lastSeenMessageId = messages.last().id
+            listState.animateScrollToItem(lastLazyIndex())
         }
     }
 
@@ -750,6 +792,30 @@ fun ChatScreen(
                             }
                         }
                     }
+                }
+
+                // Scroll-to-bottom FAB — kullanici dipte degilken sag altta belirir,
+                // unseen mesaj sayisi badge olarak gosterilir, tiklayinca dibe scroll +
+                // badge sifirlanir. AnimatedVisibility ile yumusak gecis.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = !isAtBottom && messages.isNotEmpty() && !isSearchMode,
+                    enter = androidx.compose.animation.fadeIn() +
+                        androidx.compose.animation.scaleIn(initialScale = 0.7f),
+                    exit = androidx.compose.animation.fadeOut() +
+                        androidx.compose.animation.scaleOut(targetScale = 0.7f),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = 16.dp)
+                ) {
+                    ScrollToBottomFab(
+                        unseenCount = unseenCount,
+                        onClick = {
+                            scrollScope.launch {
+                                lastSeenMessageId = messages.lastOrNull()?.id
+                                listState.animateScrollToItem(lastLazyIndex())
+                            }
+                        }
+                    )
                 }
             }
 
@@ -3889,3 +3955,39 @@ private data class PollData(
     val singleChoice: Boolean,
     val votes: Map<Int, List<String>>
 )
+
+/**
+ * Sohbet listesinde dipte degilken sag altta belirir. Tiklayinca dibe scroll,
+ * unseenCount > 0 ise badge gosterir. WhatsApp / Signal pattern.
+ */
+@Composable
+private fun ScrollToBottomFab(
+    unseenCount: Int,
+    onClick: () -> Unit
+) {
+    BadgedBox(
+        badge = {
+            if (unseenCount > 0) {
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    // 99+ pattern — uzun sayilarda layout bozulmasin
+                    Text(text = if (unseenCount > 99) "99+" else unseenCount.toString())
+                }
+            }
+        }
+    ) {
+        FloatingActionButton(
+            onClick = onClick,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(44.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = "Mesajlarin sonuna git"
+            )
+        }
+    }
+}
