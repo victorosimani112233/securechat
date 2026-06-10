@@ -288,7 +288,7 @@ fun ConversationsScreen(
                                     ) {
                                         Icon(
                                             icon,
-                                            contentDescription = "Bağlantı durumu",
+                                            contentDescription = stringResource(R.string.cd_connection_status),
                                             tint = color,
                                             modifier = Modifier.size(18.dp)
                                         )
@@ -337,7 +337,7 @@ fun ConversationsScreen(
                             IconButton(onClick = { showMoreMenu = true }) {
                                 Icon(
                                     Icons.Default.MoreVert,
-                                    contentDescription = "Daha Fazla",
+                                    contentDescription = stringResource(R.string.cd_more),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -1097,7 +1097,7 @@ private fun ArchivedConversationsContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBackClick) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri", tint = MaterialTheme.colorScheme.onSurface)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.nav_back), tint = MaterialTheme.colorScheme.onSurface)
             }
             Text(
                 "Arşivlenmiş Sohbetler",

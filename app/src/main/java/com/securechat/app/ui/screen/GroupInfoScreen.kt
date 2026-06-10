@@ -188,7 +188,7 @@ fun GroupInfoScreen(
                     }) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Geri",
+                            contentDescription = stringResource(R.string.nav_back),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -199,7 +199,7 @@ fun GroupInfoScreen(
                         IconButton(onClick = { showEditGroupDialog = true }) {
                             Icon(
                                 Icons.Default.Edit,
-                                contentDescription = "Grup Ad\u0131n\u0131 D\u00FCzenle",
+                                contentDescription = stringResource(R.string.edit_group_name),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -640,7 +640,7 @@ private fun MemberItem(
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
                         Icons.Default.Settings,
-                        contentDescription = "Üye İşlemleri",
+                        contentDescription = stringResource(R.string.cd_member_actions),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

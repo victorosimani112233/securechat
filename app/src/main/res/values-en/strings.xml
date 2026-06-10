@@ -109,6 +109,10 @@
     <string name="cd_search">Search</string>
     <string name="cd_clear">Clear</string>
     <string name="cd_add">Add</string>
+    <string name="cd_more">More</string>
+    <string name="cd_connection_status">Connection status</string>
+    <string name="cd_new_chat_action">Start chat</string>
+    <string name="cd_member_actions">Member actions</string>
 
     <!-- Sprint 6-B: Contacts + AddGroupMember -->
     <string name="network_error_title">Connection Error</string>

@@ -153,7 +153,7 @@ fun AddGroupMemberScreen(
                         IconButton(onClick = onBackClick) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Geri",
+                                contentDescription = stringResource(R.string.nav_back),
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -408,7 +408,7 @@ fun AddGroupMemberScreen(
                             IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
                                 Icon(
                                     Icons.Default.Close,
-                                    contentDescription = "Temizle",
+                                    contentDescription = stringResource(R.string.cd_clear),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }

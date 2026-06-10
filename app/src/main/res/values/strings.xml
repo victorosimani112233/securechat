@@ -108,6 +108,10 @@
     <string name="cd_search">Ara</string>
     <string name="cd_clear">Temizle</string>
     <string name="cd_add">Ekle</string>
+    <string name="cd_more">Daha Fazla</string>
+    <string name="cd_connection_status">Bağlantı durumu</string>
+    <string name="cd_new_chat_action">Sohbet başlat</string>
+    <string name="cd_member_actions">Üye İşlemleri</string>
 
     <!-- Sprint 6-B: Contacts + AddGroupMember -->
     <string name="network_error_title">Bağlantı Hatası</string>

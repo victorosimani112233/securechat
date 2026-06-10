@@ -294,7 +294,7 @@ fun ContactsScreen(
                     IconButton(onClick = onBackClick) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Geri",
+                            contentDescription = stringResource(R.string.nav_back),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -402,7 +402,7 @@ fun ContactsScreen(
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
                             IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
-                                Icon(Icons.Default.Close, contentDescription = "Temizle")
+                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_clear))
                             }
                         }
                     },
@@ -618,7 +618,7 @@ private fun ManualUserIdSection(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.Send,
-                contentDescription = "Sohbet başlat",
+                contentDescription = stringResource(R.string.cd_new_chat_action),
                 tint = if (manualUserId.isNotBlank())
                     MaterialTheme.colorScheme.primary
                 else
