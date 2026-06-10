@@ -87,18 +87,26 @@ class CallViewModel @Inject constructor(
      * Arka plan bulaniklastir bayragi — kullanici cagri sirasinda toggle eder.
      * Persist edilir (BackgroundBlurStore); sonraki cagrida hatirlanir.
      *
-     * Su an UI toggle anlik state; gercek frame processing
-     * (ML Kit SelfieSegmentation + WebRTC VideoProcessor) takip eden iterasyonda
-     * PeerConnectionManager'a entegre edilecek.
+     * F7: CallManager.BackgroundBlurProcessor PCM video source'a takilir.
+     * ML Kit SelfieSegmentation + I420↔ARGB pipeline ile arka plan bulaniklastirilir.
      */
     val backgroundBlurEnabled: StateFlow<Boolean> = backgroundBlurStore.enabled
         .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), false)
+        .also { flow ->
+            // VM olusturuldugu anda persist edilmis state'i CallManager'a forward et —
+            // ekran tekrar acildiginda blur otomatik aktif olur.
+            viewModelScope.launch {
+                flow.collect { enabled -> callManager.setBackgroundBlurEnabled(enabled) }
+            }
+        }
 
     fun toggleBackgroundBlur() {
         viewModelScope.launch {
             val newValue = !backgroundBlurEnabled.value
             backgroundBlurStore.setEnabled(newValue)
-            // TODO: PeerConnectionManager.setVideoProcessor(...) entegrasyonu
+            // F7: CallManager BackgroundBlurProcessor'i PCM video source'a takar/cikarir.
+            // Aktif video cagri yoksa state cached; sonraki cagri baslayinca uygulanir.
+            callManager.setBackgroundBlurEnabled(newValue)
         }
     }
 

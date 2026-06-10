@@ -87,6 +87,46 @@ class CallManager @Inject constructor(
     /** Cleanup isleminin atomik olarak yapildigini garanti eder. */
     private val isCleaningUp = AtomicBoolean(false)
 
+    // ---- F7 Background blur (goruntulu cagri) ----
+    /**
+     * Lazy: ML Kit Segmenter + executor maliyetli — kullanici toggle etmeden once
+     * insantiate edilmez. Cagri bitince dispose() ile temizlenir.
+     */
+    private var backgroundBlurProcessor: BackgroundBlurProcessor? = null
+    private val isBackgroundBlurEnabled = AtomicBoolean(false)
+
+    /**
+     * Arka plan bulaniklastir bayragini ayarlar. Aktif cagri yoksa state cached;
+     * sonraki cagri baslayinca processor yine bu bayraga gore takilir.
+     */
+    fun setBackgroundBlurEnabled(enabled: Boolean) {
+        isBackgroundBlurEnabled.set(enabled)
+        applyBackgroundBlurState()
+    }
+
+    /** Aktif cagri varsa processor'i takar/cikarir; PCM video source initialize edilmis olmali. */
+    private fun applyBackgroundBlurState() {
+        val enabled = isBackgroundBlurEnabled.get()
+        if (enabled) {
+            val processor = backgroundBlurProcessor ?: BackgroundBlurProcessor().also {
+                backgroundBlurProcessor = it
+            }
+            processor.isEnabled = true
+            peerConnectionManager.setVideoProcessor(processor)
+        } else {
+            backgroundBlurProcessor?.isEnabled = false
+            peerConnectionManager.setVideoProcessor(null)
+        }
+    }
+
+    /** Cagri bittiginde dispose et — ML Kit + executor resource'larini serbest birak. */
+    private fun disposeBackgroundBlur() {
+        // Once source'tan unbind et — disposed processor'a frame gelmesin race'i kapatilir.
+        runCatching { peerConnectionManager.setVideoProcessor(null) }
+        backgroundBlurProcessor?.dispose()
+        backgroundBlurProcessor = null
+    }
+
     // ---- Konusma gostergesi (grup arama) ----
     /** Threshold: 0.05 altinda arka plan gurultusu sayilir. */
     private val speakingThreshold = 0.05f
@@ -248,6 +288,9 @@ class CallManager @Inject constructor(
                     onCallFailed()
                     return@launch
                 }
+
+                // F7: video source olustu — backgroundBlur cached state'i ise hemen tak.
+                if (enableVideo) applyBackgroundBlurState()
 
                 // HATA #1 FIX: Arayan tarafta ses modunu HEMEN ayarla.
                 // onCallConnected() race condition'dan dolayi cok gec cagirilabilir,
@@ -673,6 +716,9 @@ class CallManager @Inject constructor(
                     onCallFailed()
                     return@launch
                 }
+
+                // F7: video source olustu — backgroundBlur cached state'i ise hemen tak.
+                if (enableVideo) applyBackgroundBlurState()
 
                 // Remote SDP Offer'i set et (suspend — tamamlanmasi beklenir)
                 val remoteDescription = SessionDescription(
@@ -2144,6 +2190,9 @@ class CallManager @Inject constructor(
 
             // Arama gecmisine kaydet
             saveCallLog(session, duration, finalState)
+
+            // F7 Background blur processor — dispose et (ML Kit + executor cleanup)
+            disposeBackgroundBlur()
 
             // WebRTC PeerConnection'i kapat
             peerConnectionManager.disposePeerConnection()

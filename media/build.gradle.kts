@@ -39,6 +39,10 @@ dependencies {
     // WebRTC
     implementation(libs.webrtc)
 
+    // ML Kit SelfieSegmentation — F7 background blur (goruntulu cagri).
+    // Bundled model (~5MB), Google Play Services bagimsiz, offline calisir.
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

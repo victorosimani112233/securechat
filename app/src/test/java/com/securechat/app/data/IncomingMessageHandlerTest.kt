@@ -84,7 +84,10 @@ class IncomingMessageHandlerTest {
             disappearingTimerHandler = mockk(relaxed = true),
             messageEditDeleteHandler = mockk(relaxed = true),
             adminEncryptedLogHandler = mockk(relaxed = true),
-            groupCallStateHandler = mockk(relaxed = true)
+            groupCallStateHandler = mockk(relaxed = true),
+            autoDownloadPolicyStore = mockk(relaxed = true),
+            autoDownloadDecider = mockk(relaxed = true),
+            networkTypeProvider = mockk(relaxed = true)
         )
     }
 

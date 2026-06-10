@@ -759,6 +759,31 @@ class PeerConnectionManager @Inject constructor(
     }
 
     /**
+     * Local video source uzerine bir VideoProcessor takar veya cikarir.
+     * Processor null gecilirse mevcut isleyici kaldirilir; capture pipeline
+     * dogrudan source'a baglanir.
+     *
+     * F7 background blur: media modulundeki BackgroundBlurProcessor buradan
+     * enjekte edilir; CallManager toggle eder.
+     */
+    fun setVideoProcessor(processor: org.webrtc.VideoProcessor?) {
+        val source = localVideoSource
+        if (source == null) {
+            Log.w(TAG, "setVideoProcessor: localVideoSource null — atlandi")
+            return
+        }
+        try {
+            source.setVideoProcessor(processor)
+            Log.d(TAG, "VideoProcessor set: ${processor?.javaClass?.simpleName ?: "null"}")
+        } catch (e: Exception) {
+            Log.w(TAG, "setVideoProcessor hatasi: ${e.message}")
+        }
+    }
+
+    /** F7 background blur processor olusturmak icin gerekli SurfaceTextureHelper. */
+    fun getSurfaceTextureHelper(): SurfaceTextureHelper? = surfaceTextureHelper
+
+    /**
      * Paylasimli yerel medya kaynaklarini (audio/video track, capturer) serbest birakir.
      * Tum PeerConnection'lar kapandiktan sonra cagirilmali.
      */
