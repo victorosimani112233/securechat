@@ -193,4 +193,26 @@ interface MessageDao {
         """
     )
     fun getPinnedMessages(conversationId: String): Flow<List<MessageEntity>>
+
+    // Storage usage analyzer icin: belirli konusmanin dosya mesajlarinin content
+    // alanlari (pipe-separated: "name|mime|size|path"). Analyzer path'i parse edip
+    // diskte gercek dosya boyutunu sorgular.
+    @Query(
+        """
+        SELECT content FROM messages
+        WHERE conversation_id = :conversationId
+          AND content_type IN ('FILE', 'IMAGE', 'VOICE_NOTE')
+        """
+    )
+    suspend fun getFileContentsByConversation(conversationId: String): List<String>
+
+    // Storage usage analyzer icin: konusmanin tum dosya mesajlarini siler (chat metni kalir).
+    @Query(
+        """
+        DELETE FROM messages
+        WHERE conversation_id = :conversationId
+          AND content_type IN ('FILE', 'IMAGE', 'VOICE_NOTE')
+        """
+    )
+    suspend fun deleteMediaByConversation(conversationId: String)
 }

@@ -122,6 +122,7 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     onScheduledMessages: () -> Unit = {},
     onBackupClick: () -> Unit = {},
+    onStorageUsageClick: () -> Unit = {},
     onAccountDeleted: () -> Unit = {},
     onNavigateToCallReadiness: () -> Unit = {}
 ) {
@@ -972,7 +973,7 @@ fun SettingsScreen(
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
 
-                        // Depolama bilgisi
+                        // Depolama bilgisi — tiklaninca per-chat detay ekranina gider
                         storageInfo?.let { info ->
                             ListItem(
                                 headlineContent = { Text(stringResource(R.string.settings_storage_usage)) },
@@ -991,7 +992,8 @@ fun SettingsScreen(
                                 leadingContent = {
                                     Icon(Icons.Default.SdStorage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { onStorageUsageClick() }
                             )
 
                             HorizontalDivider(

@@ -63,6 +63,7 @@ import com.securechat.app.ui.screen.OtpVerificationScreen
 import com.securechat.app.ui.screen.PhoneVerificationScreen
 import com.securechat.app.ui.screen.ScheduledMessagesScreen
 import com.securechat.app.ui.screen.SettingsScreen
+import com.securechat.app.ui.screen.StorageUsageScreen
 import com.securechat.app.ui.screen.OnboardingScreen
 import com.securechat.app.ui.screen.PermissionWalkthroughScreen
 import com.securechat.app.ui.screen.SplashScreen
@@ -413,6 +414,12 @@ fun SecureChatNavHost(
                 )
             }
 
+            composable("storage_usage") {
+                StorageUsageScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
             composable("scheduled_messages") {
                 ScheduledMessagesScreen(
                     onBackClick = { navController.popBackStack() }
@@ -489,6 +496,7 @@ private fun MainPagerScreen(
                     onBackClick = { scope.launch { pagerState.animateScrollToPage(0) } },
                     onScheduledMessages = { navController.navigate("scheduled_messages/1") },
                     onBackupClick = { navController.navigate("backup") },
+                    onStorageUsageClick = { navController.navigate("storage_usage") },
                     onAccountDeleted = {
                         navController.navigate("auth/phone") {
                             popUpTo(0) { inclusive = true }

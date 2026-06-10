@@ -104,7 +104,7 @@ private val AZ_AVATAR_COLORS_CONTACTS = listOf(
  * Kişi listesi ekranı.
  * Azure glassmorphism tasarım.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ContactsScreen(
     viewModel: ContactsViewModel = hiltViewModel(),
@@ -131,6 +131,16 @@ fun ContactsScreen(
     val networkError by viewModel.networkError.collectAsStateWithLifecycle()
     val hasMoreContacts by viewModel.hasMoreContacts.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
+
+    // Telefon rehberinden Elcim kullanicilarini ayikla — registered'lar yukari sectionda
+    // gozuktugu icin burada cift gostermek istemeyiz. Hash hesabini bir kere yap, recompose
+    // disinda korumak icin phoneContacts veya registeredPhoneHashes degisene kadar cache'le.
+    val unregisteredPhoneContacts = remember(phoneContacts, registeredPhoneHashes) {
+        phoneContacts.filter { contact ->
+            val h = com.securechat.contacts.UserDiscoveryService.hashPhoneNumber(contact.phoneNumber)
+            h !in registeredPhoneHashes
+        }
+    }
 
     // LazyColumn scroll state — sayfalama icin listenin sonunu tespit eder
     val listState = rememberLazyListState()
@@ -524,40 +534,25 @@ fun ContactsScreen(
                 }
             }
 
-            // Telefon rehberindeki kişiler — izin verilmişse gösterilir
-            if (phoneContacts.isNotEmpty()) {
+            // Telefon rehberindeki **KAYITSIZ** kişiler — registered'lar yukari section'da.
+            // unregisteredPhoneContacts ContactsScreen scope'unda hesaplandi (remember ile).
+            if (unregisteredPhoneContacts.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Telefon Rehberi",
+                        text = "Rehberdeki Diğer Kişiler",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.secondary,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     )
                 }
-                items(phoneContacts, key = { "phone_${it.id}_${it.phoneNumber}" }) { contact ->
-                    // BUGFIX: Eslesme phoneHash bazli yapilir (tum DB'den, pagination disinda).
-                    // Onceden `contacts` (paginated, max 50 kisi) ile normalize string karsilastirma
-                    // yapiliyordu — sayfalanmamis kullanicilar invite butonu gosteriyordu.
-                    val contactHash = remember(contact.phoneNumber) {
-                        com.securechat.contacts.UserDiscoveryService.hashPhoneNumber(contact.phoneNumber)
-                    }
-                    val isRegistered = contactHash in registeredPhoneHashes
+                items(unregisteredPhoneContacts, key = { "phone_${it.id}_${it.phoneNumber}" }) { contact ->
                     PhoneContactItem(
                         contact = contact,
-                        isRegistered = isRegistered,
+                        isRegistered = false,
                         onClick = {
-                            // Click handler — kayitliysa userId'yi bul ve chat ac.
-                            // Once paginated listede ara, yoksa DB'ye direk sorgu (callback launch)
-                            val match = contacts.firstOrNull { reg -> reg.phoneHash == contactHash }
-                            if (match != null) {
-                                onContactClick(match.userId)
-                            } else if (isRegistered) {
-                                // Kayitli ama paginated'da yok — ViewModel'den userId resolve et
-                                viewModel.resolveUserIdByHash(contactHash) { resolvedId ->
-                                    if (resolvedId != null) onContactClick(resolvedId)
-                                }
-                            }
+                            // Kayitsiz kisi — sadece invite akisi tetiklenebilir.
+                            // (Tiklama davranisi PhoneContactItem'a ait; burada noop.)
                         }
                     )
                     HorizontalDivider(
