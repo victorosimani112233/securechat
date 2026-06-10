@@ -177,4 +177,18 @@
     <string name="msg_delete_title">Mesajı sil</string>
     <string name="msg_delete_cancel">Vazgeç</string>
     <string name="msg_edit_title">Mesajı Düzenle</string>
+
+    <!-- Sprint 8-A: ScheduledMessages -->
+    <string name="sched_title">Planlı Mesajlar</string>
+    <string name="sched_delete_title">Planlı Mesajı Sil</string>
+    <string name="sched_delete_body">Bu planlı mesaj kalıcı olarak silinecektir.</string>
+    <string name="sched_tab_create">Oluştur</string>
+    <string name="sched_tab_existing">Mevcut Planlananlar</string>
+    <string name="sched_message_placeholder">Mesajınızı yazın…</string>
+    <string name="sched_action_edit">Düzenle</string>
+    <string name="sched_action_delete">Sil</string>
+    <string name="sched_pick_time">Saat Seçin</string>
+    <string name="sched_pick_day">Gün Seçimi</string>
+    <string name="sched_pick_recipient">Alıcı Seç</string>
+    <string name="action_ok">Tamam</string>
 </resources>

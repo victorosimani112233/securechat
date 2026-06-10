@@ -69,6 +69,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import com.securechat.app.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -120,18 +122,18 @@ fun ScheduledMessagesScreen(
     deleteTarget?.let { item ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("Planlı Mesajı Sil") },
-            text = { Text("Bu planlı mesaj kalıcı olarak silinecektir.") },
+            title = { Text(stringResource(R.string.sched_delete_title)) },
+            text = { Text(stringResource(R.string.sched_delete_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(item.id)
                     deleteTarget = null
                 }) {
-                    Text("Sil", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.sched_action_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("İptal") }
+                TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.cancel)) }
             }
         )
     }
@@ -182,7 +184,7 @@ fun ScheduledMessagesScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Planlı Mesajlar", color = MaterialTheme.colorScheme.onSurface) },
+                    title = { Text(stringResource(R.string.sched_title), color = MaterialTheme.colorScheme.onSurface) },
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Geri", tint = MaterialTheme.colorScheme.onSurface)
@@ -213,14 +215,14 @@ fun ScheduledMessagesScreen(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Oluştur", fontSize = 14.sp) },
+                        text = { Text(stringResource(R.string.sched_tab_create), fontSize = 14.sp) },
                         selectedContentColor = MaterialTheme.colorScheme.primary,
                         unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Mevcut Planlananlar", fontSize = 14.sp) },
+                        text = { Text(stringResource(R.string.sched_tab_existing), fontSize = 14.sp) },
                         selectedContentColor = MaterialTheme.colorScheme.primary,
                         unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -310,7 +312,7 @@ private fun CreateTab(
                     fontWeight = FontWeight.Medium
                 )
                 TextButton(onClick = onClear) {
-                    Text("İptal", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.cancel), color = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -319,7 +321,7 @@ private fun CreateTab(
         SectionCard(
             dark = dark,
             icon = { Icon(Icons.Default.CalendarMonth, null, tint = MaterialTheme.colorScheme.primary) },
-            title = "Gün Seçimi",
+            title = stringResource(R.string.sched_pick_day),
             subtitle = getDaySubtitle(repeatType, selectedDays),
             onClick = onDayClick
         )
@@ -360,7 +362,7 @@ private fun CreateTab(
                 value = messageContent,
                 onValueChange = onMessageChange,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Mesajınızı yazın...") },
+                placeholder = { Text(stringResource(R.string.sched_message_placeholder)) },
                 minLines = 3,
                 maxLines = 6,
                 shape = RoundedCornerShape(12.dp),
@@ -602,7 +604,7 @@ private fun ScheduledMessageCard(
             TextButton(onClick = onEdit) {
                 Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Düzenle", fontSize = 13.sp)
+                Text(stringResource(R.string.sched_action_edit), fontSize = 13.sp)
             }
             Spacer(Modifier.width(8.dp))
             TextButton(onClick = onDelete) {
@@ -612,7 +614,7 @@ private fun ScheduledMessageCard(
                     tint = MaterialTheme.colorScheme.error
                 )
                 Spacer(Modifier.width(4.dp))
-                Text("Sil", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.sched_action_delete), fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -711,7 +713,7 @@ private fun TimePickerDialog(
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Saat Seçin") },
+        title = { Text(stringResource(R.string.sched_pick_time)) },
         text = {
             Box(
                 modifier = Modifier.fillMaxWidth(),
@@ -723,10 +725,10 @@ private fun TimePickerDialog(
         confirmButton = {
             TextButton(onClick = {
                 onConfirm(timePickerState.hour, timePickerState.minute)
-            }) { Text("Tamam") }
+            }) { Text(stringResource(R.string.action_ok)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("İptal") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }
@@ -743,7 +745,7 @@ private fun DayPickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Gün Seçimi") },
+        title = { Text(stringResource(R.string.sched_pick_day)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 // Tekrar tipi secimi
@@ -826,7 +828,7 @@ private fun DayPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Tamam") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) }
         }
     )
 }
@@ -842,7 +844,7 @@ private fun ContactPickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Alıcı Seç") },
+        title = { Text(stringResource(R.string.sched_pick_recipient)) },
         text = {
             if (conversations.isEmpty()) {
                 Text(
@@ -914,7 +916,7 @@ private fun ContactPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Tamam") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_ok)) }
         }
     )
 }

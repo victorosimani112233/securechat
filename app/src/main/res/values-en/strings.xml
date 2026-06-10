@@ -178,4 +178,18 @@
     <string name="msg_delete_title">Delete message</string>
     <string name="msg_delete_cancel">Discard</string>
     <string name="msg_edit_title">Edit Message</string>
+
+    <!-- Sprint 8-A: ScheduledMessages -->
+    <string name="sched_title">Scheduled Messages</string>
+    <string name="sched_delete_title">Delete Scheduled Message</string>
+    <string name="sched_delete_body">This scheduled message will be permanently deleted.</string>
+    <string name="sched_tab_create">Create</string>
+    <string name="sched_tab_existing">Existing</string>
+    <string name="sched_message_placeholder">Type your message…</string>
+    <string name="sched_action_edit">Edit</string>
+    <string name="sched_action_delete">Delete</string>
+    <string name="sched_pick_time">Pick Time</string>
+    <string name="sched_pick_day">Pick Day</string>
+    <string name="sched_pick_recipient">Pick Recipient</string>
+    <string name="action_ok">OK</string>
 </resources>

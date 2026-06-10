@@ -73,6 +73,12 @@ class I18nPolicyTest {
             "\"Yanıtla\"", "\"Kopyala\"", "\"Düzenle\"", "\"Düzenleme Geçmişi\"",
             "\"İlet\"", "\"Benden Sil\"", "\"Mesajı sil\"", "\"Mesajı Düzenle\"",
             "\"Sohbette Ara\"", "\"Sohbeti Dışa Aktar\""
+        ),
+        // Sprint 8-A: ScheduledMessages
+        "app/src/main/java/com/securechat/app/ui/screen/ScheduledMessagesScreen.kt" to listOf(
+            "\"Planlı Mesajı Sil\"", "\"Planlı Mesajlar\"", "\"Oluştur\"",
+            "\"Mevcut Planlananlar\"", "\"Saat Seçin\"", "\"Gün Seçimi\"",
+            "\"Alıcı Seç\"", "\"Mesajınızı yazın...\""
         )
     )
 
