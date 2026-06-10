@@ -1630,9 +1630,14 @@ class CallManager @Inject constructor(
         _callSession.value = session.copy(peerIds = newPeerIds, connectedPeerIds = newConnected)
         updateGroupConnectedPeers()
 
-        // Kimse kalmadiysa aramayi bitir
-        if (groupConnectedPeers.isEmpty() && newPeerIds.isEmpty()) {
-            android.util.Log.d("CallManager", "Grup aramasinda kimse kalmadi (server signal), sonlandiriliyor")
+        // Kimse kalmadiysa aramayi bitir.
+        // ESKI: groupConnectedPeers.isEmpty() && newPeerIds.isEmpty() — SFU modunda
+        // groupConnectedPeers (mesh-PC connected set) hicbir zaman dolmuyordu cunku SFU
+        // peer'leri Janus uzerinden gidiyor. Bu yuzden cleanup hicbir zaman tetiklenmiyordu;
+        // ve son uye ayrildiginda bile local user "bar gitmiyor" durumunda kaliyordu.
+        // YENI: newPeerIds.isEmpty() (yani bizden baska kimse kalmadi) yeterli kosul.
+        if (newPeerIds.isEmpty()) {
+            android.util.Log.d("CallManager", "Grup aramasinda baska uye kalmadi, sonlandiriliyor")
             cleanupGroupCall(CallState.ENDED)
         }
     }
@@ -1855,6 +1860,23 @@ class CallManager @Inject constructor(
         _speakingPeers.value = emptyMap()
     }
 
+    /**
+     * Uzak (sunucu) tarafindan "arama bitti" sinyali geldiginde local session'i kapat.
+     * Sunucu tum uyeler ayrildiginda group_call_status_response(isActive=false) yayar;
+     * eskiden bu yalnizca ChatScreen banner'ini temizliyordu, OngoingCallBar ve aktif
+     * CallSession dokunulmadan kaliyordu. Sonuc: bar gitmiyor, kullanici "katil" diye
+     * tekrar girip bos SFU odasinda siyah ekran goruyordu.
+     *
+     * GroupCallStateHandler.onStatusResponse bu metodu cagirir.
+     */
+    fun endGroupCallFromRemote() {
+        val session = _callSession.value ?: return
+        if (!session.isGroupCall) return
+        android.util.Log.d("CallManager",
+            "endGroupCallFromRemote: server arama bittigini bildirdi, local session kapatiliyor")
+        cleanupGroupCall(CallState.ENDED)
+    }
+
     /** Grup aramasi kaynaklarini temizler. */
     private fun cleanupGroupCall(finalState: CallState) {
         if (!isCleaningUp.compareAndSet(false, true)) return
@@ -1992,22 +2014,18 @@ class CallManager @Inject constructor(
             // 1. Mevcut aktif aramaya HANGUP gonder + temizle
             val primary = _callSession.value
             if (primary != null) {
-                try {
-                    signalingClient.sendSignal(
-                        SignalMessage.CallControl(
-                            senderId = userId,
-                            recipientId = primary.peerId,
-                            timestamp = System.currentTimeMillis(),
-                            action = CallAction.HANGUP
-                        )
-                    )
-                } catch (e: Exception) {
-                    android.util.Log.w("CallManager", "Primary HANGUP gonderilemedi: ${e.message}")
-                }
+                // BUG FIX: Eskiden direkt sendSignal (fire-and-forget, retry yok)
+                // kullaniliyordu — WS hiccup'unda HANGUP A'ya ulasmiyor, A 30sn
+                // "Yeniden baglaniliyor" stuck oluyor, sonunda ICE timeout ile cleanup
+                // oluyor. endCall ile ayni reliable mekanizmayi kullaniyoruz: 3 retry +
+                // server ACK. Server HANGUP'i ~100ms icinde A'ya forward eder, A'nin PC
+                // ICE timeout'undan (3-5sn) cok once.
+                sendCallControlReliable(userId, primary.peerId, CallAction.HANGUP)
                 cleanupCall(CallState.ENDED)
             }
 
-            // 2. Audio mode reset icin kisa bekleme
+            // 2. Audio mode reset + HANGUP'in A'ya ulasmasi icin kisa bekleme.
+            // 300ms tipik WS forward latency (50-200ms) icin yeterli buffer.
             kotlinx.coroutines.delay(300)
 
             // 3. Secondary'i primary slot'a tasi
