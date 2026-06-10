@@ -177,39 +177,73 @@ class IncomingCallActivity : ComponentActivity() {
         setContent {
             SecureChatTheme {
                 val callSession by callManager.callSession.collectAsStateWithLifecycle()
+                val secondaryCallEarly by callManager.secondaryIncomingCall.collectAsStateWithLifecycle()
+
+                // BUG FIX: Activity bu peerId icin acildi. Eger peerId secondary slot'taki
+                // ise (= aktif baska cagri var), DisposableEffect primary ACTIVE'i gorup
+                // otomatik finish() yapmamali. Aktivite SECONDARY cagri icin acik, primary
+                // dokunulmaz.
+                val activityForSecondary = secondaryCallEarly?.peerId == peerId &&
+                    callSession?.peerId != peerId
 
                 // Arama durumu degistiginde Activity'yi kapat
-                DisposableEffect(callSession) {
-                    val session = callSession
-                    // Arama bittiginde, reddedildiginde veya session null olursa kapat
-                    if (session == null ||
-                        session.state == CallState.ENDED ||
-                        session.state == CallState.REJECTED ||
-                        session.state == CallState.FAILED ||
-                        session.state == CallState.BUSY
-                    ) {
-                        finish()
-                    }
-                    // Arama kabul edildiyse ve aktifse (baska bir yerden kabul edilmis olabilir)
-                    if (session != null && session.state == CallState.ACTIVE) {
-                        finish()
+                DisposableEffect(callSession, secondaryCallEarly, activityForSecondary) {
+                    if (activityForSecondary) {
+                        // Secondary cagri icin acik — primary state degisikliklerini ignore.
+                        // Sadece secondary cagrinin durumu bittiyse kapat.
+                        val secState = secondaryCallEarly?.state
+                        if (secondaryCallEarly == null ||
+                            secState == CallState.ENDED ||
+                            secState == CallState.REJECTED ||
+                            secState == CallState.FAILED ||
+                            secState == CallState.BUSY
+                        ) {
+                            finish()
+                        }
+                    } else {
+                        val session = callSession
+                        if (session == null ||
+                            session.state == CallState.ENDED ||
+                            session.state == CallState.REJECTED ||
+                            session.state == CallState.FAILED ||
+                            session.state == CallState.BUSY
+                        ) {
+                            finish()
+                        }
+                        if (session != null && session.state == CallState.ACTIVE) {
+                            finish()
+                        }
                     }
                     onDispose { }
                 }
+
+                val isSecondary = activityForSecondary
 
                 IncomingCallScreen(
                     peerName = peerName,
                     onAccept = {
                         val userId = userSession.userId ?: return@IncomingCallScreen
-                        val callType = callSession?.callType?.name ?: "VOICE"
-                        ensureAudioPermissionAndAccept(userId, peerId, callType)
+                        if (isSecondary) {
+                            // Secondary kabul: mevcut aktif cagri kapatilir, ikincil aktif olur.
+                            // CallManager.acceptSecondaryCall bu swap'i ele alir.
+                            incomingCallHandler.dismissIncomingCall()
+                            callManager.acceptSecondaryCall(userId)
+                            // CallScreen aktif cagrida zaten acik; finish() yeterli.
+                            finish()
+                        } else {
+                            val callType = callSession?.callType?.name ?: "VOICE"
+                            ensureAudioPermissionAndAccept(userId, peerId, callType)
+                        }
                     },
                     onReject = {
                         val userId = userSession.userId ?: return@IncomingCallScreen
-                        // Bildirimi kaldir
                         incomingCallHandler.dismissIncomingCall()
-                        // Aramayi reddet
-                        callManager.rejectCall(userId)
+                        if (isSecondary) {
+                            // SADECE ikincil cagriyi reddet — primary aktif cagri DOKUNULMAZ.
+                            callManager.rejectSecondaryCall(userId)
+                        } else {
+                            callManager.rejectCall(userId)
+                        }
                         finish()
                     }
                 )
@@ -226,14 +260,24 @@ class IncomingCallActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (isFinishing) {
+            // BUG FIX: Aktif primary cagri + secondary ringing varsa, activity swipe ile
+            // kapanmasi primary'i sonlandirmamali. Once secondary slot'a bak.
+            val secondary = callManager.secondaryIncomingCall.value
+            val userId = userSession.userId
+            if (userId == null) return
+
+            if (secondary != null && secondary.state == com.securechat.media.model.CallState.RINGING) {
+                // Activity secondary cagri icin acilmisti → sadece secondary'yi temizle.
+                incomingCallHandler.dismissIncomingCall()
+                callManager.rejectSecondaryCall(userId)
+                return
+            }
+
             val session = callManager.currentSession
             if (session != null && session.state == com.securechat.media.model.CallState.RINGING &&
                 session.direction == com.securechat.media.model.CallDirection.INCOMING) {
-                val userId = userSession.userId
-                if (userId != null) {
-                    incomingCallHandler.dismissIncomingCall()
-                    callManager.rejectCall(userId)
-                }
+                incomingCallHandler.dismissIncomingCall()
+                callManager.rejectCall(userId)
             }
         }
     }

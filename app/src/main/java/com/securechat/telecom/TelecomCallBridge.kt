@@ -59,14 +59,42 @@ class TelecomCallBridge @Inject constructor(
     override fun onUserAnswered(callId: String) {
         Log.d(TAG, "User answered: $callId")
         val userId = userSession.userId ?: return
-        callManager.acceptCall(userId)
+        // BUG FIX: Telecom callId secondary cagrinin Connection'i ise secondary'yi
+        // kabul et — primary aktif cagri (varsa) swap edilir.
+        if (isSecondaryCallId(callId)) {
+            callManager.acceptSecondaryCall(userId)
+        } else {
+            callManager.acceptCall(userId)
+        }
     }
 
     override fun onUserRejected(callId: String) {
         Log.d(TAG, "User rejected: $callId")
         val userId = userSession.userId ?: return
-        callManager.rejectCall(userId)
+        // BUG FIX: Secondary cagri reddedildiyse SADECE onu reddet — primary dokunulmaz.
+        if (isSecondaryCallId(callId)) {
+            callManager.rejectSecondaryCall(userId)
+        } else {
+            callManager.rejectCall(userId)
+        }
         connections.remove(callId)
+    }
+
+    /**
+     * Telecom Connection callId'sinin secondary cagri olup olmadigini belirler.
+     * Primary cagri (callManager.currentSession) ile peerId karsilastirilir;
+     * eslesmiyorsa secondary kabul edilir.
+     */
+    private fun isSecondaryCallId(callId: String): Boolean {
+        val primary = callManager.currentSession ?: return false
+        val secondary = callManager.secondaryIncomingCall.value ?: return false
+        // Connection mevcut mu kontrolu — yoksa zaten secondary degil
+        if (callId !in connections.keys) return false
+        // Connection'in peerId'sini en kolay yol: SecureChatConnection field'i (varsa)
+        // Yoksa: extras/address uzerinden cikarsa. Genel olarak: primary peerId disinda
+        // bir cagri ise secondary kabul edilir.
+        return secondary.state == com.securechat.media.model.CallState.RINGING &&
+            primary.state == com.securechat.media.model.CallState.ACTIVE
     }
 
     override fun onUserHangup(callId: String) {

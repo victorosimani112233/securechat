@@ -69,8 +69,14 @@ class CallActionReceiver : BroadcastReceiver() {
                 // Bildirimi kaldır
                 incomingCallHandler.dismissIncomingCall()
 
-                // Arama reddet
-                callManager.rejectCall(userId)
+                // BUG FIX: Aktif cagri + secondary ringing varsa, bildirimden gelen
+                // REJECT'i secondary'ye yonlendir — primary cagriyi sonlandirma.
+                val secondary = callManager.secondaryIncomingCall.value
+                if (secondary != null && secondary.state == com.securechat.media.model.CallState.RINGING) {
+                    callManager.rejectSecondaryCall(userId)
+                } else {
+                    callManager.rejectCall(userId)
+                }
             }
         }
     }
