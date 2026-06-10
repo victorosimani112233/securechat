@@ -117,6 +117,7 @@ fun ChatInfoScreen(
 ) {
     val conversationName by viewModel.conversationName.collectAsStateWithLifecycle()
     val phoneNumber by viewModel.phoneNumber.collectAsStateWithLifecycle()
+    val isPhoneAlreadyInContacts by viewModel.isPhoneInDeviceContacts.collectAsStateWithLifecycle()
     val contactNote by viewModel.contactNote.collectAsStateWithLifecycle()
     val customNotificationUri by viewModel.customNotificationUri.collectAsStateWithLifecycle()
     val isGroup by viewModel.isGroup.collectAsStateWithLifecycle()
@@ -269,7 +270,8 @@ fun ChatInfoScreen(
                             putExtra(ContactsContract.Intents.Insert.PHONE, phoneNumber)
                         }
                         context.startActivity(addContactIntent)
-                    }
+                    },
+                    isPhoneAlreadyInContacts = isPhoneAlreadyInContacts
                 )
             }
             ChatInfoTab.SEARCH -> {
@@ -389,7 +391,9 @@ private fun MainInfoContent(
     onMuteToggle: () -> Unit = {},
     isLocked: Boolean = false,
     onLockToggle: () -> Unit = {},
-    onAddContactClick: () -> Unit = {}
+    onAddContactClick: () -> Unit = {},
+    /** Telefon numarasi sistem rehberinde mi? True ise "Rehbere Ekle" inaktif. */
+    isPhoneAlreadyInContacts: Boolean = false
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -532,7 +536,9 @@ private fun MainInfoContent(
             )
         }
 
-        // Rehbere ekle — sadece kişi sohbetlerinde gösterilir
+        // Rehbere ekle — sadece kişi sohbetlerinde gösterilir.
+        // Kullanici zaten sistem rehberinde kayitliysa buton inaktif ve subtitle
+        // bilgilendirici metin ile degisir; tekrar eklemeye calismasin diye.
         if (!isGroup && phoneNumber.isNotBlank()) {
             item { SectionDivider() }
             item {
@@ -540,7 +546,12 @@ private fun MainInfoContent(
                     icon = Icons.Default.PersonAdd,
                     iconTint = Color(0xFF26A69A),
                     title = "Rehbere Ekle",
-                    subtitle = "Bu kişiyi telefon rehberine ekle",
+                    subtitle = if (isPhoneAlreadyInContacts) {
+                        "Bu kişi zaten rehberinizde kayıtlı"
+                    } else {
+                        "Bu kişiyi telefon rehberine ekle"
+                    },
+                    enabled = !isPhoneAlreadyInContacts,
                     onClick = onAddContactClick
                 )
             }
@@ -621,22 +632,25 @@ private fun InfoMenuItem(
     title: String,
     subtitle: String? = null,
     iconTint: Color = MaterialTheme.colorScheme.primary,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     val dark = LocalDarkTheme.current
+    // Disabled durumda tum icerik %50 alpha + clickable kapali. Ok ikonu da gizlenir.
+    val contentAlpha = if (enabled) 1f else 0.5f
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .glass(dark)
-            .clickable { onClick() }
+            .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             icon,
             contentDescription = null,
-            tint = iconTint,
+            tint = iconTint.copy(alpha = contentAlpha),
             modifier = Modifier.size(24.dp)
         )
 
@@ -646,25 +660,27 @@ private fun InfoMenuItem(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
             )
             subtitle?.let {
                 Text(
                     text = it,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.size(20.dp)
-        )
+        if (enabled) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 

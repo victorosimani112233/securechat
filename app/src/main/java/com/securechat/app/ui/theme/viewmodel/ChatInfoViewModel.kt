@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.securechat.app.data.PendingTimerFlusher
 import com.securechat.app.data.UserSession
+import com.securechat.contacts.ContactRepository
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
 import com.securechat.storage.dao.ContactDao
@@ -36,7 +37,8 @@ class ChatInfoViewModel @Inject constructor(
     private val contactNameResolver: ContactNameResolver,
     private val signalingClient: SignalingClient,
     private val userSession: UserSession,
-    private val pendingTimerFlusher: PendingTimerFlusher
+    private val pendingTimerFlusher: PendingTimerFlusher,
+    private val contactRepository: ContactRepository
 ) : ViewModel() {
 
     private var currentConversationId: String? = null
@@ -46,6 +48,15 @@ class ChatInfoViewModel @Inject constructor(
 
     private val _phoneNumber = MutableStateFlow("")
     val phoneNumber: StateFlow<String> = _phoneNumber.asStateFlow()
+
+    /**
+     * Telefon numarasi sistem rehberinde (Android Contacts) kayitli mi?
+     * "Rehbere Ekle" butonunu inaktif etmek icin kullanilir — kullanici tekrar eklemeyi
+     * denesin diye butonu gosterip bos islem ekleme yerine bilgilendirici disabled
+     * durum sunariz. phoneNumber resolve edildikten SONRA arka planda guncellenir.
+     */
+    private val _isPhoneInDeviceContacts = MutableStateFlow(false)
+    val isPhoneInDeviceContacts: StateFlow<Boolean> = _isPhoneInDeviceContacts.asStateFlow()
 
     private val _contactNote = MutableStateFlow<String?>(null)
     val contactNote: StateFlow<String?> = _contactNote.asStateFlow()
@@ -156,6 +167,7 @@ class ChatInfoViewModel @Inject constructor(
                         }
                     }
                     _phoneNumber.value = phoneNumber
+                    refreshDeviceContactStatus(phoneNumber)
                     _contactNote.value = conversation.contactNote
                     _customNotificationUri.value = conversation.customNotificationUri
                     _isGroup.value = conversation.isGroup
@@ -187,6 +199,7 @@ class ChatInfoViewModel @Inject constructor(
                     }
                     _conversationName.value = finalName
                     _phoneNumber.value = resolvedPhone
+                    refreshDeviceContactStatus(resolvedPhone)
                     _isGroup.value = false
                     _canStartConversation.value = conversationId != userSession.userId
                 }
@@ -398,5 +411,29 @@ class ChatInfoViewModel @Inject constructor(
                 }
             }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * Verilen telefon numarasi sistem rehberinde kayitli mi diye kontrol eder ve
+     * _isPhoneInDeviceContacts'i gunceller. Numara bossa false yapilir.
+     * findContactByPhoneNumber ContentResolver erisimi yapar; main thread'i bloklamasin
+     * diye IO dispatcher'a tasinir.
+     */
+    private fun refreshDeviceContactStatus(phone: String) {
+        if (phone.isBlank()) {
+            _isPhoneInDeviceContacts.value = false
+            return
+        }
+        viewModelScope.launch {
+            _isPhoneInDeviceContacts.value = try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    // ContactRepository singleton uzun yasiyor; in-memory cache rehber
+                    // degisikliklerini yakalamiyor. ChatInfo acilirken kullanici en
+                    // guncel durumu beklemeli — bu yuzden once invalidate, sonra fetch.
+                    contactRepository.invalidateCache()
+                    contactRepository.findContactByPhoneNumber(phone) != null
+                }
+            } catch (_: Exception) { false }
+        }
     }
 }
