@@ -46,34 +46,49 @@ class PeerConnectionManager @Inject constructor(
     companion object {
         private const val TAG = "WebRTC"
 
-        // Capture cozunurlugu: 720p modern WebRTC standardi. Encoder ag durumuna gore
-        // dinamik olarak DOWN-SCALE eder (degradationPreference=BALANCED) — kotu agda
-        // 480p hatta 240p'ye duser, iyi agda 720p kalir.
-        private const val VIDEO_WIDTH = 1280
-        private const val VIDEO_HEIGHT = 720
+        // Adaptif capture cozunurlugu — NetworkType bazli:
+        //   WIFI:     1920x1080 @ 30fps  (FullHD — modern cihaz standardi)
+        //   CELLULAR: 1280x720  @ 30fps  (HD — hucresel veri tasarrufu)
+        //   OTHER:    1280x720  @ 30fps  (bilinmeyen ag — orta)
+        //
+        // Capturer destekleyemezse kendi en yakin formati secer (WebRTC native
+        // fallback). Encoder ayrica degradationPreference=BALANCED ile ag durumuna
+        // gore dinamik DOWN-SCALE eder — kotu agda 480p/240p'ye iner.
+        private const val VIDEO_WIDTH_WIFI = 1920
+        private const val VIDEO_HEIGHT_WIFI = 1080
+        private const val VIDEO_WIDTH_DEFAULT = 1280
+        private const val VIDEO_HEIGHT_DEFAULT = 720
         private const val VIDEO_FPS = 30
 
         // Adaptif bitrate cap'leri — NetworkType bazli. WebRTC Congestion Controller bu
         // tavanin altinda kalmak uzere kendi adaptasyonunu yapar; biz sadece UPPER BOUND
         // koruyoruz (bandwidth fair-share + kullanici veri tasarrufu).
-        //
-        // Eski deger (600 kbps) 640x480'de bile cok dusuktu — codec ağir quantization
-        // yapip "camur" goruntu ureteceginden Sprint 9 follow-up'ta yukseltildi.
 
         // 1:1 cagri
-        private const val VIDEO_MAX_BITRATE_WIFI_P2P = 2_500_000      // 2.5 Mbps — 720p temiz
-        private const val VIDEO_MAX_BITRATE_CELL_P2P = 1_200_000      // 1.2 Mbps — hucresel veri korumasi
-        private const val VIDEO_MAX_BITRATE_OTHER_P2P = 1_500_000     // bilinmeyen ag — orta
+        private const val VIDEO_MAX_BITRATE_WIFI_P2P = 4_000_000      // 4 Mbps — 1080p temiz
+        private const val VIDEO_MAX_BITRATE_CELL_P2P = 1_500_000      // 1.5 Mbps — 720p hucresel
+        private const val VIDEO_MAX_BITRATE_OTHER_P2P = 2_000_000     // bilinmeyen ag — orta-yuksek
 
         // Mesh (grup cagri): her peer'e ayri encoder upload edilir; toplam upload
         // peer_count * cap olacagindan per-peer cap daha dusuk tutulur.
-        private const val VIDEO_MAX_BITRATE_WIFI_MESH = 1_000_000     // 1 Mbps × N peer
-        private const val VIDEO_MAX_BITRATE_CELL_MESH = 500_000       // 500 kbps × N peer
-        private const val VIDEO_MAX_BITRATE_OTHER_MESH = 700_000
+        private const val VIDEO_MAX_BITRATE_WIFI_MESH = 1_500_000     // 1.5 Mbps × N peer
+        private const val VIDEO_MAX_BITRATE_CELL_MESH = 600_000       // 600 kbps × N peer
+        private const val VIDEO_MAX_BITRATE_OTHER_MESH = 800_000
 
         // Minimum bitrate — WebRTC bu degerin altina dusmesin; cok dusuk bitrate'da
         // codec garip artifact'lar uretebilir, asgari kaliteyi koru.
-        private const val VIDEO_MIN_BITRATE_BPS = 300_000
+        private const val VIDEO_MIN_BITRATE_BPS = 400_000
+    }
+
+    /** Network type'a gore capture cozunurlugu sec — startCapture cagrisinda kullanilir. */
+    private fun captureWidth(): Int = when (networkTypeProvider.current()) {
+        NetworkType.WIFI -> VIDEO_WIDTH_WIFI
+        else -> VIDEO_WIDTH_DEFAULT
+    }
+
+    private fun captureHeight(): Int = when (networkTypeProvider.current()) {
+        NetworkType.WIFI -> VIDEO_HEIGHT_WIFI
+        else -> VIDEO_HEIGHT_DEFAULT
     }
 
     private val _peerStates = MutableStateFlow<Map<String, PeerState>>(emptyMap())
@@ -313,7 +328,8 @@ class PeerConnectionManager @Inject constructor(
         localVideoSource = factory.createVideoSource(videoCapturer!!.isScreencast)
 
         videoCapturer!!.initialize(surfaceTextureHelper, context, localVideoSource!!.capturerObserver)
-        videoCapturer!!.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+        val capW = captureWidth(); val capH = captureHeight()
+        videoCapturer!!.startCapture(capW, capH, VIDEO_FPS)
 
         localVideoTrack = factory.createVideoTrack("video0", localVideoSource)
         localVideoTrack?.setEnabled(true)
@@ -323,7 +339,7 @@ class PeerConnectionManager @Inject constructor(
         // 1-1: max video bitrate cap — agresif kullanici upload'u sinirla.
         applyVideoBitrateCap(pc, isMesh = false)
 
-        Log.d(TAG, "Yerel video baslatildi: ${VIDEO_WIDTH}x${VIDEO_HEIGHT} @ ${VIDEO_FPS}fps")
+        Log.d(TAG, "Yerel video baslatildi: ${capW}x${capH} @ ${VIDEO_FPS}fps")
     }
 
     /**
@@ -389,7 +405,7 @@ class PeerConnectionManager @Inject constructor(
         val existingTrack = localVideoTrack
         if (existingTrack != null) {
             try {
-                videoCapturer?.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+                videoCapturer?.startCapture(captureWidth(), captureHeight(), VIDEO_FPS)
             } catch (e: Exception) {
                 Log.e(TAG, "Video capture yeniden baslatma hatasi: ${e.message}")
             }
@@ -584,11 +600,12 @@ class PeerConnectionManager @Inject constructor(
         surfaceTextureHelper = SurfaceTextureHelper.create("GroupCaptureThread", eglBase!!.eglBaseContext)
         localVideoSource = factory.createVideoSource(videoCapturer!!.isScreencast)
         videoCapturer!!.initialize(surfaceTextureHelper, context, localVideoSource!!.capturerObserver)
-        videoCapturer!!.startCapture(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS)
+        val capW = captureWidth(); val capH = captureHeight()
+        videoCapturer!!.startCapture(capW, capH, VIDEO_FPS)
         localVideoTrack = factory.createVideoTrack("video0", localVideoSource)
         localVideoTrack?.setEnabled(true)
         _localVideoTrack.value = localVideoTrack
-        Log.d(TAG, "Paylasimli yerel video baslatildi: ${VIDEO_WIDTH}x${VIDEO_HEIGHT} @ ${VIDEO_FPS}fps")
+        Log.d(TAG, "Paylasimli yerel video baslatildi: ${capW}x${capH} @ ${VIDEO_FPS}fps")
     }
 
     /**

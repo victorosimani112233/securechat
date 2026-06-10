@@ -668,7 +668,11 @@ fun CallScreen(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(top = 48.dp, end = 16.dp)
-                        .size(width = 100.dp, height = 140.dp)
+                        // 9:16 portrait — capture 1280x720/1920x1080 landscape, cihaz dik
+                        // tutuldugunda track 9:16 olur. Eski 100x140 (5:7) container yeni
+                        // 9:16 video'yu yanlardan asiri kirpiyordu (kisi sikismis goruluyordu).
+                        // 100x178 dp ile aspect tam oturur, kirpilma yok.
+                        .size(width = 100.dp, height = 178.dp)
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
                         .border(
                             width = 2.dp,
