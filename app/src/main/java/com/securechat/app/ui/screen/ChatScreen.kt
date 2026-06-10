@@ -162,6 +162,7 @@ import com.securechat.app.ui.components.GeneratedAvatar
 import com.securechat.app.ui.theme.AzureDoodleBackdrop
 import com.securechat.app.ui.theme.LocalDarkTheme
 import com.securechat.app.ui.theme.MonoFamily
+import com.securechat.app.ui.theme.azure
 import com.securechat.app.ui.theme.glass
 import com.securechat.app.ui.viewmodel.ChatViewModel
 import com.securechat.app.ui.viewmodel.ConversationInfo
@@ -823,7 +824,7 @@ fun ChatScreen(
                         AttachOption(
                             icon = Icons.Default.CameraAlt,
                             label = "Kamera",
-                            color = Color(0xFF3E7BFA),
+                            color = MaterialTheme.azure.azure,
                             dark = dark,
                             onClick = {
                                 showAttachMenu = false
@@ -853,7 +854,7 @@ fun ChatScreen(
                         AttachOption(
                             icon = Icons.AutoMirrored.Filled.InsertDriveFile,
                             label = "Dosyalar",
-                            color = Color(0xFFFFB800),
+                            color = MaterialTheme.azure.warn,
                             dark = dark,
                             onClick = {
                                 showAttachMenu = false
@@ -963,11 +964,11 @@ private fun ViewOnceTextBubbleContent(
     val dark = LocalDarkTheme.current
     val consumed = isOutgoing || message.isViewed
     val labelColor = if (isOutgoing) {
-        if (dark) Color.White.copy(alpha = 0.8f) else Color(0xFF1E52D9).copy(alpha = 0.85f)
+        if (dark) Color.White.copy(alpha = 0.8f) else MaterialTheme.azure.azureDeep.copy(alpha = 0.85f)
     } else {
-        if (dark) Color(0xFFECEEF2).copy(alpha = 0.8f) else Color(0xFF13161B).copy(alpha = 0.8f)
+        if (dark) MaterialTheme.azure.frost.copy(alpha = 0.8f) else MaterialTheme.azure.ink.copy(alpha = 0.8f)
     }
-    val iconColor = if (consumed) labelColor.copy(alpha = 0.55f) else Color(0xFF3E7BFA)
+    val iconColor = if (consumed) labelColor.copy(alpha = 0.55f) else MaterialTheme.azure.azure
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.clickable(enabled = !consumed) { onTap() }
@@ -1200,8 +1201,8 @@ private fun EncryptionInfoBanner(modifier: Modifier = Modifier) {
             Text(
                 text = "Mesajlar uçtan uca şifrelenmiştir.",
                 style = MaterialTheme.typography.labelSmall,
-                color = if (dark) Color(0xFFECEEF2).copy(alpha = 0.7f)
-                        else Color(0xFF13161B).copy(alpha = 0.7f),
+                color = if (dark) MaterialTheme.azure.frost.copy(alpha = 0.7f)
+                        else MaterialTheme.azure.ink.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
                 fontSize = 11.sp
             )
@@ -1230,7 +1231,7 @@ private fun DateSeparator(dateLabel: String) {
                 text = dateLabel,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelSmall,
-                color = if (dark) Color(0xFFECEEF2) else Color(0xFF13161B),
+                color = if (dark) MaterialTheme.azure.frost else MaterialTheme.azure.ink,
                 fontWeight = FontWeight.Medium,
                 fontSize = 12.sp
             )
@@ -1391,7 +1392,7 @@ fun ChatTopBar(
                             text = "$memberCount üye",
                             style = MaterialTheme.typography.labelSmall,
                             fontFamily = MonoFamily,
-                            color = if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570),
+                            color = if (dark) MaterialTheme.azure.frostMute else MaterialTheme.azure.inkMute,
                             fontSize = 11.sp
                         )
                     } else if (peerIsOnline) {
@@ -1407,7 +1408,7 @@ fun ChatTopBar(
                             text = formatLastSeen(peerLastSeen),
                             style = MaterialTheme.typography.labelSmall,
                             fontFamily = MonoFamily,
-                            color = if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570),
+                            color = if (dark) MaterialTheme.azure.frostMute else MaterialTheme.azure.inkMute,
                             fontSize = 11.sp
                         )
                     }
@@ -1750,6 +1751,10 @@ private fun DurationField(
  * Chat top bar avatar için gradient — daha koyu, canlı tonlar.
  */
 private fun chatAvatarColor(name: String): Color {
+    // ISTISNA: Bu pure utility function Composable context disinda; AzureTokens
+    // erisimi @Composable gerektirdigi icin hardcoded hex kaldi. AvatarGenerator
+    // composable refactor'i ile bu liste tasinabilir; simdilik ekran-disinda
+    // stable palette tutuyoruz.
     val colors = listOf(
         Color(0xFF3E7BFA), // azure
         Color(0xFF6B737D), // slate
@@ -1770,9 +1775,10 @@ private fun chatAvatarColor(name: String): Color {
  * Azure tema ile uyumlu nötr + mavi tonlar.
  */
 private fun senderNameColor(senderId: String): Color {
+    // ISTISNA: pure non-composable utility, AzureTokens erisilemez (bkz. chatAvatarColor)
     val senderColors = listOf(
-        Color(0xFF3E7BFA),
-        Color(0xFF5EA3FF),
+        Color(0xFF3E7BFA), // azure
+        Color(0xFF5EA3FF), // azureGlow
         Color(0xFF7C4DFF),
         Color(0xFFFF7043),
         Color(0xFFEC407A),
@@ -1832,18 +1838,18 @@ fun MessageBubble(
 
     // Azure tema balon renkleri
     val bubbleBg = if (isOutgoing) {
-        if (dark) Color(0xFF3E7BFA).copy(alpha = 0.28f)
-        else Color(0xFF3E7BFA).copy(alpha = 0.18f)
+        if (dark) MaterialTheme.azure.azure.copy(alpha = 0.28f)
+        else MaterialTheme.azure.azure.copy(alpha = 0.18f)
     } else {
         if (dark) Color(0xFF0F141C).copy(alpha = 0.55f)
-        else Color(0xFF13161B).copy(alpha = 0.06f)
+        else MaterialTheme.azure.ink.copy(alpha = 0.06f)
     }
     val bubbleBorder = if (isOutgoing) {
-        if (dark) Color(0xFF5EA3FF).copy(alpha = 0.35f)
-        else Color(0xFF3E7BFA).copy(alpha = 0.35f)
+        if (dark) MaterialTheme.azure.azureGlow.copy(alpha = 0.35f)
+        else MaterialTheme.azure.azure.copy(alpha = 0.35f)
     } else {
         if (dark) Color.White.copy(alpha = 0.08f)
-        else Color(0xFF13161B).copy(alpha = 0.09f)
+        else MaterialTheme.azure.ink.copy(alpha = 0.09f)
     }
     val bubbleShape = if (isOutgoing)
         RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)
@@ -1852,7 +1858,7 @@ fun MessageBubble(
 
     // Highlight animasyonu
     val highlightColor by animateColorAsState(
-        targetValue = if (isHighlighted) Color(0xFF3E7BFA).copy(alpha = 0.25f)
+        targetValue = if (isHighlighted) MaterialTheme.azure.azure.copy(alpha = 0.25f)
         else Color.Transparent,
         animationSpec = tween(durationMillis = 400),
         label = "highlight"
@@ -2061,9 +2067,9 @@ fun MessageBubble(
                                 text = "düzenlendi",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (isOutgoing) {
-                                    if (dark) Color.White.copy(alpha = 0.45f) else Color(0xFF1E52D9).copy(alpha = 0.45f)
+                                    if (dark) Color.White.copy(alpha = 0.45f) else MaterialTheme.azure.azureDeep.copy(alpha = 0.45f)
                                 } else {
-                                    if (dark) Color(0xFF9BA3AE).copy(alpha = 0.5f) else Color(0xFF5D6570).copy(alpha = 0.5f)
+                                    if (dark) MaterialTheme.azure.frostMute.copy(alpha = 0.5f) else MaterialTheme.azure.inkMute.copy(alpha = 0.5f)
                                 },
                                 fontSize = 10.sp
                             )
@@ -2082,9 +2088,9 @@ fun MessageBubble(
                             text = formatTime(message.timestamp),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isOutgoing) {
-                                if (dark) Color.White.copy(alpha = 0.55f) else Color(0xFF1E52D9).copy(alpha = 0.55f)
+                                if (dark) Color.White.copy(alpha = 0.55f) else MaterialTheme.azure.azureDeep.copy(alpha = 0.55f)
                             } else {
-                                if (dark) Color(0xFF9BA3AE).copy(alpha = 0.6f) else Color(0xFF5D6570).copy(alpha = 0.6f)
+                                if (dark) MaterialTheme.azure.frostMute.copy(alpha = 0.6f) else MaterialTheme.azure.inkMute.copy(alpha = 0.6f)
                             },
                             fontSize = 11.sp
                         )
@@ -2574,9 +2580,9 @@ private fun TextMessageContent(
 ) {
     val dark = LocalDarkTheme.current
     val textColor = if (isOutgoing) {
-        if (dark) Color.White else Color(0xFF1E52D9)
+        if (dark) Color.White else MaterialTheme.azure.azureDeep
     } else {
-        if (dark) Color(0xFFECEEF2) else Color(0xFF13161B)
+        if (dark) MaterialTheme.azure.frost else MaterialTheme.azure.ink
     }
 
     if (searchQuery.isNotBlank() && message.content.contains(searchQuery, ignoreCase = true)) {
@@ -2625,7 +2631,7 @@ private fun buildHighlightedText(
             }
         }
 
-        // Eşleşen metin — sarı highlight
+        // Eşleşen metin — sarı highlight (ISTISNA: pure utility, theme erisilemez)
         withStyle(
             SpanStyle(
                 color = Color(0xFF13161B),
@@ -2657,15 +2663,15 @@ private fun FileMessageContent(
     val dark = LocalDarkTheme.current
     val isUploading = uploadPercent != null
     val textColor = if (isOutgoing) {
-        if (dark) Color.White else Color(0xFF1E52D9)
+        if (dark) Color.White else MaterialTheme.azure.azureDeep
     } else {
-        if (dark) Color(0xFFECEEF2) else Color(0xFF13161B)
+        if (dark) MaterialTheme.azure.frost else MaterialTheme.azure.ink
     }
 
     val subtextColor = if (isOutgoing) {
-        if (dark) Color.White.copy(alpha = 0.7f) else Color(0xFF1E52D9).copy(alpha = 0.7f)
+        if (dark) Color.White.copy(alpha = 0.7f) else MaterialTheme.azure.azureDeep.copy(alpha = 0.7f)
     } else {
-        if (dark) Color(0xFF9BA3AE) else Color(0xFF5D6570)
+        if (dark) MaterialTheme.azure.frostMute else MaterialTheme.azure.inkMute
     }
 
     // Tek gosterimlik medya — ONIZLEME YOK, sadece "1" rozetli placeholder.
@@ -2693,18 +2699,18 @@ private fun FileMessageContent(
                         .clip(CircleShape)
                         .background(
                             if (showAsConsumed) Color(0xFF475569)
-                            else Color(0xFF3E7BFA).copy(alpha = 0.18f)
+                            else MaterialTheme.azure.azure.copy(alpha = 0.18f)
                         )
                         .border(
                             width = 1.5.dp,
-                            color = if (showAsConsumed) Color(0xFF64748B) else Color(0xFF3E7BFA),
+                            color = if (showAsConsumed) Color(0xFF64748B) else MaterialTheme.azure.azure,
                             shape = CircleShape
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "1",
-                        color = if (showAsConsumed) Color.White.copy(alpha = 0.7f) else Color(0xFF3E7BFA),
+                        color = if (showAsConsumed) Color.White.copy(alpha = 0.7f) else MaterialTheme.azure.azure,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -2796,7 +2802,7 @@ private fun FileMessageContent(
             val iconTint = message.fileMimeType?.let { mimeType ->
                 FileOpenHelper.getMimeTypeColor(mimeType)
             } ?: if (message.isImageFile) {
-                Color(0xFF3E7BFA)
+                MaterialTheme.azure.azure
             } else {
                 Color(0xFF42A5F5)
             }
@@ -2891,8 +2897,8 @@ private fun FileMessageContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp),
-                color = if (dark) Color(0xFF3E7BFA) else Color(0xFF1E52D9),
-                trackColor = if (dark) Color.White.copy(alpha = 0.1f) else Color(0xFF1E52D9).copy(alpha = 0.1f)
+                color = if (dark) MaterialTheme.azure.azure else MaterialTheme.azure.azureDeep,
+                trackColor = if (dark) Color.White.copy(alpha = 0.1f) else MaterialTheme.azure.azureDeep.copy(alpha = 0.1f)
             )
         }
     }
@@ -2949,7 +2955,7 @@ private fun AttachOption(
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = if (dark) Color(0xFFECEEF2) else Color(0xFF13161B)
+            color = if (dark) MaterialTheme.azure.frost else MaterialTheme.azure.ink
         )
     }
 }
@@ -2976,8 +2982,8 @@ private fun EditMessageDialog(
                 maxLines = 6,
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF3E7BFA),
-                    cursorColor = Color(0xFF3E7BFA)
+                    focusedBorderColor = MaterialTheme.azure.azure,
+                    cursorColor = MaterialTheme.azure.azure
                 )
             )
         },
@@ -2992,7 +2998,7 @@ private fun EditMessageDialog(
                     }
                 }
             ) {
-                Text("Kaydet", color = Color(0xFF3E7BFA))
+                Text("Kaydet", color = MaterialTheme.azure.azure)
             }
         },
         dismissButton = {
@@ -3249,7 +3255,7 @@ private fun MessageInfoPopup(
         Text(
             text = "Okundu",
             style = MaterialTheme.typography.labelMedium,
-            color = Color(0xFF3E7BFA),
+            color = MaterialTheme.azure.azure,
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(8.dp))
@@ -3367,7 +3373,7 @@ private fun CreatePollDialog(
     var options by remember { mutableStateOf(listOf("", "")) }
     var singleChoice by remember { mutableStateOf(true) }
 
-    val accentColor = Color(0xFF3E7BFA)
+    val accentColor = MaterialTheme.azure.azure
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -3656,13 +3662,13 @@ private fun PollMessageContent(
                         .fillMaxWidth()
                         .border(
                             width = if (userVotedThis) 1.5.dp else 1.dp,
-                            color = if (userVotedThis) Color(0xFF3E7BFA)
+                            color = if (userVotedThis) MaterialTheme.azure.azure
                                     else textColor.copy(alpha = 0.2f),
                             shape = RoundedCornerShape(10.dp)
                         )
                         .clip(RoundedCornerShape(10.dp))
                         .background(
-                            if (userVotedThis) Color(0xFF3E7BFA).copy(alpha = 0.10f)
+                            if (userVotedThis) MaterialTheme.azure.azure.copy(alpha = 0.10f)
                             else Color.Transparent
                         )
                         .clickable { onVote(index) }
@@ -3676,7 +3682,7 @@ private fun PollMessageContent(
                             if (userVotedThis) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
-                        tint = if (userVotedThis) Color(0xFF3E7BFA) else textColor.copy(alpha = 0.4f)
+                        tint = if (userVotedThis) MaterialTheme.azure.azure else textColor.copy(alpha = 0.4f)
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
@@ -3717,7 +3723,7 @@ private fun PollMessageContent(
                 Text(
                     text = "Detayları gör",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF3E7BFA),
+                    color = MaterialTheme.azure.azure,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -3808,13 +3814,13 @@ private fun PollVotersDialog(
                                         modifier = Modifier
                                             .size(6.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF3E7BFA))
+                                            .background(MaterialTheme.azure.azure)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = name,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = if (isMe) Color(0xFF3E7BFA) else MaterialTheme.colorScheme.onSurface,
+                                        color = if (isMe) MaterialTheme.azure.azure else MaterialTheme.colorScheme.onSurface,
                                         fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Normal
                                     )
                                 }
@@ -3832,7 +3838,7 @@ private fun PollVotersDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Kapat", color = Color(0xFF3E7BFA), fontWeight = FontWeight.SemiBold)
+                Text("Kapat", color = MaterialTheme.azure.azure, fontWeight = FontWeight.SemiBold)
             }
         }
     )
