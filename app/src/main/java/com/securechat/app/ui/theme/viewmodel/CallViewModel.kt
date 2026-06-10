@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.webrtc.EglBase
@@ -29,7 +30,8 @@ class CallViewModel @Inject constructor(
     private val userSession: UserSession,
     private val conversationDao: ConversationDao,
     private val contactNameResolver: ContactNameResolver,
-    private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>
+    private val phoneAccountRegistrar: dagger.Lazy<com.securechat.telecom.PhoneAccountRegistrar>,
+    private val backgroundBlurStore: com.securechat.app.data.BackgroundBlurStore
 ) : ViewModel() {
 
     companion object {
@@ -80,6 +82,25 @@ class CallViewModel @Inject constructor(
     /** Grup arama katilimcilari (yerel + uzak) icin peerId -> displayName eslemesi. */
     private val _participantNames = MutableStateFlow<Map<String, String>>(emptyMap())
     val participantNames: StateFlow<Map<String, String>> = _participantNames.asStateFlow()
+
+    /**
+     * Arka plan bulaniklastir bayragi — kullanici cagri sirasinda toggle eder.
+     * Persist edilir (BackgroundBlurStore); sonraki cagrida hatirlanir.
+     *
+     * Su an UI toggle anlik state; gercek frame processing
+     * (ML Kit SelfieSegmentation + WebRTC VideoProcessor) takip eden iterasyonda
+     * PeerConnectionManager'a entegre edilecek.
+     */
+    val backgroundBlurEnabled: StateFlow<Boolean> = backgroundBlurStore.enabled
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), false)
+
+    fun toggleBackgroundBlur() {
+        viewModelScope.launch {
+            val newValue = !backgroundBlurEnabled.value
+            backgroundBlurStore.setEnabled(newValue)
+            // TODO: PeerConnectionManager.setVideoProcessor(...) entegrasyonu
+        }
+    }
 
     init {
         // Secondary call peer ismini her degisiminde coz

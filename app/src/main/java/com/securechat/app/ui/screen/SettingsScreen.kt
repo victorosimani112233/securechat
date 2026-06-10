@@ -21,13 +21,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.CheckCircle
@@ -149,6 +156,12 @@ fun SettingsScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
+
+    // Ayar arama — toolbar'da search ikonu toggle eder. Bos query'de orijinal layout korunur;
+    // dolu query'de her ListItem `SearchableSetting` wrapper'i ile match'lendiginde gosterilir,
+    // section header'lari ve eslesmeyen tum section'in glass card'i gizlenir.
+    var isSettingsSearchVisible by remember { mutableStateOf(false) }
+    var settingsSearchQuery by remember { mutableStateOf("") }
 
     val context = LocalContext.current
 
@@ -370,6 +383,18 @@ fun SettingsScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.nav_back), tint = MaterialTheme.colorScheme.onSurface)
                         }
                     },
+                    actions = {
+                        IconButton(onClick = {
+                            isSettingsSearchVisible = !isSettingsSearchVisible
+                            if (!isSettingsSearchVisible) settingsSearchQuery = ""
+                        }) {
+                            Icon(
+                                if (isSettingsSearchVisible) Icons.Default.Close else Icons.Default.Search,
+                                contentDescription = "Ayarlarda ara",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent
                     ),
@@ -385,6 +410,55 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
             ) {
+                // Ayar arama bar'i — toolbar search ikonuna basinca acilir.
+                AnimatedVisibility(
+                    visible = isSettingsSearchVisible,
+                    enter = expandVertically(),
+                    exit = shrinkVertically()
+                ) {
+                    TextField(
+                        value = settingsSearchQuery,
+                        onValueChange = { settingsSearchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .glass(dark = dark, shape = RoundedCornerShape(24.dp)),
+                        placeholder = {
+                            Text(
+                                "Ayarlarda ara...",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 14.sp
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        trailingIcon = {
+                            if (settingsSearchQuery.isNotEmpty()) {
+                                IconButton(onClick = { settingsSearchQuery = "" }) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Aramayı temizle"
+                                    )
+                                }
+                            }
+                        },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            cursorColor = MaterialTheme.colorScheme.primary
+                        ),
+                        singleLine = true
+                    )
+                }
+
                 // === Profil Bölümü ===
                 Box(
                     modifier = Modifier
@@ -1158,6 +1232,26 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+/**
+ * Ayar arama wrapper'i — query bossa veya title/subtitle/sectionTitle bunu iceriyorsa
+ * icerigi render eder; aksi takdirde gizlenir. Section header'lari bu helper ile yerine
+ * `if (query.isBlank())` ile koklenir.
+ *
+ * vararg matchTexts: title, subtitle, ek anahtar kelimeler — hepsi case-insensitive.
+ */
+@Composable
+private fun SearchableSetting(
+    query: String,
+    vararg matchTexts: String?,
+    content: @Composable () -> Unit
+) {
+    val q = query.trim()
+    val visible = q.isBlank() || matchTexts.any {
+        it != null && it.contains(q, ignoreCase = true)
+    }
+    if (visible) content()
 }
 
 // === Profil Bölümü ===

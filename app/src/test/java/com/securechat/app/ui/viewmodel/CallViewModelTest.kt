@@ -64,7 +64,7 @@ class CallViewModelTest {
 
     private fun newViewModel() = CallViewModel(
         savedStateHandle, callManager, userSession, conversationDao,
-        contactNameResolver, phoneAccountRegistrar
+        contactNameResolver, phoneAccountRegistrar, mockk(relaxed = true)
     )
 
     @After
