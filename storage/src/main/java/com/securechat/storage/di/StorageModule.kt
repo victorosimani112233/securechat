@@ -90,7 +90,7 @@ object StorageModule {
             "securechat.db"
         )
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
+            .addMigrations(MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
             .fallbackToDestructiveMigration()
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
@@ -175,6 +175,17 @@ object StorageModule {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE messages ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE messages ADD COLUMN pinned_at INTEGER")
+        }
+    }
+
+    /**
+     * v20 -> v21: Manuel "okunmadi isaretle" destegi.
+     *   - ConversationEntity.manually_unread (BOOLEAN, default 0)
+     * Veri kaybi olmaz; mevcut konusmalar default isaretlenmemis kalir.
+     */
+    private val MIGRATION_20_21 = object : Migration(20, 21) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE conversations ADD COLUMN manually_unread INTEGER NOT NULL DEFAULT 0")
         }
     }
 

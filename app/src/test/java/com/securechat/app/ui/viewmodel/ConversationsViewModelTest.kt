@@ -56,7 +56,7 @@ class ConversationsViewModelTest {
         )
         every { messageRepository.getConversations() } returns flowOf(testConversations)
 
-        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase)
+        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase, mockk(relaxed = true), mockk(relaxed = true))
 
         viewModel.conversations.test {
             val first = awaitItem()
@@ -76,7 +76,7 @@ class ConversationsViewModelTest {
     fun `conversations defaults to empty list`() = runTest {
         every { messageRepository.getConversations() } returns flowOf(emptyList())
 
-        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase)
+        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase, mockk(relaxed = true), mockk(relaxed = true))
 
         assertEquals(emptyList<Conversation>(), viewModel.conversations.value)
     }
@@ -86,7 +86,7 @@ class ConversationsViewModelTest {
         every { messageRepository.getConversations() } returns flowOf(emptyList())
         connectionStateFlow.value = ConnectionState.Connected
 
-        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase)
+        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase, mockk(relaxed = true), mockk(relaxed = true))
 
         viewModel.connectionState.test {
             val first = awaitItem()
@@ -105,7 +105,7 @@ class ConversationsViewModelTest {
         every { messageRepository.getConversations() } returns flowOf(emptyList())
         connectionStateFlow.value = ConnectionState.Disconnected
 
-        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase)
+        val viewModel = ConversationsViewModel(messageRepository, signalingClient, updateContactNamesUseCase, mockk(relaxed = true), mockk(relaxed = true))
 
         assertTrue(viewModel.connectionState.value is ConnectionState.Disconnected)
     }

@@ -47,7 +47,7 @@ import com.securechat.storage.entity.SignedPreKeyEntity
         ExportLogEntity::class,
         SenderKeyEntity::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

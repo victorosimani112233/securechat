@@ -21,5 +21,13 @@ data class Conversation(
     val isArchived: Boolean = false,
     val disappearingDuration: Long = 0,
     val isFavorite: Boolean = false,
-    val isLocked: Boolean = false
-)
+    val isLocked: Boolean = false,
+    /** Manuel "Okunmadi isaretle" — ChatScreen acilinca otomatik temizlenir. */
+    val manuallyUnread: Boolean = false
+) {
+    /**
+     * Konusma okunmamis durumu — unread_count > 0 VEYA manuel olarak isaretlendi.
+     * Sohbet listesi rozetinde bu deger kullanilir.
+     */
+    val hasUnread: Boolean get() = unreadCount > 0 || manuallyUnread
+}

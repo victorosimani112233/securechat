@@ -39,5 +39,9 @@ data class ConversationEntity(
     // Sohbet disa aktarma izni — sadece grup admin'i toggle edebilir. Default kapali.
     // Kapaliyken: tek tek mesaj kopyalama ve "Sohbeti Disa Aktar" menusu gizlenir.
     // Acikken: izin uyarisi banner + admin'lere encrypted export log gonderilir.
-    @ColumnInfo(name = "is_export_enabled") val isExportEnabled: Boolean = false
+    @ColumnInfo(name = "is_export_enabled") val isExportEnabled: Boolean = false,
+    // Manuel "Okunmadı işaretle" — kullanici tekrar donmek istiyorsa konusmayi
+    // okunmamis olarak isaretleyebilir. unreadCount > 0 || manuallyUnread olarak
+    // hasUnread hesaplanir. ChatScreen acilinca otomatik false'a doner.
+    @ColumnInfo(name = "manually_unread") val manuallyUnread: Boolean = false
 )

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Info
@@ -427,7 +428,7 @@ fun ConversationsScreen(
                             }
                         }
                         when (activeFilter) {
-                            ConversationFilter.UNREAD -> result.filter { it.unreadCount > 0 }
+                            ConversationFilter.UNREAD -> result.filter { it.hasUnread }
                             ConversationFilter.GROUPS -> result.filter { it.isGroup }
                             ConversationFilter.FAVORITES -> result.filter { it.isFavorite }
                             ConversationFilter.NONE -> result
@@ -494,7 +495,10 @@ fun ConversationsScreen(
                                             onDeleteRequest = { conversationToDelete = conversation },
                                             onArchiveRequest = { viewModel.archiveConversation(conversation.id) },
                                             onFavoriteToggle = { viewModel.toggleFavorite(conversation.id, !conversation.isFavorite) },
-                                            onMuteToggle = { viewModel.toggleMuted(conversation.id, !conversation.isMuted) }
+                                            onMuteToggle = { viewModel.toggleMuted(conversation.id, !conversation.isMuted) },
+                                            onMarkUnreadToggle = {
+                                                viewModel.toggleManuallyUnread(conversation.id, !conversation.hasUnread)
+                                            }
                                         )
                                     }
                                 }
@@ -693,7 +697,8 @@ private fun SwipeableConversationItem(
     onDeleteRequest: () -> Unit,
     onArchiveRequest: (() -> Unit)? = null,
     onFavoriteToggle: (() -> Unit)? = null,
-    onMuteToggle: (() -> Unit)? = null
+    onMuteToggle: (() -> Unit)? = null,
+    onMarkUnreadToggle: (() -> Unit)? = null
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
 
@@ -804,6 +809,21 @@ private fun SwipeableConversationItem(
                         leadingIcon = {
                             Icon(
                                 if (isMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    )
+                }
+                // Manuel "Okunmadı" — kullanici sonra donmek istedigi sohbetler icin
+                if (onMarkUnreadToggle != null) {
+                    val isUnread = conversation.hasUnread
+                    DropdownMenuItem(
+                        text = { Text(if (isUnread) "Okundu işaretle" else "Okunmadı işaretle") },
+                        onClick = { showContextMenu = false; onMarkUnreadToggle() },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.MarkEmailUnread,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -940,7 +960,8 @@ fun ConversationItem(
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp
             )
-            if (conversation.unreadCount > 0) {
+            // Rozet: sayisal okunmamis VEYA manuel "Okunmadi" isareti
+            if (conversation.hasUnread) {
                 Spacer(modifier = Modifier.height(4.dp))
                 // Renk koru ayirt edilebilirlik icin border/outline eklendi
                 Badge(
@@ -953,11 +974,16 @@ fun ConversationItem(
                             CircleShape
                         )
                 ) {
-                    Text(
-                        "${conversation.unreadCount}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    // Manuel isarette sayisal yok — tek nokta gosterimi
+                    if (conversation.unreadCount > 0) {
+                        Text(
+                            "${conversation.unreadCount}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Text(" ", fontSize = 11.sp)
+                    }
                 }
             }
         }

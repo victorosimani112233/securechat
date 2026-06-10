@@ -29,7 +29,9 @@ import javax.inject.Inject
 class ConversationsViewModel @Inject constructor(
     private val messageRepository: MessageRepository,
     private val signalingClient: SignalingClient,
-    private val updateContactNamesUseCase: UpdateContactNamesUseCase
+    private val updateContactNamesUseCase: UpdateContactNamesUseCase,
+    private val markAsUnreadUseCase: com.securechat.app.domain.usecase.MarkConversationAsUnreadUseCase,
+    private val conversationDao: com.securechat.storage.dao.ConversationDao
 ) : ViewModel() {
 
     /** Aktif (arşivlenmemiş) konuşmaların reaktif listesi. */
@@ -106,6 +108,16 @@ class ConversationsViewModel @Inject constructor(
     fun toggleMuted(conversationId: String, isMuted: Boolean) {
         viewModelScope.launch {
             messageRepository.updateConversationMuted(conversationId, isMuted)
+        }
+    }
+
+    /**
+     * Konusmayi manuel olarak "Okunmadı" isaretler veya isareti kaldirir.
+     * ChatScreen acilinca markAsRead otomatik temizler.
+     */
+    fun toggleManuallyUnread(conversationId: String, markUnread: Boolean) {
+        viewModelScope.launch {
+            markAsUnreadUseCase(conversationId, markUnread)
         }
     }
 

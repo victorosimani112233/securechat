@@ -54,7 +54,12 @@ interface ConversationDao {
     @Update
     suspend fun update(conversation: ConversationEntity)
 
-    @Query("UPDATE conversations SET unread_count = 0 WHERE id = :conversationId")
+    /**
+     * Konusmayi okundu olarak isaretle — unread_count + manuallyUnread temizler.
+     * ChatScreen acilinca cagrilir; kullanici daha once "Okunmadi isaretle" demis olsa bile
+     * ekran acilinca silinir (bilincli karar — okuduktan sonra kosaca temizlenir).
+     */
+    @Query("UPDATE conversations SET unread_count = 0, manually_unread = 0 WHERE id = :conversationId")
     suspend fun markAsRead(conversationId: String)
 
     @Query("DELETE FROM conversations WHERE id = :conversationId")
@@ -134,4 +139,12 @@ interface ConversationDao {
     // Sureli mesaj cleanup sonrasi: konusmada hic mesaj kalmadiysa lastMessage null'a cekilir.
     @Query("UPDATE conversations SET last_message = NULL, last_message_timestamp = NULL WHERE id = :conversationId")
     suspend fun clearLastMessage(conversationId: String)
+
+    /**
+     * Manuel "Okunmadi isaretle" flag'i guncelle.
+     * - true = kullanici konusmayi okunmamis isaretledi
+     * - false = otomatik temizlik (sohbet ekrani acilinca, markAsRead sirasinda)
+     */
+    @Query("UPDATE conversations SET manually_unread = :manuallyUnread WHERE id = :conversationId")
+    suspend fun updateManuallyUnread(conversationId: String, manuallyUnread: Boolean)
 }
