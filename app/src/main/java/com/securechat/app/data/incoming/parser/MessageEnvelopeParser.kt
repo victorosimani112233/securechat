@@ -28,7 +28,13 @@ data class ParsedEnvelope(
     /** EXP prefix'ten alinan mutlak expiresAt (ms). Yoksa null. */
     val absoluteExpiresAt: Long? = null,
     /** VIEWONCE prefix bayragi — tek gosterimlik metin mesaji. */
-    val isViewOnce: Boolean = false
+    val isViewOnce: Boolean = false,
+    /**
+     * MENTION prefix'ten alinan etiketlenen kullanici ID listesi.
+     * Bos liste = mention yok. Grup mesajlarinda alici taraf bu listede ise
+     * yuksek oncelikli bildirim tetiklenir (sessiz konusmada bile).
+     */
+    val mentionedUserIds: List<String> = emptyList()
 )
 
 /** Anket oy guncellemesi referansi — alici tarafta uygulanir. */
@@ -45,6 +51,7 @@ object MessageEnvelopeParser {
         var replyToId: String? = null
         var absoluteExpiresAt: Long? = null
         var isViewOnce = false
+        var mentionedUserIds: List<String> = emptyList()
 
         // MSGID prefix
         if (remaining.startsWith("MSGID:")) {
@@ -83,6 +90,22 @@ object MessageEnvelopeParser {
             remaining = remaining.removePrefix("VIEWONCE:")
         }
 
+        // MENTION prefix — grup mesajlarinda etiketlenen kullanici ID listesi (virgulle ayrilmis).
+        // Format: MENTION:uid1,uid2,uid3: — bos listenin parse edilmemesi icin gonderici tarafta
+        // hic uretmiyoruz; alici tarafta yine de bos liste guvenli sekilde handle edilir.
+        // POLL/POLLVOTE'tan ONCE parse edilmeli (POLL kalan her seyi content kabul ediyor).
+        if (remaining.startsWith("MENTION:")) {
+            val firstColon = remaining.indexOf(':')
+            val secondColon = remaining.indexOf(':', firstColon + 1)
+            if (secondColon > firstColon) {
+                val csv = remaining.substring(firstColon + 1, secondColon)
+                mentionedUserIds = csv.split(",")
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                remaining = remaining.substring(secondColon + 1)
+            }
+        }
+
         // POLLVOTE: prefix — anket oy guncellemesi (yeni mesaj olarak kaydedilmez,
         // mevcut anket mesajinin votes alanini gunceller)
         // Format: POLLVOTE:<pollMsgId>:<optionIndex>
@@ -99,7 +122,8 @@ object MessageEnvelopeParser {
                         contentType = MessageContentType.TEXT,
                         pollVote = PollVoteRef(pollMsgId, optionIdx),
                         absoluteExpiresAt = absoluteExpiresAt,
-                        isViewOnce = isViewOnce
+                        isViewOnce = isViewOnce,
+                        mentionedUserIds = mentionedUserIds
                     )
                 }
             }
@@ -114,7 +138,8 @@ object MessageEnvelopeParser {
                 contentType = MessageContentType.POLL,
                 pollVote = null,
                 absoluteExpiresAt = absoluteExpiresAt,
-                isViewOnce = isViewOnce
+                isViewOnce = isViewOnce,
+                mentionedUserIds = mentionedUserIds
             )
         }
 
@@ -123,7 +148,8 @@ object MessageEnvelopeParser {
             replyToId = replyToId,
             content = remaining,
             absoluteExpiresAt = absoluteExpiresAt,
-            isViewOnce = isViewOnce
+            isViewOnce = isViewOnce,
+            mentionedUserIds = mentionedUserIds
         )
     }
 

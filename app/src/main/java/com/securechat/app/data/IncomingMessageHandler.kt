@@ -881,7 +881,16 @@ class IncomingMessageHandler @Inject constructor(
             val q = try { org.json.JSONObject(actualContent).optString("question", "Anket") } catch (_: Exception) { "Anket" }
             "📊 Anket: $q"
         } else actualContent
-        showMessageNotification("$senderName ($displayGroupName)", groupNotifPreview, groupId)
+        // Mention algilama — gonderici MENTION prefix gomduyse + listede localUserId varsa,
+        // bildirim mute olsa bile high-priority kanal kullanilir (showMessageNotification icinde
+        // @id contains check zaten var; ek olarak structured liste daha guvenilir).
+        val isMentioned = parsedGroup.mentionedUserIds.contains(localUserId)
+        showMessageNotification(
+            "$senderName ($displayGroupName)",
+            groupNotifPreview,
+            groupId,
+            forceHighPriority = isMentioned
+        )
 
         // Receipt: DAIMA DELIVERED. READ receipt'i ChatViewModel.markIncomingMessagesAsRead gonderir
         // (sohbet aciksa Flow uzerinden). Tek-kaynak prensibi: WhatsApp benzeri tik gecisi animasyonel.
@@ -1433,17 +1442,25 @@ class IncomingMessageHandler @Inject constructor(
      * - Uygulama background'daysa her zaman bildirim goster
      * - Uygulama foreground'daysa sadece current chat'ten farkliysa bildirim goster
      */
-    private suspend fun showMessageNotification(senderName: String, content: String, conversationId: String) {
+    private suspend fun showMessageNotification(
+        senderName: String,
+        content: String,
+        conversationId: String,
+        forceHighPriority: Boolean = false
+    ) {
         // Sessiz konusmalar icin bildirim gosterilir ama ses/titresim kapatilir
         val conv = conversationDao.getById(conversationId)
             ?: conversationDao.getByPeerId(conversationId)
         val isMutedRaw = conv?.isMuted == true
 
-        // Sessize alinmis grupta bile @mention bildirim gonderilmeli
+        // Sessize alinmis grupta bile @mention bildirim gonderilmeli.
+        // forceHighPriority: gonderici MENTION envelope prefix gomduyse caller true verir
+        // (string-icindeki @ kontrolune gore daha guvenilir, isim icinde bosluk problemi yok).
         val isMuted = if (isMutedRaw) {
             val currentUserId = userSession.userId ?: ""
             val currentDisplayName = userSession.displayName ?: ""
-            val isMentioned = content.contains("@$currentUserId") ||
+            val isMentioned = forceHighPriority ||
+                              content.contains("@$currentUserId") ||
                               (currentDisplayName.isNotBlank() && content.contains("@$currentDisplayName"))
             if (isMentioned) {
                 android.util.Log.d("IncomingHandler", "Sessize alinmis grupta @mention algilandi")

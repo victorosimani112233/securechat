@@ -100,4 +100,57 @@ class MessageEnvelopeParserTest {
         assertThat(id).isEqualTo("abc")
         assertThat(content).isEqualTo("icerik")
     }
+
+    // --- MENTION prefix (Feature 1, Sprint 9) ---
+
+    @Test
+    fun `MENTION — tek kullanici`() {
+        val r = MessageEnvelopeParser.parse("MSGID:m1:MENTION:uid1:Merhaba @Ali")
+        assertThat(r.mentionedUserIds).containsExactly("uid1")
+        assertThat(r.content).isEqualTo("Merhaba @Ali")
+    }
+
+    @Test
+    fun `MENTION — coklu kullanici`() {
+        val r = MessageEnvelopeParser.parse("MSGID:m1:MENTION:uid1,uid2,uid3:Merhaba @Ali @Veli @Can")
+        assertThat(r.mentionedUserIds).containsExactly("uid1", "uid2", "uid3").inOrder()
+        assertThat(r.content).isEqualTo("Merhaba @Ali @Veli @Can")
+    }
+
+    @Test
+    fun `MENTION — VIEWONCE'tan SONRA, POLL'den ONCE`() {
+        val r = MessageEnvelopeParser.parse(
+            "MSGID:m1:REPLY:r1:EXP:1700000000000:VIEWONCE:MENTION:uidA:gizli mention"
+        )
+        assertThat(r.messageId).isEqualTo("m1")
+        assertThat(r.replyToId).isEqualTo("r1")
+        assertThat(r.absoluteExpiresAt).isEqualTo(1700000000000L)
+        assertThat(r.isViewOnce).isTrue()
+        assertThat(r.mentionedUserIds).containsExactly("uidA")
+        assertThat(r.content).isEqualTo("gizli mention")
+    }
+
+    @Test
+    fun `MENTION — POLL ile kombine`() {
+        val r = MessageEnvelopeParser.parse(
+            """MSGID:p1:MENTION:uidX:POLL:{"question":"Ne dersin?"}"""
+        )
+        assertThat(r.mentionedUserIds).containsExactly("uidX")
+        assertThat(r.contentType).isEqualTo(MessageContentType.POLL)
+        assertThat(r.content).isEqualTo("""{"question":"Ne dersin?"}""")
+    }
+
+    @Test
+    fun `MENTION yoksa bos liste`() {
+        val r = MessageEnvelopeParser.parse("MSGID:m1:Merhaba grup")
+        assertThat(r.mentionedUserIds).isEmpty()
+    }
+
+    @Test
+    fun `MENTION — bos csv guvenli`() {
+        // Bozuk gonderici "MENTION::" gonderirse parser bos liste dondurmeli, content kaymamali
+        val r = MessageEnvelopeParser.parse("MSGID:m1:MENTION::icerik")
+        assertThat(r.mentionedUserIds).isEmpty()
+        assertThat(r.content).isEqualTo("icerik")
+    }
 }

@@ -50,7 +50,8 @@ class SendMessageUseCase @Inject constructor(
         content: String,
         replyToId: String? = null,
         contentType: MessageContentType = MessageContentType.TEXT,
-        isViewOnce: Boolean = false
+        isViewOnce: Boolean = false,
+        mentionedUserIds: List<String> = emptyList()
     ) {
         val senderId = userSession.userId ?: "unknown"
         val timestamp = System.currentTimeMillis()
@@ -91,9 +92,19 @@ class SendMessageUseCase @Inject constructor(
         // Parser POLL gorunce geri kalanini content sayar; bu yuzden VIEWONCE'u POLL'den
         // once yerlestiriyoruz. Foto/dosya icin FileTransfer.isViewOnce kullanilir.
         val viewOncePrefix = if (isViewOnce) "VIEWONCE:" else ""
+        // MENTION prefix: grup mesajinda etiketlenen uye ID'leri — alici tarafta yuksek
+        // oncelikli bildirim icin. Sadece grup mesajinda gonderilir; 1:1'de gereksiz.
+        // Parser MENTION'i VIEWONCE'tan SONRA, POLL'den ONCE bekler — sirayi koruyoruz.
+        val mentionPrefix = if (isGroup && mentionedUserIds.isNotEmpty()) {
+            // Guvenlik: csv icindeki virgul/iki nokta'lari userId'lerden temizle (ID'ler UUID).
+            val sanitized = mentionedUserIds
+                .map { it.replace(",", "").replace(":", "").trim() }
+                .filter { it.isNotBlank() }
+            if (sanitized.isNotEmpty()) "MENTION:${sanitized.joinToString(",")}:" else ""
+        } else ""
         // Sira onemli: EXP, POLL/POLLVOTE'tan ONCE — parser POLL gorunce geri kalanini content
-        // sayar. Boylece "MSGID:id:[REPLY:rid:][EXP:abs:][VIEWONCE:][POLL:]content" formati olusur.
-        val envelopeContent = "MSGID:${message.id}:${replyPrefix}${expPrefix}${viewOncePrefix}${typePrefix}$content"
+        // sayar. Boylece "MSGID:id:[REPLY:rid:][EXP:abs:][VIEWONCE:][MENTION:csv:][POLL:]content" formati olusur.
+        val envelopeContent = "MSGID:${message.id}:${replyPrefix}${expPrefix}${viewOncePrefix}${mentionPrefix}${typePrefix}$content"
 
         // App uzun sure idle kaldiktan sonra ilk mesajda WS socket'i kapali olabilir. Bu durumda
         // sendSignal direkt false doner ve mesaj 6sn'lik retry penceresinden gecene kadar bekler;

@@ -478,8 +478,58 @@ class ChatViewModel @Inject constructor(
      */
     fun sendMessage(content: String, replyToId: String? = null, isViewOnce: Boolean = false) {
         viewModelScope.launch {
-            sendMessageUseCase(conversationId, content, replyToId, isViewOnce = isViewOnce)
+            // Grup mesajinda @mention tespiti — conversationInfo.memberNames map'i
+            // (userId -> displayName) uzerinden text icindeki "@isim" tokenlarini
+            // karsilastir. Eslesen userId'ler MENTION envelope prefix'i ile gonderilir.
+            val mentions = detectMentionsInText(content)
+            sendMessageUseCase(
+                conversationId = conversationId,
+                content = content,
+                replyToId = replyToId,
+                isViewOnce = isViewOnce,
+                mentionedUserIds = mentions
+            )
         }
+    }
+
+    /**
+     * Mesaj icerigindeki "@isim" tokenlarini conversationInfo.memberNames ile karsilastirip
+     * eslesen userId listesi dondurur. Grup degilse veya isim eslesemiyorsa bos liste.
+     *
+     * Algoritma — isimlerde bosluk olabildigi icin LONGEST-MATCH:
+     *   1. Tum @ pozisyonlarini bul
+     *   2. Her pozisyon icin uyenin displayName'i ile karsilastir (longest prefix match)
+     *   3. Eslesen userId'leri toplar (tekrar yok)
+     */
+    private fun detectMentionsInText(content: String): List<String> {
+        val info = _conversationInfo.value ?: return emptyList()
+        if (!info.isGroup || info.memberNames.isEmpty()) return emptyList()
+        // userId -> normalize edilmis displayName (kucuk harf, bosluk korunur)
+        val nameToId = info.memberNames
+            .filter { (id, name) -> name.isNotBlank() && name != id }
+            .entries
+            .associate { (id, name) -> name.lowercase() to id }
+        if (nameToId.isEmpty()) return emptyList()
+
+        val lower = content.lowercase()
+        val result = LinkedHashSet<String>()
+        var idx = lower.indexOf('@')
+        while (idx >= 0) {
+            // @ sonrasi pencerede en uzun eslesen ismi ara
+            val tail = lower.substring(idx + 1)
+            var bestMatch: String? = null
+            for ((nameLower, _) in nameToId) {
+                if (tail.startsWith(nameLower) &&
+                    (bestMatch == null || nameLower.length > bestMatch.length)) {
+                    bestMatch = nameLower
+                }
+            }
+            if (bestMatch != null) {
+                nameToId[bestMatch]?.let { result.add(it) }
+            }
+            idx = lower.indexOf('@', idx + 1)
+        }
+        return result.toList()
     }
 
     /**
