@@ -517,13 +517,34 @@ class SecureChatActivity : AppCompatActivity() {
                 session.state == com.securechat.media.model.CallState.ACTIVE
             if (isVideoActive && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 val params = android.app.PictureInPictureParams.Builder()
-                    .setAspectRatio(android.util.Rational(9, 16))
+                    .setAspectRatio(android.util.Rational(16, 9))
                     .build()
                 enterPictureInPictureMode(params)
             }
         } catch (e: Exception) {
             Log.w("SecureChat", "PiP gecisi basarisiz: ${e.message}")
         }
+    }
+
+    /**
+     * Sistem PiP moduna giris/cikis bildirimi.
+     * CallScreen bu durumu observePipMode() ile dinler ve control overlay'leri
+     * gizleyen PipCallContent'e gecirir.
+     */
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        _pipMode.value = isInPictureInPictureMode
+        Log.d("SecureChat", "PiP mode degisti: $isInPictureInPictureMode")
+    }
+
+    companion object {
+        // Sistem-genelinde PiP modu durumu — CallScreen Compose icinde gozler.
+        // Activity-singleton harness; uygulamada her zaman tek MainActivity vardir.
+        private val _pipMode = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val pipMode: kotlinx.coroutines.flow.StateFlow<Boolean> = _pipMode
     }
 
     private fun requestRecordAudioPermissionIfNeeded() {

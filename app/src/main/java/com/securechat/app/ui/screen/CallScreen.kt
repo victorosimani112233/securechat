@@ -288,6 +288,17 @@ fun CallScreen(
     // PIP gorunumde gosterilecek track (normal: local, swap: remote)
     val pipVideoTrack = if (isVideoSwapped) remoteVideoTrack else localVideoTrack
 
+    // Sistem PiP modu (kullanici home tusuna basti) — minimal renderer goster.
+    val isInSystemPip by com.securechat.app.SecureChatActivity.pipMode.collectAsStateWithLifecycle()
+    if (isInSystemPip) {
+        com.securechat.app.ui.screen.call.PipCallContent(
+            remoteVideoTrack = mainVideoTrack,
+            eglBaseContext = eglBaseContext,
+            isVideoActive = isVideoActive
+        )
+        return
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
