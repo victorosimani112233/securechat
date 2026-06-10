@@ -72,7 +72,11 @@ class IncomingMessageHandler @Inject constructor(
     private val disappearingTimerHandler: com.securechat.app.data.incoming.handlers.DisappearingTimerHandler,
     private val messageEditDeleteHandler: com.securechat.app.data.incoming.handlers.MessageEditDeleteHandler,
     private val adminEncryptedLogHandler: com.securechat.app.data.incoming.handlers.AdminEncryptedLogHandler,
-    private val groupCallStateHandler: com.securechat.app.data.incoming.handlers.GroupCallStateHandler
+    private val groupCallStateHandler: com.securechat.app.data.incoming.handlers.GroupCallStateHandler,
+    // F5: auto-download policy — gelen medya/dosya icin disk-keep karari
+    private val autoDownloadPolicyStore: AutoDownloadPolicyStore,
+    private val autoDownloadDecider: AutoDownloadDecider,
+    private val networkTypeProvider: NetworkTypeProvider
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -635,7 +639,35 @@ class IncomingMessageHandler @Inject constructor(
             return
         }
 
-        val filePath = savedUri?.path ?: ""
+        // F5: Auto-download policy — kullanici tercihi negatifse disk'ten dosyayi sil.
+        // E2EE chunked transfer'da ratchet zaten chunk decrypt sirasinda ilerledi;
+        // post-receive cleanup yapariz (bant tasarrufu degil, depolama tasarrufu).
+        // Mesaj DB kaydi metadata ile birlikte tutulur, filePath="" — UI "indirilmedi"
+        // gosterip kullanici manuel re-download tetikleyebilir.
+        val autoDownloadAllowed = if (savedUri != null) {
+            val policy = autoDownloadPolicyStore.policy.first()
+            val category = autoDownloadDecider.categoryFor(signal.mimeType)
+            val network = networkTypeProvider.current()
+            val allow = autoDownloadDecider.shouldDownload(policy, category, signal.fileSize, network)
+            if (!allow) {
+                runCatching {
+                    val path = savedUri.path
+                    if (!path.isNullOrBlank()) {
+                        val f = java.io.File(path)
+                        if (f.exists() && f.isFile) f.delete()
+                    }
+                }.onFailure { e ->
+                    android.util.Log.w("IncomingHandler", "Auto-download policy: dosya silinemedi: ${e.message}")
+                }
+                android.util.Log.d(
+                    "IncomingHandler",
+                    "Auto-download policy negatif (category=$category network=$network size=${signal.fileSize}) — dosya silindi: ${signal.fileName}"
+                )
+            }
+            allow
+        } else true
+
+        val filePath = if (autoDownloadAllowed) (savedUri?.path ?: "") else ""
 
         // Resim dosyalari IMAGE, digerleri FILE olarak siniflandirilir
         val contentType = if (signal.mimeType.startsWith("image/")) {
