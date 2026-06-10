@@ -130,7 +130,8 @@ fun CallScreen(
     @Suppress("UNUSED_PARAMETER") peerId: String, // ViewModel SavedStateHandle'dan okur, route param zorunlu
     callType: CallType,
     viewModel: CallViewModel = hiltViewModel(),
-    onCallEnded: () -> Unit
+    onCallEnded: () -> Unit,
+    onMinimize: () -> Unit = onCallEnded
 ) {
     val context = LocalContext.current
     val callSession by viewModel.callState.collectAsStateWithLifecycle()
@@ -151,8 +152,12 @@ fun CallScreen(
         }
     }
 
-    // Madde 1: Geri tusu = aramayi bitir (gizleme yerine)
-    BackHandler(enabled = callSession != null) { safeEndCall() }
+    // Geri tusu artik aramayi SONLANDIRMAZ — sadece CallScreen'i pop'lar ve
+    // kullanici diger ekranlarda gezerken arama arka planda devam eder.
+    // OngoingCallBar persistent banner ile arama gosterilir, tiklayinca buraya
+    // geri donulur. Aramayi sonlandirmak icin sadece kirmizi "Aramayı sonlandır"
+    // butonu kullanilir.
+    BackHandler(enabled = callSession != null) { onMinimize() }
 
     // RECORD_AUDIO runtime izin istegi
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(

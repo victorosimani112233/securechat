@@ -129,15 +129,28 @@ fun SecureChatNavHost(
     // NavHost tam ekran, bottom bar overlay olarak ustune biner.
     // Boylece bottom bar gizlendiginde NavHost boyutu degismez, animasyon bozulmaz.
     Box(Modifier.fillMaxSize().systemBarsPadding()) {
-        NavHost(
-            navController = navController,
-            startDestination = actualStartDestination,
-            modifier = Modifier.fillMaxSize(),
-            enterTransition = { defaultEnter() },
-            exitTransition = { defaultExit() },
-            popEnterTransition = { defaultPopEnter() },
-            popExitTransition = { defaultPopExit() }
-        ) {
+        // Aktif arama gostergesi — CallScreen disindaki tum ekranlarda gorulur.
+        // CallScreen'deyken kendi UI'inde zaten gostergeler oldugu icin gizlenir.
+        val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+        val isOnCallRoute = currentRoute?.startsWith("call/") == true
+
+        Column(Modifier.fillMaxSize()) {
+            if (!isOnCallRoute) {
+                com.securechat.app.ui.components.OngoingCallBar(
+                    onReturnToCall = { peerId, callType ->
+                        navController.navigate("call/$peerId/$callType")
+                    }
+                )
+            }
+            NavHost(
+                navController = navController,
+                startDestination = actualStartDestination,
+                modifier = Modifier.fillMaxSize().weight(1f),
+                enterTransition = { defaultEnter() },
+                exitTransition = { defaultExit() },
+                popEnterTransition = { defaultPopEnter() },
+                popExitTransition = { defaultPopExit() }
+            ) {
             composable(
                 "splash",
                 enterTransition = { fadeIn(tween(0)) },
@@ -401,7 +414,8 @@ fun SecureChatNavHost(
                 CallScreen(
                     peerId = peerId,
                     callType = callType,
-                    onCallEnded = { navController.popBackStack() }
+                    onCallEnded = { navController.popBackStack() },
+                    onMinimize = { navController.popBackStack() }
                 )
             }
 
@@ -440,7 +454,9 @@ fun SecureChatNavHost(
                     initialTab = tab
                 )
             }
-        }
+            }  // NavHost end
+
+        }  // Column end
 
     }
 }
@@ -464,7 +480,14 @@ private fun MainPagerScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize().weight(1f),
-            key = { it }
+            key = { it },
+            // Komsu sayfalari onceden compose et — varsayilan 0 ile her tab gecisinde
+            // hedef sayfa o anda compose oluyor, ilk composition main thread'i animasyon
+            // suresince blokluyor (her tab ~500-800 satir composable + dao Flow collect)
+            // ve fark edilebilir jank yaratiyordu. 4 tab var; tumunu (3 komsu) preload edip
+            // pager'i tam bir TabRow gibi calistiririz. Memory tradeoff'u kabul edilebilir
+            // cunku bu 4 tab uygulamanin ana navigasyonu, swap edilmesi rare.
+            beyondBoundsPageCount = BottomTab.entries.size - 1
         ) { page ->
             when (page) {
                 0 -> ConversationsScreen(
