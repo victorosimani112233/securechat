@@ -1514,7 +1514,14 @@ class IncomingMessageHandler @Inject constructor(
         }
 
         if (!shouldShowNotification) {
-            android.util.Log.d("IncomingHandler", "Bildirim gosterilmedi - current chat: $conversationId")
+            // Kullanici zaten bu sohbette → tam bildirim banner'i kafa karistirir, atlanir.
+            // Ama mesaj geldigini hissedebilmesi icin **kisik in-chat tonu** caliriz —
+            // WhatsApp/Telegram/Signal pattern'i. Sohbet sessize alinmamissa ve sistem ses
+            // kanali acikken kullanicinin sectigi notification sound %35 volume ile kisaca calar.
+            if (!isMuted) {
+                playInChatTone()
+            }
+            android.util.Log.d("IncomingHandler", "Bildirim gosterilmedi - current chat: $conversationId (in-chat tone calindi: ${!isMuted})")
             return
         }
 
@@ -1845,6 +1852,70 @@ class IncomingMessageHandler @Inject constructor(
      */
     fun clearBitmapCache() {
         cachedAppIconBitmap = null
+    }
+
+    /**
+     * In-chat tone — kullanici sohbet acikken mesaj gelirse tam bildirim banner'i
+     * gostermek yerine kullanicinin sectigi notification sesini %35 volume ile kisaca calar.
+     * WhatsApp / Telegram / Signal pattern'i — kullanici mesajin geldigini duyar ama
+     * heads-up banner'i gormez (zaten ekranda).
+     *
+     * Ringer mode SILENT veya DND'de iken hicbir ses calmaz (sistem zaten engeller).
+     * MediaPlayer kisa hayat dongusu — calma tamamlanir tamamlanmaz release.
+     */
+    private suspend fun playInChatTone() {
+        try {
+            // Sistem ses modu sessiz/titresimde ise hiç çalma — kullanici tercihine saygi
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            if (am?.ringerMode == android.media.AudioManager.RINGER_MODE_SILENT) {
+                return
+            }
+
+            val soundUriStr = try {
+                themeManager.notificationSoundUri.first()
+            } catch (_: Exception) { "" }
+
+            val soundUri = if (soundUriStr.isNotBlank()) {
+                android.net.Uri.parse(soundUriStr)
+            } else {
+                android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+            } ?: return
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val mp = android.media.MediaPlayer().apply {
+                        setDataSource(context, soundUri)
+                        setAudioAttributes(
+                            android.media.AudioAttributes.Builder()
+                                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build()
+                        )
+                        // Kisik volume — sohbet acikken full ses kafayi sisirir.
+                        setVolume(0.35f, 0.35f)
+                        setOnCompletionListener { it.release() }
+                        // Maksimum 1.2sn cal — uzun ringtone'lari kesip serbest birak.
+                        setOnPreparedListener { player ->
+                            player.start()
+                            kotlinx.coroutines.GlobalScope.launch {
+                                kotlinx.coroutines.delay(1200)
+                                try {
+                                    if (player.isPlaying) {
+                                        player.stop()
+                                        player.release()
+                                    }
+                                } catch (_: Exception) { }
+                            }
+                        }
+                        prepareAsync()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("IncomingHandler", "In-chat tone calinamadi: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("IncomingHandler", "In-chat tone hatasi: ${e.message}")
+        }
     }
 
     /**
