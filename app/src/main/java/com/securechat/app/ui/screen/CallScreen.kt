@@ -44,7 +44,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
-import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
@@ -639,18 +638,15 @@ fun CallScreen(
                                 action()
                             }
                         }
-                        val backgroundBlurEnabled by viewModel.backgroundBlurEnabled.collectAsStateWithLifecycle()
                         CallControls(
                             isMuted = callSession?.isMuted ?: false,
                             isSpeakerOn = callSession?.isSpeakerOn ?: false,
                             isCameraEnabled = callSession?.isCameraEnabled ?: true,
                             isVideoCall = callType == CallType.VIDEO,
-                            isBackgroundBlurEnabled = backgroundBlurEnabled,
                             onToggleMute = withHaptic { viewModel.toggleMute() },
                             onToggleSpeaker = withHaptic { viewModel.toggleSpeaker() },
                             onToggleCamera = withHaptic { viewModel.toggleCamera() },
                             onSwitchCamera = withHaptic { viewModel.switchCamera() },
-                            onToggleBackgroundBlur = withHaptic { viewModel.toggleBackgroundBlur() },
                             onEndCall = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); safeEndCall() }
                         )
                     }
@@ -1734,12 +1730,10 @@ fun CallControls(
     isSpeakerOn: Boolean,
     isCameraEnabled: Boolean,
     isVideoCall: Boolean,
-    isBackgroundBlurEnabled: Boolean = false,
     onToggleMute: () -> Unit,
     onToggleSpeaker: () -> Unit,
     onToggleCamera: () -> Unit,
     onSwitchCamera: () -> Unit,
-    onToggleBackgroundBlur: () -> Unit = {},
     onEndCall: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1806,20 +1800,11 @@ fun CallControls(
                     isActive = false,
                     onClick = onSwitchCamera
                 )
-
-                // Arka plan bulaniklastir toggle
-                AnimatedCallButton(
-                    icon = {
-                        Icon(
-                            Icons.Default.BlurOn,
-                            contentDescription = if (isBackgroundBlurEnabled) "Bulaniklastirma Acik" else "Arka Plan Bulaniklastir",
-                            modifier = Modifier.size(24.dp)
-                        )
-                    },
-                    label = "Bulaniklik",
-                    isActive = isBackgroundBlurEnabled,
-                    onClick = onToggleBackgroundBlur
-                )
+                // NOT: "Bulaniklik" (arka plan blur) butonu kaldirildi.
+                // F7 implementasyonu (CPU YUV roundtrip) production icin yetersizdi,
+                // capturer pipeline'inda kalite kaybi yapiyordu. Yeniden GPU shader
+                // tabanli yazilana kadar UI'dan kaldirildi (CallManager API no-op).
+                // 5 buton tek satira sigmiyordu — UI'yi de bozuyordu.
             }
         }
 

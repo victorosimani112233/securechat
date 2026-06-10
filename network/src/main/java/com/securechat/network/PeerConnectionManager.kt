@@ -340,6 +340,51 @@ class PeerConnectionManager @Inject constructor(
         applyVideoBitrateCap(pc, isMesh = false)
 
         Log.d(TAG, "Yerel video baslatildi: ${capW}x${capH} @ ${VIDEO_FPS}fps")
+        startVideoStatsLogging()
+    }
+
+    /**
+     * Video stats periyodik log — outbound-rtp metriklerini 5 sn'de bir dump eder.
+     * Cagri quality teshisi icin: gercek bitrate, gercek frame boyutu, qualityLimitation
+     * (cpu/bandwidth/other) gozukur. dispose'da iptal edilir.
+     */
+    private var statsLoggerHandler: android.os.Handler? = null
+    private val statsLoggerRunnable = object : Runnable {
+        override fun run() {
+            val pc = peerConnection ?: return
+            pc.getStats { report ->
+                report.statsMap.values.forEach { stats ->
+                    if (stats.type == "outbound-rtp" &&
+                        stats.members["kind"] == "video") {
+                        val bytesSent = stats.members["bytesSent"]
+                        val frameW = stats.members["frameWidth"]
+                        val frameH = stats.members["frameHeight"]
+                        val fps = stats.members["framesPerSecond"]
+                        val qLimit = stats.members["qualityLimitationReason"]
+                        val targetBitrate = stats.members["targetBitrate"]
+                        Log.d(
+                            TAG,
+                            "VIDEO_STATS frame=${frameW}x${frameH} fps=$fps " +
+                                "targetBitrate=$targetBitrate qualityLimit=$qLimit " +
+                                "bytesSent=$bytesSent"
+                        )
+                    }
+                }
+            }
+            statsLoggerHandler?.postDelayed(this, 5000L)
+        }
+    }
+
+    private fun startVideoStatsLogging() {
+        if (statsLoggerHandler != null) return
+        statsLoggerHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        statsLoggerHandler?.postDelayed(statsLoggerRunnable, 3000L)
+        Log.d(TAG, "Video stats logger basladi (5sn interval)")
+    }
+
+    private fun stopVideoStatsLogging() {
+        statsLoggerHandler?.removeCallbacks(statsLoggerRunnable)
+        statsLoggerHandler = null
     }
 
     /**
@@ -1123,6 +1168,8 @@ class PeerConnectionManager @Inject constructor(
     // ---- Temizlik ----
 
     fun disposePeerConnection() {
+        // Stats logger'i durdur — PC kapanmadan once
+        stopVideoStatsLogging()
         // WebRTC best practice sıralaması:
         // 1) Track'leri SUSTUR (setEnabled=false) — close() async oldugu icin
         //    dispose esnasinda hala ses paketi gonderiyor olabilir.

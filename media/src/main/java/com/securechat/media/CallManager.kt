@@ -87,44 +87,23 @@ class CallManager @Inject constructor(
     /** Cleanup isleminin atomik olarak yapildigini garanti eder. */
     private val isCleaningUp = AtomicBoolean(false)
 
-    // ---- F7 Background blur (goruntulu cagri) ----
-    /**
-     * Lazy: ML Kit Segmenter + executor maliyetli — kullanici toggle etmeden once
-     * insantiate edilmez. Cagri bitince dispose() ile temizlenir.
-     */
-    private var backgroundBlurProcessor: BackgroundBlurProcessor? = null
-    private val isBackgroundBlurEnabled = AtomicBoolean(false)
+    // ---- F7 Background blur — DEVRE DISI BIRAKILDI ----
+    //
+    // Sprint 9 F7 implementasyonu (BackgroundBlurProcessor.kt) per-frame I420↔ARGB
+    // manual YUV donusumu + downscale-upscale "blur" + ML Kit segmentation kullaniyor.
+    // 1080p capture'da:
+    //   - YUV donusumu: ~200-400ms/frame (single-thread Java)
+    //   - Skip-frame stratejisi yari frame'i orijinal birakir → titreme
+    //   - Lossy roundtrip her frame'de renk/detay kaybi → "camur" goruntu
+    //
+    // Production icin RenderEffect (SDK 31+) veya GPU shader pipeline gerekiyor;
+    // mevcut CPU impl kullanilamaz. setEnabled cagrilari no-op olarak tutuluyor
+    // (API geriye uyumlu kaliyor, store'daki tercih korunuyor) ama processor
+    // hicbir zaman PCM'e takilmaz.
 
-    /**
-     * Arka plan bulaniklastir bayragini ayarlar. Aktif cagri yoksa state cached;
-     * sonraki cagri baslayinca processor yine bu bayraga gore takilir.
-     */
+    /** No-op: F7 emergency-disable. Store hala yazip okuyor (gelecek revisit icin). */
     fun setBackgroundBlurEnabled(enabled: Boolean) {
-        isBackgroundBlurEnabled.set(enabled)
-        applyBackgroundBlurState()
-    }
-
-    /** Aktif cagri varsa processor'i takar/cikarir; PCM video source initialize edilmis olmali. */
-    private fun applyBackgroundBlurState() {
-        val enabled = isBackgroundBlurEnabled.get()
-        if (enabled) {
-            val processor = backgroundBlurProcessor ?: BackgroundBlurProcessor().also {
-                backgroundBlurProcessor = it
-            }
-            processor.isEnabled = true
-            peerConnectionManager.setVideoProcessor(processor)
-        } else {
-            backgroundBlurProcessor?.isEnabled = false
-            peerConnectionManager.setVideoProcessor(null)
-        }
-    }
-
-    /** Cagri bittiginde dispose et — ML Kit + executor resource'larini serbest birak. */
-    private fun disposeBackgroundBlur() {
-        // Once source'tan unbind et — disposed processor'a frame gelmesin race'i kapatilir.
-        runCatching { peerConnectionManager.setVideoProcessor(null) }
-        backgroundBlurProcessor?.dispose()
-        backgroundBlurProcessor = null
+        android.util.Log.d("CallManager", "BG blur toggle no-op (F7 disabled): $enabled")
     }
 
     // ---- Konusma gostergesi (grup arama) ----
@@ -289,8 +268,7 @@ class CallManager @Inject constructor(
                     return@launch
                 }
 
-                // F7: video source olustu — backgroundBlur cached state'i ise hemen tak.
-                if (enableVideo) applyBackgroundBlurState()
+                // F7 devre disi — backgroundBlur cagrisi no-op
 
                 // HATA #1 FIX: Arayan tarafta ses modunu HEMEN ayarla.
                 // onCallConnected() race condition'dan dolayi cok gec cagirilabilir,
@@ -717,8 +695,7 @@ class CallManager @Inject constructor(
                     return@launch
                 }
 
-                // F7: video source olustu — backgroundBlur cached state'i ise hemen tak.
-                if (enableVideo) applyBackgroundBlurState()
+                // F7 devre disi — backgroundBlur cagrisi no-op
 
                 // Remote SDP Offer'i set et (suspend — tamamlanmasi beklenir)
                 val remoteDescription = SessionDescription(
@@ -2191,8 +2168,7 @@ class CallManager @Inject constructor(
             // Arama gecmisine kaydet
             saveCallLog(session, duration, finalState)
 
-            // F7 Background blur processor — dispose et (ML Kit + executor cleanup)
-            disposeBackgroundBlur()
+            // F7 devre disi — disposeBackgroundBlur kaldirildi
 
             // WebRTC PeerConnection'i kapat
             peerConnectionManager.disposePeerConnection()
