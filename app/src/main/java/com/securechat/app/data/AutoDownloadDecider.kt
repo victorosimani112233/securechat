@@ -1,5 +1,6 @@
 package com.securechat.app.data
 
+import com.securechat.network.NetworkType
 import javax.inject.Inject
 import javax.inject.Singleton
 

@@ -1,6 +1,7 @@
 package com.securechat.app.data
 
 import com.google.common.truth.Truth.assertThat
+import com.securechat.network.NetworkType
 import org.junit.Test
 
 /**

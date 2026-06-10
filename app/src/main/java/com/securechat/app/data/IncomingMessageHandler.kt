@@ -9,6 +9,7 @@ import com.securechat.app.ui.components.ThemeManager
 import com.securechat.media.CallManager
 import com.securechat.media.FileTransferManager
 import com.securechat.media.IncomingCallHandler
+import com.securechat.network.NetworkTypeProvider
 import com.securechat.network.SignalMessage
 import com.securechat.network.SignalingClient
 import com.securechat.network.model.CallAction

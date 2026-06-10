@@ -34,9 +34,6 @@ data class AutoDownloadPolicy(
     }
 }
 
-/** Aktif aglar — Decider'a verilir. */
-enum class NetworkType { WIFI, CELLULAR, OTHER }
-
 /** Dosya tipi kategorisi — Decider girdisi. */
 enum class MediaCategory {
     PHOTO,    // image/*

@@ -40,18 +40,40 @@ import kotlin.coroutines.suspendCoroutine
 @Singleton
 class PeerConnectionManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    @Named("stunUrl") private val stunUrl: String
+    @Named("stunUrl") private val stunUrl: String,
+    private val networkTypeProvider: NetworkTypeProvider
 ) {
     companion object {
         private const val TAG = "WebRTC"
-        private const val VIDEO_WIDTH = 640
-        private const val VIDEO_HEIGHT = 480
-        private const val VIDEO_FPS = 24
-        // Bandwidth cap'leri — agresif bir kullanici toplam server bandwidth'ini yememe.
-        // 1-1: kaliteli (640x480 @ 24fps icin ~500-700 kbps gerekir).
-        // Mesh: her peer ayri encode oldugu icin daha agresif sikistirma. 3 peer × 300 = 900kbps upload.
-        private const val VIDEO_MAX_BITRATE_BPS_P2P = 600_000
-        private const val VIDEO_MAX_BITRATE_BPS_MESH = 300_000
+
+        // Capture cozunurlugu: 720p modern WebRTC standardi. Encoder ag durumuna gore
+        // dinamik olarak DOWN-SCALE eder (degradationPreference=BALANCED) — kotu agda
+        // 480p hatta 240p'ye duser, iyi agda 720p kalir.
+        private const val VIDEO_WIDTH = 1280
+        private const val VIDEO_HEIGHT = 720
+        private const val VIDEO_FPS = 30
+
+        // Adaptif bitrate cap'leri — NetworkType bazli. WebRTC Congestion Controller bu
+        // tavanin altinda kalmak uzere kendi adaptasyonunu yapar; biz sadece UPPER BOUND
+        // koruyoruz (bandwidth fair-share + kullanici veri tasarrufu).
+        //
+        // Eski deger (600 kbps) 640x480'de bile cok dusuktu — codec ağir quantization
+        // yapip "camur" goruntu ureteceginden Sprint 9 follow-up'ta yukseltildi.
+
+        // 1:1 cagri
+        private const val VIDEO_MAX_BITRATE_WIFI_P2P = 2_500_000      // 2.5 Mbps — 720p temiz
+        private const val VIDEO_MAX_BITRATE_CELL_P2P = 1_200_000      // 1.2 Mbps — hucresel veri korumasi
+        private const val VIDEO_MAX_BITRATE_OTHER_P2P = 1_500_000     // bilinmeyen ag — orta
+
+        // Mesh (grup cagri): her peer'e ayri encoder upload edilir; toplam upload
+        // peer_count * cap olacagindan per-peer cap daha dusuk tutulur.
+        private const val VIDEO_MAX_BITRATE_WIFI_MESH = 1_000_000     // 1 Mbps × N peer
+        private const val VIDEO_MAX_BITRATE_CELL_MESH = 500_000       // 500 kbps × N peer
+        private const val VIDEO_MAX_BITRATE_OTHER_MESH = 700_000
+
+        // Minimum bitrate — WebRTC bu degerin altina dusmesin; cok dusuk bitrate'da
+        // codec garip artifact'lar uretebilir, asgari kaliteyi koru.
+        private const val VIDEO_MIN_BITRATE_BPS = 300_000
     }
 
     private val _peerStates = MutableStateFlow<Map<String, PeerState>>(emptyMap())
@@ -299,26 +321,57 @@ class PeerConnectionManager @Inject constructor(
         pc.addTrack(localVideoTrack, listOf("stream0"))
 
         // 1-1: max video bitrate cap — agresif kullanici upload'u sinirla.
-        applyVideoBitrateCap(pc, VIDEO_MAX_BITRATE_BPS_P2P)
+        applyVideoBitrateCap(pc, isMesh = false)
 
         Log.d(TAG, "Yerel video baslatildi: ${VIDEO_WIDTH}x${VIDEO_HEIGHT} @ ${VIDEO_FPS}fps")
     }
 
     /**
-     * PC uzerindeki video sender'larin maxBitrateBps degerini set eder.
+     * PC uzerindeki video sender'lara adaptif bitrate + degradationPreference set eder.
+     *
+     * NetworkType bazli MAX cap belirlenir; WebRTC kendi Congestion Controller'i bu
+     * tavanin altinda dinamik ayarlama yapar. RTC pipeline:
+     *   - degradationPreference=BALANCED → ag kotuyse encoder hem resolution hem
+     *     framerate'i dusurur (sadece resolution veya sadece fps yerine ikisi de)
+     *   - minBitrate koru → cok dusuk hizdayken codec artifact uretmesin
+     *   - maxFramerate=30 → spike'lara karsi ust limit
+     *
      * SDP renegotiation gerektirmez — RtpSender.setParameters anlik etkili.
+     *
+     * @param isMesh true = grup cagri (per-peer cap dusuk), false = 1:1
      */
-    private fun applyVideoBitrateCap(pc: PeerConnection, maxBitrateBps: Int) {
+    private fun applyVideoBitrateCap(pc: PeerConnection, isMesh: Boolean) {
+        val network = networkTypeProvider.current()
+        val maxBitrateBps = when (network) {
+            NetworkType.WIFI ->
+                if (isMesh) VIDEO_MAX_BITRATE_WIFI_MESH else VIDEO_MAX_BITRATE_WIFI_P2P
+            NetworkType.CELLULAR ->
+                if (isMesh) VIDEO_MAX_BITRATE_CELL_MESH else VIDEO_MAX_BITRATE_CELL_P2P
+            NetworkType.OTHER ->
+                if (isMesh) VIDEO_MAX_BITRATE_OTHER_MESH else VIDEO_MAX_BITRATE_OTHER_P2P
+        }
         try {
             for (sender in pc.senders) {
                 val track = sender.track() ?: continue
                 if (track.kind() == "video") {
                     val params = sender.parameters
+                    // BALANCED: ag dususe encoder hem cozunurluk hem fps'i dusurur.
+                    // MAINTAIN_RESOLUTION fps'i feda eder ama kotu agda yine kotu;
+                    // MAINTAIN_FRAMERATE cozunurlugu feda eder, hareketsiz sahnede iyi
+                    // ama tipik kullanima uygun degil. BALANCED genel-amac dogru secim.
+                    params.degradationPreference =
+                        RtpParameters.DegradationPreference.BALANCED
                     for (enc in params.encodings) {
                         enc.maxBitrateBps = maxBitrateBps
+                        enc.minBitrateBps = VIDEO_MIN_BITRATE_BPS
+                        enc.maxFramerate = VIDEO_FPS
                     }
                     sender.parameters = params
-                    Log.d(TAG, "Video bitrate cap: ${maxBitrateBps / 1000} kbps")
+                    Log.d(
+                        TAG,
+                        "Video bitrate: max=${maxBitrateBps / 1000}kbps min=${VIDEO_MIN_BITRATE_BPS / 1000}kbps " +
+                            "network=$network mesh=$isMesh degradation=BALANCED"
+                    )
                 }
             }
         } catch (e: Exception) {
@@ -605,7 +658,7 @@ class PeerConnectionManager @Inject constructor(
         if (enableVideo) {
             localVideoTrack?.let { pc.addTrack(it, listOf("stream0")) }
             // Mesh: her peer ayri encode, daha agresif bitrate cap (300 kbps).
-            applyVideoBitrateCap(pc, VIDEO_MAX_BITRATE_BPS_MESH)
+            applyVideoBitrateCap(pc, isMesh = true)
         }
 
         groupPeerConnections[peerId] = pc
@@ -868,6 +921,12 @@ class PeerConnectionManager @Inject constructor(
         }
 
         sfuPublisherPc = pc
+
+        // SFU: tek encoder, server tum izleyicilere fanout — mesh degil ama
+        // grup cagri akisi oldugu icin mesh cap'i kullaniyoruz (icerigi tek peer'a
+        // gondersek de server downstream'de bant payi yapacak; conservative).
+        if (enableVideo) applyVideoBitrateCap(pc, isMesh = true)
+
         Log.d(TAG, "SFU Publisher PeerConnection olusturuldu, video=$enableVideo")
         return pc
     }

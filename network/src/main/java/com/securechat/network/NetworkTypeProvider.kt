@@ -1,4 +1,4 @@
-package com.securechat.app.data
+package com.securechat.network
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -8,11 +8,22 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
+ * Aktif aglar — adaptif video kalitesi ve auto-download policy icin kullanilir.
+ */
+enum class NetworkType { WIFI, CELLULAR, OTHER }
+
+/**
  * Mevcut ag tipi bilgisi saglar (WIFI / CELLULAR / OTHER).
  *
- * AutoDownloadDecider.shouldDownload icin gerekli girdi.
+ * Kullanim alanlari:
+ *   - PeerConnectionManager: adaptif video bitrate/resolution
+ *   - AutoDownloadDecider (F5): otomatik medya indirme karari
  *
- * Not: izin gerektirmez (ACCESS_NETWORK_STATE manifest'e zaten ekli).
+ * Not: ACCESS_NETWORK_STATE izni manifest'te zaten ekli.
+ *
+ * Tasinma notu: Sprint 9'da app/data altinda yazildi, sonra network modulune
+ * tasindi cunku PeerConnectionManager (network) da kullaniyor — modul bagimliligi
+ * yonunde temizlik.
  */
 @Singleton
 class NetworkTypeProvider @Inject constructor(
