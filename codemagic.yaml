@@ -43,6 +43,7 @@ workflows:
         script: |
           flutter config --enable-swift-package-manager
           flutter pub get
+          ./tool/prepare_libsignal_compat.sh
       - name: Static analysis and privacy audits
         script: |
           flutter analyze --no-pub
@@ -112,6 +113,7 @@ workflows:
         script: |
           flutter config --enable-swift-package-manager
           flutter pub get
+          ./tool/prepare_libsignal_compat.sh
       - name: Analyze and test
         script: |
           flutter analyze --no-pub

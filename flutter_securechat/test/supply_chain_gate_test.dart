@@ -150,6 +150,16 @@ void main() {
     expect(bundle, contains('LOCAL_MAVEN_REPO'));
     expect(bundle, contains('verification-metadata.xml'));
     expect(bundle, contains(':signaling-server:test :bot-api:test --offline'));
+
+    final libsignalFixtures = source('tool/prepare_libsignal_compat.sh');
+    expect(libsignalFixtures, isNot(contains('http://')));
+    for (final checksum in [
+      'b19db36839ab008fdccefc7f8c005f2ea43dc7c7298a209bc424e6f9b6d5617b',
+      '0aadd43cf01d11e9b58f867b3c4f25c3194e8b0623d1953d32dfbfbee009e38d',
+      '215a94dbe100130295906b531bb72a26965c7ac8fcd9a75bf8054a8ac2abf4b4',
+    ]) {
+      expect(libsignalFixtures, contains(checksum));
+    }
   });
 
   test('iOS Swift packages have a deterministic macOS resolution gate', () {

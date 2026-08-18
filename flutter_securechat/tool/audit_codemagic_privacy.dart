@@ -43,6 +43,15 @@ List<String> auditCodemagicPrivacy({Directory? projectRoot}) {
     'dart tool/audit_codemagic_privacy.dart',
     'Codemagic must audit its own privacy boundary',
   );
+  if (RegExp(
+        r'^\s+\./tool/prepare_libsignal_compat\.sh\s*$',
+        multiLine: true,
+      ).allMatches(source).length !=
+      2) {
+    failures.add(
+      'each workflow must prepare checksum-pinned libsignal fixtures',
+    );
+  }
   forbidText('publishing:', 'candidate workflow must never auto-publish');
   forbidText('printenv', 'workflow must never dump the environment');
   forbidText('set -x', 'workflow must never echo secret-bearing commands');

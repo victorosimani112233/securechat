@@ -56,6 +56,11 @@ kilidi ve artefakt dogrulamasi release icin fail-closed kapidir.
   `io.flutter` grubuna acik resmi Flutter engine Maven endpoint'idir. Flutter
   plugininin runtime'da repo eklemesine guvenilmez; bu explicit engine girdisi
   air-gapped cache kimligini de kararli tutar.
+- Java 2.8.1 wire-parity testi icin gereken `signal-protocol-java`,
+  `curve25519-java` ve `protobuf-javalite` JAR'lari Codemagic'te resmi Maven
+  Central HTTPS endpoint'inden indirilir ve kullanilmadan once sabit SHA-256
+  degerleriyle dogrulanir. Air-gapped test ayni artefaktlari paketlenmis Gradle
+  cache'inden ve ayni checksum kontroluyle cozer.
 - Ilk checksum tabani, daha once basarili build/test uretmis mevcut cache ve
   resmi Google/Maven Central/Gradle depolarindan olusturuldu. Bu ilk guven
   seremonisi bagimsiz temiz makinede yeniden uretilip diff edilmeden mutlak

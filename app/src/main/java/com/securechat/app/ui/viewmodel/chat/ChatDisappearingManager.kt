@@ -6,10 +6,15 @@ import com.securechat.network.SignalingClient
 import com.securechat.storage.dao.ConversationDao
 import com.securechat.storage.repository.MessageRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -78,18 +83,31 @@ class ChatDisappearingManager(
         scope.launch {
             // Ilk acilis cleanup'i — onceki seansta dolan mesajlar varsa hemen gitsin
             runCatching { messageRepository.deleteExpiredMessages() }
-            while (true) {
-                val intervalMs = when {
-                    _duration.value in 1..60_000L -> 5_000L
-                    _duration.value in 60_001..3_600_000L -> 15_000L
-                    else -> 60_000L
+            _duration
+                .map(::cleanupIntervalMs)
+                .distinctUntilChanged()
+                .collectLatest { intervalMs ->
+                    if (intervalMs == null) return@collectLatest
+                    while (currentCoroutineContext().isActive) {
+                        delay(intervalMs)
+                        val deleted = runCatching {
+                            messageRepository.deleteExpiredMessages()
+                        }.getOrDefault(0)
+                        if (deleted > 0) {
+                            android.util.Log.d(
+                                "ChatDisappearing",
+                                "Sureli mesaj temizlendi: $deleted"
+                            )
+                        }
+                    }
                 }
-                delay(intervalMs)
-                val deleted = messageRepository.deleteExpiredMessages()
-                if (deleted > 0) {
-                    android.util.Log.d("ChatDisappearing", "Sureli mesaj temizlendi: $deleted")
-                }
-            }
         }
+    }
+
+    private fun cleanupIntervalMs(durationMs: Long): Long? = when {
+        durationMs <= 0L -> null
+        durationMs <= 60_000L -> 5_000L
+        durationMs <= 3_600_000L -> 15_000L
+        else -> 60_000L
     }
 }

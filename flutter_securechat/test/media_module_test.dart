@@ -378,6 +378,9 @@ void main() {
     await _flush();
     expect(manager.currentSession?.isGroupCall, isTrue);
 
+    final endedSession = manager.sessions
+        .firstWhere((session) => session?.state == CallState.ended)
+        .timeout(const Duration(seconds: 5));
     signaling.addIncoming(
       GroupCallStatusResponseSignal(
         recipientId: 'me',
@@ -386,9 +389,7 @@ void main() {
         isActive: false,
       ),
     );
-    await _flush();
-
-    expect(manager.currentSession?.state, CallState.ended);
+    expect((await endedSession)?.state, CallState.ended);
     expect(groupMedia.closed, isTrue);
   });
 
