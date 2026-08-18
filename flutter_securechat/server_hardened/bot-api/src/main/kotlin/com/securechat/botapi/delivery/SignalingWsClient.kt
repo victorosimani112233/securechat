@@ -8,6 +8,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -41,6 +45,8 @@ object SignalingWsClient {
         .build()
 
     private val wsRef = AtomicReference<WebSocket>()
+    private val drainLock = Any()
+    private val json = Json { ignoreUnknownKeys = true }
     @Volatile private var connected: Boolean = false
     @Volatile private var stopping: Boolean = false
 
@@ -60,23 +66,36 @@ object SignalingWsClient {
 
     fun isConnected(): Boolean = connected
 
-    /**
-     * Mesaji WS'ye gönderir. WS up değilse OutboundQueue'ya yazar — yine de
-     * true döner (delivery garanti edildi: ya doğrudan ya da queue'dan).
-     */
+    /** Mesaji once durable queue'ya alir, sonra baglanti varsa drain eder. */
     fun send(envelopeJson: String): Boolean {
+        val botUserId = BotIdentity.get().botUserId
+        try {
+            OutboundQueue.enqueue(botUserId, envelopeJson)
+        } catch (e: Exception) {
+            log.error("[WSClient] Durable queue yazimi basarisiz: {}", e.javaClass.simpleName)
+            return false
+        }
         val ws = wsRef.get()
         if (connected && ws != null) {
-            val ok = ws.send(envelopeJson)
-            if (!ok) {
-                log.warn("[WSClient] send() false donduy — OutboundQueue'ya yaziliyor")
-                OutboundQueue.enqueue(BotIdentity.get().botUserId, envelopeJson)
-            }
-            return true
+            runCatching { drainQueued(botUserId, ws) }
+                .onFailure {
+                    // Queue yazimi tamamlandi; API teslim sorumlulugunu kabul
+                    // edebilir. Reconnect/visibility timeout yeniden dener.
+                    log.warn("[WSClient] Anlik drain hatasi: {}", it.javaClass.simpleName)
+                }
+        } else {
+            log.debug("[WSClient] WS down — queue'a yazildi")
         }
-        OutboundQueue.enqueue(BotIdentity.get().botUserId, envelopeJson)
-        log.debug("[WSClient] WS down — queue'a yazildi")
         return true
+    }
+
+    private fun drainQueued(botUserId: String, webSocket: WebSocket) {
+        synchronized(drainLock) {
+            if (!connected || wsRef.get() !== webSocket) return
+            OutboundQueue.drainAll(botUserId) { message ->
+                connected && wsRef.get() === webSocket && webSocket.send(message)
+            }
+        }
     }
 
     private suspend fun reconnectLoop() {
@@ -107,13 +126,16 @@ object SignalingWsClient {
                 }
                 if (connected) {
                     backoffSec = 1L  // reset
-                    OutboundQueue.drainAll(BotIdentity.get().botUserId) { msg ->
-                        ws.send(msg)
-                    }
+                    val botUserId = BotIdentity.get().botUserId
+                    drainQueued(botUserId, ws)
                     // connected loop: WS lifecycle listener tarafindan yonetilir; burada
-                    // sadece disconnect olana kadar uyu
+                    // ACK kaybi icin visibility timeout'u periyodik uzlastir.
                     while (connected && !stopping) {
                         delay(1000)
+                        runCatching { drainQueued(botUserId, ws) }
+                            .onFailure {
+                                log.warn("[WSClient] Periyodik drain hatasi: {}", it.javaClass.simpleName)
+                            }
                     }
                 }
             } catch (e: Exception) {
@@ -129,13 +151,31 @@ object SignalingWsClient {
         log.info("[WSClient] reconnect loop durdu")
     }
 
+    internal fun parseMessageAck(text: String): String? =
+        runCatching {
+            val frame = json.parseToJsonElement(text).jsonObject
+            if (frame["type"]?.jsonPrimitive?.contentOrNull != "message_ack") {
+                return@runCatching null
+            }
+            frame["messageId"]?.jsonPrimitive?.contentOrNull
+        }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() && it.length <= 128 }
+
     private class BotWsListener : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             connected = true
             log.info("[WSClient] WS acildi (HTTP {})", response.code)
         }
         override fun onMessage(webSocket: WebSocket, text: String) {
-            // Bot SEND-ONLY: gelen mesajlar yok sayilir. Sadece debug.
+            // Bot SEND-ONLY. Tek istisna: sunucunun mesaji gercekten kabul
+            // ettigini bildiren ACK. Kuyruk ancak bununla bosalir; soket
+            // tamponuna yazmak teslim degildir.
+            val ackedId = parseMessageAck(text)
+            if (ackedId != null) {
+                runCatching { OutboundQueue.acknowledge(BotIdentity.get().botUserId, ackedId) }
+                return
+            }
             log.debug("[WSClient] Inbound mesaj (gormezden geliniyor): {} byte", text.length)
         }
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {

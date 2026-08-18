@@ -102,8 +102,9 @@ Linux ortaminda uretilemeyen kanit demektir. Yeni yerel bir gap bulunursa ilgili
 - Flutter: 230/230 host testi, temiz `flutter analyze --no-pub`, saf-Dart
   smoke, offline `pub get` ve iOS statik readiness audit basarili. Dort Android
   integration hedefi de fiziksel Samsung SM-S921B cihazda gecti.
-- Hardened server: 64/64 `:signaling-server:test :bot-api:test --offline`, sifir
-  failure/error/skip; gercek PostgreSQL V1-V14 Testcontainers kapsami dahil.
+- Hardened server: 177/177 `:signaling-server:test :bot-api:test --offline`,
+  sifir failure/error/skip; gercek PostgreSQL V1-V18 ve Redis Testcontainers
+  kapsami dahil.
 - Android offline release: `assembleRelease --offline --no-daemon`, 663 gorev,
   basarili.
 - Hardened AAB: `86645886` byte,
@@ -156,7 +157,7 @@ dagitilmaz. Ayrica checksum'li private symbol arsivi
 | 30 | Async state machine ve resource ownership | DONE | Owned async tracker, keyed receive serialization, deterministic idle ve dispose-drain; socket/timer/renderer/recorder tum terminal yollarda kapanir. |
 | 31 | iOS statik build-readiness | DONE | Swift-Dart channel, Info.plist, Background Modes, URL/file/privacy, deployment target, plugin ve entitlement sozlesmesi fail-fast auditli; fiziksel kanit satir 21'de. |
 | 32 | Dependency, lisans ve supply chain | DONE | 129 hosted Pub SHA-256 lock, exact direct surumler, iki wrapper checksum'i, Android 1.243 ve server 544 component verification, allow-list repository ve vendored audioswitch testli. |
-| 33 | Son davranissal diferansiyel/release gate | DONE | 271 caller/invariant auditi, 230 Flutter testi, iOS/Codemagic static audit, 64 hardened server, offline Android release ve audited AAB birlikte gecer. |
+| 33 | Son davranissal diferansiyel/release gate | DONE | 271 caller/invariant auditi, 230 Flutter testi, iOS/Codemagic static audit, 177 hardened server testi, offline Android release ve audited AAB birlikte gecer. |
 | 34 | Server veri minimizasyonu/metadata gizliligi | DONE | V1-V14 kalici grup/audit/prekey timeline/raw UUID kolonlarini siler; short-lived queue AEAD+opaque RAM, retention fail-closed, private group/control routing ve hesap silme testli. |
 | 35 | Private discovery production key/ownership kapanisi | EXTERNAL BLOCKER | Kodda zayif fallback yok; OPRF ve no-fallback PKCS#11/HSM backend testli. Fiziksel HSM tatbikati ile ilk telefon sahipligi icin privacy-reviewed SMS/voice veya high-entropy invite/QR capability urun karari dis servis/donanim gerektirir. |
 | 36 | Operational log/backup metadata minimizasyonu | DONE | Disk/rotation appender'lari kaldirildi; fixed ERROR console Docker `logging=none` ile atilir. Secret-file ve purpose separation, non-root/read-only/core-dump kapali image, ephemeral Redis, immutable image digest, PostgreSQL verify-full TLS ve varsayilan non-mutating deploy preflight'i statik+Kotlin testleriyle sabit. |

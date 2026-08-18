@@ -45,7 +45,7 @@ Hardened server:
   ./gradlew :signaling-server:test :bot-api:test --offline --no-daemon)
 ```
 
-Guncel kanit 194/194 Flutter, 64/64 hardened server, temiz analyze/iOS statik
+Guncel kanit 230/230 Flutter, 177/177 hardened server, temiz analyze/iOS statik
 audit, 663-gorevli offline Android release ve stripped/server-secret-audited
 AAB'dir. Imza, production endpoint ve private pin rotasyon girdileri build
 ortamindan saglanir.

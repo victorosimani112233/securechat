@@ -323,14 +323,19 @@ class PgSignalProtocolStore : SignalProtocolStore {
                 stmt.setInt(2, address.deviceId)
                 stmt.executeQuery().use { rs ->
                     return if (rs.next()) {
+                        val sealed = rs.getBytes(1)
+                        // Yazma sirasinda compare-and-set icin saklanir.
+                        lastLoaded.get()[sessionSlot(address)] = sealed
                         SessionRecord(
                             BotSessionRecordCipher.open(
                                 recipientIndex,
                                 address.deviceId,
-                                rs.getBytes(1)
+                                sealed
                             )
                         )
                     } else {
+                        // Kayit yok: yazma INSERT yolunu kullanmali.
+                        clearLoadedSession(sessionSlot(address))
                         SessionRecord()
                     }
                 }
@@ -355,6 +360,28 @@ class PgSignalProtocolStore : SignalProtocolStore {
         return ids
     }
 
+    /**
+     * Bu is parcaciginin en son okudugu ratchet kaydi.
+     *
+     * `storeSession` kayittan once okunan degeri bilmezse ustune korkusuzca
+     * yazar; iki es zamanli gonderim ayni kaydi yukleyip ilerletince biri
+     * kaybolur ve alici o mesaji hicbir zaman cozemez. Karsilastirma degeri
+     * burada tutulur.
+     */
+    private val lastLoaded = ThreadLocal.withInitial { mutableMapOf<String, ByteArray?>() }
+
+    private fun sessionSlot(address: SignalProtocolAddress) =
+        "${recipientIndex(address.name)}:${address.deviceId}"
+
+    private fun clearLoadedSession(slot: String) {
+        val loaded = lastLoaded.get()
+        loaded.remove(slot)
+        if (loaded.isEmpty()) lastLoaded.remove()
+    }
+
+    class ConcurrentSessionModificationException :
+        IllegalStateException("Signal session was modified concurrently")
+
     override fun storeSession(address: SignalProtocolAddress, record: SessionRecord) {
         val recipientIndex = recipientIndex(address.name)
         val data = BotSessionRecordCipher.seal(
@@ -362,18 +389,45 @@ class PgSignalProtocolStore : SignalProtocolStore {
             address.deviceId,
             record.serialize()
         )
-        BotDatabase.getConnection().use { conn ->
-            conn.prepareStatement(
-                """INSERT INTO bot_signal_session(recipient_index, device_id, session_record)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT (recipient_index, device_id)
-                   DO UPDATE SET session_record = EXCLUDED.session_record"""
-            ).use { stmt ->
-                stmt.setString(1, recipientIndex)
-                stmt.setInt(2, address.deviceId)
-                stmt.setBytes(3, data)
-                stmt.executeUpdate()
+        val slot = sessionSlot(address)
+        val expected = lastLoaded.get()[slot]
+        try {
+            BotDatabase.getConnection().use { conn ->
+                val updated = if (expected == null) {
+                    // Yeni oturum: yalniz kayit yoksa yazilir.
+                    conn.prepareStatement(
+                        """INSERT INTO bot_signal_session(recipient_index, device_id, session_record)
+                           VALUES (?, ?, ?)
+                           ON CONFLICT (recipient_index, device_id) DO NOTHING"""
+                    ).use { stmt ->
+                        stmt.setString(1, recipientIndex)
+                        stmt.setInt(2, address.deviceId)
+                        stmt.setBytes(3, data)
+                        stmt.executeUpdate()
+                    }
+                } else {
+                    // Compare-and-set: kayit okundugundan beri degistiyse yazma.
+                    conn.prepareStatement(
+                        """UPDATE bot_signal_session SET session_record = ?
+                           WHERE recipient_index = ? AND device_id = ? AND session_record = ?"""
+                    ).use { stmt ->
+                        stmt.setBytes(1, data)
+                        stmt.setString(2, recipientIndex)
+                        stmt.setInt(3, address.deviceId)
+                        stmt.setBytes(4, expected)
+                        stmt.executeUpdate()
+                    }
+                }
+                if (updated != 1) {
+                    // Sessizce ustune yazmak ratchet adimini kaybettirirdi.
+                    log.error("[Store] Ratchet kaydi es zamanli degistirildi — yazma reddedildi")
+                    throw ConcurrentSessionModificationException()
+                }
             }
+        } finally {
+            // Her store yeni bir load baseline'i gerektirir; ThreadLocal map
+            // recipient blind-index'lerini process omru boyunca biriktirmez.
+            clearLoadedSession(slot)
         }
     }
 
@@ -391,6 +445,7 @@ class PgSignalProtocolStore : SignalProtocolStore {
     }
 
     override fun deleteSession(address: SignalProtocolAddress) {
+        clearLoadedSession(sessionSlot(address))
         val recipientIndex = recipientIndex(address.name)
         BotDatabase.getConnection().use { conn ->
             conn.prepareStatement(

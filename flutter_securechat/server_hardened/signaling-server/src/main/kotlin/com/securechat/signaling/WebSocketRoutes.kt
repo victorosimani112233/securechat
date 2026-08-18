@@ -37,6 +37,11 @@ internal val PLAINTEXT_CHAT_CONTROL_TYPES = setOf(
 internal fun isPlaintextChatControlType(type: String?): Boolean =
     type in PLAINTEXT_CHAT_CONTROL_TYPES
 
+internal const val SERVICE_MESSAGE_ACK_TYPE = "message_ack"
+
+internal fun isServerOnlyFrameType(type: String?): Boolean =
+    type == SERVICE_MESSAGE_ACK_TYPE
+
 /**
  * Bir aramanin katilimci tavani.
  *
@@ -122,8 +127,16 @@ fun Application.configureWebSocket(
             // GUVENLIK: Token'in sub claim'i userId ile eslesmeli — kimlik taklidi onlemi.
             // Servis hesabi yalniz `ws.connect` kapsamli assertion ile ve yalniz
             // kendi saglanmis UUID'si adina baglanabilir.
-            val tokenSub = AuthService.verifyToken(token)
-                ?: ServiceAccounts.authenticate(token, ServiceAssertion.Scope.WS_CONNECT)
+            val userSubject = AuthService.verifyToken(token)
+            val serviceSubject = if (userSubject == null) {
+                ServiceAccounts.authenticate(token, ServiceAssertion.Scope.WS_CONNECT)
+            } else {
+                null
+            }
+            val tokenSub = userSubject ?: serviceSubject
+            // Servis hesabi kuyrugunu ancak gercek bir ACK ile bosaltabilir;
+            // `send()` yalniz soket tamponunu ifade eder.
+            val isServiceAccount = serviceSubject != null
             if (tokenSub == null) {
                 Metrics.wsAuthFailures.increment()
                 AuditLog.log(userId = claimedUserId, eventType = "WS_AUTH_INVALID", ipAddress = ip)
@@ -172,7 +185,14 @@ fun Application.configureWebSocket(
                                 close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Rate limit asildi"))
                                 return@webSocket
                             }
-                            handleMessage(userId, text, connectionManager, userRegistry, byteSize)
+                            handleMessage(
+                                userId,
+                                text,
+                                connectionManager,
+                                userRegistry,
+                                byteSize,
+                                if (isServiceAccount) this else null,
+                            )
                         }
                         is Frame.Ping -> send(Frame.Pong(frame.data))
                         else -> {}
@@ -324,6 +344,12 @@ private suspend fun handleMessage(
      * asilabiliyordu.
      */
     frameByteSize: Int = rawMessageJson.toByteArray(Charsets.UTF_8).size,
+    /**
+     * Yalniz servis hesabi baglantilarinda doludur. Bot kuyrugunu ancak
+     * mesajin sunucu tarafindan gercekten kabul edildigi bilgisiyle
+     * bosaltabilir; normal istemcilere bu cerceve gonderilmez.
+     */
+    serviceSession: io.ktor.websocket.WebSocketSession? = null,
 ) {
     try {
         val json = Json { ignoreUnknownKeys = true }
@@ -362,6 +388,14 @@ private suspend fun handleMessage(
 
         val type = element["type"]?.jsonPrimitive?.contentOrNull
         val recipientId = element["recipientId"]?.jsonPrimitive?.contentOrNull
+
+        // Bu frame yalniz server tarafindan ayni servis-account session'ina
+        // uretilir. Client route'una izin verilirse bir kullanici botun
+        // in-flight kaydini sahte ACK ile erken sildirebilir.
+        if (isServerOnlyFrameType(type)) {
+            logger.warn("[!] Server-only frame client tarafindan reddedildi")
+            return
+        }
 
         when (type) {
             "presence_update" -> {
@@ -759,6 +793,18 @@ private suspend fun handleMessage(
             return
         }
         connectionManager.routeMessage(recipientId, messageJson)
+        // Servis hesabina, mesajin route edildigini bildiren ACK.
+        if (serviceSession != null) {
+            val ackedId = rawElement["messageId"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf { it.isNotBlank() && it.length <= 128 }
+            if (ackedId != null) {
+                val ack = buildJsonObject {
+                    put("type", SERVICE_MESSAGE_ACK_TYPE)
+                    put("messageId", ackedId)
+                }.toString()
+                runCatching { serviceSession.send(Frame.Text(ack)) }
+            }
+        }
 
     } catch (e: Exception) {
         logger.warn("[!] Mesaj parse hatasi: ${e.javaClass.simpleName}")

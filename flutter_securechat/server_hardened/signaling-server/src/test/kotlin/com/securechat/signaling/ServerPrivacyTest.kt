@@ -16,6 +16,13 @@ class ServerPrivacyTest {
     )
 
     @Test
+    fun `service delivery acknowledgement is a server-only frame`() {
+        assertTrue(isServerOnlyFrameType("message_ack"))
+        assertFalse(isServerOnlyFrameType("encrypted_message"))
+        assertFalse(isServerOnlyFrameType(null))
+    }
+
+    @Test
     fun `safe retention defaults and hard upper bounds`() {
         val defaults = PrivacyConfig.fromEnvironment(environment)
         assertEquals(900, defaults.offlineQueueTtlSeconds)

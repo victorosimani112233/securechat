@@ -185,7 +185,6 @@ class SendPipeline {
                 payload.recipientRef,
                 payload.recipientUserIds,
                 plaintext,
-                messageId,
                 payload.messageType ?: "text"
             )
             if (!sent) {
@@ -222,14 +221,13 @@ class SendPipeline {
         recipientRef: String,
         recipientUserIds: List<String>,
         plaintext: ByteArray,
-        messageId: String,
         messageType: String
     ): Boolean {
         return when {
             recipientRef.startsWith("user:") -> {
                 if (recipientUserIds.isNotEmpty()) return false
                 val userId = recipientRef.removePrefix("user:")
-                encryptAndSend(userId, plaintext, messageId, messageType)
+                encryptAndSend(userId, plaintext, messageType)
             }
             recipientRef.startsWith("group:") -> {
                 val routingToken = recipientRef.removePrefix("group:")
@@ -248,7 +246,7 @@ class SendPipeline {
                 var allOk = true
                 for (member in members) {
                     val ok = try {
-                        encryptAndSend(member, plaintext, messageId, messageType)
+                        encryptAndSend(member, plaintext, messageType)
                     } catch (e: Exception) {
                         log.warn("[Send] Grup uye gonderim hatasi: {}", e.javaClass.simpleName)
                         false
@@ -261,10 +259,35 @@ class SendPipeline {
         }
     }
 
+    /**
+     * Alici basina serilestirme kilitleri.
+     *
+     * Signal ratchet'i yukle-ilerlet-yaz dizisidir. Ayni aliciya es zamanli
+     * iki gonderim bu diziyi ic ice calistirirsa bir adim kaybolur ve alici o
+     * mesaji hicbir zaman cozemez. Kilit, dizinin tamamini tek parca yapar.
+     *
+     * Kilit process icidir; birden fazla bot instance'i calistirilirsa
+     * korumayi `PgSignalProtocolStore` icindeki compare-and-set saglar ve
+     * cakisma sessizce degil hata ile sonuclanir.
+     */
+    // Sabit boyut social-graph kimliklerini process omru boyunca biriktirmez.
+    // Hash cakismasi yalniz ilgisiz iki gonderimi kisa sure serilestirir.
+    private val recipientLocks = Array(256) { Any() }
+
+    private fun recipientLock(recipientUserId: String): Any =
+        recipientLocks[(recipientUserId.hashCode() and Int.MAX_VALUE) % recipientLocks.size]
+
     private fun encryptAndSend(
         recipientUserId: String,
         plaintext: ByteArray,
-        messageId: String,
+        messageType: String
+    ): Boolean = synchronized(recipientLock(recipientUserId)) {
+        encryptAndSendLocked(recipientUserId, plaintext, messageType)
+    }
+
+    private fun encryptAndSendLocked(
+        recipientUserId: String,
+        plaintext: ByteArray,
         messageType: String
     ): Boolean {
         val address = org.whispersystems.libsignal.SignalProtocolAddress(

@@ -126,7 +126,9 @@ bot). Redis egress agina baglanmaz. Host firewall egress'i
 | P1-08 | Alici UUID/hesap dogrulanmiyor | DONE — registry kontrolu, bilinmeyen alici reddedilir |
 | P1-09 | Presence aboneligi sinirsiz | DONE — hesap kontrolu, tavan, rate limit, bos anahtar temizligi |
 | P1-15 | Byte kotasi karakter sayiyor | DONE — UTF-8 frame boyutu |
-| Kalan 13 madde | | OPEN |
+| P1-18 | Bot kuyrugu gonderimden once siliyor, ACK yok | DONE — in-flight + gorunurluk suresi + gercek server ACK |
+| P1-20 | Es zamanli ratchet yazimi | DONE — alici basina serilestirme + compare-and-set |
+| Kalan 11 madde | | OPEN |
 
 ## P2
 
@@ -655,3 +657,50 @@ tekrarlanan key id, identity/signed/signature byte boyutlari — cunku az sayida
 ama cok buyuk alan govde limitini asmadan gecebilirdi.
 
 Taban: 163 Kotlin testi, 0 failure/skip.
+
+### P1 parti 3 — bot dayanikliligi
+
+**P1-20 — ratchet butunlugu.** `loadSession -> ilerlet -> storeSession` dizisi
+kosulsuz ustune yaziyordu; ayni aliciya iki es zamanli gonderim bir ratchet
+adimini kaybettiriyor ve alici o mesaji hicbir zaman cozemiyordu.
+
+- Gonderim sabit boyutlu recipient-hash lock striping ile serilestirildi;
+  yukle-ilerlet-yaz dizisi tek parca calisir ve process RAM'inde sinirsiz
+  recipient/social-graph anahtari birikmez.
+- `storeSession` artik okunan degere karsi compare-and-set yapar. Kayit
+  okundugundan beri degistiyse yazma reddedilir ve
+  `ConcurrentSessionModificationException` firlatilir. Boylece birden fazla
+  bot instance'i calissa bile cakisma sessizce degil hata ile sonuclanir.
+
+Kanit: `RatchetConcurrencyIntegrationTest` (gercek PostgreSQL, 4 senaryo).
+
+**P1-18 — teslim garantisi.** Uc ayri sorun vardi:
+
+1. `RPOP` mesaji kuyruktan hemen siliyordu; process veya soket o anda olurse
+   202 verilmis bir mesaj kayboluyordu.
+2. Basarisiz teslimde mesaj `LPUSH` ile geri yaziliyordu. Kuyruk LPUSH/RPOP
+   ile FIFO oldugu icin bu, mesaji sirasinin **sonuna** atiyordu.
+3. `WebSocket.send()==true` teslim sayiliyordu; oysa o yalniz soket tamponunu
+   ifade eder.
+
+Cozum:
+
+- Her kabul edilen mesaj, WebSocket bagli olsa bile once bounded durable queue'ya
+  yazilir; kapasite dolunca eski 202 mesaji dusurulmez, yeni istek fail-closed
+  reddedilir.
+- Mesaj kuyruktan benzersiz checkout tokeniyla **in-flight** kaydina gecer;
+  gercek messageId'ye gecis ve basarisiz gonderimi geri alma atomik Lua
+  adimlaridir.
+- Signaling, servis hesabi baglantilarina mesajin route edildigini bildiren
+  `message_ack` cercevesi gonderir; in-flight kaydi ancak bununla silinir.
+  Normal istemcilere bu cerceve gonderilmez ve client-originated sahte ACK
+  server route'unda reddedilir.
+- ACK gelmezse 30 saniyelik gorunurluk suresi sonunda mesaj `RPUSH` ile
+  kuyrugun **basina** geri alinir; ayni milisaniyede checkout edilen birden
+  fazla mesajda da sira korunur. Bagli socket bunu periyodik uzlastirir.
+- Basarisiz gonderimde de mesaj sirasini koruyarak geri konur.
+
+Kanit: `OutboundQueueDurabilityTest` (gercek Redis, 8 senaryo),
+`SignalingWsClientAckTest` ve server-only frame regresyonu.
+
+Taban: 177 Kotlin testi, 0 failure/error/skip.
