@@ -11,7 +11,8 @@ workflows:
       xcode: 26.0
       cocoapods: default
       vars:
-        IOS_SIMULATOR_NAME: iPhone 16 Pro
+        IOS_SIMULATOR_NAME: "iPhone 16 Pro"
+        SECURECHAT_FIREBASE_IOS_APP_ID: "1:791820453236:ios:989a9c79e4e79ec3685821"
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache
@@ -69,8 +70,9 @@ workflows:
       xcode: 26.0
       cocoapods: default
       vars:
-        BUNDLE_ID: com.securechat.app
-        IOS_SIMULATOR_NAME: iPhone 16 Pro
+        BUNDLE_ID: "com.securechat.app"
+        IOS_SIMULATOR_NAME: "iPhone 16 Pro"
+        SECURECHAT_FIREBASE_IOS_APP_ID: "1:791820453236:ios:989a9c79e4e79ec3685821"
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache
