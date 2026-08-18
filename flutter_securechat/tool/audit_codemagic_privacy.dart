@@ -18,16 +18,19 @@ List<String> auditCodemagicPrivacy({Directory? projectRoot}) {
     if (source.contains(value)) failures.add(message);
   }
 
+  void requireWorkflowVar(String name) {
+    final pattern = RegExp('^\\s+$name:\\s+"[^"]+"\\s*\$', multiLine: true);
+    if (pattern.allMatches(source).length != 2) {
+      failures.add('$name must be pinned once in each Codemagic workflow');
+    }
+  }
+
   requireText(
     'working_directory: flutter_securechat',
     'Codemagic must target only the Flutter migration directory',
   );
   requireText('flutter: 3.44.9', 'Flutter must be version-pinned');
   requireText('xcode: 26.0', 'Xcode must be version-pinned');
-  requireText(
-    'securechat_ios_public_config',
-    'release endpoint, Firebase ID and pins must come from a variable group',
-  );
   requireText(
     'appstore_credentials',
     'signed workflow must use encrypted Codemagic credential variables',
@@ -49,10 +52,6 @@ List<String> auditCodemagicPrivacy({Directory? projectRoot}) {
     'configuration gates must fail on errors, unset variables and pipe failures',
   );
   forbidText(
-    'SECURECHAT_CERT_PIN_SHA256: ',
-    'certificate pin values must not be committed to the workflow',
-  );
-  forbidText(
     'APP_STORE_CONNECT_PRIVATE_KEY: ',
     'App Store private key values must not be committed to the workflow',
   );
@@ -65,6 +64,7 @@ List<String> auditCodemagicPrivacy({Directory? projectRoot}) {
     'SECURECHAT_CERT_PIN_SHA256',
     'SECURECHAT_CERT_PIN_SHA256_BACKUP',
   ]) {
+    requireWorkflowVar(input);
     if (!gate.contains(input)) {
       failures.add('macOS gate does not require $input');
     }

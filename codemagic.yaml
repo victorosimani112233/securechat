@@ -5,14 +5,17 @@ workflows:
     max_build_duration: 60
     working_directory: flutter_securechat
     environment:
-      groups:
-        - securechat_ios_public_config
       flutter: 3.44.9
       xcode: 26.0
       cocoapods: default
       vars:
         IOS_SIMULATOR_NAME: "iPhone 16 Pro"
         SECURECHAT_FIREBASE_IOS_APP_ID: "1:791820453236:ios:989a9c79e4e79ec3685821"
+        SECURECHAT_API_BASE_URL: "https://94.73.180.226"
+        SECURECHAT_SIGNALING_URL: "wss://94.73.180.226"
+        SECURECHAT_CERT_PIN_HOST: "94.73.180.226"
+        SECURECHAT_CERT_PIN_SHA256: "DLws9D1beDKBVkETgqo4rb0U9qXZx+AUVGKwaDXQiSA="
+        SECURECHAT_CERT_PIN_SHA256_BACKUP: "4oaRg+Six29KZ2tcFLyoYT+FKUZhYPzp1pI5BoK5RI4="
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache
@@ -64,7 +67,6 @@ workflows:
     working_directory: flutter_securechat
     environment:
       groups:
-        - securechat_ios_public_config
         - appstore_credentials
       flutter: 3.44.9
       xcode: 26.0
@@ -73,6 +75,11 @@ workflows:
         BUNDLE_ID: "com.securechat.app"
         IOS_SIMULATOR_NAME: "iPhone 16 Pro"
         SECURECHAT_FIREBASE_IOS_APP_ID: "1:791820453236:ios:989a9c79e4e79ec3685821"
+        SECURECHAT_API_BASE_URL: "https://94.73.180.226"
+        SECURECHAT_SIGNALING_URL: "wss://94.73.180.226"
+        SECURECHAT_CERT_PIN_HOST: "94.73.180.226"
+        SECURECHAT_CERT_PIN_SHA256: "DLws9D1beDKBVkETgqo4rb0U9qXZx+AUVGKwaDXQiSA="
+        SECURECHAT_CERT_PIN_SHA256_BACKUP: "4oaRg+Six29KZ2tcFLyoYT+FKUZhYPzp1pI5BoK5RI4="
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache

@@ -68,8 +68,10 @@ Yeni repoda kök `codemagic.yaml` ile `flutter_securechat/` birlikte commit
 edilmelidir. Keystore, provisioning profile, App Store private key, API token,
 `.env`, `signing.properties`, private symbol ve build çıktıları commit edilmez.
 
-Codemagic `securechat_ios_public_config` grubunda şu public build girdileri
-tanımlanır:
+Firebase uygulama kimliği, üretim endpoint'leri ve sertifika pinleri gizli
+değildir. Aşağıdaki public build girdileri iki workflow'un `environment.vars`
+bölümünde sabitlenmiştir; bu yüzden Codemagic UI'da ayrıca bir public variable
+group oluşturulması gerekmez:
 
 - `SECURECHAT_FIREBASE_IOS_APP_ID`
 - `SECURECHAT_API_BASE_URL`
@@ -78,9 +80,9 @@ tanımlanır:
 - `SECURECHAT_CERT_PIN_SHA256`
 - `SECURECHAT_CERT_PIN_SHA256_BACKUP`
 
-Signed workflow ayrıca `appstore_credentials` grubundaki App Store Connect ve
-certificate private-key girdilerini ister. Workflow eksik girdide build'e
-başlamadan fail-closed durur.
+Signed workflow yalnızca gizli App Store Connect ve certificate private-key
+girdilerini `appstore_credentials` grubundan ister. Workflow eksik girdide
+build'e başlamadan fail-closed durur.
 
 ## Harici Kalan Kanıtlar
 
