@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="incoming_call_channel_name">Eingehende Anrufe</string>
+    <string name="incoming_call_channel_description">Benachrichtigungen für eingehende Anrufe auf dem Sperrbildschirm</string>
+    <string name="ongoing_call_channel_name">Aktive Anrufe</string>
+    <string name="incoming_call_title">Eingehender Anruf</string>
+    <string name="call_connecting_title">Verbindung wird hergestellt…</string>
+    <string name="call_in_progress_title">Anruf läuft</string>
+</resources>

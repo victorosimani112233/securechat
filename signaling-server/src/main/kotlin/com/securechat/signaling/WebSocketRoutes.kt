@@ -175,14 +175,14 @@ private suspend fun handleUserDisconnectFromGroupCalls(
             val coordinatorLeft = active.coordinatorId == userId
 
             if (coordinatorLeft) {
-                if (remaining.isEmpty()) {
-                    // Kimse kalmadi → aramayi tamamen sonlandir
+                if (remaining.size <= 1) {
+                    // <=1 kisi kaldi → aramayi tamamen sonlandir
                     GroupCallSessionStore.end(active.groupId)
                     if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
                         sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
                     }
                     broadcastGroupCallEnded(active.groupId, connectionManager)
-                    logger.info("[GroupCall] Koordinator+son uye disconnect — arama sonlandirildi: ${active.groupId}")
+                    logger.info("[GroupCall] Koordinator disconnect + <=1 uye — arama sonlandirildi: ${active.groupId}")
                 } else {
                     // GUVENLIK (H9 fix): Koordinator transfer ZORUNLU olarak online uyeye yapilir.
                     // Eskiden offline uyeye fallback vardi — bu kullaniciya orphan call yaratabilirdi.
@@ -216,14 +216,17 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                 }
             } else {
                 logger.info("[GroupCall] Uye disconnect bildirimi: groupId=${active.groupId} left=$userId kalan=${remaining.size}")
-                // Tum uyeler ayrildiysa (koordinator hala bagli AMA participants bos) — savunmaci temizlik
-                if (remaining.isEmpty()) {
+                // <=1 kisi kaldiysa aramayi sonlandir. Onceden `remaining.isEmpty()` idi;
+                // o zaman A coordinator + B+C uye, B disconnect, C disconnect → A yalniz
+                // kaliyor (remaining=1) ama call canlı goruyordu, "bar gitmiyor" bug'i.
+                // 1 kisi kalmasi pratik olarak bos call demek (kendisiyle konusamaz).
+                if (remaining.size <= 1) {
                     GroupCallSessionStore.end(active.groupId)
                     if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
                         sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
                     }
                     broadcastGroupCallEnded(active.groupId, connectionManager)
-                    logger.info("[GroupCall] Tum uyeler ayrildi — arama temizlendi: ${active.groupId}")
+                    logger.info("[GroupCall] <=1 uye kaldi — arama temizlendi: ${active.groupId}")
                 }
             }
         }
@@ -441,13 +444,15 @@ private suspend fun handleMessage(
                             try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
                         }
 
-                        if (remaining.isEmpty()) {
+                        if (remaining.size <= 1) {
+                            // <=1 kisi kaldi → aramayi sonlandir; yalniz kalan kisinin de
+                            // local session'i broadcast ile temizlenir
                             GroupCallSessionStore.end(hangupGroupId)
                             if (JanusOrchestrator.hasActiveRoom(hangupGroupId)) {
                                 sfuScope.launch { JanusOrchestrator.destroyVideoRoom(hangupGroupId) }
                             }
                             broadcastGroupCallEnded(hangupGroupId, connectionManager)
-                            logger.info("[GroupCall] Son uye HANGUP — arama sonlandirildi: $hangupGroupId")
+                            logger.info("[GroupCall] HANGUP sonrasi <=1 uye — arama sonlandirildi: $hangupGroupId")
                         } else if (active.coordinatorId == senderId) {
                             // Koordinator ayrildi → online kalan biri devralir
                             val newCoordinator = remaining.firstOrNull { connectionManager.connections().containsKey(it) }

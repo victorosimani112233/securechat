@@ -70,7 +70,18 @@ class GroupCallStateHandler @Inject constructor(
                 janusWsUrl = signal.janusWsUrl
             )
         } else {
+            // Server "arama bitti" bildirdi (tum uyeler ayrildi). ActiveGroupCalls map'inden
+            // cikar — ChatScreen "Katil" banner'i temizlenir. AYRICA local user su an bu
+            // cagrida aktifse onun CallSession'ini da kapatmaliyiz; aksi takdirde OngoingCallBar
+            // "devam ediyormus gibi" duruyor ve kullanici tekrar "katil" deyince bos SFU odasi
+            // → siyah ekran. cleanupGroupCall tum SFU/mesh kaynaklarini serbest birakir.
             current.remove(signal.groupId)
+            val localSession = callManager.currentSession
+            if (localSession != null && localSession.isGroupCall && localSession.groupId == signal.groupId) {
+                android.util.Log.d("GroupCallStateHandler",
+                    "Server arama bittigini bildirdi (isActive=false), local session kapatiliyor: ${signal.groupId}")
+                callManager.endGroupCallFromRemote()
+            }
         }
         IncomingMessageHandler.activeGroupCalls.value = current
         android.util.Log.d("GroupCallStateHandler", "Grup arama durum guncellendi: ${signal.groupId} active=${signal.isActive}")

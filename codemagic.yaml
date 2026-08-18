@@ -1,0 +1,128 @@
+workflows:
+  securechat-ios-verify:
+    name: SecureChat iOS privacy verification
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    working_directory: flutter_securechat
+    environment:
+      groups:
+        - securechat_ios_public_config
+      flutter: 3.44.9
+      xcode: 26.0
+      cocoapods: default
+      vars:
+        IOS_SIMULATOR_NAME: iPhone 16 Pro
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+        - $HOME/Library/Caches/org.swift.swiftpm
+    scripts:
+      - name: Fail-closed public configuration check
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          for name in \
+            SECURECHAT_FIREBASE_IOS_APP_ID \
+            SECURECHAT_API_BASE_URL \
+            SECURECHAT_SIGNALING_URL \
+            SECURECHAT_CERT_PIN_HOST \
+            SECURECHAT_CERT_PIN_SHA256 \
+            SECURECHAT_CERT_PIN_SHA256_BACKUP; do
+            value="${!name:-}"
+            test -n "$value" || {
+              echo "$name is required" >&2
+              exit 2
+            }
+          done
+      - name: Resolve locked Flutter dependencies
+        script: |
+          flutter config --enable-swift-package-manager
+          flutter pub get
+      - name: Static analysis and privacy audits
+        script: |
+          flutter analyze --no-pub
+          dart tool/audit_ios_readiness.dart
+          dart tool/audit_codemagic_privacy.dart
+      - name: Flutter tests
+        script: |
+          mkdir -p build/test-results
+          flutter test --no-pub --machine > build/test-results/flutter.json
+        test_report: build/test-results/flutter.json
+      - name: iOS simulator and no-codesign release gate
+        script: IOS_SKIP_FLUTTER_CHECKS=1 ./tool/verify_ios_on_macos.sh
+    artifacts:
+      - flutter_securechat/build/ios/iphoneos/Runner.app
+      - flutter_securechat/build/test-results/flutter.json
+      - /tmp/xcodebuild_logs/*.log
+
+  securechat-ios-signed-candidate:
+    name: SecureChat signed iOS candidate
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    working_directory: flutter_securechat
+    environment:
+      groups:
+        - securechat_ios_public_config
+        - appstore_credentials
+      flutter: 3.44.9
+      xcode: 26.0
+      cocoapods: default
+      vars:
+        BUNDLE_ID: com.securechat.app
+        IOS_SIMULATOR_NAME: iPhone 16 Pro
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+        - $HOME/Library/Caches/org.swift.swiftpm
+    scripts:
+      - name: Fail-closed signing and public configuration check
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          for name in \
+            APP_STORE_CONNECT_ISSUER_ID \
+            APP_STORE_CONNECT_KEY_IDENTIFIER \
+            APP_STORE_CONNECT_PRIVATE_KEY \
+            CERTIFICATE_PRIVATE_KEY \
+            SECURECHAT_FIREBASE_IOS_APP_ID \
+            SECURECHAT_API_BASE_URL \
+            SECURECHAT_SIGNALING_URL \
+            SECURECHAT_CERT_PIN_HOST \
+            SECURECHAT_CERT_PIN_SHA256 \
+            SECURECHAT_CERT_PIN_SHA256_BACKUP; do
+            value="${!name:-}"
+            test -n "$value" || {
+              echo "$name is required" >&2
+              exit 2
+            }
+          done
+          test "$BUNDLE_ID" = com.securechat.app
+      - name: Resolve locked Flutter dependencies
+        script: |
+          flutter config --enable-swift-package-manager
+          flutter pub get
+      - name: Analyze and test
+        script: |
+          flutter analyze --no-pub
+          dart tool/audit_ios_readiness.dart
+          dart tool/audit_codemagic_privacy.dart
+          mkdir -p build/test-results
+          flutter test --no-pub --machine > build/test-results/flutter.json
+        test_report: build/test-results/flutter.json
+      - name: Install App Store signing material
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+      - name: Build signed candidate after simulator gate
+        script: IOS_SKIP_FLUTTER_CHECKS=1 IOS_SIGNED_BUILD=1 ./tool/verify_ios_on_macos.sh
+    artifacts:
+      - flutter_securechat/build/ios/ipa/*.ipa
+      - flutter_securechat/build/ios/archive/*.xcarchive
+      - flutter_securechat/build/test-results/flutter.json
+      - /tmp/xcodebuild_logs/*.log

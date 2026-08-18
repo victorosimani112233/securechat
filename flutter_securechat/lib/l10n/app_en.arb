@@ -1,0 +1,833 @@
+{
+  "@@locale": "en",
+  "app_name": "ELÇİM",
+  "group_info": "Group Info",
+  "group_settings": "Group Settings",
+  "add_member": "Add Member",
+  "members_count": "Members ({arg1})",
+  "@members_count": {
+    "description": "Migrated from Android string members_count.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "loading": "Loading…",
+  "admin": "Admin",
+  "you": "You",
+  "remove_member": "Remove Member",
+  "remove_from_group": "Remove from Group",
+  "edit_group_name": "Edit Group Name",
+  "group_name": "Group Name",
+  "save": "Save",
+  "cancel": "Cancel",
+  "add_new_member": "Add New Member",
+  "user_id": "User ID",
+  "add": "Add",
+  "remove_member_confirm": "Remove Member",
+  "remove_member_message": "Are you sure you want to remove {arg1} from the group?",
+  "@remove_member_message": {
+    "description": "Migrated from Android string remove_member_message.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "remove": "Remove",
+  "view_info": "View Info",
+  "onboarding_subtitle": "Secure messaging",
+  "onboarding_e2ee_notice": "Your messages are end-to-end encrypted. No one can read them.",
+  "register_title": "Sign Up",
+  "register_subtitle": "Enter your details to get started.",
+  "register_name_label": "Your name",
+  "register_name_placeholder": "e.g. John Smith",
+  "register_country_code_label": "Code",
+  "register_phone_label": "Phone number",
+  "register_phone_placeholder": "5XX XXX XX XX",
+  "register_start": "Start",
+  "contacts_permission_title": "Contacts Access Required",
+  "contacts_permission_body": "Contacts access is required for the app to work. Please grant the contacts permission so we can find your contacts and enable secure messaging.",
+  "action_retry": "Try Again",
+  "validation_name_empty": "Enter your name",
+  "validation_name_too_short": "At least {arg1} characters",
+  "@validation_name_too_short": {
+    "description": "Migrated from Android string validation_name_too_short.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "validation_name_too_long": "At most {arg1} characters",
+  "@validation_name_too_long": {
+    "description": "Migrated from Android string validation_name_too_long.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "validation_name_invalid_chars": "Letters, spaces, hyphens and apostrophes only",
+  "validation_country_code_empty": "Country code empty",
+  "validation_country_code_missing_plus": "Must start with +",
+  "validation_country_code_non_digit": "Digits only",
+  "validation_country_code_too_short": "At least 1 digit",
+  "validation_country_code_too_long": "At most 4 digits",
+  "validation_phone_empty": "Enter your phone number",
+  "validation_phone_too_short": "10 digits required",
+  "validation_phone_too_long": "10 digits only",
+  "validation_phone_non_digit": "Digits only",
+  "otp_title": "Verification",
+  "otp_section_title": "Verification Code",
+  "otp_description": "Enter the 6-digit code sent\\nto {arg1}",
+  "@otp_description": {
+    "description": "Migrated from Android string otp_description.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "otp_incomplete_error": "Please enter all 6 digits",
+  "otp_resend": "Resend Code",
+  "otp_resend_countdown": "Resend code: {arg1}s",
+  "@otp_resend_countdown": {
+    "description": "Migrated from Android string otp_resend_countdown.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "otp_verify": "Verify",
+  "backup_prompt_title": "Do you have an existing backup?",
+  "backup_prompt_body": "If you previously created an encrypted backup, you can restore your chats.",
+  "backup_prompt_yes": "Yes, restore backup",
+  "backup_prompt_no": "No, start fresh",
+  "nav_back": "Back",
+  "email_otp_title": "Email Verification",
+  "email_otp_step_email": "Your email address",
+  "email_otp_step_code": "Verification code",
+  "email_otp_description_email": "Enter your email address to verify your account. We will send the code to your email.",
+  "email_otp_description_code": "Enter the 6-digit code sent to {arg1}.",
+  "@email_otp_description_code": {
+    "description": "Migrated from Android string email_otp_description_code.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "email_otp_email_label": "Email",
+  "email_otp_code_label": "6-digit code",
+  "email_otp_send": "Send Code",
+  "email_otp_change_email": "Use a different email",
+  "email_otp_dev_skip": "Development Mode — Skip",
+  "email_otp_invalid_email": "Enter a valid email",
+  "email_otp_sent": "Code sent to your email",
+  "email_otp_smtp_disabled": "Email service is not configured on the server. Please contact your administrator or use 'Skip' in development mode.",
+  "email_otp_rate_limited": "Too many attempts. Please wait a few minutes.",
+  "email_otp_send_error": "Failed to send code: {arg1}",
+  "@email_otp_send_error": {
+    "description": "Migrated from Android string email_otp_send_error.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "email_otp_verify_failed": "Code invalid or expired",
+  "email_otp_incomplete": "Enter all 6 digits",
+  "create_group_title": "New Group",
+  "create_group_action": "Create",
+  "create_group_selected_members": "Selected Members ({arg1})",
+  "@create_group_selected_members": {
+    "description": "Migrated from Android string create_group_selected_members.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "create_group_add_by_phone": "Add by Number",
+  "create_group_user_not_found": "User Not Found",
+  "create_group_send_invite": "Send Invite",
+  "create_group_close": "Close",
+  "create_group_registered_contacts": "Registered Contacts",
+  "create_group_search_placeholder": "Search contacts…",
+  "invite_chooser_title": "Send invitation",
+  "cd_remove": "Remove",
+  "cd_search": "Search",
+  "cd_clear": "Clear",
+  "cd_add": "Add",
+  "cd_more": "More",
+  "cd_connection_status": "Connection status",
+  "cd_new_chat_action": "Start chat",
+  "cd_member_actions": "Member actions",
+  "network_error_title": "Connection Error",
+  "contacts_grant_permission": "Grant Contacts Access",
+  "contacts_invite_short": "Invite",
+  "settings_title": "Settings",
+  "settings_nuke_dialog_title": "Delete All Chats",
+  "settings_nuke_dialog_body": "All chats and messages will be permanently deleted. This cannot be undone.",
+  "settings_nuke_confirm": "Delete",
+  "settings_nuke_backup_first": "Back Up First",
+  "settings_nuke_all_data_warning": "All your messages, contacts and settings will be deleted.",
+  "settings_nuke_type_to_confirm": "Type \\\"DELETE\\\" to confirm:",
+  "settings_nuke_type_placeholder": "DELETE",
+  "settings_chat_theme": "Chat Theme",
+  "settings_language": "Language",
+  "settings_backdrop": "Backdrop Pattern",
+  "settings_fullscreen": "Fullscreen Mode",
+  "settings_show_message_preview": "Show message content",
+  "settings_notification_sound": "Notification Sound",
+  "settings_incoming_call_screen": "Incoming call screen",
+  "settings_missed_call": "Missed call alerts",
+  "settings_battery_optimization": "Battery optimization",
+  "settings_scheduled_messages": "Scheduled Messages",
+  "settings_manage_scheduled": "Manage Scheduled Messages",
+  "settings_manage_scheduled_desc": "View and edit existing scheduled messages",
+  "settings_e2ee": "End-to-end encryption",
+  "settings_e2ee_desc": "Your messages are encrypted with Signal Protocol",
+  "settings_last_seen": "Last seen time",
+  "settings_message_storage": "Message Storage Policy",
+  "settings_message_storage_desc": "Messages are stored on this device only",
+  "settings_backup": "Backup",
+  "settings_backup_desc": "Back up chats encrypted or restore",
+  "settings_storage_usage": "Storage Usage",
+  "chat_info_note_label": "Note",
+  "chat_info_search_placeholder": "Search messages…",
+  "conv_new_chat": "New Chat",
+  "conv_new_group": "New Group",
+  "conv_bulk_message": "Bulk Message",
+  "conv_scheduled_messages": "Scheduled Messages",
+  "conv_filter_all": "All",
+  "conv_filter_unread": "Unread",
+  "conv_filter_groups": "Groups",
+  "conv_filter_favorites": "Favorites",
+  "conv_archive": "Archive",
+  "conv_delete": "Delete",
+  "conv_info": "Info",
+  "conv_delete_chat": "Delete Chat",
+  "group_view_profile": "View Profile",
+  "group_leave": "Leave Group",
+  "chat_search_in_chat": "Search in Chat",
+  "chat_export": "Export Chat",
+  "action_close": "Close",
+  "chat_custom_duration": "Custom Duration",
+  "msg_action_reply": "Reply",
+  "msg_action_copy": "Copy",
+  "msg_action_edit": "Edit",
+  "msg_action_edit_history": "Edit History",
+  "msg_action_info": "Info",
+  "msg_action_forward": "Forward",
+  "msg_action_delete_for_me": "Delete for me",
+  "msg_delete_title": "Delete message",
+  "msg_delete_cancel": "Discard",
+  "msg_edit_title": "Edit Message",
+  "sched_title": "Scheduled Messages",
+  "sched_delete_title": "Delete Scheduled Message",
+  "sched_delete_body": "This scheduled message will be permanently deleted.",
+  "sched_tab_create": "Create",
+  "sched_tab_existing": "Existing",
+  "sched_message_placeholder": "Type your message…",
+  "sched_action_edit": "Edit",
+  "sched_action_delete": "Delete",
+  "sched_pick_time": "Pick Time",
+  "sched_pick_day": "Pick Day",
+  "sched_pick_recipient": "Pick Recipient",
+  "action_ok": "OK",
+  "conversations_title": "Chats",
+  "conversations_search": "Search chats",
+  "nav_chats": "Chats",
+  "nav_calls": "Calls",
+  "nav_contacts": "Contacts",
+  "chat_e2ee": "End-to-end encrypted",
+  "archive_remove": "Unarchive",
+  "profile_photo_change": "Change profile photo",
+  "settings_watermark_desc": "Show the Elçim watermark",
+  "settings_scheduled_enabled_desc": "Enable background delivery",
+  "settings_local_data_desc": "Messages, contacts, media and settings",
+  "settings_account_data_desc": "Server account and all data on this device",
+  "settings_logout": "Log out",
+  "settings_notification_preview_desc": "Lock-screen notification preview",
+  "settings_default_notification_sound": "Default notification sound",
+  "settings_silent": "Silent",
+  "settings_share_last_seen": "Share last seen",
+  "settings_screen_protection": "Screen protection enabled",
+  "camera": "Camera",
+  "gallery": "Gallery",
+  "profile_photo_remove": "Remove photo",
+  "settings_delete_local_data": "Delete all local data",
+  "settings_delete_account": "Permanently delete account",
+  "settings_delete_account_body": "Your server account and all data on this device will be deleted. This cannot be undone.",
+  "theme_system": "System",
+  "theme_light": "Light",
+  "theme_dark": "Dark",
+  "settings_content_hidden": "Message content hidden",
+  "settings_content_visible": "Content visible",
+  "settings_privacy": "Privacy",
+  "settings_last_seen_hidden": "Last seen is not shared",
+  "settings_last_seen_shared": "Last seen is shared",
+  "settings_fullscreen_ios_desc": "iOS keeps system areas visible and uses an edge-to-edge layout",
+  "settings_fullscreen_android_desc": "Hide Android system bars inside the app",
+  "settings_auto_download": "Automatic download",
+  "settings_auto_download_desc": "Wi-Fi and mobile data rules",
+  "settings_call_readiness": "Call readiness",
+  "settings_call_readiness_desc": "Battery, notification and lock-screen permissions",
+  "settings_bulk_message": "Bulk message",
+  "settings_bulk_message_desc": "Send securely to multiple chats",
+  "settings_storage_desc": "Media and chat usage",
+  "settings_presence_immediate_desc": "Changes are sent to the online presence protocol immediately",
+  "settings_screen_protection_desc": "Android blocks screen capture; iOS covers content in the app switcher.",
+  "group_not_found": "Group not found.",
+  "group_admin_only": "Only admins can send messages",
+  "group_announcement_desc": "Use the group as an announcement channel",
+  "mute": "Mute",
+  "chat_lock": "Chat lock",
+  "chat_lock_desc": "Access with device authentication",
+  "export_history": "Export history",
+  "make_admin": "Make admin",
+  "no_contacts_to_add": "No saved contacts can be added.",
+  "confirmation": "Confirmation",
+  "confirm": "Confirm",
+  "background_unavailable": "Background service is unavailable.",
+  "storage_service_unavailable": "Storage service is unavailable.",
+  "edit_mode": "Edit mode",
+  "repeat_once": "Once",
+  "repeat_daily": "Daily",
+  "repeat_custom": "Custom",
+  "weekdays_short": "Mon,Tue,Wed,Thu,Fri,Sat,Sun",
+  "delivery_time": "Delivery time",
+  "message_content": "Message content",
+  "recipients": "Recipients",
+  "recipient_required": "Select at least one person or group",
+  "schedule": "Schedule",
+  "update": "Update",
+  "no_scheduled_messages": "No scheduled messages yet.",
+  "schedule_saved": "Scheduled message saved.",
+  "form_incomplete": "The form is incomplete.",
+  "over_wifi": "Over Wi-Fi",
+  "over_cellular": "Over cellular data",
+  "photos": "Photos",
+  "videos": "Videos",
+  "documents": "Documents",
+  "cellular_limit": "Cellular limit: {arg1} MB",
+  "@cellular_limit": {
+    "description": "Migrated from Android string cellular_limit.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "no_chats_yet": "No chats yet",
+  "storage_summary": "{arg1} messages · {arg2} files · {arg3}",
+  "@storage_summary": {
+    "description": "Migrated from Android string storage_summary.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      },
+      "arg2": {
+        "type": "num"
+      },
+      "arg3": {
+        "type": "String"
+      }
+    }
+  },
+  "clear_media": "Clear media",
+  "clear_media_body": "Media and file messages in “{arg1}” will be deleted. Text messages are retained.",
+  "@clear_media_body": {
+    "description": "Migrated from Android string clear_media_body.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "no_exports_yet": "No exports yet",
+  "message_count": "{arg1} messages",
+  "@message_count": {
+    "description": "Migrated from Android string message_count.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "entire_chat": "Entire chat",
+  "admin_only_screen": "This screen is available only to group admins",
+  "bulk_unavailable": "Bulk sending is unavailable.",
+  "select_all": "Select all",
+  "group": "Group",
+  "send_to_recipients": "Send to {arg1} recipients",
+  "@send_to_recipients": {
+    "description": "Migrated from Android string send_to_recipients.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "bulk_result": "{arg1} sent, {arg2} failed.",
+  "@bulk_result": {
+    "description": "Migrated from Android string bulk_result.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      },
+      "arg2": {
+        "type": "num"
+      }
+    }
+  },
+  "encrypted_backup": "Encrypted Backup",
+  "backup_explanation": "Chats, contacts, call logs, scheduled messages and end-to-end encryption state are stored in a password-protected .elbk file. Session access keys are excluded.",
+  "create_backup": "Create a new backup",
+  "restore_backup_file": "Restore a backup file",
+  "backups_on_device": "Backups on this device",
+  "no_local_backups": "No local backups yet",
+  "backup_password": "Backup password",
+  "backup_unavailable": "Backup service is unavailable.",
+  "save_encrypted_backup": "Save encrypted backup",
+  "backup_created": "Encrypted backup created.",
+  "backup_create_failed": "Could not create backup: {arg1}",
+  "@backup_create_failed": {
+    "description": "Migrated from Android string backup_create_failed.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "backup_restored": "Backup restored.",
+  "wrong_password_attempts": "Wrong password. {arg1} attempts remaining.",
+  "@wrong_password_attempts": {
+    "description": "Migrated from Android string wrong_password_attempts.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "backup_deleted_after_attempts": "The backup file was deleted after five incorrect attempts.",
+  "backup_delete_failed_after_attempts": "Attempt limit reached; the platform could not delete the file.",
+  "password": "Password",
+  "password_min_length": "At least 8 characters",
+  "password_repeat": "Repeat password",
+  "password_too_short": "Password must be at least 8 characters.",
+  "password_mismatch": "Passwords do not match.",
+  "restore": "Restore",
+  "no_call_history": "No call history yet.",
+  "video_call": "Video call",
+  "voice_call": "Voice call",
+  "outgoing": "Outgoing",
+  "incoming": "Incoming",
+  "video": "video",
+  "voice": "voice",
+  "missed": "Missed",
+  "rejected": "Rejected",
+  "busy": "Busy",
+  "failed": "Failed",
+  "call_description": "{arg1} {arg2} call{arg3}",
+  "@call_description": {
+    "description": "Migrated from Android string call_description.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      },
+      "arg2": {
+        "type": "String"
+      },
+      "arg3": {
+        "type": "String"
+      }
+    }
+  },
+  "recheck_status": "Check status again",
+  "calls_ready": "You are ready for calls",
+  "calls_readiness_missing": "Complete missing items to prevent call delays",
+  "battery_optimization_desc": "Reduces Doze delays for data-only push and background work",
+  "fullscreen_call_notification": "Full-screen call notification",
+  "fullscreen_call_notification_desc": "Android 14+ lock-screen call view",
+  "notification_permission": "Notification permission",
+  "notification_permission_desc": "Message and incoming call notifications",
+  "overlay_permission": "Display over other apps",
+  "overlay_permission_desc": "Android background call screen",
+  "ios_call_readiness_note": "On iOS, battery optimization, full-screen intent and overlay cannot be changed by the app. Incoming-call wake-up depends on APNs/CallKit and system policies.",
+  "secure_communication": "Secure Communication",
+  "onboarding_private_subtitle": "Your messages stay between you",
+  "onboarding_private_body": "Every message is encrypted on your device; the server cannot read its content.",
+  "onboarding_direct_call": "Direct calls",
+  "onboarding_webrtc_subtitle": "Voice and video over WebRTC",
+  "onboarding_webrtc_body": "One-to-one calls connect directly; large group calls use the Janus SFU.",
+  "onboarding_privacy_control": "Complete privacy control",
+  "onboarding_you_decide": "You decide",
+  "onboarding_privacy_body": "View once, disappearing messages, screen protection and group export policy.",
+  "skip": "Skip",
+  "lets_start": "Get started",
+  "continue_action": "Continue",
+  "notifications": "Notifications",
+  "notifications_permission_reason": "For new messages and calls.",
+  "contacts_permission_reason": "To discover people using hashes only.",
+  "microphone": "Microphone",
+  "microphone_permission_reason": "For voice and video calls.",
+  "camera_permission_reason": "For video calls.",
+  "permissions_required": "A few permissions are required",
+  "permissions_intro": "Grant the permissions you want now; you can enable the rest later in settings.",
+  "grant_permission": "Grant permission",
+  "chat_not_found": "Chat not found.",
+  "contact_info": "Contact Info",
+  "starred_messages": "Starred Messages",
+  "media": "Media",
+  "disappearing_messages": "Disappearing messages",
+  "contact_note": "Contact note",
+  "tap_to_add_note": "Tap to add a note",
+  "no_records": "No records found",
+  "add_contact_note": "Add contact note",
+  "off": "Off",
+  "hours": "{arg1} hours",
+  "@hours": {
+    "description": "Migrated from Android string hours.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "days": "{arg1} days",
+  "@days": {
+    "description": "Migrated from Android string days.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "files_selected": "{arg1} files selected",
+  "@files_selected": {
+    "description": "Migrated from Android string files_selected.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "add_caption": "Add a caption...",
+  "view_once": "View once",
+  "view_once_protected": "View once · screen protected",
+  "share": "Share",
+  "tap_to_close_view_once": "Tap to close · cannot be opened again",
+  "file_open_failed": "Could not open file: {arg1}",
+  "@file_open_failed": {
+    "description": "Migrated from Android string file_open_failed.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "file_share_failed": "Could not share file: {arg1}",
+  "@file_share_failed": {
+    "description": "Migrated from Android string file_share_failed.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "file": "File",
+  "open_with_app": "Open with app",
+  "media_not_found": "Media file not found",
+  "call_service_unavailable": "Call service could not be started.",
+  "locked_chat": "Locked Chat",
+  "disable_export": "Disable export",
+  "enable_export": "Enable export",
+  "clear_chat": "Clear chat",
+  "read_only_announcement": "This group is an announcement channel where only admins can post.",
+  "no_matching_messages": "No matching messages found",
+  "cancel_selection": "Cancel selection",
+  "messages_selected": "{arg1} messages selected",
+  "@messages_selected": {
+    "description": "Migrated from Android string messages_selected.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "forward_selected": "Forward selected",
+  "record_voice_message": "Record voice message",
+  "poll": "Poll",
+  "add_reaction": "Add reaction",
+  "remove_star": "Remove star",
+  "add_star": "Star",
+  "unpin": "Unpin",
+  "pin": "Pin",
+  "choose_reaction": "Choose reaction",
+  "delete_for_everyone": "Delete for everyone",
+  "clear_chat_confirm": "Clear this chat?",
+  "clear_chat_body": "All messages on this device will be permanently deleted.",
+  "voice_message": "Voice message",
+  "recording_start_failed": "Could not start recording",
+  "recording_paused": "Recording paused",
+  "recording_active": "Recording",
+  "send": "Send",
+  "poll_load_failed": "Could not load poll",
+  "single_choice": "Single choice",
+  "multiple_choice": "Multiple choice",
+  "total_votes": "{arg1} total votes",
+  "@total_votes": {
+    "description": "Migrated from Android string total_votes.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "message_info": "Message Info",
+  "sent": "Sent",
+  "read": "Read",
+  "delivered": "Delivered",
+  "send_failed_no_plaintext": "Sending failed. Plaintext fallback was not used.",
+  "forward_to_chat": "Forward to chat",
+  "read_only_chat": "Read-only chat",
+  "participant_count": "{arg1} participants",
+  "@participant_count": {
+    "description": "Migrated from Android string participant_count.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "create_poll": "Create Poll",
+  "question": "Question",
+  "option_number": "Option {arg1}",
+  "@option_number": {
+    "description": "Migrated from Android string option_number.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "add_option": "Add option",
+  "member_export_permission": "Members may copy and export",
+  "admin_change_only": "Only an admin can change this",
+  "remove_member_named": "Remove {arg1} from the group?",
+  "@remove_member_named": {
+    "description": "Migrated from Android string remove_member_named.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "leave_group_confirm": "Do you want to leave this group?",
+  "archive": "Archive",
+  "remove_favorite": "Remove from favorites",
+  "add_favorite": "Add to favorites",
+  "mark_read": "Mark as read",
+  "mark_unread": "Mark as unread",
+  "delete_chat_body": "Permanently delete the {arg1} chat and its messages from this device?",
+  "@delete_chat_body": {
+    "description": "Migrated from Android string delete_chat_body.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "reject": "Reject",
+  "answer": "Answer",
+  "unmute": "Unmute",
+  "speaker": "Speaker",
+  "flip_camera": "Flip",
+  "end_call": "End",
+  "call_preparing": "Preparing call…",
+  "incoming_call": "Incoming call",
+  "ringing": "Ringing…",
+  "connecting": "Connecting…",
+  "reconnecting": "Reconnecting…",
+  "weak_connection_disable_video": "Weak connection — turn off video and continue with audio",
+  "call_ended": "Call ended",
+  "call_rejected": "Call rejected",
+  "connection_failed": "Could not connect",
+  "voice_service_unavailable": "Voice message service could not be started.",
+  "voice_encrypting": "Encrypting and sending voice message…",
+  "voice_sent": "Voice message sent.",
+  "voice_send_failed": "Could not send voice message: {arg1}",
+  "@voice_send_failed": {
+    "description": "Migrated from Android string voice_send_failed.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "file_transfer_unavailable": "File transfer service could not be started.",
+  "media_pick_failed": "Could not select media: {arg1}",
+  "@media_pick_failed": {
+    "description": "Migrated from Android string media_pick_failed.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "media_encrypting": "Encrypting and sending media…",
+  "media_send_failed": "Could not send media: {arg1}",
+  "@media_send_failed": {
+    "description": "Migrated from Android string media_send_failed.",
+    "placeholders": {
+      "arg1": {
+        "type": "String"
+      }
+    }
+  },
+  "media_sent": "{arg1} media items sent encrypted.",
+  "@media_sent": {
+    "description": "Migrated from Android string media_sent.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "media_failed": "{arg1} media items failed: {arg2}",
+  "@media_failed": {
+    "description": "Migrated from Android string media_failed.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      },
+      "arg2": {
+        "type": "String"
+      }
+    }
+  },
+  "poll_unavailable": "Poll service is unavailable.",
+  "poll_sent": "Poll sent.",
+  "poll_send_failed": "Could not send poll.",
+  "vote_send_failed": "Vote could not be sent securely.",
+  "pin_failed": "No pin permission or signaling failed.",
+  "forward_service_unavailable": "Message forwarding service could not start.",
+  "forward_encrypting": "Re-encrypting {arg1} messages for {arg2}…",
+  "@forward_encrypting": {
+    "description": "Migrated from Android string forward_encrypting.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      },
+      "arg2": {
+        "type": "String"
+      }
+    }
+  },
+  "forward_encryption_result": "{arg1} messages forwarded; {arg2} could not be encrypted and were not sent.",
+  "@forward_encryption_result": {
+    "description": "Migrated from Android string forward_encryption_result.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      },
+      "arg2": {
+        "type": "num"
+      }
+    }
+  },
+  "forward_sent": "{arg1} messages forwarded.",
+  "@forward_sent": {
+    "description": "Migrated from Android string forward_sent.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "forward_partial": "{arg1} messages forwarded; {arg2} failed.",
+  "@forward_partial": {
+    "description": "Migrated from Android string forward_partial.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      },
+      "arg2": {
+        "type": "num"
+      }
+    }
+  },
+  "reaction_failed": "Could not send reaction.",
+  "edit_failed": "Could not edit message.",
+  "delete_signal_failed": "Could not send deletion signal.",
+  "export_unavailable": "Export is unavailable.",
+  "chat_exported": "Chat exported.",
+  "group_policy_unavailable": "Group policy is unavailable.",
+  "export_disabled": "Export disabled.",
+  "export_enabled": "Export enabled.",
+  "chat_unmuted": "Chat unmuted.",
+  "chat_muted": "Chat muted.",
+  "invalid_voice_recording": "A valid voice recording could not be created.",
+  "audio_not_found": "Audio file not found",
+  "audio_play_failed": "Could not play voice recording",
+  "opened": "Opened",
+  "view_once_photo": "View-once photo",
+  "media_no_longer_available": "This media can no longer be opened",
+  "tap_to_open": "Tap to open",
+  "attachment": "Add attachment",
+  "dialpad": "Open dial pad",
+  "remove_option": "Remove option",
+  "auth_unavailable": "Authentication service is not configured.",
+  "rate_limit_seconds": "Too many requests. Wait {arg1} seconds.",
+  "@rate_limit_seconds": {
+    "description": "Migrated from Android string rate_limit_seconds.",
+    "placeholders": {
+      "arg1": {
+        "type": "num"
+      }
+    }
+  },
+  "chat_cleared": "Chat cleared.",
+  "no_registered_contacts": "No registered contacts found. Grant contacts permission and refresh.",
+  "contacts_secure_directory_unavailable_title": "Secure contact directory unavailable",
+  "contacts_secure_directory_unavailable_body": "The server does not provide the private-directory protocol yet. No less-secure fallback was used; previously verified contacts remain only on your device.",
+  "contacts_secure_directory_server_upgrade_title": "Server update required",
+  "contacts_secure_directory_server_upgrade_body": "The connection succeeded, but the secure directory module is not enabled on the server. Your address-book data was not sent; try again after the server is updated.",
+  "contacts_secure_directory_verification_failed_body": "Secure directory verification could not be completed. Legacy discovery was not used in order to protect your privacy.",
+  "contacts_sync_failed_body": "Contact sync could not be completed. Existing secure matches on this device were left unchanged; you can try again.",
+  "clear_search": "Clear search",
+  "conversations_archived_title": "Archived Chats",
+  "conversations_no_results": "No results found",
+  "conversations_no_results_body": "Try a different search term or filter.",
+  "conversations_empty_body": "Use the menu in the top-right to start a new secure chat.",
+  "conversation_typing": "typing…",
+  "conversation_locked_preview": "This chat is hidden",
+  "conversations_messages_section": "In messages",
+  "signaling_disconnected": "Server connection lost",
+  "connected": "Connected",
+  "chat_online": "online",
+  "chat_last_seen": "last seen {time}",
+  "@chat_last_seen": {"placeholders": {"time": {"type": "String"}}},
+  "chat_encryption_notice": "Messages are end-to-end encrypted.",
+  "chat_today": "Today",
+  "chat_yesterday": "Yesterday",
+  "chat_pinned_message": "Pinned Message",
+  "chat_admins_only": "Only admins can send messages",
+  "chat_message_hint": "Write a message…",
+  "chat_scroll_bottom": "Go to newest message",
+  "chat_you": "You",
+  "chat_edited": "edited",
+  "chat_attachment_options": "Attachment options",
+  "chat_empty_secure": "There are no messages in this secure chat yet.",
+  "chat_previous_result": "Previous result",
+  "chat_next_result": "Next result",
+  "sending": "Sending",
+  "return_to_call": "Return to call",
+  "settings_open_source_licenses": "Open-source licenses",
+  "settings_open_source_licenses_desc": "Review the software licenses included in this build."
+}

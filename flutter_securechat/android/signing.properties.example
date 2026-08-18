@@ -1,0 +1,6 @@
+# Copy to android/signing.properties only inside the trusted build environment.
+# Never commit the real file or keystore.
+storeFile=/absolute/path/to/securechat-upload.jks
+storePassword=change-me
+keyAlias=securechat-upload
+keyPassword=change-me

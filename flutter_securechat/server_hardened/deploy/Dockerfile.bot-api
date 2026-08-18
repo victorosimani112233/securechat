@@ -1,0 +1,10 @@
+ARG RUNTIME_IMAGE
+FROM ${RUNTIME_IMAGE}
+
+WORKDIR /opt/securechat
+COPY --chown=10002:10002 bot-api/build/install/bot-api/lib /opt/securechat/lib
+
+USER 10002:10002
+EXPOSE 8090
+
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=70", "-XX:+ExitOnOutOfMemoryError", "-XX:-CreateCoredumpOnCrash", "-XX:+DisableAttachMechanism", "-XX:ErrorFile=/dev/null", "-XX:HeapDumpPath=/dev/null", "-Djava.io.tmpdir=/tmp", "-cp", "/opt/securechat/lib/*", "com.securechat.botapi.ApplicationKt"]

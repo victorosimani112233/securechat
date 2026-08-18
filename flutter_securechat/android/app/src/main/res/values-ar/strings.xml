@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="incoming_call_channel_name">المكالمات الواردة</string>
+    <string name="incoming_call_channel_description">إشعارات المكالمات الواردة على شاشة القفل</string>
+    <string name="ongoing_call_channel_name">المكالمات النشطة</string>
+    <string name="incoming_call_title">مكالمة واردة</string>
+    <string name="call_connecting_title">جارٍ الاتصال…</string>
+    <string name="call_in_progress_title">المكالمة جارية</string>
+</resources>

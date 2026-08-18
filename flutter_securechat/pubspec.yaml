@@ -1,0 +1,70 @@
+name: flutter_securechat
+description: SecureChat Flutter migration target for Android and iOS.
+publish_to: "none"
+version: 1.0.76+76
+
+environment:
+  sdk: ">=3.9.0 <4.0.0"
+
+dependencies:
+  connectivity_plus: 7.3.1
+  crypto: 3.0.7
+  cryptography: 2.9.0
+  # 11.x currently skips its Kotlin sources under Flutter's AGP 9 legacy DSL.
+  file_picker: 10.3.10
+  firebase_core: 4.13.0
+  firebase_messaging: 16.5.0
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_local_notifications: 22.3.0
+  flutter_secure_storage: 10.3.1
+  flutter_webrtc: 1.6.0
+  # 1.2.3 requires Dart 3.10; this project deliberately supports Dart 3.9.
+  image_picker: 1.2.2
+  just_audio: 0.10.6
+  # GPL-3.0 pure-Dart port of the legacy Signal Protocol V3 wire format used
+  # by the Kotlin client's signal-protocol-android 2.8.1 dependency.
+  libsignal_protocol_dart: 0.8.2
+  path_provider: 2.1.6
+  record: 7.1.1
+  web_socket_channel: 3.0.3
+  workmanager: 0.10.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+flutter:
+  generate: true
+  uses-material-design: true
+  assets:
+    - assets/images/new_logo.png
+    - assets/images/splash_logo.png
+    - assets/licenses/audioswitch_APACHE-2.0.txt
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/inter_regular.ttf
+          weight: 400
+        - asset: assets/fonts/inter_medium.ttf
+          weight: 500
+        - asset: assets/fonts/inter_semibold.ttf
+          weight: 600
+        - asset: assets/fonts/inter_bold.ttf
+          weight: 700
+    - family: SpaceGrotesk
+      fonts:
+        - asset: assets/fonts/space_grotesk_semibold.ttf
+          weight: 600
+        - asset: assets/fonts/space_grotesk_bold.ttf
+          weight: 700
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/jetbrains_mono_regular.ttf
+          weight: 400
+        - asset: assets/fonts/jetbrains_mono_medium.ttf
+          weight: 500

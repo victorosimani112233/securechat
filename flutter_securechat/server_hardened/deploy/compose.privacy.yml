@@ -1,0 +1,206 @@
+name: securechat-hardened
+
+x-runtime-hardening: &runtime-hardening
+  read_only: true
+  init: true
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  ulimits:
+    core:
+      soft: 0
+      hard: 0
+  pids_limit: 256
+  restart: unless-stopped
+  logging:
+    driver: none
+  networks: [securechat-internal]
+
+services:
+  redis-ephemeral:
+    <<: *runtime-hardening
+    image: ${REDIS_IMAGE:?Set an immutable redis image@sha256 digest}
+    user: "999:999"
+    command:
+      - /bin/sh
+      - -euc
+      - |
+        umask 077
+        password="$$(cat /run/secrets/redis_password)"
+        test -n "$$password"
+        printf 'user default on >%s ~* +@all\n' "$$password" > /tmp/users.acl
+        unset password
+        exec redis-server --aclfile /tmp/users.acl --appendonly no --save '' --maxmemory 512mb --maxmemory-policy allkeys-lru
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=8m,mode=0700,uid=999,gid=999
+      - /data:rw,nosuid,nodev,size=8m,mode=0700,uid=999,gid=999
+    secrets: [redis_password]
+
+  signaling:
+    <<: *runtime-hardening
+    # Redis yalniz ic agdadir. Signaling ve bot ayrica kontrollu egress
+    # agina baglanir; disari cikan tek bagimlilik kumesi budur:
+    # PostgreSQL, SMTP, Firebase (FCM/APNs) ve Janus kontrol WebSocket'i.
+    # Host firewall bu hedeflerin disina cikisi allow-list ile reddetmelidir.
+    networks: [securechat-internal, securechat-egress]
+    image: ${SIGNALING_IMAGE:?Set the hardened signaling image@sha256 digest}
+    user: "10001:10001"
+    depends_on: [redis-ephemeral]
+    ports:
+      - "${SIGNALING_BIND_IP:-127.0.0.1}:${SIGNALING_BIND_PORT:-8080}:8080"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m,mode=0700,uid=10001,gid=10001
+    environment:
+      PRIVACY_PRODUCTION_MODE: "true"
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL:?Set the PostgreSQL JDBC URL}
+      DATABASE_USER: ${DATABASE_USER:-securechat}
+      DATABASE_PASSWORD_FILE: /run/secrets/database_password
+      REDIS_HOST: redis-ephemeral
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      TURN_HOST: ${TURN_HOST:?Set the TURN host}
+      TURN_PORT: ${TURN_PORT:-3478}
+      TURN_SECRET_FILE: /run/secrets/turn_secret
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      PRIVACY_INDEX_KEY_FILE: /run/secrets/privacy_index_key
+      OFFLINE_QUEUE_ENCRYPTION_KEY_FILE: /run/secrets/offline_queue_key
+      FCM_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/fcm_token_key
+      METRICS_BEARER_TOKEN_FILE: /run/secrets/metrics_token
+      SMTP_HOST: ${SMTP_HOST:?Set the TLS SMTP host}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:?Set the SMTP username}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      SMTP_FROM: ${SMTP_FROM:?Set the OTP sender address}
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase_service_account
+      DIRECTORY_OPRF_KEY_BACKEND: PKCS11
+      DIRECTORY_OPRF_PKCS11_PROVIDER: ${DIRECTORY_OPRF_PKCS11_PROVIDER:?Set the configured PKCS11 provider}
+      DIRECTORY_OPRF_KEY_ALIAS: ${DIRECTORY_OPRF_KEY_ALIAS:?Set the non-exportable RSA key alias}
+      DIRECTORY_OPRF_KEYSTORE_PIN_FILE: /run/secrets/directory_hsm_pin
+      JANUS_WS_URL: ${JANUS_WS_URL:?Set the internal Janus WebSocket URL}
+      JANUS_PUBLIC_WS_URL: ${JANUS_PUBLIC_WS_URL:?Set the pinned public Janus URL}
+      JANUS_API_SECRET_FILE: /run/secrets/janus_api_secret
+      JANUS_ADMIN_SECRET_FILE: /run/secrets/janus_admin_secret
+      # Bot servis kimliginin dogrulama anahtari. Yalniz public materyal;
+      # signaling bununla assertion uretemez.
+      BOT_SERVICE_PUBLIC_KEY_FILE: /run/secrets/bot_service_public_key
+      # Reverse proxy arkasinda gercek istemci adresi yalniz bu listedeki
+      # kaynaklardan gelen `X-Forwarded-For` ile belirlenir. Bos birakilirsa
+      # header hic okunmaz ve limitler proxy adresine uygulanir.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:?Set the reverse proxy address or CIDR}
+      ALLOW_LEGACY_PLAINTEXT_QUEUE: "false"
+    secrets:
+      - database_password
+      - redis_password
+      - turn_secret
+      - jwt_secret
+      - privacy_index_key
+      - offline_queue_key
+      - fcm_token_key
+      - metrics_token
+      - smtp_password
+      - firebase_service_account
+      - directory_hsm_pin
+      - janus_api_secret
+      - janus_admin_secret
+      - bot_service_public_key
+
+  bot-api:
+    <<: *runtime-hardening
+    # Bot yalniz PostgreSQL icin egress'e ihtiyac duyar; signaling'e ic agdan
+    # ulasir ve dis dunyaya baska bir hedefi yoktur.
+    networks: [securechat-internal, securechat-egress]
+    image: ${BOT_API_IMAGE:?Set the hardened bot-api image@sha256 digest}
+    user: "10002:10002"
+    depends_on: [redis-ephemeral, signaling]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m,mode=0700,uid=10002,gid=10002
+    volumes:
+      # Public/admin yuzu yalniz Unix domain socket uzerinden erisilir.
+      # Dizin host tarafinda 10002:10002 sahipliginde ve 0700 olmalidir;
+      # socket dosyalarini bot 0600 ile acar. Ag uzerinden erisim yoktur.
+      - type: bind
+        source: ${BOT_SOCKET_DIR:?Set the host directory that carries the bot sockets}
+        target: /run/bot
+        bind:
+          create_host_path: false
+    environment:
+      PRIVACY_PRODUCTION_MODE: "true"
+      DATABASE_URL: ${DATABASE_URL:?Set the PostgreSQL JDBC URL}
+      DATABASE_USER: ${DATABASE_USER:-securechat}
+      DATABASE_PASSWORD_FILE: /run/secrets/database_password
+      REDIS_HOST: redis-ephemeral
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      # Bot signaling'in kullanici token'larini imzalayan JWT_SECRET'i
+      # TASIMAZ. Kimligi kendi Ed25519 servis anahtaridir; ihlali yalniz
+      # botun kendi dar kapsamlarini verir.
+      BOT_SERVICE_PRIVATE_KEY_FILE: /run/secrets/bot_service_private_key
+      PRIVACY_INDEX_KEY_FILE: /run/secrets/privacy_index_key
+      BOT_MASTER_KEY_FILE: /run/secrets/bot_master_key
+      BOT_QUEUE_ENCRYPTION_KEY_FILE: /run/secrets/bot_queue_key
+      BOT_ADMIN_TOKEN_FILE: /run/secrets/bot_admin_token
+      BOT_METRICS_BEARER_TOKEN_FILE: /run/secrets/bot_metrics_token
+      SIGNALING_INTERNAL_URL: http://signaling:8080
+      SIGNALING_WS_URL: ws://signaling:8080/ws
+      ALLOW_LEGACY_PLAINTEXT_QUEUE: "false"
+    secrets:
+      - database_password
+      - redis_password
+      - bot_service_private_key
+      - privacy_index_key
+      - bot_master_key
+      - bot_queue_key
+      - bot_admin_token
+      - bot_metrics_token
+
+networks:
+  # Servisler arasi trafik; disari cikisi yoktur.
+  securechat-internal:
+    internal: true
+  # Yalniz dis bagimliliklara erisim icin. Redis bu aga bilerek baglanmaz:
+  # kisa TTL'li ciphertext tutan process'in disari cikan bir yolu olmamalidir.
+  securechat-egress:
+    internal: false
+
+secrets:
+  database_password:
+    file: "${DATABASE_PASSWORD_FILE:?Set a read-only secret file}"
+  redis_password:
+    file: "${REDIS_PASSWORD_FILE:?Set a read-only secret file}"
+  turn_secret:
+    file: "${TURN_SECRET_FILE:?Set a read-only secret file}"
+  jwt_secret:
+    file: "${JWT_SECRET_FILE:?Set a read-only secret file}"
+  privacy_index_key:
+    file: "${PRIVACY_INDEX_KEY_FILE:?Set a read-only secret file}"
+  offline_queue_key:
+    file: "${OFFLINE_QUEUE_KEY_FILE:?Set a read-only secret file}"
+  fcm_token_key:
+    file: "${FCM_TOKEN_KEY_FILE:?Set a read-only secret file}"
+  metrics_token:
+    file: "${METRICS_TOKEN_FILE:?Set a read-only secret file}"
+  smtp_password:
+    file: "${SMTP_PASSWORD_FILE:?Set a read-only secret file}"
+  firebase_service_account:
+    file: "${FIREBASE_SERVICE_ACCOUNT_FILE:?Set the Firebase JSON secret file}"
+  directory_hsm_pin:
+    file: "${DIRECTORY_HSM_PIN_FILE:?Set the HSM PIN secret file}"
+  janus_api_secret:
+    file: "${JANUS_API_SECRET_FILE:?Set a read-only secret file}"
+  janus_admin_secret:
+    file: "${JANUS_ADMIN_SECRET_FILE:?Set a read-only secret file}"
+  bot_master_key:
+    file: "${BOT_MASTER_KEY_FILE:?Set a read-only secret file}"
+  bot_queue_key:
+    file: "${BOT_QUEUE_KEY_FILE:?Set a read-only secret file}"
+  bot_admin_token:
+    file: "${BOT_ADMIN_TOKEN_FILE:?Set a read-only secret file}"
+  bot_metrics_token:
+    file: "${BOT_METRICS_TOKEN_FILE:?Set a read-only secret file}"
+  bot_service_private_key:
+    file: "${BOT_SERVICE_PRIVATE_KEY_FILE:?Set a read-only secret file}"
+  bot_service_public_key:
+    file: "${BOT_SERVICE_PUBLIC_KEY_FILE:?Set a read-only secret file}"

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="incoming_call_channel_name">Incoming calls</string>
+    <string name="incoming_call_channel_description">Incoming call notifications shown on the lock screen</string>
+    <string name="ongoing_call_channel_name">Active calls</string>
+    <string name="incoming_call_title">Incoming call</string>
+    <string name="call_connecting_title">Connecting…</string>
+    <string name="call_in_progress_title">Call in progress</string>
+</resources>
