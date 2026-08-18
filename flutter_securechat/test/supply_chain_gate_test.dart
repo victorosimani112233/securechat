@@ -174,9 +174,9 @@ void main() {
     expect(macGate, contains('IOS_OFFLINE'));
     expect(
       macGate,
-      contains('dart tool/validate_swift_package_lock.dart "$resolved_lock"'),
+      contains(r'dart tool/validate_swift_package_lock.dart "$resolved_lock"'),
     );
-    expect(macGate, isNot(contains('plutil -lint "$resolved_lock"')));
+    expect(macGate, isNot(contains(r'plutil -lint "$resolved_lock"')));
     expect(macGate, contains('flutter build ios --release --no-codesign'));
 
     final settings = source('lib/src/features/settings/settings_screen.dart');
