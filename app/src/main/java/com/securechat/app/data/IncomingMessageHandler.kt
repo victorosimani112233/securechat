@@ -601,8 +601,8 @@ class IncomingMessageHandler @Inject constructor(
                     val s = String(pt, Charsets.UTF_8)
                     pt.fill(0)
                     s
-                } catch (e: Exception) {
-                    android.util.Log.w("IncomingHandler", "Caption (group) decrypt fail, plaintext as-is: ${e.message}")
+                } catch (_: Exception) {
+                    android.util.Log.w("IncomingHandler", "Caption (group) decrypt failed; original caption retained")
                     signal.caption
                 }
             }
@@ -615,8 +615,8 @@ class IncomingMessageHandler @Inject constructor(
                         pt.fill(0)
                         s
                     } else signal.caption
-                } catch (e: Exception) {
-                    android.util.Log.w("IncomingHandler", "Caption (1:1) decrypt fail, plaintext as-is: ${e.message}")
+                } catch (_: Exception) {
+                    android.util.Log.w("IncomingHandler", "Caption (1:1) decrypt failed; original caption retained")
                     signal.caption
                 }
             }
