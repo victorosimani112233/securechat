@@ -63,23 +63,18 @@ jobs:
 
       - name: Run unit tests — common
         run: ./gradlew :common:testDebugUnitTest --no-daemon
-        continue-on-error: true  # mevcut test fail'leri legacy; geçici tolerans
 
       - name: Run unit tests — crypto
         run: ./gradlew :crypto:testDebugUnitTest --no-daemon
-        continue-on-error: true
 
       - name: Run unit tests — storage
         run: ./gradlew :storage:testDebugUnitTest --no-daemon
-        continue-on-error: true
 
       - name: Run unit tests — network
         run: ./gradlew :network:testDebugUnitTest --no-daemon
-        continue-on-error: true
 
       - name: Run unit tests — media
         run: ./gradlew :media:testDebugUnitTest --no-daemon
-        continue-on-error: true
 
       - name: Build APK (dev/debug)
         run: ./gradlew :app:assembleDevDebug --no-daemon
