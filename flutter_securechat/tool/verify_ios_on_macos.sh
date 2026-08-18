@@ -85,7 +85,7 @@ else
 fi
 
 if [[ -f "$resolved_lock" ]]; then
-  plutil -lint "$resolved_lock"
+  dart tool/validate_swift_package_lock.dart "$resolved_lock"
   shasum -a 256 "$resolved_lock"
 fi
 

@@ -101,10 +101,12 @@ asagidaki davranis `tool/verify_ios_on_macos.sh` ile Mac kapisina baglidir:
 1. Online ilk tur package dependency'lerini resolve eder.
 2. Remote Swift package varsa Xcode'un `Package.resolved` dosyasini
    `ios/Package.resolved.lock` olarak saklar.
-3. Offline tur kilit yoksa durur; kilidi geri yukler ve
+3. Lock dosyasini SwiftPM v1/v3 JSON semasina ve sabit revision alanlarina gore
+   Dart gate'iyle dogrular; plist araci olan `plutil` bu JSON icin kullanilmaz.
+4. Offline tur kilit yoksa durur; kilidi geri yukler ve
    `-onlyUsePackageVersionsFromResolvedFile` ile
    `-disableAutomaticPackageResolution` uygular.
-4. Local-only graph'ta otomatik remote resolution yine kapatilir.
+5. Local-only graph'ta otomatik remote resolution yine kapatilir.
 
 Mac'te uretilmis lock dosyasi source review'e girmeden iOS release alinmaz.
 Apple signing/APNs private key'leri lock veya offline bundle'a eklenmez.

@@ -626,7 +626,9 @@ sunulmaz.
 iOS'ta Xcode/SwiftPM graph'i Linux'ta resolve edilemez. Mac gate online ilk
 turda `Package.resolved` dosyasini `ios/Package.resolved.lock` olarak saklar;
 remote package varsa offline tur locksuz devam etmez ve automatic resolution'i
-kapatir. Signing/APNs private key'leri hicbir lock veya bundle'a girmez.
+kapatir. Xcode 26'nin JSON `Package.resolved` ciktisi plist `plutil -lint`
+kontrolunden ayrildi; v1/v3 semalarini ve pin revision alanlarini denetleyen Dart
+gate'i eklendi. Signing/APNs private key'leri hicbir lock veya bundle'a girmez.
 
 `libsignal_protocol_dart 0.8.2` GPL-3.0'dur. Lisans ekrani uygulamada acildi ve
 dagitilan binary ile eslesen kaynak/build talimatlari zorunlulugu

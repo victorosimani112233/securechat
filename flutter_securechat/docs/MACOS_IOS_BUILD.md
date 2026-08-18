@@ -50,7 +50,9 @@ cache'ine alinmalidir. `ios/Flutter/ephemeral`, `Generated.xcconfig` ve plugin
 path manifestleri generated dosyalardir; tasinmaz, her makinede yeniden uretilir.
 Dogrulama betigi remote Swift dependency varsa Xcode'un urettigi
 `Package.resolved` dosyasini `ios/Package.resolved.lock` olarak sabitler ve
-SHA-256 degerini loglar. Bu dosya source review'e alinmalidir.
+SwiftPM JSON semasini Dart ile dogrulayip SHA-256 degerini loglar. JSON lock
+dosyasi `plutil` ile kontrol edilmez; Xcode 26 `plutil -lint` bu girdiyi plist
+olarak yorumlayabilir. Bu dosya source review'e alinmalidir.
 
 ## Signing ve fiziksel cihaz
 
