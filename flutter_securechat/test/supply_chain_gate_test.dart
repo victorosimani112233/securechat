@@ -166,6 +166,11 @@ void main() {
     final project = source('ios/Runner.xcodeproj/project.pbxproj');
     expect(project, contains('XCLocalSwiftPackageReference'));
     expect(project, contains('FlutterGeneratedPluginSwiftPackage'));
+    expect(
+      RegExp(r'IPHONEOS_DEPLOYMENT_TARGET = 15\.0;').allMatches(project).length,
+      3,
+    );
+    expect(project, isNot(contains('IPHONEOS_DEPLOYMENT_TARGET = 14.0;')));
 
     final macGate = source('tool/verify_ios_on_macos.sh');
     expect(macGate, contains('Package.resolved.lock'));

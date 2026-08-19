@@ -133,8 +133,15 @@ void main() {
   )) {
     failures.add('Runner target entitlement dosyasini kullanmiyor');
   }
-  if (!project.contains('IPHONEOS_DEPLOYMENT_TARGET = 14.0')) {
-    failures.add('Beklenen iOS 14 deployment target bulunamadi');
+  final deploymentTargets = RegExp(
+    r'IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);',
+  ).allMatches(project).map((match) => match[1]!).toList();
+  if (deploymentTargets.length < 3 ||
+      deploymentTargets.any((target) => target != '15.0')) {
+    failures.add(
+      'Tum iOS deployment targetlari Firebase Swift paketleri icin 15.0 olmali: '
+      '$deploymentTargets',
+    );
   }
   if (!project.contains('PRODUCT_BUNDLE_IDENTIFIER = com.securechat.app')) {
     failures.add('iOS bundle ID com.securechat.app degil');
@@ -179,6 +186,7 @@ void main() {
       '- Android method eslesmesi: ${dartMethods.length}/${dartMethods.length}',
     )
     ..writeln('- Kayitli iOS plugin sayisi: ${plugins.length}')
+    ..writeln('- Minimum deployment target: iOS 15.0')
     ..writeln()
     ..writeln('## Gizlilik kararlari')
     ..writeln()

@@ -99,7 +99,7 @@ Linux ortaminda uretilemeyen kanit demektir. Yeni yerel bir gap bulunursa ilgili
   zorunludur.
 - Kotlin kataloglari: 167 TR, 167 EN, 21 DE, 21 AR anahtar; Flutter katalog ve
   fallback/RTL testleriyle korunur.
-- Flutter: 230/230 host testi, temiz `flutter analyze --no-pub`, saf-Dart
+- Flutter: 233/233 host testi, temiz `flutter analyze --no-pub`, saf-Dart
   smoke, offline `pub get` ve iOS statik readiness audit basarili. Dort Android
   integration hedefi de fiziksel Samsung SM-S921B cihazda gecti.
 - Hardened server: 177/177 `:signaling-server:test :bot-api:test --offline`,
@@ -155,9 +155,9 @@ dagitilmaz. Ayrica checksum'li private symbol arsivi
 | 28 | Android Play/reverse-engineering hardening | DONE | R8/resource shrinking, AOT obfuscation, split debug info, no-backup/no-cleartext ve release HTTPS/WSS fail-fast; 18 native library stripped, AAB/APK privacy audit ve API 33 release cihaz kapisi gecer. |
 | 29 | Clean architecture ve production composition | DONE | Production/test graph ayrik; demo/circular dependency/duplicate recovery yok; UI low-level plugin/DAO sinirini gecmiyor; mimari guard testli. |
 | 30 | Async state machine ve resource ownership | DONE | Owned async tracker, keyed receive serialization, deterministic idle ve dispose-drain; socket/timer/renderer/recorder tum terminal yollarda kapanir. |
-| 31 | iOS statik build-readiness | DONE | Swift-Dart channel, Info.plist, Background Modes, URL/file/privacy, deployment target, plugin ve entitlement sozlesmesi fail-fast auditli; fiziksel kanit satir 21'de. |
+| 31 | iOS statik build-readiness | DONE | Swift-Dart channel, Info.plist, Background Modes, URL/file/privacy, Firebase uyumlu iOS 15 deployment target, plugin ve entitlement sozlesmesi fail-fast auditli; fiziksel kanit satir 21'de. |
 | 32 | Dependency, lisans ve supply chain | DONE | 129 hosted Pub SHA-256 lock, exact direct surumler, iki wrapper checksum'i, Android 1.243 ve server 544 component verification, allow-list repository ve vendored audioswitch testli. |
-| 33 | Son davranissal diferansiyel/release gate | DONE | 271 caller/invariant auditi, 230 Flutter testi, iOS/Codemagic static audit, 177 hardened server testi, offline Android release ve audited AAB birlikte gecer. |
+| 33 | Son davranissal diferansiyel/release gate | DONE | 271 caller/invariant auditi, 233 Flutter testi, iOS/Codemagic static audit, 177 hardened server testi, offline Android release ve audited AAB birlikte gecer. |
 | 34 | Server veri minimizasyonu/metadata gizliligi | DONE | V1-V14 kalici grup/audit/prekey timeline/raw UUID kolonlarini siler; short-lived queue AEAD+opaque RAM, retention fail-closed, private group/control routing ve hesap silme testli. |
 | 35 | Private discovery production key/ownership kapanisi | EXTERNAL BLOCKER | Kodda zayif fallback yok; OPRF ve no-fallback PKCS#11/HSM backend testli. Fiziksel HSM tatbikati ile ilk telefon sahipligi icin privacy-reviewed SMS/voice veya high-entropy invite/QR capability urun karari dis servis/donanim gerektirir. |
 | 36 | Operational log/backup metadata minimizasyonu | DONE | Disk/rotation appender'lari kaldirildi; fixed ERROR console Docker `logging=none` ile atilir. Secret-file ve purpose separation, non-root/read-only/core-dump kapali image, ephemeral Redis, immutable image digest, PostgreSQL verify-full TLS ve varsayilan non-mutating deploy preflight'i statik+Kotlin testleriyle sabit. |
@@ -311,6 +311,10 @@ dis ortamda tamamlanmadan genel release "tamamlandi" denmez:
   ve release guvenlik akislari cihazda dogrulandi. API 33 release AVD'de
   `debuggable=false`, `FLAG_SECURE`, no-backup/no-cleartext ve debug harness
   yoklugu ayrica kanitlandi.
-- Flutter 3.44.9 ile 230/230 test, temiz analyze, 271/271 source audit,
+- Flutter 3.44.9 ile 233/233 test, temiz analyze, 271/271 source audit,
   iOS readiness ve Codemagic privacy audit gecti. Kok `codemagic.yaml`, macOS
   no-codesign verification ve ayri signed-candidate workflow'u ile hazirlandi.
+- Codemagic/Xcode 26, Firebase Swift package urunlerinin minimum iOS 15
+  gereksinimini gercek device release compile'da kanitladi. Runner'in Debug,
+  Release ve Profile target'lari 15.0'a birlikte yukseltildi; audit eski 14.0
+  veya karisik deployment target'i fail-closed reddeder.

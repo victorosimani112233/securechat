@@ -1,6 +1,6 @@
 # Kotlin -> Flutter Platform Farklari
 
-Son güncelleme: 2026-08-18
+Son güncelleme: 2026-08-19
 
 Bu belge Kotlin/Android uygulamasının Flutter ile Android ve iOS'a taşınırken
 platform zorunlulukları nedeniyle nerede farklılaştırıldığını ve nedenini tek
@@ -14,6 +14,7 @@ yoktur. Kaynak bazındaki 271/271 eşleme `SOURCE_AUDIT.md`, test durumu
 | Alan | Kotlin/Android davranışı | Flutter Android karşılığı | iOS karşılığı ve değişiklik nedeni |
 |---|---|---|---|
 | UI ve navigation | Jetpack Compose, Android inset/navigation | Ortak Flutter widget/route ağacı, Android slide geçişi | Aynı widget ağacı; Cupertino route geçişi ve home-indicator safe-area. iOS geri hareketi platform beklentisine uyar. |
+| Minimum işletim sistemi | Android `minSdk 26` sözleşmesi korunur | Android 8.0+ hedefi değişmedi | Minimum iOS 15.0. Flutter 3.44.9 ile çözülen `firebase_core` ve `firebase_messaging` Swift paketleri iOS 15 gerektirdiği için iOS 14 hedefi Xcode tarafından derlenemiyor. Ürün özelliği kaldırmak veya push katmanını zayıflatmak yerine destek tabanı yükseltildi. |
 | Güvenli anahtar | Android Keystore | `flutter_secure_storage` Keystore backend'i | Keychain backend'i. İşletim sistemlerinin donanım/erişim API'leri farklıdır; anahtar formatı uygulama dışına çıkarılmaz. |
 | Yerel şifreli veri | Room + SQLCipher | Authenticated encrypted snapshot database; Android'de tek seferlik Room/SQLCipher importer | Yeni kurulumda aynı encrypted snapshot database. Room yalnız Android legacy formatı olduğu için iOS'ta importer çalışmaz. |
 | Ekran gizliliği | `FLAG_SECURE` ekran görüntüsünü engeller | `MainActivity` release'te fail-closed `FLAG_SECURE` | iOS üçüncü taraf uygulamaya tam screenshot engelleme API'si vermez. App-switcher privacy overlay ve screenshot olayı/uyarısı kullanılır; engellendiği iddia edilmez. |
@@ -48,6 +49,7 @@ yoktur. Kaynak bazındaki 271/271 eşleme `SOURCE_AUDIT.md`, test durumu
 | `ios/Runner/AppDelegate.swift` | CallKit, APNs/BGTask, privacy overlay ve native bridge | Android API'lerinin iOS'ta karşılığı olmadığı için Apple-native lifecycle kullanmak. |
 | `tool/build_hardened_android_release.sh` | Release build'de `--no-pub` kaldırıldı | Flutter'ın release registrant'ını yeniden üretip test-only native pluginleri teslimden çıkarması. |
 | `codemagic.yaml` | Verify ve signed-candidate iOS workflow'ları | Linux'ta bulunmayan Xcode compile, simulator XCTest ve Apple signing kapısını GitHub CI'da çalıştırmak. |
+| `ios/Runner.xcodeproj/project.pbxproj` | Debug, Release ve Profile deployment target'ları 15.0 yapıldı | Firebase Swift paketlerinin iOS 15 altındaki target'ı reddetmesi; üç yapılandırmada aynı sonucu garanti etmek. |
 
 ## Değiştirilmeyen Ürün Sözleşmeleri
 

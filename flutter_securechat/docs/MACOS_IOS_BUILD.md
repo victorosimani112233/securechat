@@ -11,6 +11,7 @@ hazirlanir.
 - Full admin/root erisimi; Xcode, Keychain ve command-line tool ayari yapilabilmeli.
 - Flutter stable `3.44.9`, revision `6b182d2c7585eba26d4edce0f97630effd256c33`.
 - Xcode ve Xcode command-line tools; Xcode lisansi kabul edilmis olmali.
+- iOS 15.0 veya daha yeni simulator runtime'i; fiziksel test icin iOS 15+ cihaz.
 - Ilk cache hazirlama turunda internet. Son air-gap kaniti ag kapaliyken yapilir.
 - Gercek cihaz testi icin Apple Developer hesabi, Team ID ve kayitli cihaz.
 
@@ -89,8 +90,8 @@ IOS_OFFLINE=1 ./tool/verify_ios_on_macos.sh
 ```
 
 Bu tur `pub get --offline`, `Package.resolved.lock` disina cikmadan ve automatic
-package resolution kapali olarak, analyze, 194 Flutter testi, simulator build ve
-codesign'siz release device build'i
+package resolution kapali olarak, analyze, tum Flutter testleri, simulator build
+ve codesign'siz release device build'i
 gecmelidir. Sonra asagidakileri ayri macOS supplement olarak arsivleyin:
 
 - macOS/Apple Silicon Flutter 3.44.9 SDK ve iOS engine cache,

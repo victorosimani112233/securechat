@@ -10,6 +10,7 @@ Linux uzerinde statik sozlesmeyi kanitlar; Xcode derlemesi yerine gecmez.
 - iOS method eslesmesi: 14/14
 - Android method eslesmesi: 16/16
 - Kayitli iOS plugin sayisi: 13
+- Minimum deployment target: iOS 15.0
 
 ## Gizlilik kararlari
 

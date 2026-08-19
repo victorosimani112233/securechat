@@ -138,7 +138,7 @@ Android/iOS secici uyumlulugu icin `file_picker` 10.3.10'a sabitlendi. 11.x'in m
 
 Kotlin AlarmManager/WorkManager business logic'i ortak Dart servisine tasindi. Tek seferlik, gunluk ve secili hafta gunleri planlari; alici fanout'u; enable/disable/delete; tekrar hesaplama; encrypted DAO persistence ve no-plaintext-fallback gonderim zinciri calisir. Sureli mesaj temizligi, stuck-SENDING recovery, offline disappearing-timer flush ve yedi gunluk sender-key rotation ayni background runtime icinde yer alir.
 
-Android `workmanager_android` ile kalici one-off/periyodik gorev kullanir. iOS 14+ `BGTaskScheduler`/Background Fetch kullanir; `Info.plist` kimlikleri ve background isolate plugin registrant'i kaydedildi. iOS kesin saat garantisi vermedigi icin her app launch/resume'da ayni due-message/cleanup akisi catch-up olarak calisir. Planli mesaj olusturma, duzenleme, gun/saat/alici secimi, ac-kapat ve silme ekrani Ayarlar'a baglandi.
+Android `workmanager_android` ile kalici one-off/periyodik gorev kullanir. iOS 15+ `BGTaskScheduler`/Background Fetch kullanir; `Info.plist` kimlikleri ve background isolate plugin registrant'i kaydedildi. iOS kesin saat garantisi vermedigi icin her app launch/resume'da ayni due-message/cleanup akisi catch-up olarak calisir. Planli mesaj olusturma, duzenleme, gun/saat/alici secimi, ac-kapat ve silme ekrani Ayarlar'a baglandi.
 
 ### 14. Incoming pipeline ve push wake-up
 
@@ -628,7 +628,10 @@ turda `Package.resolved` dosyasini `ios/Package.resolved.lock` olarak saklar;
 remote package varsa offline tur locksuz devam etmez ve automatic resolution'i
 kapatir. Xcode 26'nin JSON `Package.resolved` ciktisi plist `plutil -lint`
 kontrolunden ayrildi; v1/v3 semalarini ve pin revision alanlarini denetleyen Dart
-gate'i eklendi. Signing/APNs private key'leri hicbir lock veya bundle'a girmez.
+gate'i eklendi. Flutter 3.44.9'un `firebase_core` ve `firebase_messaging` Swift
+paketleri minimum iOS 15 istedigi icin Runner Debug/Release/Profile target'lari
+14.0'dan 15.0'a birlikte yukseltildi; Android minimum surumu degismedi.
+Signing/APNs private key'leri hicbir lock veya bundle'a girmez.
 
 `libsignal_protocol_dart 0.8.2` GPL-3.0'dur. Lisans ekrani uygulamada acildi ve
 dagitilan binary ile eslesen kaynak/build talimatlari zorunlulugu
