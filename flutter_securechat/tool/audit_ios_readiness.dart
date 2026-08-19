@@ -80,6 +80,14 @@ void main() {
       ).contains("call.method != 'nativeCallAction'")) {
     failures.add('CallKit -> Dart nativeCallAction callback sozlesmesi eksik');
   }
+  if (RegExp(
+        r'earliestBeginInSeconds:\s*NSNumber\(value:',
+      ).allMatches(swift).length !=
+      2) {
+    failures.add(
+      'Workmanager periodic task sureleri Xcode 26 API icin NSNumber degil',
+    );
+  }
 
   final info = read('ios/Runner/Info.plist');
   for (final key in _requiredInfoPlistKeys) {

@@ -318,3 +318,6 @@ dis ortamda tamamlanmadan genel release "tamamlandi" denmez:
   gereksinimini gercek device release compile'da kanitladi. Runner'in Debug,
   Release ve Profile target'lari 15.0'a birlikte yukseltildi; audit eski 14.0
   veya karisik deployment target'i fail-closed reddeder.
+- Xcode 26 native compile, Workmanager periodic task gecikmelerinin `NSNumber?`
+  API imzasini kanitladi. Iki sure acik `NSNumber(value:)` koprusune alindi ve
+  statik readiness kapisi iki kaydi da release build'den once denetler.

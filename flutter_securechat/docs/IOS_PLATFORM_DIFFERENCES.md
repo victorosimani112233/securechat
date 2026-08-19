@@ -46,7 +46,7 @@ yoktur. Kaynak bazındaki 271/271 eşleme `SOURCE_AUDIT.md`, test durumu
 | `lib/src/widgets/haptics.dart` | Ortak light/long-press adapter'ı eklendi | Kotlin'deki haptic etkileşimlerini Android ve iOS'ta ortak API ile korumak. |
 | `android/.../SecureChatCallNotificationManager.kt` | Tek kimlikli incoming/ongoing `CallStyle` | Android sistem çağrı yüzeyi ve privacy-redacted lock-screen davranışı. |
 | `android/.../SecureChatCallService.kt` | `phoneCall` foreground service | Android 14 ongoing `CallStyle` bildiriminin zorunlu lifecycle şartı. |
-| `ios/Runner/AppDelegate.swift` | CallKit, APNs/BGTask, privacy overlay ve native bridge | Android API'lerinin iOS'ta karşılığı olmadığı için Apple-native lifecycle kullanmak. |
+| `ios/Runner/AppDelegate.swift` | CallKit, APNs/BGTask, privacy overlay ve native bridge; Workmanager süreleri Xcode 26 imzasına uygun `NSNumber` olarak verilir | Android API'lerinin iOS'ta karşılığı olmadığı için Apple-native lifecycle kullanmak ve Swift'in `Int` değerini Objective-C köprü tipine örtük çevirmemesinden doğan release derleme hatasını önlemek. |
 | `tool/build_hardened_android_release.sh` | Release build'de `--no-pub` kaldırıldı | Flutter'ın release registrant'ını yeniden üretip test-only native pluginleri teslimden çıkarması. |
 | `codemagic.yaml` | Verify ve signed-candidate iOS workflow'ları | Linux'ta bulunmayan Xcode compile, simulator XCTest ve Apple signing kapısını GitHub CI'da çalıştırmak. |
 | `ios/Runner.xcodeproj/project.pbxproj` | Debug, Release ve Profile deployment target'ları 15.0 yapıldı | Firebase Swift paketlerinin iOS 15 altındaki target'ı reddetmesi; üç yapılandırmada aynı sonucu garanti etmek. |

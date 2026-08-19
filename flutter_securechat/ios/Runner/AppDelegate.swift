@@ -23,11 +23,11 @@ import UserNotifications
   ) -> Bool {
     WorkmanagerPlugin.registerPeriodicTask(
       withIdentifier: Self.maintenanceTask,
-      earliestBeginInSeconds: 15 * 60
+      earliestBeginInSeconds: NSNumber(value: 15 * 60)
     )
     WorkmanagerPlugin.registerPeriodicTask(
       withIdentifier: Self.senderKeyRotationTask,
-      earliestBeginInSeconds: 7 * 24 * 60 * 60
+      earliestBeginInSeconds: NSNumber(value: 7 * 24 * 60 * 60)
     )
     WorkmanagerPlugin.registerLaunchHandlers()
     WorkmanagerPlugin.setPluginRegistrantCallback { registry in

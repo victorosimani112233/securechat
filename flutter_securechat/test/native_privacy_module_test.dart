@@ -73,5 +73,11 @@ void main() {
       swift,
       contains('com.securechat.app.background.sender-key-rotation'),
     );
+    expect(
+      RegExp(
+        r'earliestBeginInSeconds:\s*NSNumber\(value:',
+      ).allMatches(swift).length,
+      2,
+    );
   });
 }

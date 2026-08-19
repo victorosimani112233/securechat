@@ -631,6 +631,11 @@ kontrolunden ayrildi; v1/v3 semalarini ve pin revision alanlarini denetleyen Dar
 gate'i eklendi. Flutter 3.44.9'un `firebase_core` ve `firebase_messaging` Swift
 paketleri minimum iOS 15 istedigi icin Runner Debug/Release/Profile target'lari
 14.0'dan 15.0'a birlikte yukseltildi; Android minimum surumu degismedi.
+Xcode 26 Swift derlemesi `workmanager_apple` periodic task API'sindeki
+`NSNumber?` parametresine `Int` aritmetik degerlerini ortuk cevirmedi. On bes
+dakikalik maintenance ve yedi gunluk sender-key rotation sureleri urun
+davranisi degistirilmeden `NSNumber(value:)` ile acikca koprulendi; readiness
+audit'i iki kaydin da tipli kalmasini zorunlu tutar.
 Signing/APNs private key'leri hicbir lock veya bundle'a girmez.
 
 `libsignal_protocol_dart 0.8.2` GPL-3.0'dur. Lisans ekrani uygulamada acildi ve
