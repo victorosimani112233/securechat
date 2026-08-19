@@ -636,6 +636,12 @@ Xcode 26 Swift derlemesi `workmanager_apple` periodic task API'sindeki
 dakikalik maintenance ve yedi gunluk sender-key rotation sureleri urun
 davranisi degistirilmeden `NSNumber(value:)` ile acikca koprulendi; readiness
 audit'i iki kaydin da tipli kalmasini zorunlu tutar.
+Bu duzeltmeden sonra Codemagic gercek iPhoneOS release uygulamasini codesign
+olmadan basariyla uretti. Ardindan macOS'un Bash 3.2 surumunde `set -u` ile bos
+`package_flags` dizisini genisleten simulator adimi durdu. Online ve offline
+simulator cagrilari ayrildi: online akis bos diziye erismez, offline akis kilitli
+Swift package bayraklarini aynen kullanir. Kaynak testi iki dalin ve bayragin
+yalniz offline simulator dalinda bulunmasini zorunlu tutar.
 Signing/APNs private key'leri hicbir lock veya bundle'a girmez.
 
 `libsignal_protocol_dart 0.8.2` GPL-3.0'dur. Lisans ekrani uygulamada acildi ve

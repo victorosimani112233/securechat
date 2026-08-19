@@ -101,13 +101,22 @@ flutter build ios --release --no-codesign \
   "${dart_defines[@]}"
 
 simulator_name="${IOS_SIMULATOR_NAME:-iPhone 16 Pro}"
-xcodebuild test \
-  -workspace ios/Runner.xcworkspace \
-  -scheme Runner \
-  -sdk iphonesimulator \
-  -destination "platform=iOS Simulator,OS=latest,name=$simulator_name" \
-  "${package_flags[@]}" \
-  CODE_SIGNING_ALLOWED=NO
+if [[ "$offline_mode" == "1" ]]; then
+  xcodebuild test \
+    -workspace ios/Runner.xcworkspace \
+    -scheme Runner \
+    -sdk iphonesimulator \
+    -destination "platform=iOS Simulator,OS=latest,name=$simulator_name" \
+    "${package_flags[@]}" \
+    CODE_SIGNING_ALLOWED=NO
+else
+  xcodebuild test \
+    -workspace ios/Runner.xcworkspace \
+    -scheme Runner \
+    -sdk iphonesimulator \
+    -destination "platform=iOS Simulator,OS=latest,name=$simulator_name" \
+    CODE_SIGNING_ALLOWED=NO
+fi
 
 if [[ "${IOS_SIGNED_BUILD:-0}" == "1" ]]; then
   flutter build ipa --release \

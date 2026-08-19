@@ -183,6 +183,13 @@ void main() {
     );
     expect(macGate, isNot(contains(r'plutil -lint "$resolved_lock"')));
     expect(macGate, contains('flutter build ios --release --no-codesign'));
+    final simulatorGate = macGate.substring(macGate.indexOf('simulator_name='));
+    expect(simulatorGate, contains(r'if [[ "$offline_mode" == "1" ]]; then'));
+    expect(RegExp(r'xcodebuild test').allMatches(simulatorGate).length, 2);
+    expect(
+      RegExp(r'\$\{package_flags\[@\]\}').allMatches(simulatorGate).length,
+      1,
+    );
 
     final settings = source('lib/src/features/settings/settings_screen.dart');
     expect(settings, contains('showLicensePage('));

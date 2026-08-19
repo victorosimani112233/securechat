@@ -321,3 +321,7 @@ dis ortamda tamamlanmadan genel release "tamamlandi" denmez:
 - Xcode 26 native compile, Workmanager periodic task gecikmelerinin `NSNumber?`
   API imzasini kanitladi. Iki sure acik `NSNumber(value:)` koprusune alindi ve
   statik readiness kapisi iki kaydi da release build'den once denetler.
+- Codemagic no-codesign iPhoneOS release derlemesi `Runner.app` uretimini gecti.
+  Sonraki simulator adiminda macOS Bash 3.2'nin `set -u` altinda bos dizi
+  genisletmesini reddetmesi bulundu; online/offline XCTest cagrilari ayrildi ve
+  offline Swift package kilit bayraklari korunarak regresyon testi eklendi.

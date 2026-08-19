@@ -50,6 +50,7 @@ yoktur. Kaynak bazındaki 271/271 eşleme `SOURCE_AUDIT.md`, test durumu
 | `tool/build_hardened_android_release.sh` | Release build'de `--no-pub` kaldırıldı | Flutter'ın release registrant'ını yeniden üretip test-only native pluginleri teslimden çıkarması. |
 | `codemagic.yaml` | Verify ve signed-candidate iOS workflow'ları | Linux'ta bulunmayan Xcode compile, simulator XCTest ve Apple signing kapısını GitHub CI'da çalıştırmak. |
 | `ios/Runner.xcodeproj/project.pbxproj` | Debug, Release ve Profile deployment target'ları 15.0 yapıldı | Firebase Swift paketlerinin iOS 15 altındaki target'ı reddetmesi; üç yapılandırmada aynı sonucu garanti etmek. |
+| `tool/verify_ios_on_macos.sh` | Online ve offline simulator XCTest çağrıları ayrıldı | Codemagic'in macOS Bash 3.2 sürümünde `set -u` ile boş dizi genişletmesini önlemek; offline Swift package kilit bayraklarını değiştirmeden korumak. |
 
 ## Değiştirilmeyen Ürün Sözleşmeleri
 
