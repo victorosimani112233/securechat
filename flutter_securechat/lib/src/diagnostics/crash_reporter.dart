@@ -91,10 +91,16 @@ class PrivacyCrashReporter implements CrashReporter {
     required Directory directory,
     required DiagnosticsPlatformGateway platform,
     required CrashMetadata metadata,
-    this.maximumFiles = 20,
+    this.maximumFiles = _defaultMaximumFiles,
   }) : _directory = directory,
        _platform = platform,
        _metadata = metadata;
+
+  /// Tutulan crash raporu sayisi. 20 cok dusuktu: tek bir tekrar eden hata
+  /// halkayi doldurup onceki ve daha degerli kanit raporlarini tahliye
+  /// ediyordu. Raporlar kucuk (~2-7 KB) ve yalniz uygulama ozel dizininde
+  /// tutuluyor, bu yuzden daha genis bir pencere teshis icin bedelsiz.
+  static const _defaultMaximumFiles = 200;
 
   static const _allowedMetadataKeys = {
     'component',
@@ -115,7 +121,7 @@ class PrivacyCrashReporter implements CrashReporter {
   static Future<PrivacyCrashReporter> open({
     required Directory directory,
     DiagnosticsPlatformGateway? platform,
-    int maximumFiles = 20,
+    int maximumFiles = _defaultMaximumFiles,
   }) async {
     final gateway = platform ?? const MethodChannelDiagnosticsPlatformGateway();
     await directory.create(recursive: true);

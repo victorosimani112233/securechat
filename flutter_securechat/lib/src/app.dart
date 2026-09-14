@@ -227,9 +227,17 @@ class _AppNavigatorObserver extends NavigatorObserver {
 
   final ValueChanged<String?> onRouteChanged;
   final activeRoute = ValueNotifier<String?>(null);
+  bool _disposed = false;
 
+  /// Navigator gozlemci callback'leri `_flushHistoryUpdates` icinde senkron
+  /// calisir; bu da route geri yukleme sirasinda build fazina denk gelebilir.
+  /// Bildirimi kare sonuna erteleyerek `ValueListenableBuilder` dinleyicisinin
+  /// build sirasinda `setState` cagirmasi engellenir.
   void _setActiveRoute(String? routeName) {
-    activeRoute.value = routeName;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      activeRoute.value = routeName;
+    });
     onRouteChanged(routeName);
   }
 
@@ -253,7 +261,10 @@ class _AppNavigatorObserver extends NavigatorObserver {
     _setActiveRoute(previousRoute?.settings.name);
   }
 
-  void dispose() => activeRoute.dispose();
+  void dispose() {
+    _disposed = true;
+    activeRoute.dispose();
+  }
 }
 
 ThemeMode _themeModeFor(AppThemePreference preference) => switch (preference) {

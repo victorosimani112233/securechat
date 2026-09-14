@@ -97,6 +97,13 @@ class InMemorySignalingService implements SignalingService {
     _controller.add(message);
   }
 
+  /// Gercek soketin cozulemeyen veya limiti asan cerceve aldiginda yaptigi
+  /// gibi akisa hata basar. Aboneler bunu isleyebiliyor mu diye test eder.
+  void addIncomingError(Object error, [StackTrace? stackTrace]) {
+    _ensureUsable();
+    _controller.addError(error, stackTrace ?? StackTrace.current);
+  }
+
   @override
   Future<bool> ensureConnected({
     Duration timeout = const Duration(seconds: 8),

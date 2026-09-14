@@ -106,7 +106,15 @@ class SecureChatFirebaseOptions {
       );
     }
     if (Platform.isIOS) {
-      const appId = String.fromEnvironment('SECURECHAT_FIREBASE_IOS_APP_ID');
+      // Android tarafinda varsayilan gomulu oldugu icin kutudan calisiyordu;
+      // iOS'ta varsayilan yoktu ve define verilmeyince FirebaseOptions null
+      // donuyordu. Sonuc: iOS'ta push SESSIZCE devre disi kaliyordu. Ayni
+      // Firebase projesindeki (chat-3e219) iOS uygulamasinin app id'si
+      // varsayilan yapildi; ozel dagitimlar define ile ezebilir.
+      const appId = String.fromEnvironment(
+        'SECURECHAT_FIREBASE_IOS_APP_ID',
+        defaultValue: '1:791820453236:ios:989a9c79e4e79ec3685821',
+      );
       if (appId.isEmpty) return null;
       return const FirebaseOptions(
         apiKey: _apiKey,

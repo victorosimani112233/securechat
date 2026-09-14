@@ -45,6 +45,10 @@ class PlatformKeyMaterialStore implements KeyMaterialStore {
 
   static const _androidOptions = AndroidOptions(
     storageNamespace: 'securechat_key_material',
+    // Bir Keystore/migration hatasinda master key'i sessizce silmek mevcut
+    // sifreli veriyi geri donulemez bicimde yetim birakir. Hata ust katmana
+    // tasinir ve yeni anahtar ancak gercekten bos kurulumda uretilir.
+    resetOnError: false,
   );
   static const _iosOptions = IOSOptions(
     accessibility: KeychainAccessibility.first_unlock_this_device,

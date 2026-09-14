@@ -42,7 +42,7 @@ class BackupService {
        _backupDirectory = backupDirectory,
        _crypto = crypto ?? BackupCrypto();
 
-  static const currentVersion = 2;
+  static const currentVersion = 3;
   static const maximumAttempts = 5;
   static const extension = 'elbk';
 
@@ -64,7 +64,10 @@ class BackupService {
       },
       // Tokens are deliberately excluded. A restored device must obtain a new
       // access/refresh pair from the authentication service.
-      'database': jsonDecode(await _database.exportPortableJson()),
+      'database': _withoutSignalProtocolState(
+        (jsonDecode(await _database.exportPortableJson()) as Map)
+            .cast<String, Object?>(),
+      ),
     };
     final compressed = gzip.encode(utf8.encode(jsonEncode(root)));
     final encrypted = await _crypto.encrypt(compressed, password);
@@ -142,9 +145,12 @@ class BackupService {
       if (databaseJson is! Map) {
         throw const FormatException('Database snapshot is missing');
       }
+      final sanitizedDatabase = _withoutSignalProtocolState(
+        databaseJson.cast<String, Object?>(),
+      );
       // Both database and profile are parsed/validated before the database is
       // atomically replaced. No row-by-row partial restore is possible.
-      await _database.replaceFromPortableJson(jsonEncode(databaseJson));
+      await _database.replaceFromPortableJson(jsonEncode(sanitizedDatabase));
       await _session.restoreProfileAndPersist(
         userId: profile['userId'] as String? ?? '',
         displayName: profile['displayName'] as String? ?? '',
@@ -190,6 +196,39 @@ class BackupService {
         'cryptoState': const <String, String>{},
         'pendingSignals': const [],
       };
+
+  /// Normal yedek bir cihaz-transfer protokolu degildir. Signal identity
+  /// private key'i, ratchet/session ve SenderKey durumu baska cihaza
+  /// klonlanirsa ayni deviceId iki farkli ratchet dali uretir; parola
+  /// kirildiginda da aktif oturum materyali aciga cikar. Eski yedekler de
+  /// restore sinirinda temizlenir.
+  static Map<String, Object?> _withoutSignalProtocolState(
+    Map<String, Object?> source,
+  ) {
+    final result = Map<String, Object?>.from(source);
+    for (final key in const [
+      'identities',
+      'preKeys',
+      'signedPreKeys',
+      'sessions',
+      'senderKeys',
+      'pendingSignals',
+    ]) {
+      result[key] = const <Object?>[];
+    }
+    final rawCryptoState = source['cryptoState'];
+    final cryptoState = rawCryptoState is Map
+        ? rawCryptoState.cast<String, Object?>()
+        : const <String, Object?>{};
+    result['cryptoState'] = <String, Object?>{
+      for (final entry in cryptoState.entries)
+        if (entry.key != 'local_registration_id' &&
+            entry.key != 'local_identity_key_pair_v1' &&
+            !entry.key.startsWith('pending_sender_key_rotation:'))
+          entry.key: entry.value,
+    };
+    return result;
+  }
 
   static void _validatePassword(String password) {
     if (password.length < 8) {

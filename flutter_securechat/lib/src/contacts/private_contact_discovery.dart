@@ -125,13 +125,133 @@ class PrivateDirectoryConfig {
   }
 }
 
+class DirectoryBlindValue {
+  const DirectoryBlindValue({required this.encoded, required this.inverse});
+
+  final String encoded;
+  final BigInt inverse;
+}
+
+/// Blind-RSA wire matematiginin test-vektorleriyle dogrulanabilen saf kismi.
+/// Ag, snapshot ve rastgelelik bu sinirin disinda kalir.
+class DirectoryOprfMath {
+  /// Samples uniformly from the accepted RSA group with rejection sampling.
+  /// Reducing a single modulus-width random integer with `% modulus` would
+  /// make part of the group almost twice as likely for common RSA moduli.
+  static BigInt sampleGroupElement(BigInt modulus, Random random) {
+    final width = (modulus.bitLength + 7) ~/ 8;
+    final unusedHighBits = width * 8 - modulus.bitLength;
+    while (true) {
+      final bytes = List<int>.generate(width, (_) => random.nextInt(256));
+      if (unusedHighBits > 0) {
+        bytes[0] &= 0xff >> unusedHighBits;
+      }
+      final candidate = _bytesToBigInt(bytes);
+      if (candidate > BigInt.one &&
+          candidate < modulus &&
+          candidate.gcd(modulus) == BigInt.one) {
+        return candidate;
+      }
+    }
+  }
+
+  static BigInt fullDomainPoint(
+    String phoneHash,
+    PrivateDirectoryConfig config,
+  ) {
+    final normalized = phoneHash.toLowerCase();
+    if (!_phoneHashPattern.hasMatch(normalized)) {
+      throw const PrivateDirectoryException('Invalid contact phone hash.');
+    }
+    for (var attempt = 0; attempt <= 255; attempt++) {
+      final seed = crypto.sha256.convert([
+        ..._phoneInputDomain,
+        ...ascii.encode(normalized),
+        ..._int32(attempt),
+      ]).bytes;
+      final expanded = <int>[];
+      var counter = 0;
+      while (expanded.length < config.modulusBytes + 16) {
+        expanded.addAll(
+          crypto.sha256.convert([...seed, ..._int32(counter++)]).bytes,
+        );
+      }
+      final candidate =
+          (_bytesToBigInt(expanded) % (config.modulus - BigInt.one)) +
+          BigInt.one;
+      if (candidate > BigInt.one &&
+          candidate.gcd(config.modulus) == BigInt.one) {
+        return candidate;
+      }
+    }
+    throw const PrivateDirectoryException(
+      'Could not map contact identity into the RSA group.',
+    );
+  }
+
+  static DirectoryBlindValue blindWithFactor({
+    required String phoneHash,
+    required PrivateDirectoryConfig config,
+    required BigInt factor,
+  }) {
+    if (factor <= BigInt.one ||
+        factor >= config.modulus ||
+        factor.gcd(config.modulus) != BigInt.one) {
+      throw const PrivateDirectoryException(
+        'Private directory blinding factor is outside the RSA group.',
+      );
+    }
+    final point = fullDomainPoint(phoneHash, config);
+    final blinded =
+        (point * factor.modPow(config.exponent, config.modulus)) %
+        config.modulus;
+    return DirectoryBlindValue(
+      encoded: _base64UrlNoPadding(
+        _bigIntToBytes(blinded, config.modulusBytes),
+      ),
+      inverse: factor.modInverse(config.modulus),
+    );
+  }
+
+  static String unblind({
+    required String encoded,
+    required BigInt inverse,
+    required PrivateDirectoryConfig config,
+  }) {
+    final bytes = _decodeBase64Url(encoded);
+    if (bytes.length != config.modulusBytes) {
+      throw const PrivateDirectoryException(
+        'Private directory group value has an invalid width.',
+      );
+    }
+    final evaluated = _bytesToBigInt(bytes);
+    if (evaluated <= BigInt.one ||
+        evaluated >= config.modulus ||
+        evaluated.gcd(config.modulus) != BigInt.one) {
+      throw const PrivateDirectoryException(
+        'Private directory group value is outside the RSA group.',
+      );
+    }
+    final unblinded = (evaluated * inverse) % config.modulus;
+    return _base64UrlNoPadding(
+      crypto.sha256.convert([
+        ..._tokenDomain,
+        ..._bigIntToBytes(unblinded, config.modulusBytes),
+      ]).bytes,
+    );
+  }
+}
+
 /// Authenticated blind-RSA private-set discovery client.
 ///
 /// Phone hashes remain local. Each request contains exactly 256 randomized RSA
 /// group values and the downloaded snapshot contains only token-derived labels
 /// plus token-bound AEAD envelopes. The server can observe request timing and
 /// the number of 256-entry batches, but cannot read the address-book inputs or
-/// persist a caller-to-contact social graph through this protocol.
+/// persist a caller-to-contact social graph through this protocol. A single
+/// operator holding both the OPRF private key and directory snapshot can still
+/// enumerate registered phone identities; deployment needs TEE or threshold
+/// infrastructure if the operator itself is in the threat model.
 class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
   PrivateContactDiscoveryApi({
     required String baseUrl,
@@ -204,7 +324,7 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
       }
       if (currentOwner == null) {
         await _updateOwnDirectory(
-          phoneHash: normalizedOwnHash,
+          directoryToken: tokensByHash[normalizedOwnHash]!,
           accessToken: accessToken,
           expectedKeyId: config.keyId,
         );
@@ -328,52 +448,27 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
             'Private directory returned a malformed group value.',
           );
         }
-        result[record.phoneHash!] = _unblind(encoded, record.inverse!, config);
+        result[record.phoneHash!] = DirectoryOprfMath.unblind(
+          encoded: encoded,
+          inverse: record.inverse!,
+          config: config,
+        );
       }
     }
     return result;
   }
 
   _BlindRecord _blind(String phoneHash, PrivateDirectoryConfig config) {
-    final point = _fullDomainPoint(phoneHash, config);
     final factor = _randomGroupElement(config.modulus);
-    final blinded =
-        (point * factor.modPow(config.exponent, config.modulus)) %
-        config.modulus;
+    final blinded = DirectoryOprfMath.blindWithFactor(
+      phoneHash: phoneHash,
+      config: config,
+      factor: factor,
+    );
     return _BlindRecord(
       phoneHash: phoneHash,
-      encoded: _base64UrlNoPadding(
-        _bigIntToBytes(blinded, config.modulusBytes),
-      ),
-      inverse: factor.modInverse(config.modulus),
-    );
-  }
-
-  String _unblind(
-    String encoded,
-    BigInt inverse,
-    PrivateDirectoryConfig config,
-  ) {
-    final bytes = _decodeBase64Url(encoded);
-    if (bytes.length != config.modulusBytes) {
-      throw const PrivateDirectoryException(
-        'Private directory group value has an invalid width.',
-      );
-    }
-    final evaluated = _bytesToBigInt(bytes);
-    if (evaluated <= BigInt.one ||
-        evaluated >= config.modulus ||
-        evaluated.gcd(config.modulus) != BigInt.one) {
-      throw const PrivateDirectoryException(
-        'Private directory group value is outside the RSA group.',
-      );
-    }
-    final unblinded = (evaluated * inverse) % config.modulus;
-    return _base64UrlNoPadding(
-      crypto.sha256.convert([
-        ..._tokenDomain,
-        ..._bigIntToBytes(unblinded, config.modulusBytes),
-      ]).bytes,
+      encoded: blinded.encoded,
+      inverse: blinded.inverse,
     );
   }
 
@@ -480,7 +575,7 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
   }
 
   Future<void> _updateOwnDirectory({
-    required String phoneHash,
+    required String directoryToken,
     required String accessToken,
     required String expectedKeyId,
   }) async {
@@ -488,7 +583,7 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
       method: 'POST',
       path: '/api/v1/users/directory-token',
       bearerToken: accessToken,
-      body: {'phoneHash': phoneHash},
+      body: {'directoryToken': directoryToken},
       maximumBytes: _maximumConfigBytes,
     );
     if (response.statusCode != HttpStatus.ok) {
@@ -559,43 +654,8 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
     return result.toList(growable: false);
   }
 
-  BigInt _fullDomainPoint(String phoneHash, PrivateDirectoryConfig config) {
-    for (var attempt = 0; attempt <= 255; attempt++) {
-      final seed = crypto.sha256.convert([
-        ..._phoneInputDomain,
-        ...ascii.encode(phoneHash),
-        ..._int32(attempt),
-      ]).bytes;
-      final expanded = <int>[];
-      var counter = 0;
-      while (expanded.length < config.modulusBytes + 16) {
-        expanded.addAll(
-          crypto.sha256.convert([...seed, ..._int32(counter++)]).bytes,
-        );
-      }
-      final candidate =
-          (_bytesToBigInt(expanded) % (config.modulus - BigInt.one)) +
-          BigInt.one;
-      if (candidate > BigInt.one &&
-          candidate.gcd(config.modulus) == BigInt.one) {
-        return candidate;
-      }
-    }
-    throw const PrivateDirectoryException(
-      'Could not map contact identity into the RSA group.',
-    );
-  }
-
   BigInt _randomGroupElement(BigInt modulus) {
-    final width = (modulus.bitLength + 7) ~/ 8;
-    while (true) {
-      final bytes = List<int>.generate(width, (_) => _random.nextInt(256));
-      final candidate =
-          (_bytesToBigInt(bytes) % (modulus - BigInt.from(3))) + BigInt.two;
-      if (candidate < modulus && candidate.gcd(modulus) == BigInt.one) {
-        return candidate;
-      }
-    }
+    return DirectoryOprfMath.sampleGroupElement(modulus, _random);
   }
 }
 

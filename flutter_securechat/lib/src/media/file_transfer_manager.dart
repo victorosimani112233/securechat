@@ -112,6 +112,7 @@ class FileTransferManager {
   final GroupRoutingResolver? _groupRoutingResolver;
   final LocalAeadCryptoService _metadataCrypto;
   final int chunkSize;
+
   final int maximumFileSize;
   final Duration staleTransferAge;
   final AsyncOperationTracker _operations;
@@ -125,6 +126,28 @@ class FileTransferManager {
   late final StreamSubscription<FileTransferSignal> _subscription;
   Future<void>? _disposeTask;
   bool _disposed = false;
+
+  /// v4 oncesinde sifreli zarf, JSON `data`/`caption` alanina konmadan once
+  /// gereksiz yere bir kez daha base64'leniyordu. Zarf zaten saf ASCII
+  /// (`E2EE:v1:...`), yani bu katman hicbir sey kazandirmiyordu ama parca
+  /// basina 1,333x sisme ekliyordu. Uc katman birlesince 128 KiB'lik ham
+  /// parca telde 311 KB oluyor ve hem istemcinin 256 KiB decode limitini
+  /// hem de sunucunun maxFrameSize'ini asiyordu; yani dolu parcalar hic
+  /// teslim edilemiyordu.
+  ///
+  /// v4 zarfi oldugu gibi tasir. Eski gonderenlerle uyum icin v2/v3
+  /// cozumu korunur.
+  static const directWireVersion = 'flutter-file-v4-direct';
+  static const groupWireVersion = 'flutter-file-v4-group';
+
+  static bool _isRawEnvelopeWire(String? encryption) =>
+      encryption != null && encryption.startsWith('flutter-file-v4-');
+
+  /// Tel alanindan sifreli zarfi cikarir. v4 ham, oncesi base64.
+  static String _decodeEnvelopeField(String value, String? encryption) =>
+      _isRawEnvelopeWire(encryption)
+      ? value
+      : utf8.decode(base64Decode(value));
 
   Stream<TransferProgress?> get progress => _progress.stream;
   Stream<ReceivedFile> get receivedFiles => _receivedFiles.stream;
@@ -313,16 +336,14 @@ class FileTransferManager {
             // Exact size is authenticated inside the encrypted v2 manifest.
             // The wire exposes only a chunk-aligned upper bound.
             fileSize: totalChunks * chunkSize,
-            data: base64Encode(utf8.encode(routedEnvelope)),
+            // v4: zarf ham tasiniyor. Zaten ASCII oldugu icin ek base64
+            // katmani yalnizca sisme uretiyordu (bkz directWireVersion).
+            data: routedEnvelope,
             transferId: transferId,
             chunkIndex: index,
             totalChunks: totalChunks,
-            caption: routedManifest == null
-                ? null
-                : base64Encode(utf8.encode(routedManifest)),
-            encryption: isGroup
-                ? 'flutter-file-v3-group'
-                : 'flutter-file-v2-direct',
+            caption: routedManifest,
+            encryption: isGroup ? groupWireVersion : directWireVersion,
           );
           if (!await _sendWithRetry(signal)) allSent = false;
         }
@@ -387,7 +408,8 @@ class FileTransferManager {
   ) async {
     final privateWire =
         signal.encryption?.startsWith('flutter-file-v2-') == true ||
-        signal.encryption?.startsWith('flutter-file-v3-') == true;
+        signal.encryption?.startsWith('flutter-file-v3-') == true ||
+        signal.encryption?.startsWith('flutter-file-v4-') == true;
     final maximumWireSize = privateWire
         ? maximumFileSize + chunkSize - 1
         : maximumFileSize;
@@ -433,9 +455,13 @@ class FileTransferManager {
           flush: true,
         );
       }
-      final envelope = utf8.decode(base64Decode(signal.data));
-      final privateGroupV2 = signal.encryption == 'flutter-file-v2-group';
-      final privateGroupV3 = signal.encryption == 'flutter-file-v3-group';
+      final envelope = _decodeEnvelopeField(signal.data, stored.encryption);
+      final privateGroupV2 = stored.encryption == 'flutter-file-v2-group';
+      // v3 ve v4 ayni ozel-grup yonlendirme semantigini paylasir; yalniz
+      // zarfin tasinma bicimi farklidir.
+      final privateGroupV3 =
+          stored.encryption == 'flutter-file-v3-group' ||
+          stored.encryption == groupWireVersion;
       var resolvedGroupId = signal.groupId;
       var groupEnvelope = envelope;
       if (privateGroupV3) {
@@ -521,7 +547,10 @@ class FileTransferManager {
           await partDirectory.delete(recursive: true);
           return null;
         }
-        final manifestEnvelope = utf8.decode(base64Decode(stored.caption!));
+        final manifestEnvelope = _decodeEnvelopeField(
+          stored.caption!,
+          stored.encryption,
+        );
         final String manifestPlaintext;
         if (privateGroupV3) {
           final route = await decodePrivateGroupRoute(
@@ -571,7 +600,10 @@ class FileTransferManager {
         actualOriginalMessageId = manifest.originalMessageId;
         actualAbsoluteExpiresAt = manifest.absoluteExpiresAt;
       } else if (stored.caption != null) {
-        final captionEnvelope = utf8.decode(base64Decode(stored.caption!));
+        final captionEnvelope = _decodeEnvelopeField(
+          stored.caption!,
+          stored.encryption,
+        );
         caption = resolvedGroupId == null
             ? await _crypto.decryptDirect(
                 senderId: signal.senderId,
@@ -796,6 +828,7 @@ class _TransferMetadata {
     required this.isViewOnce,
     required this.originalMessageId,
     required this.absoluteExpiresAt,
+    required this.encryption,
   });
   final String senderId;
   final String fileName;
@@ -807,6 +840,10 @@ class _TransferMetadata {
   final bool isViewOnce;
   final String? originalMessageId;
   final DateTime? absoluteExpiresAt;
+
+  /// Transfer basinda sabitlenen tel formati surumu. Parcalar arasinda
+  /// degisemez; caption zarfi ilk parcanin surumuyle cozulur.
+  final String? encryption;
 
   factory _TransferMetadata.fromSignal(FileTransferSignal signal) =>
       _TransferMetadata(
@@ -820,6 +857,7 @@ class _TransferMetadata {
         isViewOnce: signal.isViewOnce,
         originalMessageId: signal.originalMessageId,
         absoluteExpiresAt: signal.absoluteExpiresAt,
+        encryption: signal.encryption,
       );
 
   factory _TransferMetadata.fromJson(Map<String, Object?> json) =>
@@ -838,6 +876,7 @@ class _TransferMetadata {
             : DateTime.fromMillisecondsSinceEpoch(
                 (json['absoluteExpiresAt'] as num).toInt(),
               ),
+        encryption: json['encryption'] as String?,
       );
 
   _TransferMetadata mergeSignal(FileTransferSignal signal) => _TransferMetadata(
@@ -851,6 +890,7 @@ class _TransferMetadata {
     isViewOnce: isViewOnce || signal.isViewOnce,
     originalMessageId: signal.originalMessageId ?? originalMessageId,
     absoluteExpiresAt: signal.absoluteExpiresAt ?? absoluteExpiresAt,
+    encryption: encryption,
   );
 
   bool matches(_TransferMetadata other) =>
@@ -859,7 +899,8 @@ class _TransferMetadata {
       mimeType == other.mimeType &&
       fileSize == other.fileSize &&
       totalChunks == other.totalChunks &&
-      groupId == other.groupId;
+      groupId == other.groupId &&
+      encryption == other.encryption;
 
   Map<String, Object?> toJson() => {
     'senderId': senderId,
@@ -872,6 +913,7 @@ class _TransferMetadata {
     'isViewOnce': isViewOnce,
     'originalMessageId': originalMessageId,
     'absoluteExpiresAt': absoluteExpiresAt?.millisecondsSinceEpoch,
+    'encryption': encryption,
   };
 }
 

@@ -1,3 +1,4 @@
+import '../core/signal_message.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -20,8 +21,10 @@ import '../chat/read_receipt_service.dart';
 import '../calls/call_readiness_service.dart';
 import '../calls/call_history_service.dart';
 import '../chat/poll_service.dart';
+import '../chat/security_notice_service.dart';
 import '../chat/message_interaction_service.dart';
 import '../config/app_config.dart';
+import '../l10n/service_strings.dart';
 import '../contacts/contact_service.dart';
 import '../contacts/private_contact_discovery.dart';
 import '../crypto/call_crypto_manager.dart';
@@ -388,6 +391,14 @@ class AppContainer {
         database: database,
       );
       final signalStore = PersistentSignalProtocolStore(protocolStore);
+      // Servis katmani metinleri BuildContext olmadan yerellestirilir.
+      final serviceStrings = ServiceStrings(
+        languageCode: () async => session.languagePreference,
+      );
+      final securityNotices = SecurityNoticeService(
+        database: database,
+        strings: serviceStrings,
+      );
       final crypto = SignalProtocolCryptoService(
         store: signalStore,
         preKeyBundles: HttpPreKeyBundleProvider(
@@ -395,6 +406,16 @@ class AppContainer {
           httpClient: httpClients.create(),
           accessTokenProvider: () async => session.accessToken,
         ),
+        // Karsi tarafin kimlik anahtari degistiginde yeni kimlik otomatik
+        // kabul edilmez. Olay teshise ve kullaniciya bildirilir; oturum
+        // kullanici onayi/key-transparency olmadan fail-closed kalir.
+        onPeerIdentityRotated: (peerId) async {
+          diagnostics.log(
+            'peer-identity-rotated',
+            metadata: const {'component': 'signal-session-recovery'},
+          );
+          await securityNotices.peerIdentityRotated(peerId);
+        },
       );
       final offlineQueue = OfflineMessageQueue(
         database: database,
@@ -402,12 +423,30 @@ class AppContainer {
         onAsyncFailure: reportAsyncFailure,
       )..start();
       resources.register('offline-message-queue', offlineQueue.close);
+      late final CallManager callManager;
       final incomingMessages = IncomingMessageHandler(
         signaling: signaling,
         crypto: crypto,
         database: database,
         session: session,
         identityResolver: contactIdentityResolver,
+        // Cozulemeyen mesaj sessizce dusmez: sohbete gorunur bir iz birakir.
+        onUndecryptableMessage: (conversationId) async {
+          diagnostics.log(
+            'message-undecryptable',
+            metadata: const {'component': 'incoming-message'},
+          );
+          await securityNotices.messageUnreadable(conversationId);
+        },
+        // Cagri medya anahtari sohbete yazilmaz; dogrudan cagri yoneticisine
+        // gider. Yonetici bu noktadan sonra kuruldugu icin gec baglanir.
+        applyCallMediaKey:
+            ({required String senderId, required String payload}) async {
+              await callManager.applyIncomingMediaKey(
+                senderId: senderId,
+                payload: payload,
+              );
+            },
         onAsyncFailure: reportAsyncFailure,
       )..start();
       resources.register('incoming-message-handler', incomingMessages.close);
@@ -421,6 +460,10 @@ class AppContainer {
         session: session,
         signaling: signaling,
         crypto: crypto,
+        // Sayacli baglantida yaziyor-gostergesi gonderilmez: gosterge
+        // kozmetiktir, sabit-boyutlu kontrol paketi ise ~29 KB'dir.
+        isMeteredConnection: () async =>
+            networkMonitor.current.kind == NetworkKind.cellular,
       );
       resources.register('chat-activity', chatActivity.dispose);
       final scheduler =
@@ -471,7 +514,6 @@ class AppContainer {
         'local-notification-presenter',
         notificationPresenter.dispose,
       );
-      late final CallManager callManager;
       final missedCalls = MissedCallTracker(
         conversations: database.conversations,
         presenter: notificationPresenter,
@@ -563,6 +605,36 @@ class AppContainer {
         return callRoutingToken;
       }
 
+      /// Cagri medya anahtarini tek aliciya E2EE olarak ulastirir.
+      ///
+      /// Anahtar sunucudan gecmez: grup kontrolleriyle ayni yolu kullanir ve
+      /// sunucu ordinary bir `encrypted_message` gorur. Teslim edilemezse
+      /// `false` doner; cagri yoneticisi o durumda frame sifrelemesini
+      /// acmaz ve arama mesh'te kalir.
+      Future<bool> distributeCallMediaKey({
+        required String recipientId,
+        required String payload,
+      }) async {
+        final localUserId = session.userId;
+        if (localUserId == null) return false;
+        try {
+          final envelope = await crypto.encryptDirect(
+            recipientId: recipientId,
+            plaintext: payload,
+          );
+          return await signaling.send(
+            EncryptedSignalMessage(
+              senderId: localUserId,
+              recipientId: recipientId,
+              timestamp: DateTime.now(),
+              envelope: envelope,
+            ),
+          );
+        } catch (_) {
+          return false;
+        }
+      }
+
       callManager = CallManager(
         session: session,
         signaling: signaling,
@@ -579,6 +651,7 @@ class AppContainer {
         peerNameResolver: resolvePeerName,
         groupLocalIdResolver: resolveLocalGroupId,
         preparePrivateGroupCall: preparePrivateGroupCall,
+        distributeCallMediaKey: distributeCallMediaKey,
         missedCalls: missedCalls,
         onAsyncFailure: reportAsyncFailure,
       );
@@ -610,19 +683,21 @@ class AppContainer {
         onAsyncFailure: reportAsyncFailure,
       );
       resources.register('voice-note-recorder', voiceNotes.dispose);
+      final privateDirectory = PrivateContactDiscoveryApi(
+        baseUrl: config.apiBaseUrl,
+        client: httpClients.create(),
+      );
       final authCoordinator = AuthCoordinator(
         api: AuthApi(baseUrl: config.apiBaseUrl, client: httpClients.create()),
         session: session,
         preKeys: preKeyManager,
         signaling: signaling,
         signalingUrl: config.signalingUrl,
+        privateDirectory: privateDirectory,
       );
       final contacts = ContactService(
         deviceContacts: NativeDeviceContactsGateway(),
-        api: PrivateContactDiscoveryApi(
-          baseUrl: config.apiBaseUrl,
-          client: httpClients.create(),
-        ),
+        api: privateDirectory,
         database: database,
         session: session,
       );

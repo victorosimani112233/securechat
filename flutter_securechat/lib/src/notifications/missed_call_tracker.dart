@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../l10n/service_strings.dart';
+
 import '../media/call_models.dart';
 import '../services/async_operation_tracker.dart';
 import '../storage/secure_chat_database.dart';
@@ -21,9 +23,11 @@ class MissedCallTracker implements MissedCallLifecycle {
     required MissedCallCallback onCallback,
     this.timeout = const Duration(seconds: 30),
     AsyncOperationFailureHandler? onAsyncFailure,
+    ServiceStrings? strings,
   }) : _conversations = conversations,
        _presenter = presenter,
        _onCallback = onCallback,
+       _strings = strings ?? ServiceStrings.fixed('tr'),
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure) {
     _callbackSubscription = presenter.missedCallCallbacks.listen((action) {
       if (!_closed) {
@@ -36,6 +40,7 @@ class MissedCallTracker implements MissedCallLifecycle {
   final MissedCallNotificationPresenter _presenter;
   final MissedCallCallback _onCallback;
   final AsyncOperationTracker _operations;
+  final ServiceStrings _strings;
   final Duration timeout;
   final Map<String, Timer> _timers = {};
   final Set<String> _recorded = {};
@@ -68,7 +73,7 @@ class MissedCallTracker implements MissedCallLifecycle {
       final now = DateTime.now().millisecondsSinceEpoch;
       await _conversations.updateLastMessage(
         session.peerId,
-        'Kaçırılan arama',
+        (await _strings.load()).missed_call,
         now,
       );
       await _conversations.incrementUnreadCount(session.peerId);
