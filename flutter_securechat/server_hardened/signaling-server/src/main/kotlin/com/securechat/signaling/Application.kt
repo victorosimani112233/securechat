@@ -45,11 +45,8 @@ fun main() {
     log.info("=== SecureChat Signaling Server ===")
     log.info("Signaling listener baslatiliyor")
 
-    // GUVENLIK: TURN_SECRET zorunlu — bos olamaz, production'da abuse'a yol acar
-    val turnSecret = SecretSource.required("TURN_SECRET")
-    if (turnSecret.length < 16) {
-        log.warn("UYARI: TURN_SECRET kisa ({}). En az 32 karakter onerilir.", turnSecret.length)
-    }
+    // GUVENLIK: TURN_SECRET eksik veya zayifsa listener acilmadan fail-fast.
+    SecretPolicy.requireStrong("TURN_SECRET", SecretSource.required("TURN_SECRET"))
 
     // GUVENLIK: JWT_SECRET zorunlu — bos olamaz, fail-fast
     AuthService.initialize()
@@ -67,6 +64,8 @@ fun main() {
     // Redis baglantisi
     RedisManager.init()
     RedisManager.requireMemoryOnly()
+    // Yatay olceklemede credential iptalini butun instance'lara yay/dinle.
+    CredentialState.startInvalidationSubscriber()
 
     // Janus SFU baglantisi
     if (SfuPolicy.isEnabled()) {
@@ -98,27 +97,7 @@ fun main() {
     }
 
     val server = embeddedServer(Netty, port = port, host = host) {
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                prettyPrint = false  // Production: prettyPrint kapali — bandwidth tasarrufu
-            })
-        }
-        install(WebSockets) {
-            pingPeriod = Duration.ofSeconds(60)  // Server her 60sn ping atar
-            timeout = Duration.ofSeconds(90)     // 90sn pong gelmezse drop
-            // GUVENLIK (M14 fix): 256 KB frame limit — saldirgan tek frame ile RAM tuketmesin.
-            // Tek otoritatif limit; WebSocketRoutes.kt'de MAX_MESSAGE_BYTES ayni deger.
-            // SDP Offer ~10 KB, encrypted envelope ~64 KB, file_transfer chunk 128 KB — limit yeterli.
-            maxFrameSize = 256L * 1024L
-            masking = false
-        }
-
-        // Metrics: online users gauge ConnectionManager'a bagla
-        Metrics.registerOnlineUsersGauge { connectionManager.getOnlineCount() }
-
-        configureWebSocket(connectionManager, userRegistry)
-        configureRoutes(connectionManager, userRegistry, fcmTokenStore)
+        signalingModule(connectionManager, userRegistry, fcmTokenStore, fcmPushSender)
 
         // Graceful shutdown hook
         Runtime.getRuntime().addShutdownHook(Thread {
@@ -149,4 +128,61 @@ fun main() {
     }
 
     server.start(wait = true)
+}
+
+/**
+ * Sunucu modulu.
+ *
+ * Route'lar ve pluginler `main()` icindeki `embeddedServer` lambda'sinda
+ * duruyordu; uctan uca bir test ayni yapilandirmayi ancak kopyalayarak
+ * kurabilirdi — yani test ettigi sey production yapilandirmasi olmazdi.
+ * Modul burada ayri durur ve iki taraf da ayni fonksiyonu kullanir.
+ */
+fun Application.signalingModule(
+    connectionManager: ConnectionManager,
+    userRegistry: UserRegistry,
+    fcmTokenStore: FcmTokenStore,
+    fcmPushSender: FcmPushSender,
+) {
+    // Butun yanitlara guvenlik basliklari (harici tarama bulgusu).
+    install(SecurityHeaders)
+
+    install(ContentNegotiation) {
+        json(Json {
+            ignoreUnknownKeys = true
+            prettyPrint = false  // Production: prettyPrint kapali — bandwidth tasarrufu
+        })
+    }
+    install(WebSockets) {
+        pingPeriod = Duration.ofSeconds(60)  // Server her 60sn ping atar
+        timeout = Duration.ofSeconds(90)     // 90sn pong gelmezse drop
+        // GUVENLIK (M14 fix): 256 KB frame limit — saldirgan tek frame ile RAM tuketmesin.
+        // Tek otoritatif limit; WebSocketRoutes.kt'de MAX_MESSAGE_BYTES ayni deger.
+        // SDP Offer ~10 KB, encrypted envelope ~64 KB, file_transfer chunk 128 KB — limit yeterli.
+        maxFrameSize = 256L * 1024L
+        masking = false
+    }
+
+    // Metrics: online users gauge ConnectionManager'a bagla
+    Metrics.registerOnlineUsersGauge { connectionManager.getOnlineCount() }
+    // Kimliksiz guvenlik sayaclari metrics'e baglanmazsa `logging=none`
+    // altinda hicbir yerde gorunmezdi.
+    Metrics.registerAuditCounters()
+    for (event in listOf(
+        "WS_AUTH_INVALID",
+        "WS_AUTH_MISMATCH",
+        "WS_AUTH_TOKEN_IN_QUERY",
+        "AUTH_REFRESH_REUSE",
+        "REGISTER_GRANT_REPLAY",
+        "RATE_LIMIT_HIT",
+        "ROUTE_UNKNOWN_RECIPIENT",
+        "GROUP_CALL_CAPACITY_REACHED",
+        "ACCOUNT_DELETE_RESIDUAL",
+        "PREKEY_UPLOAD_REJECTED",
+    )) {
+        Metrics.registerAuditCounter(event)
+    }
+
+    configureWebSocket(connectionManager, userRegistry)
+    configureRoutes(connectionManager, userRegistry, fcmTokenStore, fcmPushSender)
 }

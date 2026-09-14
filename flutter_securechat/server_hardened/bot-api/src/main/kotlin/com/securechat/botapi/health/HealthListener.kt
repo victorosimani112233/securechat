@@ -1,6 +1,11 @@
 package com.securechat.botapi.health
 
 import com.securechat.botapi.BotApiConfig
+import com.securechat.botapi.signal.BotIdentity
+import com.securechat.botapi.delivery.SignalingWsClient
+import com.securechat.botapi.delivery.OutboundQueue
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import com.securechat.botapi.db.BotDatabase
 import com.securechat.botapi.db.BotRedisManager
 import io.ktor.http.*
@@ -26,21 +31,53 @@ private val log = LoggerFactory.getLogger("HealthListener")
  */
 object HealthListener {
 
+    /** Bu derinligin ustunde bot teslimatta geride kalmis sayilir. */
+    private const val MAX_READY_QUEUE_DEPTH = 500L
+
     fun start(): NettyApplicationEngine {
         val server = embeddedServer(Netty, host = "0.0.0.0", port = BotApiConfig.healthPort) {
             routing {
+                // Liveness: process ayakta mi. Bagimliliklara bakmaz ki gecici
+                // bir Redis kesintisi container'i yeniden baslatmasin.
                 get("/health") {
+                    call.respondText(
+                        """{"status":"ok"}""",
+                        ContentType.Application.Json,
+                    )
+                }
+
+                /**
+                 * Readiness: bot gercekten gonderim yapabilir mi.
+                 *
+                 * Onceki `/health` yalniz DB ve Redis'e bakiyordu; identity
+                 * saglanmamis, signaling baglantisi kopmus veya kuyruk
+                 * birikmis bir bot da "ok" gorunuyordu.
+                 */
+                get("/ready") {
                     val dbOk = BotDatabase.isHealthy()
                     val redisOk = BotRedisManager.isHealthy()
-                    if (dbOk && redisOk) {
-                        call.respondText("""{"status":"ok"}""", ContentType.Application.Json)
+                    val identityOk = BotIdentity.isReady()
+                    val signalingOk = SignalingWsClient.isConnected()
+                    val queueDepth = if (identityOk && redisOk) {
+                        runCatching { OutboundQueue.size(BotIdentity.get().botUserId) }
+                            .getOrDefault(-1L)
                     } else {
-                        call.respondText(
-                            """{"status":"degraded","db":$dbOk,"redis":$redisOk}""",
-                            ContentType.Application.Json,
-                            HttpStatusCode.ServiceUnavailable
-                        )
+                        -1L
                     }
+                    val ready = isReady(dbOk, redisOk, identityOk, signalingOk, queueDepth)
+                    val body = buildJsonObject {
+                        put("status", if (ready) "ready" else "not_ready")
+                        put("db", dbOk)
+                        put("redis", redisOk)
+                        put("identity", identityOk)
+                        put("signaling", signalingOk)
+                        put("queueDepth", queueDepth)
+                    }.toString()
+                    call.respondText(
+                        body,
+                        ContentType.Application.Json,
+                        if (ready) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable,
+                    )
                 }
                 get("/metrics") {
                     if (!metricsAuthorized(call.request.headers["Authorization"])) {
@@ -59,7 +96,26 @@ object HealthListener {
         return server
     }
 
-    private fun metricsAuthorized(authorization: String?): Boolean {
+    /**
+     * Readiness karari.
+     *
+     * Onceki `/health` yalniz DB ve Redis'e bakiyordu: identity saglanmamis,
+     * signaling baglantisi kopmus ya da kuyrugu birikmis bir bot da "ok"
+     * gorunuyordu — yani gonderim yapamayan bir process trafige aciliyordu.
+     * `queueDepth < 0` "olculemedi" demektir ve hazir sayilmaz.
+     */
+    internal fun isReady(
+        dbOk: Boolean,
+        redisOk: Boolean,
+        identityOk: Boolean,
+        signalingOk: Boolean,
+        queueDepth: Long,
+    ): Boolean = dbOk && redisOk && identityOk && signalingOk &&
+        queueDepth in 0..MAX_READY_QUEUE_DEPTH
+
+    internal const val READY_QUEUE_DEPTH_LIMIT = MAX_READY_QUEUE_DEPTH
+
+    internal fun metricsAuthorized(authorization: String?): Boolean {
         val candidate = authorization
             ?.takeIf { it.startsWith("Bearer ") }
             ?.removePrefix("Bearer ")

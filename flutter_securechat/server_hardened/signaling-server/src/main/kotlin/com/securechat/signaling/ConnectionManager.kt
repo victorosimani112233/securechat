@@ -45,31 +45,65 @@ class ConnectionManager(
     /** Bir kullanicinin izleyebilecegi en fazla hedef sayisi. */
     private val MAX_PRESENCE_SUBSCRIPTIONS = 512
 
-    suspend fun addConnection(userId: String, session: WebSocketSession) {
-        // Connection limit kontrolu
-        if (connections.size >= MAX_CONNECTIONS) {
-            session.close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Sunucu kapasitesi doldu"))
-            log.warn("[!] Baglanti reddedildi — limit asildi (${connections.size}/$MAX_CONNECTIONS)")
-            return
-        }
+    /**
+     * @return baglanti kabul edildiyse true.
+     *
+     * Kapasite kontrolu kilit **icinde** yapilir; disarida yapildiginda iki
+     * es zamanli baglanti ayni "yer var" okumasini paylasip limiti birlikte
+     * asabiliyordu. Ayni kullanicinin onceki oturumu varsa kapatilir.
+     */
+    suspend fun addConnection(userId: String, session: WebSocketSession): Boolean {
         // Shutdown sirasinda yeni baglanti kabul etme
         if (isShuttingDown.get()) {
             session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Sunucu kapatiliyor"))
-            return
+            return false
         }
-        mutex.withLock {
-            connections[userId]?.close(CloseReason(CloseReason.Codes.NORMAL, "Yeni baglanti"))
-            connections[userId] = session
-            log.info("[+] Kullanici baglandi (toplam: ${connections.size})")
+        val previous = mutex.withLock {
+            if (!connections.containsKey(userId) && connections.size >= MAX_CONNECTIONS) {
+                null to false
+            } else {
+                val existing = connections.put(userId, session)
+                log.info("[+] Kullanici baglandi (toplam: ${connections.size})")
+                existing to true
+            }
         }
+        if (!previous.second) {
+            session.close(
+                CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Sunucu kapasitesi doldu"),
+            )
+            log.warn("[!] Baglanti reddedildi — limit asildi")
+            return false
+        }
+        previous.first?.close(CloseReason(CloseReason.Codes.NORMAL, "Yeni baglanti"))
         Metrics.wsConnections.increment()
         // Redis'ten offline mesajlari ilet
         deliverOfflineMessages(userId, session)
+        return true
     }
 
-    suspend fun removeConnection(userId: String) {
+    /**
+     * Baglanti kapanisinda cagrilir.
+     *
+     * @param session kapanan oturum. Ayni kullanici yeniden baglandiginda
+     *   eski soketin `finally` blogu bu metodu cagirir; kosulsuz `remove`
+     *   o anda map'te duran **yeni** soketi silerdi ve kullanici bagliyken
+     *   cevrimdisi gorunurdu. Compare-and-remove bunu engeller.
+     */
+    suspend fun removeConnection(userId: String, session: WebSocketSession? = null) {
+        val removed = mutex.withLock {
+            if (session == null) {
+                connections.remove(userId) != null
+            } else {
+                connections.remove(userId, session)
+            }
+        }
+        if (!removed) {
+            // Yerini yeni bir baglanti almis; presence ve call temizligi
+            // yapilmaz, aksi halde canli oturum bozulurdu.
+            log.info("[-] Eski baglanti kapandi, yeni baglanti korunuyor")
+            return
+        }
         mutex.withLock {
-            connections.remove(userId)
             log.info("[-] Kullanici ayrildi (toplam: ${connections.size})")
         }
         foregroundUsers.remove(userId)
@@ -116,7 +150,8 @@ class ConnectionManager(
         log.info("[S-] Presence aboneligi kaldirildi")
     }
 
-    private fun subscriptionCount(subscriberId: String): Int =
+    /** Bir abonenin izledigi hedef sayisi. Testler temizligi buradan gorur. */
+    internal fun subscriptionCount(subscriberId: String): Int =
         presenceSubscribers.values.count { it.contains(subscriberId) }
 
     suspend fun handlePresenceUpdate(userId: String, isOnline: Boolean, hideLastSeen: Boolean = false) {
@@ -146,12 +181,12 @@ class ConnectionManager(
         val isOnline = foregroundUsers.contains(targetUserId)
         if (hideLastSeenUsers.contains(targetUserId)) {
             val json = buildPresenceJson(targetUserId, requesterId, isOnline = isOnline, lastSeen = 0, hideLastSeen = true)
-            try { session.send(Frame.Text(json)) } catch (_: Exception) { }
+            try { session.send(Frame.Text(json)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
             return
         }
         val lastSeen = if (isOnline) System.currentTimeMillis() else (lastSeenMap[targetUserId] ?: 0)
         val json = buildPresenceJson(targetUserId, requesterId, isOnline, lastSeen)
-        try { session.send(Frame.Text(json)) } catch (_: Exception) { }
+        try { session.send(Frame.Text(json)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
     }
 
     private suspend fun notifyPresenceChange(userId: String, isOnline: Boolean, lastSeen: Long, hideLastSeen: Boolean = false) {
@@ -160,13 +195,21 @@ class ConnectionManager(
         val json = buildPresenceJson(userId, "subscriber", isOnline, lastSeen, hideLastSeen)
         for (subscriberId in subscribers) {
             val session = connections[subscriberId] ?: continue
-            try { session.send(Frame.Text(json)) } catch (_: Exception) { }
+            try { session.send(Frame.Text(json)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
         }
     }
 
     private fun buildPresenceJson(senderId: String, recipientId: String, isOnline: Boolean, lastSeen: Long, hideLastSeen: Boolean = false): String {
         val now = System.currentTimeMillis()
-        return """{"type":"presence_update","senderId":"$senderId","recipientId":"$recipientId","timestamp":$now,"isOnline":$isOnline,"lastSeen":$lastSeen,"hideLastSeen":$hideLastSeen}"""
+        return buildJsonObject {
+            put("type", "presence_update")
+            put("senderId", senderId)
+            put("recipientId", recipientId)
+            put("timestamp", now)
+            put("isOnline", isOnline)
+            put("lastSeen", lastSeen)
+            put("hideLastSeen", hideLastSeen)
+        }.toString()
     }
 
     private fun cleanupSubscriptions(userId: String) {
@@ -216,7 +259,7 @@ class ConnectionManager(
     suspend fun broadcastMessage(senderId: String, messageJson: String) {
         connections.forEach { (userId, session) ->
             if (userId != senderId) {
-                try { session.send(Frame.Text(messageJson)) } catch (_: Exception) { }
+                try { session.send(Frame.Text(messageJson)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
             }
         }
     }
@@ -384,7 +427,7 @@ class ConnectionManager(
     fun purgePendingCallSignals(recipientId: String, callerSenderId: String) {
         try {
             val key = ServerPrivacy.queueKey("message", recipientId)
-            val callTypes = setOf("sdp_offer", "ice_candidate", "call_control")
+            val callTypes = MessageTypes.PENDING_CALL
             val senderRegex = """"senderId"\s*:\s*"([^"]+)"""".toRegex()
             var purged = 0
             RedisManager.use { jedis ->
@@ -396,7 +439,7 @@ class ConnectionManager(
                         jedis.zrem(key, stored)
                         continue
                     }
-                    val msgType = fcmPushSender?.extractMessageType(msg) ?: continue
+                    val msgType = MessageTypes.extract(msg) ?: continue
                     if (msgType !in callTypes) continue
                     val sid = senderRegex.find(msg)?.groupValues?.get(1)
                     if (sid == callerSenderId) {
@@ -419,13 +462,16 @@ class ConnectionManager(
         // queueAndNotify'a girebilir; burayi da kapatiyoruz.
         if (recipientId in sentinelRecipients) return
 
-        val messageType = fcmPushSender?.extractMessageType(messageJson)
-        val transientTypes = setOf("typing_indicator", "presence_update", "presence_subscribe", "presence_unsubscribe", "audio_data", "video_data")
-        if (messageType in transientTypes) return
+        // Siniflandirma push tasiyicisindan bagimsizdir. Onceden tur yalniz
+        // `fcmPushSender` uzerinden okunuyordu; push yapilandirilmamissa tur
+        // null kaliyor, gecici sinyaller kuyruga yaziliyor ve dosya
+        // parcalari mesaj kovasina dusuyordu.
+        val messageType = MessageTypes.extract(messageJson)
+        if (messageType in MessageTypes.TRANSIENT) return
 
         // GUVENLIK (H8 fix): file_transfer mesajlari AYRI bucket'a yonlendirilir.
         // Buyuk dosya chunk'lari ana mesaj queue'sunu doldurarak Redis OOM yaratamasin.
-        if (messageType == "file_transfer") {
+        if (messageType == MessageTypes.FILE_TRANSFER) {
             queueOfflineFileTransfer(recipientId, messageJson)
         } else {
             queueOfflineMessage(recipientId, messageJson)
@@ -553,7 +599,9 @@ class ConnectionManager(
                         droppedInvalid++
                         continue
                     }
-                    val msgType = fcmPushSender?.extractMessageType(message)
+                    // Bayat SDP teklifi filtresi push tasiyicisina bagli
+                    // olmamali; push kapaliyken eski teklifler teslim edilirdi.
+                    val msgType = MessageTypes.extract(message)
                     if (msgType == "sdp_offer") {
                         val ts = extractTimestamp(message)
                         if (ts != null && (now - ts) > sdpOfferMaxAgeMs) {
@@ -642,13 +690,17 @@ class ConnectionManager(
      * Client bu mesaji alinca 5sn sonra reconnect dener.
      */
     suspend fun broadcastServerShutdown() {
-        val shutdownMsg = """{"type":"server_shutdown","timestamp":${System.currentTimeMillis()},"message":"Sunucu yeniden baslatiliyor"}"""
+        val shutdownMsg = buildJsonObject {
+            put("type", "server_shutdown")
+            put("timestamp", System.currentTimeMillis())
+            put("message", "Sunucu yeniden baslatiliyor")
+        }.toString()
         var count = 0
         connections.forEach { (_, session) ->
             try {
                 session.send(Frame.Text(shutdownMsg))
                 count++
-            } catch (_: Exception) { }
+            } catch (_: Exception) { /* best-effort: kapali soket yut */ }
         }
         log.info("[SHUTDOWN] $count client'a SERVER_SHUTDOWN mesaji gonderildi")
     }
@@ -660,7 +712,7 @@ class ConnectionManager(
         connections.forEach { (_, session) ->
             try {
                 session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Sunucu kapatiliyor"))
-            } catch (_: Exception) { }
+            } catch (_: Exception) { /* best-effort: kapali soket yut */ }
         }
         log.info("[SHUTDOWN] ${connections.size} baglanti kapatildi")
         connections.clear()

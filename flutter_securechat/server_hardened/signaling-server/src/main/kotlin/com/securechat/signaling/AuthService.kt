@@ -23,7 +23,7 @@ private val log = LoggerFactory.getLogger("AuthService")
  * Token claims:
  *  - sub: userId (UUID)
  *  - iat: issued at (epoch sec)
- *  - exp: expiry (default 30 gun)
+ *  - exp: access 1 saat, refresh 60 gun, registration 15 dakika
  *  - typ: "access" (gelecekte refresh token icin "refresh" eklenebilir)
  *
  * Algoritma: HS256 (HMAC-SHA256). Secret `JWT_SECRET_FILE` veya geriye uyumlu
@@ -37,15 +37,9 @@ object AuthService {
     private val REFRESH_TOKEN_TTL_MS = TimeUnit.DAYS.toMillis(60)
     /** Registration token (OTP sonrasi) — 15 dk */
     private val REGISTRATION_TOKEN_TTL_MS = TimeUnit.MINUTES.toMillis(15)
-    // Geriye uyumluluk icin eski isim
-    private val TOKEN_TTL_MS = ACCESS_TOKEN_TTL_MS
 
     private val secret: String by lazy {
-        val s = SecretSource.required("JWT_SECRET")
-        if (s.length < 32) {
-            log.warn("UYARI: JWT_SECRET kisa (${s.length} char). En az 32 karakter onerilir.")
-        }
-        s
+        SecretPolicy.requireStrong("JWT_SECRET", SecretSource.required("JWT_SECRET"))
     }
 
     private val algorithm: Algorithm by lazy { Algorithm.HMAC256(secret) }
@@ -251,12 +245,15 @@ object AuthService {
      * yeniden baslatmayla geri gelmez.
      */
     fun forgetAccount(userId: String) {
-        CredentialState.forget(userId)
+        // Hesap silmede yerel kopyayi dusur ve butun instance'lara yay;
+        // aksi halde diger instance'lar silinen hesabin token'ini kisa bir
+        // sure kabul etmeye devam ederdi (whitebox bulgu).
+        CredentialState.invalidateEverywhere(userId)
     }
 
     /** AuthService'i baslangicta zorla — secret yoksa fail-fast. */
     fun initialize() {
         secret // lazy init tetikler
-        log.info("[Auth] JWT auth service hazir (HS256, TTL=30 gun)")
+        log.info("[Auth] JWT auth service hazir (HS256; access 1s, refresh 60g)")
     }
 }

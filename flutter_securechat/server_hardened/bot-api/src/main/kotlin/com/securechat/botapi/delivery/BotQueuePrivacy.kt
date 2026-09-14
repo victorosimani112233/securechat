@@ -108,12 +108,50 @@ class BotQueuePrimitives(
 }
 
 object BotQueuePrivacy {
-    val primitives: BotQueuePrimitives by lazy {
-        BotQueuePrimitives(
-            indexKey = BotApiConfig.privacyIndexKey,
-            encryptionKey = BotApiConfig.botQueueEncryptionKey,
-            allowLegacyPlaintext = BotApiConfig.allowLegacyPlaintextQueue
-        )
+
+    private val lock = Any()
+
+    @Volatile
+    private var cached: BotQueuePrimitives? = null
+
+    @Volatile
+    private var cachedFingerprint: Int = 0
+
+    /**
+     * Anahtar materyaline bagli onbellek.
+     *
+     * Onceki `by lazy` ilk kullanimda sabitleniyordu: yapilandirma sonradan
+     * degistirilirse (rotasyon, yeniden baslatma olmadan yeniden yukleme)
+     * eski anahtar sessizce kullanilmaya devam ederdi — blind index'ler ve
+     * muhurler o noktadan sonra tutarsiz olurdu. Anahtarin kimligi
+     * degistiginde primitifler yeniden kurulur.
+     */
+    val primitives: BotQueuePrimitives
+        get() {
+            val fingerprint = fingerprint()
+            val current = cached
+            if (current != null && cachedFingerprint == fingerprint) return current
+            synchronized(lock) {
+                val existing = cached
+                if (existing != null && cachedFingerprint == fingerprint) return existing
+                val built = BotQueuePrimitives(
+                    indexKey = BotApiConfig.privacyIndexKey,
+                    encryptionKey = BotApiConfig.botQueueEncryptionKey,
+                    allowLegacyPlaintext = BotApiConfig.allowLegacyPlaintextQueue,
+                )
+                cached = built
+                cachedFingerprint = fingerprint
+                return built
+            }
+        }
+
+    /** Anahtar materyalinin kimligi; ham anahtar hicbir yerde tutulmaz. */
+    private fun fingerprint(): Int {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        digest.update(BotApiConfig.privacyIndexKey)
+        digest.update(BotApiConfig.botQueueEncryptionKey)
+        digest.update(if (BotApiConfig.allowLegacyPlaintextQueue) 1 else 0)
+        return digest.digest().fold(0) { acc, byte -> acc * 31 + byte }
     }
 
     fun key(botUserId: String): String = primitives.key(botUserId)

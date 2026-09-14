@@ -78,7 +78,7 @@ data class PrivacyConfig(
                 error("$name must be valid Base64")
             }
             require(decoded.size == 32) { "$name must decode to exactly 32 bytes" }
-            return decoded
+            return SecretPolicy.requireStrongKey(name, decoded)
         }
 
         private fun boundedLong(

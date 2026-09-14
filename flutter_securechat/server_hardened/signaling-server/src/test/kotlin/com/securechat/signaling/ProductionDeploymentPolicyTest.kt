@@ -14,6 +14,7 @@ class ProductionDeploymentPolicyTest {
         "JANUS_WS_URL" to "ws://janus:8188",
         "JANUS_PUBLIC_WS_URL" to "wss://janus.example.invalid",
         "FIREBASE_SERVICE_ACCOUNT_PATH" to "/run/secrets/firebase_service_account",
+        "TURN_HOST" to "relay.example.invalid",
     )
 
     @Test
@@ -44,6 +45,9 @@ class ProductionDeploymentPolicyTest {
             mapOf("SMTP_TLS" to "none"),
             mapOf("JANUS_PUBLIC_WS_URL" to "ws://public.example.invalid"),
             mapOf("FIREBASE_SERVICE_ACCOUNT_PATH" to "relative.json"),
+            // Duz TURN, relay adresini ve kimligi yol uzerindeki gozlemciye acar.
+            mapOf("TURN_ALLOW_PLAINTEXT" to "true"),
+            mapOf("TURN_HOST" to ""),
         )) {
             assertThrows(IllegalArgumentException::class.java) {
                 ProductionDeploymentPolicy.validate(valid + override)

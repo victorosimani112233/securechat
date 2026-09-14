@@ -28,8 +28,12 @@ private val log = LoggerFactory.getLogger("EdDsaJwtVerifier")
  *  2. ClientKeyCache.get(kid) -> revoked/expired filter
  *  3. Ed25519 signature verify (JDK native)
  *  4. iat/exp window check (±60s past, +5s forward skew)
- *  5. NonceStore.tryConsume(jti) — replay
- *  6. BodyHashValidator.check(bh, body) — body integrity
+ *  5. BodyHashValidator.check(bh, body) — body integrity
+ *  6. NonceStore.tryConsume(jti) — replay
+ *
+ * 5 ve 6'nin sirasi onemlidir: nonce once tuketilseydi, yakalanmis bir token
+ * yanlis bir body ile oynatildiginda mesru istegin nonce'u yanar ve gercek
+ * istek replay sayilarak reddedilirdi.
  */
 class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedClient?) {
 
@@ -114,6 +118,9 @@ class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedC
         if (exp <= now) {
             return Result.Fail(Reason.EXPIRED, "Token suresi dolmus")
         }
+        if (exp <= iat) {
+            return Result.Fail(Reason.EXPIRED, "exp iat'ten sonra olmali")
+        }
         if (exp > iat + 60) {
             return Result.Fail(Reason.EXPIRED, "exp iat+60s'den uzun olamaz")
         }
@@ -121,16 +128,20 @@ class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedC
         val jti = claims.jwtid
             ?: return Result.Fail(Reason.MALFORMED_TOKEN, "jti zorunlu")
 
-        // 5. Replay
-        if (!NonceStore.tryConsume(jti)) {
-            return Result.Fail(Reason.REPLAYED_JTI, "jti tekrari (replay)")
-        }
-
-        // 6. Body hash
+        // 5. Body hash — nonce'tan ONCE.
+        //
+        // Nonce once tuketilseydi, yakalanmis bir token yanlis bir body ile
+        // oynatildiginda mesru istegin nonce'u yanar ve gercek istek replay
+        // sayilarak reddedilirdi. Once istegin butunlugu dogrulanir.
         val bhClaim = claims.getStringClaim("bh")
             ?: return Result.Fail(Reason.MALFORMED_TOKEN, "bh claim zorunlu")
         if (!BodyHashValidator.check(bhClaim, requestBody)) {
             return Result.Fail(Reason.BODY_HASH_MISMATCH, "Body hash claim'i body ile uyusmuyor")
+        }
+
+        // 6. Replay — yalniz butunlugu dogrulanmis istek nonce tuketir.
+        if (!NonceStore.tryConsume(jti)) {
+            return Result.Fail(Reason.REPLAYED_JTI, "jti tekrari (replay)")
         }
 
         return Result.Ok(client, jti)
@@ -145,6 +156,7 @@ class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedC
         // JWS signing input = base64url(header) + "." + base64url(payload)
         val signingInput = jws.signingInput
         val sigBytes = jws.signature.decode()
+        if (sigBytes.size != ED25519_SIGNATURE_BYTES) return false
         val sig = Signature.getInstance("Ed25519")
         sig.initVerify(publicKey)
         sig.update(signingInput)
@@ -153,6 +165,7 @@ class EdDsaJwtVerifier(private val clientLookup: (kid: String) -> AuthenticatedC
 
     companion object {
         const val EXPECTED_AUDIENCE = "securechat-bot-api"
+        private const val ED25519_SIGNATURE_BYTES = 64
     }
 }
 

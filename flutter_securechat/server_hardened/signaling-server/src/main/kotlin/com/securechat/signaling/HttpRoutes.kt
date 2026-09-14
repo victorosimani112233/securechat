@@ -35,10 +35,13 @@ private const val SMALL_BODY_LIMIT = 8 * 1024
 private const val PREKEY_BODY_LIMIT = 64 * 1024
 
 /** Tek yuklemede kabul edilen en fazla one-time prekey sayisi. */
-private const val MAX_ONE_TIME_PREKEYS = 200
+internal const val MAX_ONE_TIME_PREKEYS = 200
 
 /** Curve25519 public key 33, imza 64 byte; ust sinir bunun uzerinde tutuldu. */
-private const val MAX_KEY_MATERIAL_BYTES = 128
+internal const val MAX_KEY_MATERIAL_BYTES = 128
+
+/** Hesap basina saklanabilecek tuketilmemis one-time prekey ust siniri. */
+internal const val MAX_STORED_ONE_TIME_PREKEYS = 1_000
 
 /** Server baslangic zamani — uptime hesabi icin */
 private val serverStartTime = System.currentTimeMillis()
@@ -61,6 +64,26 @@ data class DirectoryEvaluateResponse(val keyId: String, val evaluated: List<Stri
 @Serializable
 data class DirectorySnapshotEntryResponse(val label: String, val sealedUserId: String)
 
+/**
+ * Karisik tipli `mapOf(...)` yanitlari calisma zamaninda serialize edilemez:
+ * `Map<String, Any>` icin serializer yoktur ve endpoint 500 dondururdu.
+ * Tipli yanitlar bunu derleme zamaninda imkansiz kilar.
+ */
+@Serializable
+data class LatestVersionResponse(
+    val versionCode: Int,
+    val versionName: String,
+    val downloadUrl: String,
+    val mandatory: Boolean,
+)
+
+@Serializable
+data class SfuRoomResponse(
+    val roomId: Long,
+    val janusWsUrl: String,
+    val status: String,
+)
+
 @Serializable
 data class DirectorySnapshotResponse(
     val keyId: String,
@@ -68,12 +91,11 @@ data class DirectorySnapshotResponse(
 )
 
 @Serializable
-data class OwnDirectoryUpdateRequest(val phoneHash: String)
+data class OwnDirectoryUpdateRequest(val directoryToken: String)
 
 @Serializable
 data class RegisterRequest(
     val userId: String,
-    val phoneHash: String,
     /** OTP dogrulama sonrasi alinan kisa omurlu registration token. */
     val registrationToken: String? = null
 )
@@ -124,7 +146,24 @@ data class PreKeyEntry(val keyId: Int, val publicKey: String) // publicKey base6
  * Onceki akista one-time prekey sayisi ve anahtar boyutlari sinirsizdi;
  * tek bir istek binlerce satir veya cok buyuk alanlar yazdirabiliyordu.
  */
-private fun PreKeyUploadRequest.hasSaneKeyMaterial(): Boolean {
+/**
+ * Refresh yolundaki one-time prekey listesinin alan bazinda gecerliligi.
+ *
+ * `/prekeys/refresh` daha once `hasSaneKeyMaterial()`'i atliyordu: keyId
+ * araligi, anahtar boyutu, sayi tavani ve tekrar kontrolu yoktu; bir hesap
+ * her istekte farkli keyId'lerle sinirsiz satir ekleyebiliyordu.
+ */
+internal fun List<PreKeyEntry>.hasSaneOneTimeKeys(): Boolean {
+    if (size > MAX_ONE_TIME_PREKEYS) return false
+    if (distinctBy { it.keyId }.size != size) return false
+    return all { entry ->
+        entry.keyId in 0..0xFFFFFF &&
+            (runCatching { java.util.Base64.getDecoder().decode(entry.publicKey).size }
+                .getOrDefault(0)) in 1..MAX_KEY_MATERIAL_BYTES
+    }
+}
+
+internal fun PreKeyUploadRequest.hasSaneKeyMaterial(): Boolean {
     fun decoded(value: String): Int? = try {
         java.util.Base64.getDecoder().decode(value).size
     } catch (_: Exception) {
@@ -195,7 +234,8 @@ data class HealthResponse(
 fun Application.configureRoutes(
     connectionManager: ConnectionManager,
     userRegistry: UserRegistry,
-    fcmTokenStore: FcmTokenStore? = null
+    fcmTokenStore: FcmTokenStore? = null,
+    fcmPushSender: FcmPushSender? = null,
 ) {
     routing {
         intercept(ApplicationCallPipeline.Plugins) {
@@ -228,14 +268,26 @@ fun Application.configureRoutes(
             )
         }
 
-        // Health check — kritik bagimliliklar (DB + Redis); Janus ve FCM opsiyonel
+        // Liveness: process ayakta mi. Bagimlilik ayrintisi tasimaz; anonim
+        // bir istemciye stack'in ic yapisini vermek gerekmez.
         get("/health") {
+            call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+        }
+
+        // Readiness: operator'a ozel ayrintili durum.
+        get("/ready") {
+            if (!MetricsAccess.isAuthorized(call.request.headers["Authorization"])) {
+                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "unauthorized"))
+                return@get
+            }
             val dbOk = Database.isHealthy()
             val redisOk = RedisManager.isHealthy()
             val privacyOk = PrivacyRetentionWorker.isHealthy()
             val criticalOk = dbOk && redisOk && privacyOk
             val janusEnabled = !System.getenv("JANUS_WS_URL").isNullOrBlank()
-            val fcmEnabled = !System.getenv("FIREBASE_SERVICE_ACCOUNT_PATH").isNullOrBlank()
+            // Env path'inin varligi push'in calistigini kanitlamaz; gercek
+            // baslatma sonucu raporlanir.
+            val fcmEnabled = fcmPushSender?.isOperational == true
             call.respond(
                 if (criticalOk) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable,
                 HealthResponse(
@@ -272,12 +324,12 @@ fun Application.configureRoutes(
             val versionName = System.getenv("LATEST_APK_VERSION_NAME") ?: ""
             val downloadUrl = System.getenv("LATEST_APK_DOWNLOAD_URL") ?: ""
             call.respond(
-                mapOf(
-                    "versionCode" to (versionCode ?: 0),
-                    "versionName" to versionName,
-                    "downloadUrl" to downloadUrl,
-                    "mandatory" to (System.getenv("LATEST_APK_MANDATORY") == "true")
-                )
+                LatestVersionResponse(
+                    versionCode = versionCode ?: 0,
+                    versionName = versionName,
+                    downloadUrl = downloadUrl,
+                    mandatory = System.getenv("LATEST_APK_MANDATORY") == "true",
+                ),
             )
         }
 
@@ -306,6 +358,17 @@ fun Application.configureRoutes(
                 call.respond(
                     HttpStatusCode.TooManyRequests,
                     mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()),
+                )
+                return@post
+            }
+            // Redis sliding window kalicisizdir (RDB kapali); restart sonrasi
+            // sifirlanan bir kota enumeration'a karsi tekrar denenebilir bir
+            // engeldir. Kalici gunluk kota bunun icin ayrica kontrol edilir.
+            if (!DirectoryQuota.tryConsume(authedUserId, PrivateDirectoryOprf.AUTHENTICATED_BATCH_SIZE)) {
+                call.response.header("Retry-After", "3600")
+                call.respond(
+                    HttpStatusCode.TooManyRequests,
+                    mapOf("error" to "directory_quota_exhausted", "retryAfter" to "3600"),
                 )
                 return@post
             }
@@ -339,19 +402,14 @@ fun Application.configureRoutes(
                 )
                 return@get
             }
-            val entries = userRegistry.privateDirectorySnapshot().map { user ->
-                val sealed = PrivateDirectory.oprf.sealUserId(
-                    user.directoryToken,
-                    user.userId,
-                )
-                DirectorySnapshotEntryResponse(sealed.label, sealed.sealedUserId)
+            val entries = DirectorySnapshotCache.entries(userRegistry).map { entry ->
+                DirectorySnapshotEntryResponse(entry.label, entry.sealedUserId)
             }
             call.respond(DirectorySnapshotResponse(PrivateDirectory.oprf.keyId, entries))
         }
 
-        // Upgrade path for an already authenticated device. Only the account's
-        // own declared phone hash is transiently processed; it is never logged,
-        // cached or persisted and cannot expose the device address book.
+        // The client sends only a finalized blind-OPRF token. A deterministic
+        // phone hash must never cross this API boundary.
         post("/api/v1/users/directory-token") {
             val authedUserId = requireAuth(call) ?: return@post
             if (!RateLimiter.allow("directory_self_update", authedUserId)) {
@@ -362,12 +420,14 @@ fun Application.configureRoutes(
                 DIRECTORY_SELF_UPDATE_BODY_LIMIT,
             ) ?: return@post
             val updated = try {
-                userRegistry.updateOwnDirectoryToken(authedUserId, request.phoneHash)
+                userRegistry.updateOwnDirectoryToken(authedUserId, request.directoryToken)
             } catch (_: IllegalArgumentException) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_phone_hash"))
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_directory_token"))
                 return@post
             }
-            call.respond(mapOf("status" to "ok", "keyId" to updated.directoryKeyId))
+            // Deger nullable olmamali: `Map<String, String?>` yaniti tip guvenli
+            // degil ve yanit sozlesmesini belirsiz birakir.
+            call.respond(mapOf("status" to "ok", "keyId" to updated.directoryKeyId.orEmpty()))
         }
 
         // ========================================================
@@ -463,7 +523,10 @@ fun Application.configureRoutes(
                 call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
                 return@post
             }
-            val request = call.receiveBounded<RegisterRequest>(SMALL_BODY_LIMIT) ?: return@post
+            val request = call.receiveBounded<RegisterRequest>(
+                SMALL_BODY_LIMIT,
+                ignoreUnknownKeys = false,
+            ) ?: return@post
 
             // OTP registration token is mandatory and single-use in every
             // environment. Test behavior belongs in test source sets, not a
@@ -486,7 +549,7 @@ fun Application.configureRoutes(
                 // Grant tuketimi ile hesap kaydi tek transaction'dadir: kayit
                 // geri alinirsa grant yanmaz, kayit basarili olursa grant
                 // kalici olarak tukenmis sayilir.
-                val candidate = userRegistry.prepareRegistration(request.userId, request.phoneHash)
+                val candidate = userRegistry.prepareRegistration(request.userId)
                 RegistrationGrants.claimAccount(grant, candidate, userRegistry)
                     ?: run {
                         AuditLog.log(eventType = "REGISTER_GRANT_REPLAY", ipAddress = ip)
@@ -581,6 +644,13 @@ fun Application.configureRoutes(
         // (token rotation: eski refresh token blacklist'e alinir)
         post("/api/v1/auth/refresh") {
             val ip = call.clientAddress()
+            if (!RateLimiter.allow("auth_refresh", ip)) {
+                val retry = RateLimiter.retryAfter("auth_refresh", ip)
+                AuditLog.log(eventType = "RATE_LIMIT_HIT", metadata = mapOf("endpoint" to "auth_refresh"), ipAddress = ip)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
+                return@post
+            }
             val body = call.receiveBounded<RefreshTokenRequest>(SMALL_BODY_LIMIT) ?: return@post
             val claims = AuthService.refreshClaims(body.refreshToken)
             if (claims == null) {
@@ -640,6 +710,12 @@ fun Application.configureRoutes(
                 call,
                 serviceScope = ServiceAssertion.Scope.PREKEY_UPLOAD,
             ) ?: return@post
+            if (!RateLimiter.allow("prekey_write", authedUserId)) {
+                val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
+                return@post
+            }
             val req = call.receiveBounded<PreKeyUploadRequest>(PREKEY_BODY_LIMIT) ?: return@post
             val decoder = java.util.Base64.getDecoder()
             // Alan bazinda sinirlar: govde limiti tek basina yetmez, cunku
@@ -647,6 +723,15 @@ fun Application.configureRoutes(
             if (!req.hasSaneKeyMaterial()) {
                 AuditLog.log(eventType = "PREKEY_UPLOAD_REJECTED", ipAddress = call.clientAddress())
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_prekey_material"))
+                return@post
+            }
+            // Hesap basina depolama tavani: identity ayni kalirken gelen
+            // one-time prekey'ler mevcut havuza eklenir; sinirsizken tek hesap
+            // tabloyu sinirsiz buyutebiliyordu.
+            if (PreKeyStore.unconsumedCount(authedUserId) + req.oneTimePreKeys.size >
+                MAX_STORED_ONE_TIME_PREKEYS
+            ) {
+                call.respond(HttpStatusCode.Conflict, mapOf("error" to "prekey_pool_full"))
                 return@post
             }
             try {
@@ -674,9 +759,35 @@ fun Application.configureRoutes(
         }
 
         // One-time prekey havuzunu yenile (rotation)
+        get("/api/v1/prekeys/status") {
+            val authedUserId = requireAuth(call) ?: return@get
+            call.respond(
+                mapOf("remaining" to PreKeyStore.unconsumedCount(authedUserId)),
+            )
+        }
+
+        // One-time prekey havuzunu yenile (rotation)
         post("/api/v1/prekeys/refresh") {
             val authedUserId = requireAuth(call) ?: return@post
+            if (!RateLimiter.allow("prekey_write", authedUserId)) {
+                val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
+                return@post
+            }
             val keys = call.receiveBounded<List<PreKeyEntry>>(PREKEY_BODY_LIMIT) ?: return@post
+            // Upload ile ayni alan kontrolleri; refresh bunlari atliyordu.
+            if (!keys.hasSaneOneTimeKeys()) {
+                AuditLog.log(eventType = "PREKEY_UPLOAD_REJECTED", ipAddress = call.clientAddress())
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_prekey_material"))
+                return@post
+            }
+            if (PreKeyStore.unconsumedCount(authedUserId) + keys.size >
+                MAX_STORED_ONE_TIME_PREKEYS
+            ) {
+                call.respond(HttpStatusCode.Conflict, mapOf("error" to "prekey_pool_full"))
+                return@post
+            }
             val decoder = java.util.Base64.getDecoder()
             try {
                 PreKeyStore.addOneTimePreKeys(
@@ -692,10 +803,19 @@ fun Application.configureRoutes(
 
         // Diger client baska bir kullanicinin prekey bundle'ini ister
         get("/api/v1/users/{userId}/prekeys") {
-            requirePrincipal(
+            val fetcherId = requirePrincipal(
                 call,
                 serviceScope = ServiceAssertion.Scope.PREKEY_FETCH,
             ) ?: return@get
+            // Her fetch hedefin bir one-time prekey'ini tuketir; cagiran
+            // basina sinir, bilinen bir UUID'nin havuzunun bosaltilmasini
+            // yavaslatir (whitebox bulgu).
+            if (!RateLimiter.allow("prekey_fetch", fetcherId)) {
+                val retry = RateLimiter.retryAfter("prekey_fetch", fetcherId)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
+                return@get
+            }
             val targetUserId = call.parameters["userId"] ?: run {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "userId gerekli"))
                 return@get
@@ -721,20 +841,30 @@ fun Application.configureRoutes(
 
         // --- SFU Room Bilgisi — AUTH GEREKLI ---
         get("/api/v1/sfu/room/{groupId}") {
-            requireAuth(call) ?: return@get
+            val authedUserId = requireAuth(call) ?: return@get
             val groupId = call.parameters["groupId"] ?: run {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "groupId gerekli"))
+                return@get
+            }
+            // Kimlik dogrulamasi tek basina yetki degildir: yalniz aktif
+            // cagrinin katilimcisi oda bilgisini alabilir.
+            val activeCall = GroupCallSessionStore.get(groupId)
+            if (activeCall == null || authedUserId !in activeCall.participants) {
+                AuditLog.log(eventType = "SFU_ROOM_UNAUTHORIZED", ipAddress = call.clientAddress())
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Aktif SFU room bulunamadi"))
                 return@get
             }
             val info = JanusOrchestrator.getRoomInfo(groupId)
             if (info == null) {
                 call.respond(HttpStatusCode.NotFound, mapOf("error" to "Aktif SFU room bulunamadi"))
             } else {
-                call.respond(mapOf(
-                    "roomId" to info.roomId,
-                    "janusWsUrl" to info.janusWsUrl,
-                    "status" to "active"
-                ))
+                call.respond(
+                    SfuRoomResponse(
+                        roomId = info.roomId,
+                        janusWsUrl = info.janusWsUrl,
+                        status = "active",
+                    ),
+                )
             }
         }
 
@@ -790,6 +920,7 @@ fun Application.configureRoutes(
  */
 private suspend inline fun <reified T> ApplicationCall.receiveBounded(
     maximumBytes: Int,
+    ignoreUnknownKeys: Boolean = true,
 ): T? {
     val declaredLength = request.contentLength()
     if (declaredLength != null && declaredLength > maximumBytes) {
@@ -802,7 +933,8 @@ private suspend inline fun <reified T> ApplicationCall.receiveBounded(
         return null
     }
     return try {
-        Json { ignoreUnknownKeys = true }.decodeFromString<T>(bytes.toString(Charsets.UTF_8))
+        Json { this.ignoreUnknownKeys = ignoreUnknownKeys }
+            .decodeFromString<T>(bytes.toString(Charsets.UTF_8))
     } catch (_: Exception) {
         respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_json"))
         null

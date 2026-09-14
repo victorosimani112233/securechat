@@ -2,6 +2,7 @@ package com.securechat.signaling
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 
 /**
@@ -52,10 +53,37 @@ internal object SecretSource {
         val path = Path.of(rawPath)
         require(path.isAbsolute) { "Secret file path must be absolute" }
         require(!Files.isSymbolicLink(path)) { "Secret file must not be a symbolic link" }
+        require(Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+            "Secret path must be a regular file"
+        }
+        require(path.toAbsolutePath().normalize() == path.toRealPath()) {
+            "Secret path must not contain symbolic-link components"
+        }
         val size = Files.size(path)
         require(size in 1..MAX_SECRET_BYTES.toLong()) {
             "Secret file has an invalid size"
         }
+        requireOwnerOnly(path)
         return Files.readString(path, StandardCharsets.UTF_8)
+    }
+
+    /**
+     * Secret dosyasi grup veya diger kullanicilara acik olmamalidir.
+     *
+     * Host preflight bunu deploy aninda kontrol eder, fakat runtime'da hic
+     * dogrulanmiyordu: yanlis mount edilmis veya sonradan izni degistirilmis
+     * bir secret sessizce okunuyordu.
+     */
+    private fun requireOwnerOnly(path: Path) {
+        require(Files.getFileStore(path).supportsFileAttributeView("posix")) {
+            "Secret filesystem must expose POSIX permissions"
+        }
+        val permissions = Files.getPosixFilePermissions(path)
+        val exposed = permissions.filter { permission ->
+            permission.name.startsWith("GROUP_") || permission.name.startsWith("OTHERS_")
+        }
+        require(exposed.isEmpty()) {
+            "Secret file must not be readable by group or others"
+        }
     }
 }

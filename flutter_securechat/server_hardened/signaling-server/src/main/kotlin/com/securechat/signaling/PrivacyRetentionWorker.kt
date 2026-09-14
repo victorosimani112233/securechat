@@ -104,6 +104,8 @@ object PrivacyRetentionWorker {
                 }
                 // Replay penceresi kapanmis registration grant isaretleri.
                 RegistrationGrants.purgeExpired(connection)
+                // Gecmis gun kovalarindaki rehber kotasi satirlari.
+                DirectoryQuota.purgeExpired(connection)
                 val pushTokens = connection.prepareStatement(
                     "DELETE FROM fcm_tokens WHERE registered_on < CURRENT_DATE - ?",
                 ).use { statement ->

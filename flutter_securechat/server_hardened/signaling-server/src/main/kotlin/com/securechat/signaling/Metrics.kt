@@ -84,6 +84,27 @@ object Metrics {
         .register(registry)
 
     /** Aktif WebSocket connection sayisini gostergesi (gauge) — ConnectionManager set eder. */
+    /**
+     * Kimlik icermeyen guvenlik olayi sayaclarini metrics yuzeyine baglar.
+     *
+     * Sayac degerleri yalniz olay turu -> toplam sayidir; kullanici, IP veya
+     * zaman damgasi tasimaz. Metrics yuzeyi zaten bearer korumalidir.
+     */
+    fun registerAuditCounters() {
+        io.micrometer.core.instrument.Gauge
+            .builder("securechat_security_events_total") { AuditLog.snapshot().values.sum() }
+            .description("Kimliksiz guvenlik olayi sayaci toplami")
+            .register(registry)
+    }
+
+    /** Belirli bir olay turunun anlik degeri. */
+    fun registerAuditCounter(eventType: String) {
+        io.micrometer.core.instrument.Gauge
+            .builder("securechat_security_event") { AuditLog.count(eventType).toDouble() }
+            .tag("event", eventType)
+            .register(registry)
+    }
+
     fun registerOnlineUsersGauge(supplier: () -> Int) {
         io.micrometer.core.instrument.Gauge.builder("securechat_online_users", supplier) { it().toDouble() }
             .description("Anlik aktif WebSocket baglantisi")

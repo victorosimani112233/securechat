@@ -80,7 +80,9 @@ internal class FcmTokenCipher(
             require(decoded.size == KEY_BYTES) {
                 "FCM_TOKEN_ENCRYPTION_KEY must decode to exactly 32 bytes"
             }
-            return FcmTokenCipher(decoded)
+            return FcmTokenCipher(
+                SecretPolicy.requireStrongKey("FCM_TOKEN_ENCRYPTION_KEY", decoded),
+            )
         }
     }
 }

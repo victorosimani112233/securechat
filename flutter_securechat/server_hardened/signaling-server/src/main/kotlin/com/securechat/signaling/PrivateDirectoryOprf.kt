@@ -39,7 +39,11 @@ data class PrivateDirectoryEntry(
  * server therefore sees a fixed-size batch of uniformly random RSA group
  * elements, not the address-book hashes. PostgreSQL stores only finalized
  * OPRF tokens. A database snapshot without this independent private key
- * cannot run an offline phone-number dictionary attack.
+ * cannot run an offline phone-number dictionary attack. This is not a
+ * defense against the operator of this single service: an operator that can
+ * use both the OPRF private key and the token snapshot can evaluate a phone
+ * dictionary. Meeting that threat model requires an attested enclave or a
+ * non-colluding threshold/PSI design.
  *
  * This key is dedicated to directory OPRF only. It must never be reused for
  * TLS, JWT, signatures or encryption. Production should load it from a
@@ -113,6 +117,32 @@ class PrivateDirectoryOprf private constructor(
         return PrivateDirectoryEntry(
             label = label,
             sealedUserId = encoder.encodeToString(nonce + ciphertext),
+        )
+    }
+
+    /**
+     * Gercek bir kayittan ayirt edilemeyen dolgu kaydi.
+     *
+     * Snapshot'in eleman sayisi dogrudan kayitli hesap sayisidir; kimlik
+     * dogrulamis herhangi bir istemci sunucunun buyuklugunu ve buyume hizini
+     * olcebilirdi. Dolgu kayitlari sayiyi bir kovaya yuvarlar.
+     *
+     * [stableSeed] sunucu tarafinda sabit, istemci icin ongorulemez bir
+     * degerdir: etiket yeniden hesaplamalar arasinda **degismemelidir**.
+     * Gercek etiketler token'dan deterministik turedigi icin her rebuild'de
+     * degisen bir dolgu etiketi dolguyu ele verirdi. Zarf ise her rebuild'de
+     * yenilenir; gercek zarflar da yeni nonce ile yenilendigi icin ikisi
+     * ayni sekilde degisir.
+     */
+    fun decoyEntry(stableSeed: String): PrivateDirectoryEntry {
+        val label = encoder.encodeToString(
+            sha256(DECOY_LABEL_DOMAIN + stableSeed.toByteArray(StandardCharsets.UTF_8)),
+        )
+        // Gercek zarf: 12 byte nonce + 36 byte UUID ciphertext + 16 byte tag.
+        val envelope = ByteArray(SEALED_ENVELOPE_BYTES).also(random::nextBytes)
+        return PrivateDirectoryEntry(
+            label = label,
+            sealedUserId = encoder.encodeToString(envelope),
         )
     }
 
@@ -208,6 +238,9 @@ class PrivateDirectoryOprf private constructor(
     companion object {
         const val PROTOCOL_VERSION = "elcim-directory-oprf-v1"
         const val AUTHENTICATED_BATCH_SIZE = 256
+
+        /** 12 byte GCM nonce + 36 byte UUID ciphertext + 16 byte tag. */
+        internal const val SEALED_ENVELOPE_BYTES = 12 + 36 + 16
         private const val MINIMUM_RSA_BITS = 3072
         private const val TOKEN_BYTES = 32
         private val PUBLIC_EXPONENT = BigInteger.valueOf(65_537)
@@ -220,6 +253,8 @@ class PrivateDirectoryOprf private constructor(
         private val TOKEN_DOMAIN = "elcim-directory-token-v1\u0000"
             .toByteArray(StandardCharsets.US_ASCII)
         private val LABEL_DOMAIN = "elcim-directory-label-v1\u0000"
+            .toByteArray(StandardCharsets.US_ASCII)
+        private val DECOY_LABEL_DOMAIN = "elcim-directory-decoy-v1\u0000"
             .toByteArray(StandardCharsets.US_ASCII)
         private val ENTRY_KEY_DOMAIN = "elcim-directory-entry-key-v1\u0000"
             .toByteArray(StandardCharsets.US_ASCII)

@@ -47,13 +47,14 @@ class ServiceAssertionTest {
     @Test
     fun `a correctly scoped assertion is accepted`() {
         val keys = keyPair()
+        val jti = UUID.randomUUID().toString()
         val result = ServiceAssertion.verify(
-            assertion(keys.private),
+            assertion(keys.private, jti = jti),
             keys.public,
             ServiceAssertion.Scope.PREKEY_UPLOAD,
         )
         assertEquals(
-            ServiceAssertion.Result.Accepted(subject, ServiceAssertion.Scope.PREKEY_UPLOAD),
+            ServiceAssertion.Result.Accepted(subject, ServiceAssertion.Scope.PREKEY_UPLOAD, jti),
             result,
         )
     }
@@ -68,6 +69,23 @@ class ServiceAssertionTest {
             ServiceAssertion.Scope.PREKEY_UPLOAD,
         )
         assertEquals(ServiceAssertion.Result.Rejected, result)
+    }
+
+    @Test
+    fun `a valid signature with trailing garbage is rejected`() {
+        val keys = keyPair()
+        val parts = assertion(keys.private).split('.')
+        val signature = Base64.getUrlDecoder().decode(parts[2]) + byteArrayOf(0)
+        val malformed = "${parts[0]}.${parts[1]}.${encoder.encodeToString(signature)}"
+
+        assertEquals(
+            ServiceAssertion.Result.Rejected,
+            ServiceAssertion.verify(
+                malformed,
+                keys.public,
+                ServiceAssertion.Scope.PREKEY_UPLOAD,
+            ),
+        )
     }
 
     @Test
@@ -177,6 +195,19 @@ class ServiceAssertionTest {
             ServiceAssertion.Result.Rejected,
             ServiceAssertion.verify(
                 assertion(keys.private, subject = "registration-grant"),
+                keys.public,
+                ServiceAssertion.Scope.PREKEY_UPLOAD,
+            ),
+        )
+    }
+
+    @Test
+    fun `a non uuid replay id is rejected`() {
+        val keys = keyPair()
+        assertEquals(
+            ServiceAssertion.Result.Rejected,
+            ServiceAssertion.verify(
+                assertion(keys.private, jti = "predictable-replay-id"),
                 keys.public,
                 ServiceAssertion.Scope.PREKEY_UPLOAD,
             ),

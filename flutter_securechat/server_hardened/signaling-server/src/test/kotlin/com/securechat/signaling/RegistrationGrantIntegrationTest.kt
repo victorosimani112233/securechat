@@ -16,7 +16,6 @@ import org.testcontainers.DockerClientFactory
 import org.testcontainers.containers.PostgreSQLContainer
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.Callable
@@ -69,7 +68,6 @@ class RegistrationGrantIntegrationTest {
             directory = PrivateDirectoryOprf.forTest(
                 generator.generateKeyPair().private as java.security.interfaces.RSAPrivateCrtKey,
             ),
-            legacyIndex = { "legacy-$it" },
         )
     }
 
@@ -78,10 +76,6 @@ class RegistrationGrantIntegrationTest {
         Database.close()
         postgres.stop()
     }
-
-    private fun phoneHash(seed: String): String =
-        MessageDigest.getInstance("SHA-256").digest(seed.toByteArray())
-            .joinToString("") { "%02x".format(it) }
 
     private fun grant(): AuthService.RegistrationGrant {
         val claim = AuthService.registrationGrantClaim(AuthService.issueRegistrationToken())
@@ -102,7 +96,7 @@ class RegistrationGrantIntegrationTest {
     @Test
     fun `a grant registers exactly one account`() {
         val claim = grant()
-        val candidate = registry.prepareRegistration(UUID.randomUUID().toString(), phoneHash("a"))
+        val candidate = registry.prepareRegistration(UUID.randomUUID().toString())
 
         val user = RegistrationGrants.claimAccount(claim, candidate, registry)
 
@@ -113,18 +107,18 @@ class RegistrationGrantIntegrationTest {
     @Test
     fun `replaying a consumed grant is refused even after a cache loss`() {
         val claim = grant()
-        val first = registry.prepareRegistration(UUID.randomUUID().toString(), phoneHash("b"))
+        val first = registry.prepareRegistration(UUID.randomUUID().toString())
         assertNotNull(RegistrationGrants.claimAccount(claim, first, registry))
 
         // Redis tamamen kaybolsa bile karar degismez: isaret PostgreSQL'de.
-        val second = registry.prepareRegistration(UUID.randomUUID().toString(), phoneHash("c"))
+        val second = registry.prepareRegistration(UUID.randomUUID().toString())
         assertNull(RegistrationGrants.claimAccount(claim, second, registry))
     }
 
     @Test
     fun `a rejected registration does not burn the grant`() {
         val claim = grant()
-        val taken = registry.prepareRegistration(UUID.randomUUID().toString(), phoneHash("d"))
+        val taken = registry.prepareRegistration(UUID.randomUUID().toString())
         assertNotNull(RegistrationGrants.claimAccount(grant(), taken, registry))
 
         // Ayni directory kimligi baskasi tarafindan alinmis: kayit reddedilir
@@ -138,7 +132,7 @@ class RegistrationGrantIntegrationTest {
             RegistrationGrants.claimAccount(claim, duplicate, registry)
         }
 
-        val fresh = registry.prepareRegistration(UUID.randomUUID().toString(), phoneHash("e"))
+        val fresh = registry.prepareRegistration(UUID.randomUUID().toString())
         assertNotNull(RegistrationGrants.claimAccount(claim, fresh, registry))
     }
 
@@ -146,7 +140,7 @@ class RegistrationGrantIntegrationTest {
     fun `parallel use of one grant elects a single winner`() {
         val claim = grant()
         val candidates = List(PARALLEL_ATTEMPTS) {
-            registry.prepareRegistration(UUID.randomUUID().toString(), phoneHash("parallel-$it"))
+            registry.prepareRegistration(UUID.randomUUID().toString())
         }
         val pool = Executors.newFixedThreadPool(PARALLEL_ATTEMPTS)
         try {
@@ -165,7 +159,7 @@ class RegistrationGrantIntegrationTest {
     @Test
     fun `expired markers are purged and carry no account reference`() {
         val claim = grant()
-        val candidate = registry.prepareRegistration(UUID.randomUUID().toString(), phoneHash("f"))
+        val candidate = registry.prepareRegistration(UUID.randomUUID().toString())
         assertNotNull(RegistrationGrants.claimAccount(claim, candidate, registry))
         assertTrue(grantUseCount() > 0)
 
@@ -190,7 +184,10 @@ class RegistrationGrantIntegrationTest {
     }
 
     private companion object {
-        const val LAST_MIGRATION = 18
+        val LAST_MIGRATION: Int = java.io.File(System.getProperty("serverMigrationDir"))
+            .listFiles { file -> file.name.startsWith("V") && file.name.endsWith(".sql") }
+            ?.maxOf { it.name.removePrefix("V").substringBefore("__").toInt() }
+            ?: error("Migration dizini okunamadi")
         const val PARALLEL_ATTEMPTS = 8
     }
 }

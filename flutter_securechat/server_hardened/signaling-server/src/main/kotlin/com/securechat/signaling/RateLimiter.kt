@@ -20,7 +20,18 @@ object RateLimiter {
         "directory_snapshot" to RateLimit(12, 3_600),  // snapshot polling siniri
         "directory_self_update" to RateLimit(4, 86_400), // own-index migration/rotation
         "users_register" to RateLimit(5, 3600),      // 5 req/saat per IP
+        // Refresh tek basina credential tasiyan endpoint'ti ve digerlerinin
+        // aksine rate-limit'siz'di (deep-scan bulgu). Token yuksek-entropili
+        // olsa da defense-in-depth icin IP basina sinir uygulanir.
+        "auth_refresh" to RateLimit(30, 600),        // 30 req/10dk per IP
         "ice_config" to RateLimit(30, 3600),          // 30 req/saat per userId
+        // Prekey fetch her cagride hedefin bir one-time prekey'ini tuketir;
+        // sinirsizken bir saldirgan bilinen bir UUID'nin havuzunu bosaltip
+        // X3DH forward-secrecy'yi dusurebiliyordu (whitebox bulgu).
+        "prekey_fetch" to RateLimit(120, 3600),       // 120 bundle fetch/saat per caller
+        // Upload + refresh yazma yolu; sinirsizken tek hesap one_time_prekeys
+        // tablosunu sinirsiz buyutebiliyordu.
+        "prekey_write" to RateLimit(30, 3600),        // 30 yazma/saat per account
         "ws_message" to RateLimit(50, 1),             // 50 msg/sn per userId (DoS koruma)
         "ws_connect" to RateLimit(10, 1),             // 10 yeni WS baglanti/sn per IP
         "file_chunk_bytes" to RateLimit(5_242_880, 60), // 5 MB/dk per userId (bytes window)

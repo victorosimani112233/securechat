@@ -37,14 +37,33 @@ object EmailService {
         get() = !host.isNullOrBlank() && !fromAddress.isNullOrBlank()
 
     /** Production registration must never silently degrade to no-OTP mode. */
-    fun initialize() {
-        require(isConfigured) { "SMTP_HOST ve SMTP_FROM production OTP icin zorunludur" }
-        require(port in 1..65535) { "SMTP_PORT gecersiz" }
-        require(tlsMode.lowercase() in setOf("starttls", "ssl")) {
+    fun initialize() = validate()
+
+    /**
+     * SMTP yapilandirmasinin fail-closed dogrulamasi.
+     *
+     * Kayit akisi OTP'ye baglidir: eksik ya da duz metin bir SMTP
+     * yapilandirmasi sessizce "OTP'siz kayit" moduna dusmemelidir. Ortam
+     * disaridan verilebildigi icin bu kurallar gercek bir SMTP sunucusu
+     * olmadan surulebilir.
+     */
+    internal fun validate(environment: Map<String, String> = System.getenv()) {
+        val smtpHost = environment["SMTP_HOST"]
+        val smtpFrom = environment["SMTP_FROM"]
+        val smtpPort = environment["SMTP_PORT"]?.toIntOrNull() ?: 587
+        val smtpTls = environment["SMTP_TLS"] ?: "starttls"
+        val smtpUser = environment["SMTP_USERNAME"]
+        val smtpPassword = SecretSource.optional("SMTP_PASSWORD", environment)
+
+        require(!smtpHost.isNullOrBlank() && !smtpFrom.isNullOrBlank()) {
+            "SMTP_HOST ve SMTP_FROM production OTP icin zorunludur"
+        }
+        require(smtpPort in 1..65535) { "SMTP_PORT gecersiz" }
+        require(smtpTls.lowercase() in setOf("starttls", "ssl")) {
             "SMTP_TLS production'da starttls veya ssl olmali"
         }
-        if (!username.isNullOrBlank()) {
-            require(!password.isNullOrBlank()) { "SMTP_PASSWORD, SMTP_USERNAME ile zorunludur" }
+        if (!smtpUser.isNullOrBlank()) {
+            require(!smtpPassword.isNullOrBlank()) { "SMTP_PASSWORD, SMTP_USERNAME ile zorunludur" }
         }
     }
 

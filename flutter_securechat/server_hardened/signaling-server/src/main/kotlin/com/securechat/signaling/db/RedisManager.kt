@@ -40,6 +40,17 @@ object RedisManager {
         return pool.resource.use { jedis -> block(jedis) }
     }
 
+    /**
+     * Uzun omurlu abone; cagiran thread'i bloklar.
+     *
+     * Ayri, adanmis bir baglanti kullanir (subscribe komutunun baglantiyi
+     * process omru boyunca mesgul etmesi normaldir). Havuz `maxTotal=50`
+     * oldugu icin tek bir kalici abone kaynagi sorun degildir.
+     */
+    fun subscribe(pubSub: redis.clients.jedis.JedisPubSub, channel: String) {
+        pool.resource.use { jedis -> jedis.subscribe(pubSub, channel) }
+    }
+
     fun isHealthy(): Boolean {
         return try {
             use { it.ping() == "PONG" }

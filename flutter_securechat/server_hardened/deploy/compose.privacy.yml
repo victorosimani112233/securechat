@@ -11,6 +11,10 @@ x-runtime-hardening: &runtime-hardening
       soft: 0
       hard: 0
   pids_limit: 256
+  # JVM `MaxRAMPercentage` container limiti yoksa host RAM'ine gore
+  # hesaplar; limitsiz calisan bir process OOM'da host'u da etkiler.
+  mem_limit: ${SERVICE_MEMORY_LIMIT:-1g}
+  cpus: ${SERVICE_CPU_LIMIT:-1.0}
   restart: unless-stopped
   logging:
     driver: none
@@ -62,6 +66,11 @@ services:
       REDIS_PASSWORD_FILE: /run/secrets/redis_password
       TURN_HOST: ${TURN_HOST:?Set the TURN host}
       TURN_PORT: ${TURN_PORT:-3478}
+      # Relay TLS zorunludur: duz turn: uzerinde username ve relay adresi
+      # yol uzerindeki gozlemciye aciktir (bkz. ProductionDeploymentPolicy).
+      # Bos birakilirsa TURN_HOST kullanilir.
+      TURN_TLS_HOST: ${TURN_TLS_HOST:-}
+      TURN_TLS_PORT: ${TURN_TLS_PORT:-5349}
       TURN_SECRET_FILE: /run/secrets/turn_secret
       JWT_SECRET_FILE: /run/secrets/jwt_secret
       PRIVACY_INDEX_KEY_FILE: /run/secrets/privacy_index_key
@@ -86,6 +95,7 @@ services:
       # Bot servis kimliginin dogrulama anahtari. Yalniz public materyal;
       # signaling bununla assertion uretemez.
       BOT_SERVICE_PUBLIC_KEY_FILE: /run/secrets/bot_service_public_key
+      JAVA_TOOL_OPTIONS: ${SIGNALING_JAVA_OPTS:--XX:MaxRAMPercentage=70}
       # Reverse proxy arkasinda gercek istemci adresi yalniz bu listedeki
       # kaynaklardan gelen `X-Forwarded-For` ile belirlenir. Bos birakilirsa
       # header hic okunmaz ve limitler proxy adresine uygulanir.

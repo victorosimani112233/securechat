@@ -31,9 +31,32 @@ object ProductionDeploymentPolicy {
             }
         }
 
+        requireTlsRelay(environment)
+
         val firebasePath = environment["FIREBASE_SERVICE_ACCOUNT_PATH"]
         require(!firebasePath.isNullOrBlank() && Path.of(firebasePath).isAbsolute) {
             "Firebase service-account path must be absolute"
+        }
+    }
+
+    /**
+     * TURN relay'i production'da TLS zorunludur.
+     *
+     * Duz `turn:` uzerinde kimlik ve relay adresi yol uzerindeki gozlemciye
+     * aciktir; medya SRTP ile sifreli olsa bile kimin ne zaman aradigi
+     * gorunur. Ayrica gomulu bir host fallback'i olmadigi icin TURN_HOST
+     * burada zorunlu kilinir.
+     */
+    internal fun requireTlsRelay(environment: Map<String, String>) {
+        require(!environment["TURN_HOST"].isNullOrBlank()) {
+            "TURN_HOST is required in production"
+        }
+        require(environment["TURN_ALLOW_PLAINTEXT"]?.equals("true", ignoreCase = true) != true) {
+            "Plaintext TURN is forbidden in production"
+        }
+        val tlsPort = environment["TURN_TLS_PORT"]?.trim()
+        if (!tlsPort.isNullOrBlank()) {
+            require(tlsPort.toIntOrNull() in 1..65_535) { "TURN_TLS_PORT is out of range" }
         }
     }
 

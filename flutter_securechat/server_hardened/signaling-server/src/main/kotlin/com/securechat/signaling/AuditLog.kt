@@ -26,4 +26,14 @@ object AuditLog {
     }
 
     internal fun count(eventType: String): Long = counters[eventType]?.sum() ?: 0L
+
+    /**
+     * Gorulmus olay turleri.
+     *
+     * Sayaclar kimlik ve zaman tasimaz. Metrics'e baglanmadiklari surece
+     * gorunmuyorlardi: `logging=none` altinda bir auth saldirisi veya
+     * retention disi bir olay hicbir yerde fark edilmezdi.
+     */
+    fun snapshot(): Map<String, Long> =
+        counters.entries.associate { (event, adder) -> event to adder.sum() }
 }

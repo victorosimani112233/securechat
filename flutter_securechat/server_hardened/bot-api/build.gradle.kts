@@ -77,6 +77,7 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.testcontainers.postgres)
     testImplementation(libs.testcontainers.junit)
+    testImplementation(libs.ktor.server.test.host)
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("org.junit.jupiter:junit-jupiter-engine:5.10.2")
 }
@@ -91,4 +92,30 @@ tasks.test {
 
 kotlin {
     jvmToolchain(17)
+}
+
+/**
+ * Release'e giren ucuncu parti bilesenler.
+ *
+ * SBOM dogrulama manifestinden uretilir, fakat manifest test bagimliliklarini
+ * da tasir. Calisan artefakti anlatan bir belge icin runtime classpath'in
+ * kendisi listelenir; SCA kapisi boylece yalniz gercekten dagitilan
+ * bilesenlere bakar.
+ */
+val writeRuntimeArtifacts by tasks.registering {
+    val output = layout.buildDirectory.file("runtime-artifacts.txt")
+    val runtime = configurations.named("runtimeClasspath")
+    outputs.file(output)
+    doLast {
+        val coordinates = runtime.get().incoming.resolutionResult.allComponents
+            .mapNotNull { component ->
+                (component.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier)
+                    ?.let { "${it.group}:${it.module}:${it.version}" }
+            }
+            .distinct()
+            .sorted()
+        val target = output.get().asFile
+        target.parentFile.mkdirs()
+        target.writeText(coordinates.joinToString("\n") + "\n")
+    }
 }

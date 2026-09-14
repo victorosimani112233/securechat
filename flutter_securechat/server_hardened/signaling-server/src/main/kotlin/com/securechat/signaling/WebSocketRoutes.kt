@@ -58,6 +58,34 @@ internal fun groupCallCapacity(
     SfuPolicy.meshCapacity(callType)
 }
 
+
+/**
+ * Sunucunun urettigi cerceveler typed serializer ile kurulur.
+ *
+ * Onceki string interpolasyonu istemciden gelen `callId` ve `groupId`
+ * degerlerini dogrudan JSON'a gomuyordu; kacis karakteri tasiyan bir deger
+ * cerceveyi kurcalayabilirdi.
+ */
+/**
+ * Sunucu uretimi cerceveler.
+ *
+ * Onceki cagri yerleri JSON'u string interpolation ile kuruyordu; icinde
+ * tirnak ya da suslu parantez tasiyan bir `callId`/`messageId` cerceveyi
+ * bozabiliyor ya da alan enjekte edebiliyordu. Typed builder her degeri
+ * kacisiyla birlikte yazar.
+ */
+internal fun serverFrame(
+    type: String,
+    recipientId: String,
+    build: JsonObjectBuilder.() -> Unit = {},
+): String = buildJsonObject {
+    put("type", type)
+    put("senderId", "server")
+    put("recipientId", recipientId)
+    put("timestamp", System.currentTimeMillis())
+    build()
+}.toString()
+
 fun Application.configureWebSocket(
     connectionManager: ConnectionManager,
     userRegistry: UserRegistry,
@@ -154,7 +182,7 @@ fun Application.configureWebSocket(
             // Auth basarili — userId yerine dogrulanmis tokenSub kullanilir
             val userId = tokenSub
             AuditLog.log(userId = userId, eventType = "WS_CONNECTION_ESTABLISHED", ipAddress = ip)
-            connectionManager.addConnection(userId, this)
+            if (!connectionManager.addConnection(userId, this)) return@webSocket
 
             try {
                 for (frame in incoming) {
@@ -205,7 +233,8 @@ fun Application.configureWebSocket(
                 // Kullanici explicit HANGUP gondermeden app'i kapatirsa peer'lar bu yolla temizlenir.
                 handleUserDisconnectFromGroupCalls(userId, connectionManager)
 
-                connectionManager.removeConnection(userId)
+                // Yalniz bu oturum map'te duruyorsa kaldirilir.
+                connectionManager.removeConnection(userId, this)
                 AuditLog.log(userId = userId, eventType = "WS_CONNECTION_DROPPED", ipAddress = ip)
             }
         }
@@ -222,12 +251,15 @@ private suspend fun broadcastGroupCallEnded(
     connectionManager: ConnectionManager
 ) {
     if (members.isEmpty()) return
-    val ts = System.currentTimeMillis()
     val connections = connectionManager.connections()
     for (memberId in members) {
         val session = connections[memberId] ?: continue
-        val msg = """{"type":"group_call_status_response","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupId":"$groupId","isActive":false,"participants":[]}"""
-        try { session.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
+        val msg = serverFrame("group_call_status_response", memberId) {
+                    put("groupId", groupId)
+                    put("isActive", false)
+                    putJsonArray("participants") {}
+                }
+        try { session.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
     }
     logger.info("[GroupCall] Arama sonlandi broadcast: member_count=${members.size}")
 }
@@ -253,7 +285,6 @@ private suspend fun handleUserDisconnectFromGroupCalls(
         if (affectedCalls.isEmpty()) return
 
         for (active in affectedCalls) {
-            val ts = System.currentTimeMillis()
             // Once participants'tan cikar — kalan listeyi temiz hesaplayabilelim
             GroupCallSessionStore.removeParticipant(active.groupId, userId)
 
@@ -265,8 +296,12 @@ private suspend fun handleUserDisconnectFromGroupCalls(
             // Herkese (eski koordinator + diger uyeler haric) member_left bildir
             for (memberId in remaining) {
                 val s = connectionManager.connections()[memberId] ?: continue
-                val msg = """{"type":"group_call_member_left","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupCallId":"${active.callId}","groupId":"${active.groupId}","leftMemberId":"$userId"}"""
-                try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
+                val msg = serverFrame("group_call_member_left", memberId) {
+                    put("groupCallId", active.callId)
+                    put("groupId", active.groupId)
+                    put("leftMemberId", userId)
+                }
+                try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
             }
 
             val coordinatorLeft = active.coordinatorId == userId
@@ -305,8 +340,13 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                         val (prev, next) = transferred
                         for (memberId in remaining) {
                             val s = connectionManager.connections()[memberId] ?: continue
-                            val msg = """{"type":"group_call_coordinator_changed","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupCallId":"${active.callId}","groupId":"${active.groupId}","newCoordinatorId":"$next","previousCoordinatorId":"$prev"}"""
-                            try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
+                            val msg = serverFrame("group_call_coordinator_changed", memberId) {
+                                put("groupCallId", active.callId)
+                                put("groupId", active.groupId)
+                                put("newCoordinatorId", next)
+                                put("previousCoordinatorId", prev)
+                            }
+                            try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
                         }
                         logger.info("[GroupCall] Koordinator devir (kalan=${remaining.size})")
                     }
@@ -474,6 +514,9 @@ private suspend fun handleMessage(
                     // tam grup listesi wire'a alinmaz ve PostgreSQL/Redis'e yazilmaz.
                     participants = listOf(senderId, recipientId!!),
                     mode = "MESH",
+                    // Invite yalniz koordinatorun yetenegini kanitlar. Alici,
+                    // anahtari uyguladiktan sonra group_call_join_request ile
+                    // kendi yetenegini ayrica bildirir.
                     mediaE2eeParticipants = if (mediaE2ee) setOf(senderId) else emptySet(),
                 )
             } else {
@@ -492,7 +535,10 @@ private suspend fun handleMessage(
                     groupId = groupId,
                     userId = recipientId!!,
                     capacity = capacity,
-                    mediaE2ee = mediaE2ee,
+                    // Koordinatorun invite alani alici adina yetenek beyan
+                    // edemez. SFU ancak alicinin authenticated join onayindan
+                    // sonra acilabilir.
+                    mediaE2ee = false,
                 )
                 if (joined == GroupCallSessionStore.JoinResult.CAPACITY_REACHED) {
                     AuditLog.log(eventType = "GROUP_CALL_CAPACITY_REACHED")
@@ -524,11 +570,17 @@ private suspend fun handleMessage(
                             )
                             // Tum katilimcilara SFU room bilgisini gonder.
                             // GUVENLIK: apiSecret artik gonderilmiyor (C2 fix).
-                            val sfuMsg = """{"type":"sfu_room_created","groupId":"$groupId","roomId":${roomInfo.roomId},"janusWsUrl":"${roomInfo.janusWsUrl}","timestamp":${System.currentTimeMillis()}}"""
+                            val sfuMsg = buildJsonObject {
+                                put("type", "sfu_room_created")
+                                put("groupId", groupId)
+                                put("roomId", roomInfo.roomId)
+                                put("janusWsUrl", roomInfo.janusWsUrl)
+                                put("timestamp", System.currentTimeMillis())
+                            }.toString()
                             for (pid in activeCall.participants) {
                                 val s = connectionManager.connections()[pid]
                                 if (s != null) {
-                                    try { s.send(io.ktor.websocket.Frame.Text(sfuMsg)) } catch (_: Exception) { }
+                                    try { s.send(io.ktor.websocket.Frame.Text(sfuMsg)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
                                 }
                             }
                             logger.info("[SFU] Room olusturuldu ve bildirildi")
@@ -558,15 +610,25 @@ private suspend fun handleMessage(
                     logger.warn("[!] group_call_status_query yetki yok")
                     return
                 }
-                val response = if (active != null) {
-                    val partsJson = active.participants.joinToString(",") { "\"$it\"" }
-                    val sfuFields = if (active.mode == "SFU" && active.sfuRoomId != null) {
+                val response = serverFrame("group_call_status_response", senderId) {
+                    put("groupId", groupId)
+                    put("isActive", active != null)
+                    if (active != null) {
+                        put("callId", active.callId)
+                        put("coordinatorId", active.coordinatorId)
+                        put("callType", active.callType)
+                        put("mode", active.mode)
+                        putJsonArray("participants") {
+                            active.participants.forEach { add(it) }
+                        }
                         // GUVENLIK: apiSecret artik gonderilmiyor (C2 fix).
-                        ""","sfuRoomId":${active.sfuRoomId},"janusWsUrl":"${active.janusWsUrl}""""
-                    } else ""
-                    """{"type":"group_call_status_response","senderId":"server","recipientId":"$senderId","timestamp":${System.currentTimeMillis()},"groupId":"$groupId","isActive":true,"callId":"${active.callId}","coordinatorId":"${active.coordinatorId}","callType":"${active.callType}","participants":[$partsJson],"mode":"${active.mode}"$sfuFields}"""
-                } else {
-                    """{"type":"group_call_status_response","senderId":"server","recipientId":"$senderId","timestamp":${System.currentTimeMillis()},"groupId":"$groupId","isActive":false,"participants":[]}"""
+                        if (active.mode == "SFU" && active.sfuRoomId != null) {
+                            put("sfuRoomId", active.sfuRoomId)
+                            active.janusWsUrl?.let { put("janusWsUrl", it) }
+                        }
+                    } else {
+                        putJsonArray("participants") {}
+                    }
                 }
                 try {
                     connectionManager.connections()[senderId]?.send(io.ktor.websocket.Frame.Text(response))
@@ -647,12 +709,15 @@ private suspend fun handleMessage(
                         GroupCallSessionStore.removeParticipant(hangupGroupId, senderId)
                         val refreshed = GroupCallSessionStore.get(hangupGroupId)
                         val remaining = refreshed?.participants?.filterNot { it == senderId } ?: emptyList()
-                        val ts = System.currentTimeMillis()
 
                         for (memberId in remaining) {
                             val s = connectionManager.connections()[memberId] ?: continue
-                            val msg = """{"type":"group_call_member_left","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupCallId":"${active.callId}","groupId":"${active.groupId}","leftMemberId":"$senderId"}"""
-                            try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
+                            val msg = serverFrame("group_call_member_left", memberId) {
+                                put("groupCallId", active.callId)
+                                put("groupId", active.groupId)
+                                put("leftMemberId", senderId)
+                            }
+                            try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
                         }
 
                         if (remaining.size <= 1) {
@@ -673,8 +738,13 @@ private suspend fun handleMessage(
                                 val (prev, next) = transferred
                                 for (memberId in remaining) {
                                     val s = connectionManager.connections()[memberId] ?: continue
-                                    val msg = """{"type":"group_call_coordinator_changed","senderId":"server","recipientId":"$memberId","timestamp":$ts,"groupCallId":"${active.callId}","groupId":"${active.groupId}","newCoordinatorId":"$next","previousCoordinatorId":"$prev"}"""
-                                    try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { }
+                                    val msg = serverFrame("group_call_coordinator_changed", memberId) {
+                                put("groupCallId", active.callId)
+                                put("groupId", active.groupId)
+                                put("newCoordinatorId", next)
+                                put("previousCoordinatorId", prev)
+                            }
+                                    try { s.send(io.ktor.websocket.Frame.Text(msg)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
                                 }
                                 logger.info("[GroupCall] HANGUP ile koordinator devir")
                             }

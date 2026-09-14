@@ -63,6 +63,7 @@ object ServiceAccounts {
         if (result !is ServiceAssertion.Result.Accepted) return null
         val provisioned = provisionedSubject() ?: return null
         if (!provisioned.equals(result.subject, ignoreCase = true)) return null
+        if (!ServiceAssertionReplayStore.tryConsume(result.jti)) return null
         return provisioned
     }
 

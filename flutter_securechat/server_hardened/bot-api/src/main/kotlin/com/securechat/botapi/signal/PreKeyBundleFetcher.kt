@@ -44,9 +44,7 @@ class PreKeyBundleFetcher(private val tokenProvider: () -> String) {
                 log.warn("[Bundle] Recipient icin prekey bulunamadi (404)")
                 return null
             }
-            if (!resp.isSuccessful) {
-                throw IllegalStateException("PreKey fetch basarisiz: HTTP ${resp.code}")
-            }
+            check(resp.isSuccessful) { "PreKey fetch basarisiz: HTTP ${resp.code}" }
             val bodyStr = resp.body?.string() ?: return null
             val payload = json.decodeFromString<PreKeyBundleResponse>(bodyStr)
             return toPreKeyBundle(payload)

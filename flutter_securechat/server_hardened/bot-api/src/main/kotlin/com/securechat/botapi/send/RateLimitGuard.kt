@@ -65,26 +65,81 @@ object RateLimitGuard {
         return Result(true)
     }
 
-    private fun window(key: String, windowSeconds: Int, maxRequests: Int, cost: Int): Result {
-        return BotRedisManager.use { jedis ->
-            val now = System.currentTimeMillis()
-            val windowStart = now - windowSeconds * 1000L
+    /**
+     * Sliding window — tek atomik adim.
+     *
+     * Onceki uygulama `ZREMRANGEBYSCORE -> ZCARD -> ZADD` seklinde uc ayri
+     * gidis-donusteydi: es zamanli iki istek de "sinir altinda" okuyup
+     * ikisi de gecebiliyordu. Signaling tarafinda ayni hata (P1-02) Lua ile
+     * kapatilmisti; bot tarafi geride kalmisti.
+     *
+     * Maliyet member'in icine yazilir, boylece grup fanout'unun N birimi
+     * tek bir girdi olarak degil gercek agirligiyla sayilir.
+     *
+     * ARGV: windowStart, maxRequests, score, ttlSeconds, cost, member
+     * Donus: izin verildiyse 1, aksi halde en eski girdinin skoru (negatif
+     * degil) — retry-after bundan hesaplanir.
+     */
+    private val SLIDING_WINDOW_SCRIPT = """
+        redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+        local entries = redis.call('ZRANGEBYSCORE', KEYS[1], ARGV[1], '+inf')
+        local used = 0
+        for i = 1, #entries do
+          local separator = string.find(entries[i], ':')
+          if separator then
+            used = used + tonumber(string.sub(entries[i], 1, separator - 1))
+          end
+        end
+        local cost = tonumber(ARGV[5])
+        if used + cost > tonumber(ARGV[2]) then
+          local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+          if oldest[2] then
+            return {0, oldest[2]}
+          end
+          return {0, ARGV[3]}
+        end
+        redis.call('ZADD', KEYS[1], ARGV[3], ARGV[6])
+        redis.call('EXPIRE', KEYS[1], ARGV[4])
+        return {1, '0'}
+    """.trimIndent()
 
-            jedis.zremrangeByScore(key, "-inf", windowStart.toString())
-            val count = jedis.zcard(key)
-            if (count + cost > maxRequests) {
-                // Retry-after = en eski entry'nin window'dan çıkmasına kalan saniye
-                val oldest = jedis.zrangeWithScores(key, 0, 0).firstOrNull()?.score?.toLong() ?: now
+    private val memberRandom = java.security.SecureRandom()
+
+    private fun uniqueSuffix(): String {
+        val bytes = ByteArray(9)
+        memberRandom.nextBytes(bytes)
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    }
+
+    internal fun window(key: String, windowSeconds: Int, maxRequests: Int, cost: Int): Result {
+        if (maxRequests <= 0) return Result(false, retryAfterSeconds = windowSeconds.toLong())
+        val now = System.currentTimeMillis()
+        val windowStart = now - windowSeconds * 1000L
+        // Ayni milisaniyedeki istekler ayni member'a dusmesin diye nonce.
+        val member = "$cost:$now:${uniqueSuffix()}"
+        return BotRedisManager.use { jedis ->
+            @Suppress("UNCHECKED_CAST")
+            val reply = jedis.eval(
+                SLIDING_WINDOW_SCRIPT,
+                listOf(key),
+                listOf(
+                    windowStart.toString(),
+                    maxRequests.toString(),
+                    now.toString(),
+                    (windowSeconds + 60L).toString(),
+                    cost.toString(),
+                    member,
+                ),
+            ) as List<Any?>
+            val allowed = (reply.getOrNull(0) as? Long) == 1L
+            if (allowed) {
+                Result(true)
+            } else {
+                val oldest = (reply.getOrNull(1) as? String)?.toDoubleOrNull()?.toLong() ?: now
                 val retryAfter = (oldest + windowSeconds * 1000L - now) / 1000L
-                return@use Result(false, retryAfterSeconds = retryAfter.coerceAtLeast(1))
+                Result(false, retryAfterSeconds = retryAfter.coerceAtLeast(1))
             }
-            repeat(cost) { index ->
-                val member = "${now}-${index}-${UUID.randomUUID()}"
-                jedis.zadd(key, now.toDouble(), member, ZAddParams.zAddParams())
-            }
-            jedis.expire(key, windowSeconds + 60L)  // TTL biraz fazlasi — auto cleanup
-            Result(true)
-        }
+        } ?: Result(false, "rate_limit_unavailable", windowSeconds.toLong())
     }
 
     private fun privateKey(scope: String, value: String): String =
