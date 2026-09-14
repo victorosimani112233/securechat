@@ -298,6 +298,7 @@ class _CallScreenState extends State<CallScreen> {
             label: session.isMuted ? context.l10n.unmute : context.l10n.mute,
             onTap: calls.toggleMute,
             haptic: true,
+            toggled: session.isMuted,
           ),
           _round(
             Icons.volume_up_outlined,
@@ -306,6 +307,7 @@ class _CallScreenState extends State<CallScreen> {
             label: context.l10n.speaker,
             onTap: calls.toggleSpeaker,
             haptic: true,
+            toggled: session.isSpeakerOn,
           ),
           if (session.callType == CallType.video)
             _round(
@@ -315,6 +317,7 @@ class _CallScreenState extends State<CallScreen> {
               label: context.l10n.camera,
               onTap: calls.toggleCamera,
               haptic: true,
+              toggled: session.isCameraEnabled,
             ),
           if (session.callType == CallType.video)
             _round(
@@ -345,10 +348,15 @@ class _CallScreenState extends State<CallScreen> {
     required String label,
     required FutureOr<void> Function() onTap,
     bool haptic = false,
+    bool? toggled,
   }) {
     return Semantics(
       button: true,
       label: label,
+      // Ac/kapa kontrolleri durumlarini da bildirmeli: yalniz ikon degisimi
+      // TalkBack kullanicisina hicbir sey soylemiyor, ayrica erisilebilirlik
+      // agacinda durum gorunmedigi icin otomatik testle de dogrulanamiyordu.
+      toggled: toggled,
       child: InkResponse(
         onTap: () {
           if (haptic) unawaited(SecureChatHaptics.longPress());

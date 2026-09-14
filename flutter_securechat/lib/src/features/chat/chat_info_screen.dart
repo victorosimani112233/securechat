@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../chat/chat_info_service.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/avatar.dart';
@@ -103,7 +104,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
         padding: const EdgeInsets.all(28),
         child: Column(
           children: [
-            GeneratedAvatar(name: c.peerName, size: 96),
+            GeneratedAvatar(name: c.peerName, size: 96, isGroup: c.isGroup),
             const SizedBox(height: 12),
             Text(c.peerName, style: Theme.of(context).textTheme.headlineSmall),
             Text(c.peerPhone),
@@ -206,10 +207,13 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     ChatInfoService service,
     ConversationEntity c,
   ) async {
-    final controller = TextEditingController(text: c.contactNote);
     final note = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      // Controller dialog'un yasam dongusune ait; cikis animasyonu
+      // surerken dispose edilmemeli (bkz TextControllerScope).
+      builder: (context) => TextControllerScope(
+        initialText: c.contactNote ?? '',
+        builder: (context, controller) => AlertDialog(
         title: Text(context.l10n.add_contact_note),
         content: TextField(controller: controller, maxLines: 5),
         actions: [
@@ -222,9 +226,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
             child: Text(context.l10n.save),
           ),
         ],
+        ),
       ),
     );
-    controller.dispose();
     if (note != null) await service.updateNote(c.id, note);
   }
 

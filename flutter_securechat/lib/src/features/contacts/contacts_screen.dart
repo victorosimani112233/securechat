@@ -4,10 +4,13 @@ import '../../contacts/contact_service.dart';
 import '../../contacts/private_contact_discovery.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/azure_surface.dart';
+import '../../widgets/azure_empty_state.dart';
 
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen({super.key, this.embedded = false});
@@ -147,21 +150,26 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       ],
                       const SizedBox(height: 16),
                       if (!_syncing && contacts.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            context.l10n.no_registered_contacts,
-                            textAlign: TextAlign.center,
+                        AzureEmptyState(
+                          icon: Icons.contacts_outlined,
+                          title: context.l10n.no_registered_contacts,
+                          message: context.l10n.contacts_empty_body,
+                          topPadding: 48,
+                        ),
+                      // Satirlar kayan desenin uzerinde ciplak duruyordu.
+                      // Sohbet listesiyle ayni malzeme dili kullanilir.
+                      for (final contact in contacts) ...[
+                        AzureSurface(
+                          child: ListTile(
+                            leading: GeneratedAvatar(name: contact.displayName),
+                            title: Text(contact.displayName),
+                            subtitle: Text(contact.phoneNumber),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => _openContact(service, contact),
                           ),
                         ),
-                      for (final contact in contacts)
-                        ListTile(
-                          leading: GeneratedAvatar(name: contact.displayName),
-                          title: Text(contact.displayName),
-                          subtitle: Text(contact.phoneNumber),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => _openContact(service, contact),
-                        ),
+                        const SizedBox(height: 7),
+                      ],
                     ],
                   );
                 },
@@ -232,27 +240,31 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Future<void> _openDialpad(ContactService service) async {
-    final controller = TextEditingController(text: '+90');
+    // Controller sheet'in kendi yasam dongusune ait: cikis animasyonu
+    // surerken dispose edilirse TextField dispose edilmis notifier'a
+    // listener baglamaya calisiyor (bkz TextControllerScope).
     final value = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: TextField(
-            controller: controller,
-            autofocus: true,
-            keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.phone_outlined),
-              hintText: '+90',
+      builder: (context) => TextControllerScope(
+        initialText: '+90',
+        builder: (context, controller) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.phone_outlined),
+                hintText: '+90',
+              ),
+              onSubmitted: (phone) => Navigator.pop(context, phone),
             ),
-            onSubmitted: (phone) => Navigator.pop(context, phone),
           ),
         ),
       ),
     );
-    controller.dispose();
     if (value == null || !mounted) return;
     try {
       final contact = await service.resolvePhone(value);
@@ -277,71 +289,74 @@ class _ContactsScreenState extends State<ContactsScreen> {
     ContactService service,
     List<ContactEntity> contacts,
   ) async {
-    final name = TextEditingController();
     final selected = <String>{};
-    final result = await showDialog<List<ContactEntity>>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(context.l10n.create_group_title),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: name,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.group_name,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
+    // Dialog hem grup adini hem uyeleri dondurur; boylece controller'i
+    // `await` sonrasinda okumak gerekmez ve sahipligi dialog'a birakilabilir
+    // (bkz TextControllerScope).
+    final result =
+        await showDialog<({String name, List<ContactEntity> members})>(
+          context: context,
+          builder: (context) => TextControllerScope(
+            builder: (context, name) => StatefulBuilder(
+              builder: (context, setDialogState) => AlertDialog(
+                title: Text(context.l10n.create_group_title),
+                content: SizedBox(
+                  width: 420,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      for (final contact in contacts)
-                        CheckboxListTile(
-                          value: selected.contains(contact.id),
-                          title: Text(contact.displayName),
-                          onChanged: (checked) => setDialogState(() {
-                            checked == true
-                                ? selected.add(contact.id)
-                                : selected.remove(contact.id);
-                          }),
+                      TextField(
+                        controller: name,
+                        decoration: InputDecoration(
+                          labelText: context.l10n.group_name,
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      Flexible(
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: [
+                            for (final contact in contacts)
+                              CheckboxListTile(
+                                value: selected.contains(contact.id),
+                                title: Text(contact.displayName),
+                                onChanged: (checked) => setDialogState(() {
+                                  checked == true
+                                      ? selected.add(contact.id)
+                                      : selected.remove(contact.id);
+                                }),
+                              ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(context.l10n.cancel),
+                  ),
+                  FilledButton(
+                    onPressed: selected.isEmpty
+                        ? null
+                        : () => Navigator.pop(context, (
+                            name: name.text,
+                            members: contacts
+                                .where(
+                                  (contact) => selected.contains(contact.id),
+                                )
+                                .toList(),
+                          )),
+                    child: Text(context.l10n.create_group_action),
+                  ),
+                ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(context.l10n.cancel),
-            ),
-            FilledButton(
-              onPressed: selected.isEmpty
-                  ? null
-                  : () => Navigator.pop(
-                      context,
-                      contacts
-                          .where((contact) => selected.contains(contact.id))
-                          .toList(),
-                    ),
-              child: Text(context.l10n.create_group_action),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (result == null || result.isEmpty) {
-      name.dispose();
-      return;
-    }
-    final group = await service.createGroup(name.text, result);
-    name.dispose();
+        );
+    if (result == null || result.members.isEmpty) return;
+    final group = await service.createGroup(result.name, result.members);
     if (!mounted) return;
     Navigator.of(context).pushNamed(
       '/chat',

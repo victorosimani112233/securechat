@@ -8,6 +8,7 @@ class _MessageBubble extends StatelessWidget {
     required this.onLongPress,
     this.replyMessage,
     this.replySenderLabel,
+    this.onReplyTap,
     this.highlighted = false,
     this.searchQuery = '',
   });
@@ -15,6 +16,7 @@ class _MessageBubble extends StatelessWidget {
   final LocalMessage message;
   final LocalMessage? replyMessage;
   final String? replySenderLabel;
+  final VoidCallback? onReplyTap;
   final bool highlighted;
   final String searchQuery;
   final VoidCallback onTap;
@@ -62,9 +64,20 @@ class _MessageBubble extends StatelessWidget {
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 320),
               child: Material(
-                color: outgoing
-                    ? scheme.primary.withValues(alpha: .19)
-                    : scheme.surface.withValues(alpha: .72),
+                // SAYDAM DEGIL: gorunum aynidir ama renk zemine harmanlanmis
+                // halde verilir. Yari saydam birakilinca kayan arka plan
+                // deseni mesaj yazisinin altindan geciyordu.
+                color: Color.alphaBlend(
+                  outgoing
+                      ? scheme.primary.withValues(alpha: .19)
+                      : scheme.surface.withValues(alpha: .72),
+                  AzureTokens.ground(
+                    Theme.of(context).brightness == Brightness.dark,
+                  ),
+                ),
+                elevation: 1,
+                shadowColor: Colors.black.withValues(alpha: .35),
+                surfaceTintColor: Colors.transparent,
                 shape: shape,
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
@@ -84,6 +97,7 @@ class _MessageBubble extends StatelessWidget {
                           _BubbleReplyPreview(
                             message: replyMessage!,
                             sender: replySenderLabel ?? replyMessage!.senderId,
+                            onTap: onReplyTap,
                           ),
                         if (message.contentType == MessageContentType.poll)
                           _PollMessageContent(message: message, onVote: onVote)
@@ -232,13 +246,35 @@ class _MessageBubble extends StatelessWidget {
 }
 
 class _BubbleReplyPreview extends StatelessWidget {
-  const _BubbleReplyPreview({required this.message, required this.sender});
+  const _BubbleReplyPreview({
+    required this.message,
+    required this.sender,
+    this.onTap,
+  });
 
   final LocalMessage message;
   final String sender;
 
+  /// Alintiya dokununca kaynak mesaja gidilir. `null` ise alinti pasiftir.
+  final VoidCallback? onTap;
+
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => _wrap(context, _quote(context));
+
+  Widget _wrap(BuildContext context, Widget quote) {
+    if (onTap == null) return quote;
+    return Semantics(
+      button: true,
+      label: context.l10n.chat_jump_to_replied_message,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: quote,
+      ),
+    );
+  }
+
+  Widget _quote(BuildContext context) => Container(
     margin: const EdgeInsets.only(bottom: 5),
     padding: const EdgeInsetsDirectional.fromSTEB(7, 5, 8, 5),
     decoration: BoxDecoration(
@@ -338,5 +374,123 @@ class _HighlightedMessageText extends StatelessWidget {
       cursor = match + needle.length;
     }
     return Text.rich(TextSpan(children: spans));
+  }
+}
+
+/// Cevaplamak icin kaydirma: balon sinirli bir mesafe kayar, esik asilinca
+/// cevap moduna gecer ve yerine yaylanir.
+///
+/// Onceki uygulama `Dismissible` idi. `confirmDismiss` her zaman `false`
+/// donduruyordu, ancak kullanici balonu birakana kadar EKRANIN SONUNA kadar
+/// surukleyebiliyordu: hareketin bir siniri yoktu ve ne kadar kaydirinca
+/// tetiklenecegi belli olmuyordu. Burada mesafe [_maxDrag] ile sinirlanir,
+/// [_triggerDistance] asildiginda ikon doludur ve birakilinca cevap acilir.
+class _SwipeToReply extends StatefulWidget {
+  const _SwipeToReply({super.key, required this.child, required this.onReply});
+
+  final Widget child;
+  final VoidCallback onReply;
+
+  @override
+  State<_SwipeToReply> createState() => _SwipeToReplyState();
+}
+
+class _SwipeToReplyState extends State<_SwipeToReply>
+    with SingleTickerProviderStateMixin {
+  /// Balonun kayabilecegi en fazla mesafe.
+  static const _maxDrag = 72.0;
+
+  /// Cevabin tetiklenmesi icin gereken mesafe.
+  static const _triggerDistance = 52.0;
+
+  late final AnimationController _spring = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+  )..addListener(() => setState(() {}));
+
+  double _offset = 0;
+  double _releaseOffset = 0;
+  bool _armed = false;
+
+  @override
+  void dispose() {
+    _spring.dispose();
+    super.dispose();
+  }
+
+  double get _currentOffset => _spring.isAnimating
+      ? _releaseOffset * (1 - _spring.value)
+      : _offset;
+
+  void _onUpdate(DragUpdateDetails details) {
+    final direction = Directionality.of(context) == TextDirection.rtl ? -1 : 1;
+    final delta = details.primaryDelta! * direction;
+    // Esigi gectikten sonra direnc artar: hareket sinira dogru yavaslar.
+    final next = (_offset + delta).clamp(0.0, _maxDrag);
+    final armed = next >= _triggerDistance;
+    if (armed != _armed) {
+      _armed = armed;
+      if (armed) HapticFeedback.selectionClick();
+    }
+    setState(() => _offset = next);
+  }
+
+  void _onEnd(DragEndDetails details) {
+    final shouldReply = _offset >= _triggerDistance;
+    _releaseOffset = _offset;
+    _offset = 0;
+    _armed = false;
+    _spring.forward(from: 0);
+    if (shouldReply) widget.onReply();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final offset = _currentOffset;
+    final progress = (offset / _triggerDistance).clamp(0.0, 1.0);
+    return GestureDetector(
+      behavior: HitTestBehavior.deferToChild,
+      onHorizontalDragUpdate: _onUpdate,
+      onHorizontalDragEnd: _onEnd,
+      onHorizontalDragCancel: () {
+        _releaseOffset = _offset;
+        _offset = 0;
+        _armed = false;
+        _spring.forward(from: 0);
+      },
+      child: Stack(
+        children: [
+          if (offset > 0)
+            PositionedDirectional(
+              start: 14,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: Opacity(
+                  opacity: progress,
+                  child: Transform.scale(
+                    scale: .7 + (progress * .3),
+                    child: Icon(
+                      Icons.reply,
+                      size: 20,
+                      color: scheme.primary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Transform.translate(
+            offset: Offset(
+              Directionality.of(context) == TextDirection.rtl
+                  ? -offset
+                  : offset,
+              0,
+            ),
+            child: widget.child,
+          ),
+        ],
+      ),
+    );
   }
 }

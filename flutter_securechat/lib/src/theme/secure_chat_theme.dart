@@ -22,6 +22,16 @@ class AzureTokens {
   static const danger = Color(0xFFFF5E87);
   static const dangerDeep = Color(0xFFC0264E);
 
+  /// Arka plan deseninin uzerinde durdugu bilesik zemin rengi.
+  ///
+  /// Yuzeyler (mesaj balonu, kart) bu renge harmanlanarak SAYDAM OLMAYAN bir
+  /// renk uretir. Yari saydam birakilirlarsa kayan desen yazinin altindan
+  /// gecer ve okunabilirligi bozar.
+  static Color ground(bool dark) => Color.alphaBlend(
+    azure.withValues(alpha: dark ? .035 : .04),
+    dark ? night : paper,
+  );
+
   static const s1 = 4.0;
   static const s2 = 8.0;
   static const s3 = 12.0;
@@ -74,6 +84,13 @@ class SecureChatTheme {
 
   static ThemeData _base(ColorScheme scheme) {
     final dark = scheme.brightness == Brightness.dark;
+    // Tipografi olcegi ACIK yazilir. Tanimlanmayan stiller Material
+    // varsayilanlarina duserdi; boylece marka yazi tipi yalnizca iki stilde
+    // gorunuyor, uygulamanin en cok bakilan metinleri (AppBar basliklari,
+    // liste adlari) notr kaliyordu.
+    //
+    // Rol dagilimi: SpaceGrotesk = kimlik (basliklar), Inter = okuma (govde),
+    // JetBrainsMono = veri (etiket, sayac).
     final textTheme = const TextTheme(
       displayLarge: TextStyle(
         fontFamily: 'SpaceGrotesk',
@@ -89,16 +106,31 @@ class SecureChatTheme {
         letterSpacing: -.6,
         height: 28 / 24,
       ),
-      titleLarge: TextStyle(
-        fontFamily: 'Inter',
+      headlineSmall: TextStyle(
+        fontFamily: 'SpaceGrotesk',
         fontWeight: FontWeight.w600,
-        fontSize: 17,
-        letterSpacing: -.2,
+        fontSize: 20,
+        letterSpacing: -.4,
+        height: 26 / 20,
+      ),
+      // AppBar basliklari buradan gelir: uygulamada en cok gorulen baslik.
+      // Marka yazi tipinin gercekten hak ettigi yer.
+      titleLarge: TextStyle(
+        fontFamily: 'SpaceGrotesk',
+        fontWeight: FontWeight.w600,
+        fontSize: 18,
+        letterSpacing: -.3,
       ),
       titleMedium: TextStyle(
         fontFamily: 'Inter',
         fontWeight: FontWeight.w600,
         fontSize: 15,
+      ),
+      titleSmall: TextStyle(
+        fontFamily: 'Inter',
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        letterSpacing: -.1,
       ),
       bodyLarge: TextStyle(
         fontFamily: 'Inter',
@@ -116,12 +148,25 @@ class SecureChatTheme {
         fontFamily: 'Inter',
         fontWeight: FontWeight.w400,
         fontSize: 12,
+        height: 16 / 12,
+      ),
+      labelLarge: TextStyle(
+        fontFamily: 'Inter',
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        letterSpacing: .1,
       ),
       labelMedium: TextStyle(
         fontFamily: 'JetBrainsMono',
         fontWeight: FontWeight.w500,
         fontSize: 11,
         letterSpacing: .5,
+      ),
+      labelSmall: TextStyle(
+        fontFamily: 'JetBrainsMono',
+        fontWeight: FontWeight.w400,
+        fontSize: 11,
+        letterSpacing: .3,
       ),
     );
     return ThemeData(

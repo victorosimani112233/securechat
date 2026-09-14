@@ -8,9 +8,12 @@ class _MediaMessageContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = outgoing
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSurface;
+    // Balon `primary` ile DOLU degil: giden balon %19 tonlu bir YUZEY.
+    // Bu yuzden yazi rengi `onPrimary` olamaz — koyu temada `onPrimary` koyu
+    // bir renktir ve koyu balon uzerinde siyah yazi olarak gorunuyordu
+    // (dosya adlari, ek adlari, anket metinleri). Duz mesaj metni zaten
+    // `onSurface` mirasiyla cizildigi icin dogru olan da budur.
+    final foreground = Theme.of(context).colorScheme.onSurface;
     final consumed =
         message.isViewOnce && (message.isOutgoing || message.isViewed);
     if (message.isViewOnce) {
@@ -106,9 +109,12 @@ class _PollMessageContent extends StatelessWidget {
       return Text(context.l10n.poll_load_failed);
     }
     final userId = AppContainerScope.of(context).session.userId ?? '';
-    final foreground = message.isOutgoing
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSurface;
+    // Balon `primary` ile DOLU degil: giden balon %19 tonlu bir YUZEY.
+    // Bu yuzden yazi rengi `onPrimary` olamaz — koyu temada `onPrimary` koyu
+    // bir renktir ve koyu balon uzerinde siyah yazi olarak gorunuyordu
+    // (dosya adlari, ek adlari, anket metinleri). Duz mesaj metni zaten
+    // `onSurface` mirasiyla cizildigi icin dogru olan da budur.
+    final foreground = Theme.of(context).colorScheme.onSurface;
     return SizedBox(
       width: 260,
       child: Column(
@@ -116,12 +122,16 @@ class _PollMessageContent extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.poll, color: Colors.purple, size: 17),
+              Icon(
+                Icons.poll,
+                color: Theme.of(context).colorScheme.secondary,
+                size: 17,
+              ),
               const SizedBox(width: 6),
               Text(
                 context.l10n.poll,
-                style: const TextStyle(
-                  color: Colors.purple,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.secondary,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -479,7 +489,7 @@ class _CreatePollDialogState extends State<_CreatePollDialog> {
     return AlertDialog(
       title: Row(
         children: [
-          const Icon(Icons.poll, color: Colors.purple),
+          Icon(Icons.poll, color: Theme.of(context).colorScheme.secondary),
           const SizedBox(width: 8),
           Text(context.l10n.create_poll),
         ],

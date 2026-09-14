@@ -20,11 +20,10 @@ class AzureBackdrop extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        RepaintBoundary(
-          child: CustomPaint(
-            painter: AzureDoodlePainter(dark: dark, enabled: useDoodle),
-          ),
-        ),
+        // Zemin sabittir: yalnizca desen katmani kayar. Zemin de kaysaydi
+        // kenarlarda boyanmamis serit acilirdi.
+        ColoredBox(color: AzureTokens.ground(dark)),
+        if (useDoodle) _DriftingDoodles(dark: dark),
         Theme(
           data: theme.copyWith(scaffoldBackgroundColor: Colors.transparent),
           child: child,
@@ -34,6 +33,76 @@ class AzureBackdrop extends StatelessWidget {
   }
 }
 
+/// Desen katmani: cok yavas, capraz ve sonsuz kayar.
+///
+/// Maliyet notu: desen her karede YENIDEN CIZILMEZ. `CustomPaint` statik
+/// kalir ve `RepaintBoundary` ile rasterlenir; animasyon yalnizca hazir
+/// katmani oteler. Desen [AzureDoodlePainter.tile] araliginda dosendigi ve
+/// gorunur alanin bir tile disina tasacak sekilde cizildigi icin oteleme tam
+/// bir tile'a ulastiginda desen kendisiyle ortusur — dikis gorunmez.
+class _DriftingDoodles extends StatefulWidget {
+  const _DriftingDoodles({required this.dark});
+
+  final bool dark;
+
+  @override
+  State<_DriftingDoodles> createState() => _DriftingDoodlesState();
+}
+
+class _DriftingDoodlesState extends State<_DriftingDoodles>
+    with SingleTickerProviderStateMixin {
+  /// Bir tam tile bu surede kat edilir. 280 px / 45 sn yaklasik 6 px/sn:
+  /// bakildiginda fark edilir, okurken dikkat dagitmaz.
+  static const _period = Duration(seconds: 45);
+
+  late final AnimationController _drift = AnimationController(
+    vsync: this,
+    duration: _period,
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Erisilebilirlik: "animasyonlari azalt" acikken desen durur, kaybolmaz.
+    // Ayni bayrak widget testlerinde de aciktir; sonsuz bir animasyon
+    // `pumpAndSettle`'in oturmasini engellerdi.
+    if (MediaQuery.of(context).disableAnimations) {
+      _drift.stop();
+    } else if (!_drift.isAnimating) {
+      _drift.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _drift.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ClipRect(
+    child: AnimatedBuilder(
+      animation: _drift,
+      builder: (context, child) => Transform.translate(
+        offset: Offset(
+          _drift.value * AzureDoodlePainter.tile,
+          _drift.value * AzureDoodlePainter.tile,
+        ),
+        child: child,
+      ),
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: AzureDoodlePainter(
+            dark: widget.dark,
+            enabled: true,
+            drawBase: false,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class AzureGlassPanel extends StatelessWidget {
   const AzureGlassPanel({
     super.key,
@@ -41,12 +110,22 @@ class AzureGlassPanel extends StatelessWidget {
     this.padding = const EdgeInsets.all(20),
     this.strong = false,
     this.radius = AzureTokens.cardRadius,
+    this.elevation = 0,
+    this.borderColor,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final bool strong;
   final double radius;
+
+  /// Yukseklik. Varsayilan 0'dir; liste kartlari gibi zeminden ayrilmasi
+  /// gereken yuzeyler kucuk bir deger verir. Her sey ayni duzlemdeyken kart,
+  /// zemin ve baslik birbirinden yalnizca 1 px cerceveyle ayriliyordu.
+  final double elevation;
+
+  /// Durumu belli etmek icin cerceve rengini degistiren cagiranlar icin.
+  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
@@ -59,9 +138,14 @@ class AzureGlassPanel extends StatelessWidget {
         : AzureTokens.ink.withValues(alpha: strong ? .10 : .04);
     return Material(
       color: background,
+      elevation: elevation,
+      shadowColor: dark
+          ? Colors.black.withValues(alpha: .6)
+          : AzureTokens.ink.withValues(alpha: .18),
+      surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(radius),
-        side: BorderSide(color: border),
+        side: BorderSide(color: borderColor ?? border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Padding(padding: padding, child: child),
@@ -105,30 +189,47 @@ class AzureBrandTitle extends StatelessWidget {
 }
 
 class AzureDoodlePainter extends CustomPainter {
-  const AzureDoodlePainter({required this.dark, required this.enabled});
+  const AzureDoodlePainter({
+    required this.dark,
+    required this.enabled,
+    this.drawBase = true,
+  });
 
   final bool dark;
   final bool enabled;
 
+  /// Kayan katman zemini boyamaz; zemin altta sabit durur.
+  final bool drawBase;
+
+  /// Desen dosemesinin kenar uzunlugu. Oteleme bu degere ulastiginda desen
+  /// kendisiyle ortustugu icin sonsuz kaydirma dikissiz olur.
+  static const tile = 280.0;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final base = dark ? AzureTokens.night : AzureTokens.paper;
-    canvas.drawRect(Offset.zero & size, Paint()..color = base);
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = AzureTokens.azure.withValues(alpha: dark ? .035 : .04),
-    );
+    if (drawBase) {
+      final base = dark ? AzureTokens.night : AzureTokens.paper;
+      canvas.drawRect(Offset.zero & size, Paint()..color = base);
+      canvas.drawRect(
+        Offset.zero & size,
+        Paint()..color = AzureTokens.azure.withValues(alpha: dark ? .035 : .04),
+      );
+    }
     if (!enabled) return;
 
     final stroke = dark
         ? Colors.white.withValues(alpha: .055)
-        : AzureTokens.ink.withValues(alpha: .07);
+        // Acik temada koyu murekkep, koyu temada beyaza gore daha baskin
+        // okunuyordu: ayni deger iki temada ayni sakinligi vermiyor. Cihazda
+        // olculup dengelendi.
+        : AzureTokens.ink.withValues(alpha: .042);
     final strong = dark
         ? AzureTokens.azureGlow.withValues(alpha: .07)
-        : AzureTokens.azureDeep.withValues(alpha: .10);
-    const tile = 280.0;
-    for (var y = 0.0; y < size.height; y += tile) {
-      for (var x = 0.0; x < size.width; x += tile) {
+        : AzureTokens.azureDeep.withValues(alpha: .062);
+    // Gorunur alanin bir tile disindan baslanir: katman otelenince acikta
+    // kalan kenar bosluk gostermez.
+    for (var y = -tile; y < size.height + tile; y += tile) {
+      for (var x = -tile; x < size.width + tile; x += tile) {
         canvas.save();
         canvas.translate(x, y);
         _drawTile(canvas, stroke, strong);
@@ -352,5 +453,7 @@ class AzureDoodlePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant AzureDoodlePainter oldDelegate) =>
-      dark != oldDelegate.dark || enabled != oldDelegate.enabled;
+      dark != oldDelegate.dark ||
+      enabled != oldDelegate.enabled ||
+      drawBase != oldDelegate.drawBase;
 }

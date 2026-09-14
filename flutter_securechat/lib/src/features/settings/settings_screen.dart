@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../../services/app_container.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/text_controller_scope.dart';
 import '../../settings/account_data_service.dart';
 import '../../settings/settings_service.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/azure_surface.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -47,7 +49,10 @@ class SettingsScreen extends StatelessWidget {
         body: ListView(
           key: const ValueKey('settings-list'),
           padding: const EdgeInsets.all(16),
-          children: [
+          // Satirlar kayan desenin uzerinde ciplak duruyordu. `Divider`
+          // sinirlari artik opak bolumlere donusuyor: hem okunabilir hem
+          // hangi ayarin nereye ait oldugu belli.
+          children: azureSections(<Widget>[
             ListTile(
               leading: _profileAvatar(
                 settings?.profilePhotoPath,
@@ -233,7 +238,7 @@ class SettingsScreen extends StatelessWidget {
                 ).pushNamedAndRemoveUntil('/auth', (_) => false);
               },
             ),
-          ],
+          ]),
         ),
       ),
     );
@@ -515,72 +520,73 @@ class SettingsScreen extends StatelessWidget {
     BuildContext context,
     AccountDataService accountData,
   ) async {
-    final controller = TextEditingController();
     final confirmationToken = context.l10n.settings_nuke_type_placeholder;
     var deleting = false;
+    // Controller dialog'un yasam dongusune ait (bkz TextControllerScope).
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (contentContext, setDialogState) => AlertDialog(
-          icon: Icon(
-            Icons.person_remove,
-            color: Theme.of(contentContext).colorScheme.error,
-          ),
-          title: Text(contentContext.l10n.settings_delete_account),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              OutlinedButton.icon(
+      builder: (dialogContext) => TextControllerScope(
+        builder: (dialogContext, controller) => StatefulBuilder(
+          builder: (contentContext, setDialogState) => AlertDialog(
+            icon: Icon(
+              Icons.person_remove,
+              color: Theme.of(contentContext).colorScheme.error,
+            ),
+            title: Text(contentContext.l10n.settings_delete_account),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: deleting
+                      ? null
+                      : () {
+                          Navigator.pop(dialogContext, false);
+                          Navigator.pushNamed(context, '/backup');
+                        },
+                  icon: const Icon(Icons.backup_outlined),
+                  label: Text(contentContext.l10n.settings_nuke_backup_first),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '${contentContext.l10n.settings_delete_account_body}\n\n'
+                  '${contentContext.l10n.settings_nuke_type_to_confirm}',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  enabled: !deleting,
+                  autofocus: true,
+                  decoration: InputDecoration(hintText: confirmationToken),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
                 onPressed: deleting
                     ? null
-                    : () {
-                        Navigator.pop(dialogContext, false);
-                        Navigator.pushNamed(context, '/backup');
-                      },
-                icon: const Icon(Icons.backup_outlined),
-                label: Text(contentContext.l10n.settings_nuke_backup_first),
+                    : () => Navigator.pop(dialogContext, false),
+                child: Text(contentContext.l10n.cancel),
               ),
-              const SizedBox(height: 12),
-              Text(
-                '${contentContext.l10n.settings_delete_account_body}\n\n'
-                '${contentContext.l10n.settings_nuke_type_to_confirm}',
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                enabled: !deleting,
-                autofocus: true,
-                decoration: InputDecoration(hintText: confirmationToken),
-                onChanged: (_) => setDialogState(() {}),
+              FilledButton(
+                onPressed:
+                    controller.text.trim().toUpperCase() ==
+                            confirmationToken.toUpperCase() &&
+                        !deleting
+                    ? () {
+                        setDialogState(() => deleting = true);
+                        Navigator.pop(dialogContext, true);
+                      }
+                    : null,
+                child: Text(contentContext.l10n.settings_delete_account),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: deleting
-                  ? null
-                  : () => Navigator.pop(dialogContext, false),
-              child: Text(contentContext.l10n.cancel),
-            ),
-            FilledButton(
-              onPressed:
-                  controller.text.trim().toUpperCase() ==
-                          confirmationToken.toUpperCase() &&
-                      !deleting
-                  ? () {
-                      setDialogState(() => deleting = true);
-                      Navigator.pop(dialogContext, true);
-                    }
-                  : null,
-              child: Text(contentContext.l10n.settings_delete_account),
-            ),
-          ],
         ),
       ),
     );
-    controller.dispose();
     if (confirmed != true || !context.mounted) return;
     await _runAndLeave(context, accountData.deleteAccount);
   }

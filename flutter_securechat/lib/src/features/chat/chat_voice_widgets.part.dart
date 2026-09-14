@@ -206,9 +206,10 @@ class _VoiceNoteContentState extends State<_VoiceNoteContent> {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = widget.outgoing
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSurface;
+    // Giden balon `primary` DOLGULU degil, tonlu bir yuzey; `onPrimary` koyu
+    // temada koyu bir renk oldugu icin sesli not sure/etiketleri koyu balon
+    // uzerinde okunamiyordu.
+    final foreground = Theme.of(context).colorScheme.onSurface;
     return SizedBox(
       width: 250,
       child: StreamBuilder<PlayerState>(
