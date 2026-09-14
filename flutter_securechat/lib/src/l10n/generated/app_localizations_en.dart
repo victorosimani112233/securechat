@@ -1614,4 +1614,55 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settings_open_source_licenses_desc =>
       'Review the software licenses included in this build.';
+
+  @override
+  String get missed_call => 'Missed call';
+
+  @override
+  String get missed_video_call => 'Missed video call';
+
+  @override
+  String get missed_voice_call => 'Missed voice call';
+
+  @override
+  String missed_call_from(Object peer) {
+    return 'From $peer';
+  }
+
+  @override
+  String get missed_calls_channel => 'Missed calls';
+
+  @override
+  String get missed_calls_channel_desc => 'Notifications for unanswered calls';
+
+  @override
+  String get messages_channel => 'elçim Messages';
+
+  @override
+  String get messages_channel_silent => 'elçim Messages (silent)';
+
+  @override
+  String get messages_channel_desc => 'Incoming secure message notifications';
+
+  @override
+  String get messages_channel_silent_desc => 'Muted or in-app messages';
+
+  @override
+  String get security_number_changed =>
+      'The security number changed. This person may have reinstalled the app. If unsure, verify their identity through another channel.';
+
+  @override
+  String get security_message_unreadable =>
+      'A message could not be decrypted and cannot be shown. You can ask the sender to send it again.';
+
+  @override
+  String get chat_jump_to_replied_message => 'Go to the replied message';
+
+  @override
+  String get contacts_empty_body =>
+      'Your contacts are matched by hash only. Anyone who uses elçim will appear here.';
+
+  @override
+  String get calls_empty_body =>
+      'Calls you make and receive are listed here. Call content is never recorded.';
 }

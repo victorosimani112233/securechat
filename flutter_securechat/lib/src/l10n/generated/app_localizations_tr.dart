@@ -1614,4 +1614,56 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get settings_open_source_licenses_desc =>
       'Bu derlemeye dahil edilen yazılım lisanslarını inceleyin.';
+
+  @override
+  String get missed_call => 'Kaçırılan arama';
+
+  @override
+  String get missed_video_call => 'Kaçırılan Görüntülü Arama';
+
+  @override
+  String get missed_voice_call => 'Kaçırılan Sesli Arama';
+
+  @override
+  String missed_call_from(Object peer) {
+    return '$peer tarafından';
+  }
+
+  @override
+  String get missed_calls_channel => 'Kaçırılan Aramalar';
+
+  @override
+  String get missed_calls_channel_desc => 'Cevaplanmayan arama bildirimleri';
+
+  @override
+  String get messages_channel => 'Elçim Mesajlar';
+
+  @override
+  String get messages_channel_silent => 'Elçim Mesajlar (Sessiz)';
+
+  @override
+  String get messages_channel_desc => 'Gelen güvenli mesaj bildirimleri';
+
+  @override
+  String get messages_channel_silent_desc =>
+      'Sessize alınmış veya uygulama içi mesajlar';
+
+  @override
+  String get security_number_changed =>
+      'Güvenlik numarası değişti. Bu kişi uygulamayı yeniden kurmuş olabilir. Emin değilsen kimliğini başka bir kanaldan doğrula.';
+
+  @override
+  String get security_message_unreadable =>
+      'Bir mesaj çözülemedi ve gösterilemiyor. Göndericiden tekrar göndermesini isteyebilirsiniz.';
+
+  @override
+  String get chat_jump_to_replied_message => 'Yanıtlanan mesaja git';
+
+  @override
+  String get contacts_empty_body =>
+      'Rehberinizdeki kişiler yalnızca hash ile eşleştirilir. elçim kullanan biri çıkarsa burada görünür.';
+
+  @override
+  String get calls_empty_body =>
+      'Yaptığınız ve gelen aramalar burada listelenir. Arama içeriği hiçbir zaman kaydedilmez.';
 }

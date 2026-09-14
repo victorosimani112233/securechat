@@ -1615,4 +1615,59 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get settings_open_source_licenses_desc =>
       'Review the software licenses included in this build.';
+
+  @override
+  String get missed_call => 'Verpasster Anruf';
+
+  @override
+  String get missed_video_call => 'Verpasster Videoanruf';
+
+  @override
+  String get missed_voice_call => 'Verpasster Sprachanruf';
+
+  @override
+  String missed_call_from(Object peer) {
+    return 'Von $peer';
+  }
+
+  @override
+  String get missed_calls_channel => 'Verpasste Anrufe';
+
+  @override
+  String get missed_calls_channel_desc =>
+      'Benachrichtigungen für unbeantwortete Anrufe';
+
+  @override
+  String get messages_channel => 'elçim Nachrichten';
+
+  @override
+  String get messages_channel_silent => 'elçim Nachrichten (stumm)';
+
+  @override
+  String get messages_channel_desc =>
+      'Benachrichtigungen für eingehende sichere Nachrichten';
+
+  @override
+  String get messages_channel_silent_desc =>
+      'Stummgeschaltete oder In-App-Nachrichten';
+
+  @override
+  String get security_number_changed =>
+      'Die Sicherheitsnummer hat sich geändert. Diese Person hat die App möglicherweise neu installiert. Überprüfe die Identität im Zweifel über einen anderen Kanal.';
+
+  @override
+  String get security_message_unreadable =>
+      'Eine Nachricht konnte nicht entschlüsselt werden und wird nicht angezeigt. Bitten Sie den Absender, sie erneut zu senden.';
+
+  @override
+  String get chat_jump_to_replied_message =>
+      'Zur beantworteten Nachricht springen';
+
+  @override
+  String get contacts_empty_body =>
+      'Ihre Kontakte werden nur per Hash abgeglichen. Wer elçim nutzt, erscheint hier.';
+
+  @override
+  String get calls_empty_body =>
+      'Getätigte und empfangene Anrufe werden hier aufgelistet. Gesprächsinhalte werden nie aufgezeichnet.';
 }

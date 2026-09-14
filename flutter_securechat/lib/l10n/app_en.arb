@@ -812,7 +812,13 @@
   "connected": "Connected",
   "chat_online": "online",
   "chat_last_seen": "last seen {time}",
-  "@chat_last_seen": {"placeholders": {"time": {"type": "String"}}},
+  "@chat_last_seen": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "chat_encryption_notice": "Messages are end-to-end encrypted.",
   "chat_today": "Today",
   "chat_yesterday": "Yesterday",
@@ -829,5 +835,20 @@
   "sending": "Sending",
   "return_to_call": "Return to call",
   "settings_open_source_licenses": "Open-source licenses",
-  "settings_open_source_licenses_desc": "Review the software licenses included in this build."
+  "settings_open_source_licenses_desc": "Review the software licenses included in this build.",
+  "missed_call": "Missed call",
+  "missed_video_call": "Missed video call",
+  "missed_voice_call": "Missed voice call",
+  "missed_call_from": "From {peer}",
+  "missed_calls_channel": "Missed calls",
+  "missed_calls_channel_desc": "Notifications for unanswered calls",
+  "messages_channel": "elçim Messages",
+  "messages_channel_silent": "elçim Messages (silent)",
+  "messages_channel_desc": "Incoming secure message notifications",
+  "messages_channel_silent_desc": "Muted or in-app messages",
+  "security_number_changed": "The security number changed. This person may have reinstalled the app. If unsure, verify their identity through another channel.",
+  "security_message_unreadable": "A message could not be decrypted and cannot be shown. You can ask the sender to send it again.",
+  "chat_jump_to_replied_message": "Go to the replied message",
+  "contacts_empty_body": "Your contacts are matched by hash only. Anyone who uses elçim will appear here.",
+  "calls_empty_body": "Calls you make and receive are listed here. Call content is never recorded."
 }

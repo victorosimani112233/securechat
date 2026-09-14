@@ -95,22 +95,37 @@
   "conversation_locked_preview": "Dieser Chat ist ausgeblendet",
   "conversations_messages_section": "In Nachrichten",
   "signaling_disconnected": "Serververbindung getrennt",
-  "connected": "Verbunden"
-  ,"chat_online": "online"
-  ,"chat_last_seen": "zuletzt gesehen {time}"
-  ,"chat_encryption_notice": "Nachrichten sind Ende-zu-Ende verschlüsselt."
-  ,"chat_today": "Heute"
-  ,"chat_yesterday": "Gestern"
-  ,"chat_pinned_message": "Angeheftete Nachricht"
-  ,"chat_admins_only": "Nur Admins können Nachrichten senden"
-  ,"chat_message_hint": "Nachricht schreiben…"
-  ,"chat_scroll_bottom": "Zur neuesten Nachricht"
-  ,"chat_you": "Du"
-  ,"chat_edited": "bearbeitet"
-  ,"chat_attachment_options": "Anhangsoptionen"
-  ,"chat_empty_secure": "In diesem sicheren Chat gibt es noch keine Nachrichten."
-  ,"chat_previous_result": "Vorheriges Ergebnis"
-  ,"chat_next_result": "Nächstes Ergebnis"
-  ,"sending": "Wird gesendet"
-  ,"return_to_call": "Zum Anruf zurück"
+  "connected": "Verbunden",
+  "chat_online": "online",
+  "chat_last_seen": "zuletzt gesehen {time}",
+  "chat_encryption_notice": "Nachrichten sind Ende-zu-Ende verschlüsselt.",
+  "chat_today": "Heute",
+  "chat_yesterday": "Gestern",
+  "chat_pinned_message": "Angeheftete Nachricht",
+  "chat_admins_only": "Nur Admins können Nachrichten senden",
+  "chat_message_hint": "Nachricht schreiben…",
+  "chat_scroll_bottom": "Zur neuesten Nachricht",
+  "chat_you": "Du",
+  "chat_edited": "bearbeitet",
+  "chat_attachment_options": "Anhangsoptionen",
+  "chat_empty_secure": "In diesem sicheren Chat gibt es noch keine Nachrichten.",
+  "chat_previous_result": "Vorheriges Ergebnis",
+  "chat_next_result": "Nächstes Ergebnis",
+  "sending": "Wird gesendet",
+  "return_to_call": "Zum Anruf zurück",
+  "missed_call": "Verpasster Anruf",
+  "missed_video_call": "Verpasster Videoanruf",
+  "missed_voice_call": "Verpasster Sprachanruf",
+  "missed_call_from": "Von {peer}",
+  "missed_calls_channel": "Verpasste Anrufe",
+  "missed_calls_channel_desc": "Benachrichtigungen für unbeantwortete Anrufe",
+  "messages_channel": "elçim Nachrichten",
+  "messages_channel_silent": "elçim Nachrichten (stumm)",
+  "messages_channel_desc": "Benachrichtigungen für eingehende sichere Nachrichten",
+  "messages_channel_silent_desc": "Stummgeschaltete oder In-App-Nachrichten",
+  "security_number_changed": "Die Sicherheitsnummer hat sich geändert. Diese Person hat die App möglicherweise neu installiert. Überprüfe die Identität im Zweifel über einen anderen Kanal.",
+  "security_message_unreadable": "Eine Nachricht konnte nicht entschlüsselt werden und wird nicht angezeigt. Bitten Sie den Absender, sie erneut zu senden.",
+  "chat_jump_to_replied_message": "Zur beantworteten Nachricht springen",
+  "contacts_empty_body": "Ihre Kontakte werden nur per Hash abgeglichen. Wer elçim nutzt, erscheint hier.",
+  "calls_empty_body": "Getätigte und empfangene Anrufe werden hier aufgelistet. Gesprächsinhalte werden nie aufgezeichnet."
 }

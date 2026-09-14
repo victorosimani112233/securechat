@@ -812,7 +812,13 @@
   "connected": "Bağlandı",
   "chat_online": "çevrimiçi",
   "chat_last_seen": "son görülme {time}",
-  "@chat_last_seen": {"placeholders": {"time": {"type": "String"}}},
+  "@chat_last_seen": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "chat_encryption_notice": "Mesajlar uçtan uca şifrelenmiştir.",
   "chat_today": "Bugün",
   "chat_yesterday": "Dün",
@@ -829,5 +835,20 @@
   "sending": "Gönderiliyor",
   "return_to_call": "Aramaya dön",
   "settings_open_source_licenses": "Açık kaynak lisansları",
-  "settings_open_source_licenses_desc": "Bu derlemeye dahil edilen yazılım lisanslarını inceleyin."
+  "settings_open_source_licenses_desc": "Bu derlemeye dahil edilen yazılım lisanslarını inceleyin.",
+  "missed_call": "Kaçırılan arama",
+  "missed_video_call": "Kaçırılan Görüntülü Arama",
+  "missed_voice_call": "Kaçırılan Sesli Arama",
+  "missed_call_from": "{peer} tarafından",
+  "missed_calls_channel": "Kaçırılan Aramalar",
+  "missed_calls_channel_desc": "Cevaplanmayan arama bildirimleri",
+  "messages_channel": "Elçim Mesajlar",
+  "messages_channel_silent": "Elçim Mesajlar (Sessiz)",
+  "messages_channel_desc": "Gelen güvenli mesaj bildirimleri",
+  "messages_channel_silent_desc": "Sessize alınmış veya uygulama içi mesajlar",
+  "security_number_changed": "Güvenlik numarası değişti. Bu kişi uygulamayı yeniden kurmuş olabilir. Emin değilsen kimliğini başka bir kanaldan doğrula.",
+  "security_message_unreadable": "Bir mesaj çözülemedi ve gösterilemiyor. Göndericiden tekrar göndermesini isteyebilirsiniz.",
+  "chat_jump_to_replied_message": "Yanıtlanan mesaja git",
+  "contacts_empty_body": "Rehberinizdeki kişiler yalnızca hash ile eşleştirilir. elçim kullanan biri çıkarsa burada görünür.",
+  "calls_empty_body": "Yaptığınız ve gelen aramalar burada listelenir. Arama içeriği hiçbir zaman kaydedilmez."
 }

@@ -1612,4 +1612,57 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get settings_open_source_licenses_desc =>
       'Review the software licenses included in this build.';
+
+  @override
+  String get missed_call => 'مكالمة فائتة';
+
+  @override
+  String get missed_video_call => 'مكالمة فيديو فائتة';
+
+  @override
+  String get missed_voice_call => 'مكالمة صوتية فائتة';
+
+  @override
+  String missed_call_from(Object peer) {
+    return 'من $peer';
+  }
+
+  @override
+  String get missed_calls_channel => 'المكالمات الفائتة';
+
+  @override
+  String get missed_calls_channel_desc =>
+      'إشعارات المكالمات التي لم يتم الرد عليها';
+
+  @override
+  String get messages_channel => 'رسائل elçim';
+
+  @override
+  String get messages_channel_silent => 'رسائل elçim (صامت)';
+
+  @override
+  String get messages_channel_desc => 'إشعارات الرسائل الآمنة الواردة';
+
+  @override
+  String get messages_channel_silent_desc => 'الرسائل المكتومة أو داخل التطبيق';
+
+  @override
+  String get security_number_changed =>
+      'تغير رقم الأمان. ربما أعاد هذا الشخص تثبيت التطبيق. إذا لم تكن متأكدًا، فتحقق من هويته عبر قناة أخرى.';
+
+  @override
+  String get security_message_unreadable =>
+      'تعذّر فك تشفير إحدى الرسائل ولا يمكن عرضها. يمكنك أن تطلب من المُرسِل إرسالها مرة أخرى.';
+
+  @override
+  String get chat_jump_to_replied_message =>
+      'الانتقال إلى الرسالة التي تم الرد عليها';
+
+  @override
+  String get contacts_empty_body =>
+      'تتم مطابقة جهات اتصالك عبر التجزئة فقط. سيظهر هنا كل من يستخدم elçim.';
+
+  @override
+  String get calls_empty_body =>
+      'تُدرج هنا المكالمات الصادرة والواردة. لا يُسجَّل محتوى المكالمات أبدًا.';
 }

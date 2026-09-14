@@ -3041,6 +3041,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Review the software licenses included in this build.'**
   String get settings_open_source_licenses_desc;
+
+  /// No description provided for @missed_call.
+  ///
+  /// In en, this message translates to:
+  /// **'Missed call'**
+  String get missed_call;
+
+  /// No description provided for @missed_video_call.
+  ///
+  /// In en, this message translates to:
+  /// **'Missed video call'**
+  String get missed_video_call;
+
+  /// No description provided for @missed_voice_call.
+  ///
+  /// In en, this message translates to:
+  /// **'Missed voice call'**
+  String get missed_voice_call;
+
+  /// No description provided for @missed_call_from.
+  ///
+  /// In en, this message translates to:
+  /// **'From {peer}'**
+  String missed_call_from(Object peer);
+
+  /// No description provided for @missed_calls_channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Missed calls'**
+  String get missed_calls_channel;
+
+  /// No description provided for @missed_calls_channel_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications for unanswered calls'**
+  String get missed_calls_channel_desc;
+
+  /// No description provided for @messages_channel.
+  ///
+  /// In en, this message translates to:
+  /// **'elçim Messages'**
+  String get messages_channel;
+
+  /// No description provided for @messages_channel_silent.
+  ///
+  /// In en, this message translates to:
+  /// **'elçim Messages (silent)'**
+  String get messages_channel_silent;
+
+  /// No description provided for @messages_channel_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming secure message notifications'**
+  String get messages_channel_desc;
+
+  /// No description provided for @messages_channel_silent_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Muted or in-app messages'**
+  String get messages_channel_silent_desc;
+
+  /// No description provided for @security_number_changed.
+  ///
+  /// In en, this message translates to:
+  /// **'The security number changed. This person may have reinstalled the app. If unsure, verify their identity through another channel.'**
+  String get security_number_changed;
+
+  /// No description provided for @security_message_unreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'A message could not be decrypted and cannot be shown. You can ask the sender to send it again.'**
+  String get security_message_unreadable;
+
+  /// No description provided for @chat_jump_to_replied_message.
+  ///
+  /// In en, this message translates to:
+  /// **'Go to the replied message'**
+  String get chat_jump_to_replied_message;
+
+  /// No description provided for @contacts_empty_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Your contacts are matched by hash only. Anyone who uses elçim will appear here.'**
+  String get contacts_empty_body;
+
+  /// No description provided for @calls_empty_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Calls you make and receive are listed here. Call content is never recorded.'**
+  String get calls_empty_body;
 }
 
 class _AppLocalizationsDelegate
