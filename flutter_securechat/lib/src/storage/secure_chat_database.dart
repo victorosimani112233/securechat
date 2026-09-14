@@ -247,13 +247,19 @@ class ConversationDao {
   Future<void> updateLastMessage(
     String peerId,
     String message,
-    int timestamp,
-  ) => _db._write((s) {
+    int timestamp, {
+    StorageMessageContentType? type,
+    bool? outgoing,
+    StorageMessageStatus? status,
+  }) => _db._write((s) {
     for (final entry in s.conversations.entries) {
       if (entry.value.peerId == peerId) {
         s.conversations[entry.key] = entry.value.copyWith(
           lastMessage: message,
           lastMessageTimestamp: timestamp,
+          lastMessageType: type?.name,
+          lastMessageOutgoing: outgoing,
+          lastMessageStatus: status?.name,
         );
       }
     }
@@ -300,10 +306,19 @@ class ConversationDao {
   Future<void> updateLastMessageById(
     String conversationId,
     String message,
-    int timestamp,
-  ) => _patch(
+    int timestamp, {
+    StorageMessageContentType? type,
+    bool? outgoing,
+    StorageMessageStatus? status,
+  }) => _patch(
     conversationId,
-    (c) => c.copyWith(lastMessage: message, lastMessageTimestamp: timestamp),
+    (c) => c.copyWith(
+      lastMessage: message,
+      lastMessageTimestamp: timestamp,
+      lastMessageType: type?.name,
+      lastMessageOutgoing: outgoing,
+      lastMessageStatus: status?.name,
+    ),
   );
   Future<void> clearLastMessage(String conversationId) => _db._write((s) {
     final current = s.conversations[conversationId];
@@ -386,7 +401,22 @@ class MessageDao {
       _db._write((s) => s.messages[message.id] = message);
   Future<void> update(MessageEntity message) => insert(message);
   Future<void> updateStatus(String id, StorageMessageStatus status) =>
-      _patch(id, (m) => m.copyWith(status: status));
+      _db._write((s) {
+        final message = s.messages[id];
+        if (message == null) return;
+        s.messages[id] = message.copyWith(status: status);
+        // Sohbet listesindeki teslim tiki de bu mesaji gosteriyorsa birlikte
+        // guncellenir. Tek yerde yapilir; aksi halde her durum degisikligini
+        // cagiran tarafin ayrica kopyalamasi gerekirdi ve biri unutulurdu.
+        final conversation = s.conversations[message.conversationId];
+        if (conversation == null || !message.isOutgoing) return;
+        // Son mesaj mi: damga karsilastirmasi yeterli ve O(1). Mesaj
+        // tablosunu taramak her durum degisikliginde O(n) maliyet getirirdi.
+        if (conversation.lastMessageTimestamp != message.timestamp) return;
+        s.conversations[message.conversationId] = conversation.copyWith(
+          lastMessageStatus: status.name,
+        );
+      });
   Future<MessageEntity?> getById(String id) async => _db._snapshot.messages[id];
   Future<void> delete(String id) => _db._write((s) => s.messages.remove(id));
   Future<void> deleteByConversation(String conversationId) => _db._write(

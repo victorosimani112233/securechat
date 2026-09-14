@@ -12,6 +12,9 @@ class Conversation {
     required this.peerPhone,
     this.lastMessage,
     this.lastMessageTimestamp,
+    this.lastMessageType,
+    this.lastMessageOutgoing = false,
+    this.lastMessageStatus,
     this.unreadCount = 0,
     this.isMuted = false,
     this.isPinned = false,
@@ -33,6 +36,12 @@ class Conversation {
   final String peerPhone;
   final String? lastMessage;
   final DateTime? lastMessageTimestamp;
+
+  /// Sohbet listesi son mesajin turunu ve teslim durumunu gosterebilsin diye
+  /// tasinir. Listede her sohbet icin mesaj tablosunu taramak O(n) olurdu.
+  final MessageContentType? lastMessageType;
+  final bool lastMessageOutgoing;
+  final MessageStatus? lastMessageStatus;
   final int unreadCount;
   final bool isMuted;
   final bool isPinned;

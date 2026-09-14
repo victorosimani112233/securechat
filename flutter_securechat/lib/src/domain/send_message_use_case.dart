@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import '../chat/conversation_preview.dart';
 import '../core/signal_message.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
 import '../groups/private_group_control.dart';
@@ -95,15 +96,26 @@ class SendMessageUseCase {
           peerId: request.conversationId,
           peerName: request.conversationId,
           peerPhone: '',
-          lastMessage: request.content,
+          lastMessage: conversationPreview(
+            content: request.content,
+            isViewOnce: request.isViewOnce,
+            contentType: request.contentType,
+          ),
           lastMessageTimestamp: now.millisecondsSinceEpoch,
         ),
       );
     } else {
       await _database.conversations.updateLastMessageById(
         request.conversationId,
-        request.content,
+        conversationPreview(
+          content: request.content,
+          isViewOnce: request.isViewOnce,
+          contentType: request.contentType,
+        ),
         now.millisecondsSinceEpoch,
+        type: request.contentType,
+        outgoing: true,
+        status: StorageMessageStatus.sending,
       );
     }
 

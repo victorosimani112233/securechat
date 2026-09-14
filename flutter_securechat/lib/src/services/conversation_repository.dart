@@ -302,6 +302,23 @@ Conversation _conversationFromEntity(storage.ConversationEntity entity) {
     lastMessageTimestamp: entity.lastMessageTimestamp == null
         ? null
         : DateTime.fromMillisecondsSinceEpoch(entity.lastMessageTimestamp!),
+    lastMessageType: entity.lastMessageType == null
+        ? null
+        : _contentTypeFromStorage(
+            storage.StorageMessageContentType.values.firstWhere(
+              (value) => value.name == entity.lastMessageType,
+              orElse: () => storage.StorageMessageContentType.text,
+            ),
+          ),
+    lastMessageOutgoing: entity.lastMessageOutgoing,
+    lastMessageStatus: entity.lastMessageStatus == null
+        ? null
+        : _statusFromStorage(
+            storage.StorageMessageStatus.values.firstWhere(
+              (value) => value.name == entity.lastMessageStatus,
+              orElse: () => storage.StorageMessageStatus.sent,
+            ),
+          ),
     unreadCount: entity.unreadCount,
     isMuted: entity.isMuted,
     isPinned: entity.isPinned,
