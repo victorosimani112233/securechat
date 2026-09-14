@@ -11,6 +11,22 @@ abstract interface class PreKeyBundleProvider {
   Future<signal.PreKeyBundle?> fetch(String recipientId);
 }
 
+class _AsyncKeyedMutex {
+  final Map<String, Future<void>> _tails = {};
+
+  Future<T> protect<T>(String key, Future<T> Function() operation) {
+    final previous = _tails[key] ?? Future<void>.value();
+    final ready = previous.then<void>((_) {}, onError: (_, _) {});
+    final result = ready.then<T>((_) => operation());
+    final tail = result.then<void>((_) {}, onError: (_, _) {});
+    _tails[key] = tail;
+    tail.whenComplete(() {
+      if (identical(_tails[key], tail)) _tails.remove(key);
+    });
+    return result;
+  }
+}
+
 class HttpPreKeyBundleProvider implements PreKeyBundleProvider {
   HttpPreKeyBundleProvider({
     required Uri apiBaseUrl,
@@ -76,40 +92,95 @@ class HttpPreKeyBundleProvider implements PreKeyBundleProvider {
 /// Production message crypto. Local database/session wrapping deliberately
 /// remains in [LocalAeadCryptoService]; this class is only for peer/group wire
 /// messages and implements Signal Protocol V3 Double Ratchet + SenderKey.
-class SignalProtocolCryptoService implements CryptoService {
+class SignalProtocolCryptoService
+    implements CryptoService, PeerSessionRecovery {
   SignalProtocolCryptoService({
     required PersistentSignalProtocolStore store,
     required PreKeyBundleProvider preKeyBundles,
+    PeerIdentityRotationHandler? onPeerIdentityRotated,
   }) : _store = store,
-       _preKeyBundles = preKeyBundles;
+       _preKeyBundles = preKeyBundles,
+       _onPeerIdentityRotated = onPeerIdentityRotated;
 
   static const deviceId = 1;
   final PersistentSignalProtocolStore _store;
   final PreKeyBundleProvider _preKeyBundles;
-  final Map<String, Future<bool>> _sessionAttempts = {};
+  final PeerIdentityRotationHandler? _onPeerIdentityRotated;
+  final _operations = _AsyncKeyedMutex();
 
-  Future<bool> ensureSession(String recipientId) {
-    return _sessionAttempts
-        .putIfAbsent(recipientId, () async {
-          final address = signal.SignalProtocolAddress(recipientId, deviceId);
-          if (await _store.containsSession(address)) return true;
-          final bundle = await _preKeyBundles.fetch(recipientId);
-          if (bundle == null) return false;
-          await signal.SessionBuilder.fromSignalStore(
-            _store,
-            address,
-          ).processPreKeyBundle(bundle);
-          return _store.containsSession(address);
-        })
-        .whenComplete(() => _sessionAttempts.remove(recipientId));
+  /// [force] verilirse mevcut oturum kaydi gecerli sayilmaz: once silinir,
+  /// sonra taze bir prekey bundle ile X3DH bastan kurulur. Bozuk oturumdan
+  /// kurtulmanin tek yolu budur; aksi halde `containsSession` true dondugu
+  /// icin olu oturum sonsuza kadar kullanilmaya devam eder.
+  Future<bool> ensureSession(String recipientId, {bool force = false}) =>
+      _operations.protect(
+        'direct:$recipientId',
+        () => _ensureSessionUnlocked(recipientId, force: force),
+      );
+
+  Future<bool> _ensureSessionUnlocked(
+    String recipientId, {
+    bool force = false,
+  }) async {
+    final address = signal.SignalProtocolAddress(recipientId, deviceId);
+    if (force) {
+      await _store.deleteSession(address);
+    } else if (await _store.containsSession(address)) {
+      return true;
+    }
+    final bundle = await _preKeyBundles.fetch(recipientId);
+    if (bundle == null) return false;
+    final builder = signal.SessionBuilder.fromSignalStore(_store, address);
+    try {
+      await builder.processPreKeyBundle(bundle);
+    } on signal.UntrustedIdentityException {
+      // Kimlik degisimi bir liveness olayi degil, guven karari. Sunucudan
+      // gelen yeni bundle eski TOFU pinini otomatik silemez; once kullanici
+      // onayi veya key-transparency kaniti gerekir.
+      await _onPeerIdentityRotated?.call(recipientId);
+      rethrow;
+    }
+    return _store.containsSession(address);
+  }
+
+  @override
+  Future<void> resetPeerSession(String peerId) => _operations.protect(
+    'direct:$peerId',
+    () => _resetPeerSessionUnlocked(peerId),
+  );
+
+  Future<void> _resetPeerSessionUnlocked(String peerId) async {
+    await _store.deleteSession(signal.SignalProtocolAddress(peerId, deviceId));
+    await _store.deleteAllSessions(peerId);
+  }
+
+  @override
+  Future<bool> rebuildPeerSession(String peerId) =>
+      _operations.protect('direct:$peerId', () async {
+        await _resetPeerSessionUnlocked(peerId);
+        return _ensureSessionUnlocked(peerId, force: true);
+      });
+
+  /// Hatanin oturumun kullanilamaz oldugunu mu gosterdigini siniflandirir.
+  ///
+  /// `DuplicateMessageException` kasitli olarak DISARIDA: tekrar teslim edilen
+  /// bir cerceve saglikli bir oturumda da olagan, oturumu sifirlamak yanlis
+  /// olur. `InvalidMessageException` ve `InvalidMacException` paket
+  /// barrel'indan export edilmedigi icin tip adiyla eslenir.
+  static bool indicatesUnusableSession(Object error) {
+    if (error is signal.DuplicateMessageException) return false;
+    if (error is signal.NoSessionException) return true;
+    if (error is signal.UntrustedIdentityException) return true;
+    final name = error.runtimeType.toString();
+    return name == 'InvalidMessageException' || name == 'InvalidMacException';
   }
 
   @override
   Future<String> encryptDirect({
     required String recipientId,
     required String plaintext,
-  }) async {
-    if (!await ensureSession(recipientId)) {
+  }) => _operations.protect('direct:$recipientId', () async {
+    if (!await _ensureSessionUnlocked(recipientId)) {
       throw StateError('Signal session could not be established: $recipientId');
     }
     final address = signal.SignalProtocolAddress(recipientId, deviceId);
@@ -122,13 +193,13 @@ class SignalProtocolCryptoService implements CryptoService {
         : 'SIGNAL';
     final registrationId = await _store.getLocalRegistrationId();
     return 'E2EE:v1:$type:$registrationId:${base64Encode(message.serialize())}';
-  }
+  });
 
   @override
   Future<String> decryptDirect({
     required String senderId,
     required String envelope,
-  }) async {
+  }) => _operations.protect('direct:$senderId', () async {
     final parts = envelope.split(':');
     if (parts.length != 5 || parts[0] != 'E2EE' || parts[1] != 'v1') {
       throw FormatException('Unsupported Signal envelope', envelope);
@@ -138,24 +209,35 @@ class SignalProtocolCryptoService implements CryptoService {
       _store,
       signal.SignalProtocolAddress(senderId, deviceId),
     );
-    final plaintext = switch (parts[2]) {
-      'PREKEY' => await cipher.decrypt(signal.PreKeySignalMessage(bytes)),
-      'SIGNAL' => await cipher.decryptFromSignal(
-        signal.SignalMessage.fromSerialized(bytes),
-      ),
-      _ => throw FormatException('Unknown Signal envelope type', parts[2]),
-    };
+    final List<int> plaintext;
+    try {
+      plaintext = switch (parts[2]) {
+        'PREKEY' => await cipher.decrypt(signal.PreKeySignalMessage(bytes)),
+        'SIGNAL' => await cipher.decryptFromSignal(
+          signal.SignalMessage.fromSerialized(bytes),
+        ),
+        _ => throw FormatException('Unknown Signal envelope type', parts[2]),
+      };
+    } on FormatException {
+      rethrow;
+    } catch (error) {
+      if (!indicatesUnusableSession(error)) rethrow;
+      // Oturum olu: bir daha kullanilmasin diye hemen silinir, boylece
+      // sonraki gonderim taze bir prekey bundle ile X3DH'i bastan kurar.
+      await _resetPeerSessionUnlocked(senderId);
+      throw SignalSessionUnusableException(peerId: senderId, cause: error);
+    }
     return utf8.decode(plaintext);
-  }
+  });
 
   Future<String> createSenderKeyDistribution({
     required String groupId,
     required String senderId,
-  }) async {
+  }) => _operations.protect('group:$groupId:$senderId', () async {
     final name = _senderKeyName(groupId, senderId);
     final message = await signal.GroupSessionBuilder(_store).create(name);
     return 'SKDM:$groupId:${base64Encode(message.serialize())}';
-  }
+  });
 
   Future<void> processSenderKeyDistribution({
     required String senderId,
@@ -170,9 +252,11 @@ class SignalProtocolCryptoService implements CryptoService {
     final message = signal.SenderKeyDistributionMessageWrapper.fromSerialized(
       _decodeBase64(plaintext.substring(second + 1)),
     );
-    await signal.GroupSessionBuilder(
-      _store,
-    ).process(_senderKeyName(groupId, senderId), message);
+    await _operations.protect('group:$groupId:$senderId', () async {
+      await signal.GroupSessionBuilder(
+        _store,
+      ).process(_senderKeyName(groupId, senderId), message);
+    });
   }
 
   @override
@@ -190,7 +274,7 @@ class SignalProtocolCryptoService implements CryptoService {
     required String senderId,
     required String groupId,
     required String plaintext,
-  }) async {
+  }) => _operations.protect('group:$groupId:$senderId', () async {
     final name = _senderKeyName(groupId, senderId);
     final record = await _store.loadSenderKey(name);
     if (record.isEmpty) {
@@ -202,14 +286,14 @@ class SignalProtocolCryptoService implements CryptoService {
     ).encrypt(Uint8List.fromList(utf8.encode(plaintext)));
     final routingToken = await groupRoutingToken(groupId);
     return 'GROUPSK:v2:$routingToken:${base64Encode(ciphertext)}';
-  }
+  });
 
   @override
   Future<String> decryptGroup({
     required String senderId,
     required String groupId,
     required String envelope,
-  }) async {
+  }) => _operations.protect('group:$groupId:$senderId', () async {
     final parts = envelope.split(':');
     final isLegacyV1 =
         parts.length == 5 &&
@@ -230,10 +314,13 @@ class SignalProtocolCryptoService implements CryptoService {
       _senderKeyName(groupId, senderId),
     ).decrypt(_decodeBase64(ciphertext));
     return utf8.decode(plaintext);
-  }
+  });
 
   Future<void> resetLocalSenderKey(String groupId, String senderId) =>
-      _store.resetSenderKey(groupId, senderId);
+      _operations.protect(
+        'group:$groupId:$senderId',
+        () => _store.resetSenderKey(groupId, senderId),
+      );
 
   signal.SenderKeyName _senderKeyName(String groupId, String senderId) =>
       signal.SenderKeyName(

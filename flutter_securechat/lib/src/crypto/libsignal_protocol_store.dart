@@ -129,6 +129,12 @@ class PersistentSignalProtocolStore extends signal.SignalProtocolStore
     record.serialize(),
   );
 
+  /// Sakli peer kimlik anahtarini siler.
+  ///
+  /// Yalniz acik bir kullanici onayi veya key-transparency kaniti sonrasi
+  /// cagrilmalidir. Otomatik oturum kurtarma bu pini silemez.
+  Future<void> deleteIdentity(String name) => _store.deleteIdentity(name);
+
   @override
   Future<bool> containsSession(signal.SignalProtocolAddress address) =>
       _store.containsSession(address.getName(), address.getDeviceId());

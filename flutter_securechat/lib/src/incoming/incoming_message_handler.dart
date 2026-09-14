@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 
+import '../chat/conversation_preview.dart';
 import '../chat/message_interaction_service.dart';
 import '../chat/poll_service.dart';
 import '../chat/private_chat_control.dart';
@@ -11,6 +12,7 @@ import '../core/signal_message.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
 import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
+import '../media/call_media_key.dart';
 import '../services/crypto_service.dart';
 import '../services/async_operation_tracker.dart';
 import '../services/session_store.dart';
@@ -45,6 +47,12 @@ class IncomingMessageEvent {
   final bool isMention;
 }
 
+/// Cozulmus bir cagri medya anahtarini cagri yoneticisine ulastiran sinir.
+///
+/// Anahtar bir sohbet mesaji degildir; veritabanina yazilmaz.
+typedef CallMediaKeyReceiver =
+    Future<void> Function({required String senderId, required String payload});
+
 class IncomingMessageHandler {
   IncomingMessageHandler({
     required SignalingService signaling,
@@ -52,12 +60,16 @@ class IncomingMessageHandler {
     required SecureChatDatabase database,
     required SessionStore session,
     ContactIdentityResolver? identityResolver,
+    CallMediaKeyReceiver? applyCallMediaKey,
     AsyncOperationFailureHandler? onAsyncFailure,
+    Future<void> Function(String conversationId)? onUndecryptableMessage,
   }) : _signaling = signaling,
        _crypto = crypto,
        _database = database,
        _session = session,
        _identityResolver = identityResolver,
+       _applyCallMediaKey = applyCallMediaKey,
+       _onUndecryptableMessage = onUndecryptableMessage,
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
 
   final SignalingService _signaling;
@@ -65,6 +77,8 @@ class IncomingMessageHandler {
   final SecureChatDatabase _database;
   final SessionStore _session;
   final ContactIdentityResolver? _identityResolver;
+  final CallMediaKeyReceiver? _applyCallMediaKey;
+  final Future<void> Function(String conversationId)? _onUndecryptableMessage;
   final AsyncOperationTracker _operations;
   final _typingController = StreamController<Map<String, bool>>.broadcast();
   final _presenceController =
@@ -94,11 +108,23 @@ class IncomingMessageHandler {
 
   void start() {
     if (_closed) throw StateError('Incoming message handler is closed');
-    _subscription ??= _signaling.incoming.listen((signal) {
-      final operation = _handleTail.then((_) => _handle(signal));
-      _handleTail = operation.then<void>((_) {}, onError: (_, _) {});
-      _operations.run('incoming-message.handle', operation);
-    });
+    _subscription ??= _signaling.incoming.listen(
+      (signal) {
+        final operation = _handleTail.then((_) => _handle(signal));
+        _handleTail = operation.then<void>((_) {}, onError: (_, _) {});
+        _operations.run('incoming-message.handle', operation);
+      },
+      // Cozulemeyen/gecersiz cerceveler burada hata olarak gelir. onError
+      // verilmezse hata islenmemis sayilip root zone'da olumcul crash raporu
+      // uretiyor ve kullaniciya da hicbir iz kalmiyordu.
+      onError: (Object error, StackTrace stackTrace) {
+        if (_closed || _operations.isClosed) return;
+        _operations.run(
+          'incoming-message.signal-stream',
+          Future<void>.error(error, stackTrace),
+        );
+      },
+    );
   }
 
   /// Waits until every signal already delivered by the socket stream has been
@@ -171,9 +197,87 @@ class IncomingMessageHandler {
         await _adminEncryptedLog(signal);
       case GroupNotificationSignal():
         await _groupNotification(signal);
+      case SessionResetRequestSignal():
+        await _sessionResetRequest(signal);
       default:
         break;
     }
+  }
+
+  /// Cozulemeyen bir zarfin ardindan calisir.
+  ///
+  /// Iki is yapar: (1) hatayi sahipli async sinirina vererek teshis kaydina
+  /// dusurur, (2) oturum kullanilamaz durumdaysa yerel oturumu atar ve karsi
+  /// tarafa `session_reset_request` gonderir. Ikinci adim olmadan karsi taraf
+  /// bizim olu oturumumuzla sifrelemeye devam eder ve sohbet kalici olarak
+  /// olur.
+  Future<void> _recoverFromDecryptFailure(
+    EncryptedSignalMessage signal,
+    Object error,
+    StackTrace stackTrace, {
+    required String conversationId,
+  }) async {
+    // Kullanici mesajin dustugunu GORMELI. Aksi halde gonderen "gonderdim",
+    // alan "gelmedi" der ve kimse kaybi fark etmez.
+    await _onUndecryptableMessage?.call(conversationId);
+    if (!_closed && !_operations.isClosed) {
+      _operations.run(
+        'incoming-message.decrypt',
+        Future<void>.error(error, stackTrace),
+      );
+    }
+    if (error is! SignalSessionUnusableException) return;
+    final peerId = error.peerId;
+    if (_crypto case final PeerSessionRecovery recovery) {
+      // Oturum atilir, fakat TOFU ile sabitlenen kimlik korunur. Sonraki
+      // gonderim taze bundle ceker; kimlik degismisse otomatik kabul edilmez.
+      await recovery.resetPeerSession(peerId);
+    }
+    final localUserId = _session.userId;
+    if (localUserId == null) return;
+    // Karsi tarafin da bizimle olan oturumunu atmasini iste; boylece bir
+    // sonraki gonderiminde taze bir X3DH kurulur.
+    await _signaling.send(
+      SessionResetRequestSignal(
+        senderId: localUserId,
+        recipientId: peerId,
+        timestamp: DateTime.now(),
+        reason: 'undecryptable-envelope',
+      ),
+    );
+  }
+
+  /// Karsi taraf oturumun bozuldugunu bildirdi: yerel oturumu atiyoruz ki
+  /// bir sonraki gonderim yeni prekey bundle ile bastan kurulsun.
+  Future<void> _sessionResetRequest(SessionResetRequestSignal signal) async {
+    final localUserId = _session.userId;
+    if (localUserId == null || localUserId != signal.recipientId) return;
+    if (_crypto case final PeerSessionRecovery recovery) {
+      // Bu kontrol signaling katmanindadir ve kotucul sunucu tarafindan
+      // uretilebilir. Yalniz oturumu sifirlayabilir; pinli kimligi silemez veya
+      // yeni bundle'i guvenilir ilan edemez.
+      await recovery.resetPeerSession(signal.senderId);
+    }
+  }
+
+  /// Karsi tarafin gonderdigi zaman damgasini makul bir pencereye kirpar.
+  ///
+  /// Mesaj siralamasi bu damgaya dayaniyor. Kirpilmazsa kotu niyetli bir peer
+  /// cok ileri tarihli bir damga gondererek mesajini sohbet listesinin ve
+  /// konusmanin tepesine KALICI olarak sabitleyebilir; ayni sekilde cok geri
+  /// tarihli damga mesaji gecmise gomer.
+  ///
+  /// Ileri yonde kucuk bir tolerans birakilir cunku iki cihazin saati birkac
+  /// dakika kayabilir. Geri yonde kirpma yapilmaz: eski bir mesajin gecikmeli
+  /// teslimi mesrudur.
+  static const peerClockTolerance = Duration(minutes: 5);
+
+  int _boundedTimestamp(DateTime peerTimestamp) {
+    final now = DateTime.now();
+    final ceiling = now.add(peerClockTolerance);
+    return peerTimestamp.isAfter(ceiling)
+        ? now.millisecondsSinceEpoch
+        : peerTimestamp.millisecondsSinceEpoch;
   }
 
   Future<void> _encrypted(EncryptedSignalMessage signal) async {
@@ -221,7 +325,29 @@ class IncomingMessageHandler {
           );
         }
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
+      // Onceden burada sessiz `return` vardi: cozulemeyen her mesaj hicbir iz
+      // birakmadan dusuyordu (ne log, ne teshis kaydi, ne kullanici uyarisi).
+      // Artik hata teshis sinirina gidiyor ve oturum bozuksa kurtarma
+      // baslatiliyor.
+      await _recoverFromDecryptFailure(
+        signal,
+        error,
+        stackTrace,
+        conversationId: conversationId,
+      );
+      return;
+    }
+    // Cagri medya anahtari mesaj degildir: sohbete yazilmaz, dogrudan cagri
+    // yoneticisine gider. Yalniz bize gonderilmis ve authenticated bir
+    // zarftan cikmis olabilir.
+    if (plaintext.startsWith('${CallMediaKey.prefix}:')) {
+      final localUserId = _session.userId;
+      if (localUserId == null || localUserId != signal.recipientId) return;
+      await _applyCallMediaKey?.call(
+        senderId: signal.senderId,
+        payload: plaintext,
+      );
       return;
     }
     if (isPrivateGroupControl(plaintext)) {
@@ -302,7 +428,7 @@ class IncomingMessageHandler {
         senderId: signal.senderId,
         content: parsed.content,
         contentType: parsed.contentType,
-        timestamp: signal.timestamp.millisecondsSinceEpoch,
+        timestamp: _boundedTimestamp(signal.timestamp),
         status: StorageMessageStatus.delivered,
         replyToId: parsed.replyToId,
         isOutgoing: false,
@@ -312,8 +438,16 @@ class IncomingMessageHandler {
     );
     await _database.conversations.updateLastMessageById(
       conversationId,
-      parsed.content,
-      signal.timestamp.millisecondsSinceEpoch,
+      // Tek-gosterimlik icerik onizlemeye girmemeli; bildirim yolunda zaten
+      // korunuyordu, ayni kural sohbet listesine de uygulanir.
+      conversationPreview(
+        content: parsed.content,
+        isViewOnce: parsed.isViewOnce,
+        contentType: parsed.contentType,
+      ),
+      _boundedTimestamp(signal.timestamp),
+      type: parsed.contentType,
+      outgoing: false,
     );
     await _database.conversations.incrementUnreadCount(conversationId);
     final storedConversation = await _database.conversations.getById(
@@ -403,7 +537,7 @@ class IncomingMessageHandler {
     await _database.messages.updateContentEdited(
       signal.messageId,
       content,
-      signal.timestamp.millisecondsSinceEpoch,
+      _boundedTimestamp(signal.timestamp),
       jsonEncode([message.content]),
     );
   }
@@ -581,7 +715,7 @@ class IncomingMessageHandler {
           eventType: payload['eventType'] as String? ?? signal.eventType,
           timestamp:
               (payload['timestamp'] as num?)?.toInt() ??
-              signal.timestamp.millisecondsSinceEpoch,
+              _boundedTimestamp(signal.timestamp),
           messageCount: (payload['messageCount'] as num?)?.toInt() ?? 0,
           firstMsgTs: (payload['firstMsgTs'] as num?)?.toInt(),
           lastMsgTs: (payload['lastMsgTs'] as num?)?.toInt(),
@@ -610,7 +744,7 @@ class IncomingMessageHandler {
             peerPhone: '',
             lastMessage:
                 '${await _memberName(signal.senderId)} grubu oluşturdu',
-            lastMessageTimestamp: signal.timestamp.millisecondsSinceEpoch,
+            lastMessageTimestamp: _boundedTimestamp(signal.timestamp),
             unreadCount: signal.senderId == localUserId ? 0 : 1,
             isGroup: true,
             groupMembers: signal.groupMembers.join(','),
@@ -829,7 +963,7 @@ class IncomingMessageHandler {
         senderId: 'SYSTEM',
         content: content,
         contentType: StorageMessageContentType.system,
-        timestamp: signal.timestamp.millisecondsSinceEpoch,
+        timestamp: _boundedTimestamp(signal.timestamp),
         status: StorageMessageStatus.delivered,
         isOutgoing: false,
       ),
@@ -837,7 +971,7 @@ class IncomingMessageHandler {
     await _database.conversations.updateLastMessageById(
       signal.groupId,
       content,
-      signal.timestamp.millisecondsSinceEpoch,
+      _boundedTimestamp(signal.timestamp),
     );
   }
 
@@ -849,7 +983,12 @@ class IncomingMessageHandler {
           senderId: senderId,
           plaintext: plaintext,
         );
-      } catch (_) {}
+      } catch (error, stackTrace) {
+        // Sessiz yutulursa o gondericinin grup mesajlari KALICI olarak
+        // cozulemez hale gelir ve hicbir iz kalmaz: 1:1 oturum kurtarmasi
+        // sender key'i geri getirmez, yeniden isteme mekanizmasi da yoktur.
+        _reportSenderKeyFailure(error, stackTrace);
+      }
       return;
     }
     final parts = plaintext.split(':');
@@ -866,7 +1005,17 @@ class IncomingMessageHandler {
           updatedAt: DateTime.now().millisecondsSinceEpoch,
         ),
       );
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      _reportSenderKeyFailure(error, stackTrace);
+    }
+  }
+
+  void _reportSenderKeyFailure(Object error, StackTrace stackTrace) {
+    if (_closed || _operations.isClosed) return;
+    _operations.run(
+      'incoming-message.sender-key',
+      Future<void>.error(error, stackTrace),
+    );
   }
 
   Future<void> _applyPollVote(
@@ -910,16 +1059,12 @@ class IncomingMessageHandler {
   }
 }
 
-String _notificationPreview(ParsedMessageEnvelope parsed) {
-  if (parsed.isViewOnce) return 'Tek gösterimlik mesaj';
-  return switch (parsed.contentType) {
-    StorageMessageContentType.poll => 'Anket: ${parsed.content}',
-    StorageMessageContentType.image => 'Fotoğraf',
-    StorageMessageContentType.file => 'Dosya',
-    StorageMessageContentType.voiceNote => 'Sesli mesaj',
-    _ => parsed.content,
-  };
-}
+String _notificationPreview(ParsedMessageEnvelope parsed) =>
+    conversationPreview(
+      content: parsed.content,
+      isViewOnce: parsed.isViewOnce,
+      contentType: parsed.contentType,
+    );
 
 int _statusRank(StorageMessageStatus status) => switch (status) {
   StorageMessageStatus.failed => -1,

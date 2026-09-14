@@ -32,9 +32,6 @@ sealed class SignalMessage {
       'sdp_answer' => SdpAnswerSignal.fromJson(data),
       'ice_candidate' => IceCandidateSignal.fromJson(data),
       'encrypted_message' => EncryptedSignalMessage.fromJson(data),
-      'prekey_bundle' => PreKeyBundleSignal.fromJson(data),
-      'audio_data' => AudioDataSignal.fromJson(data),
-      'video_data' => VideoDataSignal.fromJson(data),
       'group_message_fanout' => GroupMessageFanoutSignal.fromJson(data),
       'file_transfer' => FileTransferSignal.fromJson(data),
       'group_notification' => GroupNotificationSignal.fromJson(data),
@@ -209,91 +206,6 @@ class EncryptedSignalMessage extends SignalMessage {
 
   @override
   Map<String, Object?> toJson() => {..._base(this), 'envelope': envelope};
-}
-
-class PreKeyBundleSignal extends SignalMessage {
-  const PreKeyBundleSignal({
-    required super.senderId,
-    required super.recipientId,
-    required super.timestamp,
-    required this.bundle,
-  });
-
-  final String bundle;
-
-  @override
-  String get type => 'prekey_bundle';
-
-  factory PreKeyBundleSignal.fromJson(Map<String, Object?> json) =>
-      PreKeyBundleSignal(
-        senderId: json['senderId'] as String? ?? '',
-        recipientId: json['recipientId'] as String? ?? '',
-        timestamp: _dt(json['timestamp']),
-        bundle: json['bundle'] as String? ?? '',
-      );
-
-  @override
-  Map<String, Object?> toJson() => {..._base(this), 'bundle': bundle};
-}
-
-class AudioDataSignal extends SignalMessage {
-  const AudioDataSignal({
-    required super.senderId,
-    required super.recipientId,
-    required super.timestamp,
-    required this.data,
-  });
-
-  final String data;
-
-  @override
-  String get type => 'audio_data';
-
-  factory AudioDataSignal.fromJson(Map<String, Object?> json) =>
-      AudioDataSignal(
-        senderId: json['senderId'] as String? ?? '',
-        recipientId: json['recipientId'] as String? ?? '',
-        timestamp: _dt(json['timestamp']),
-        data: json['data'] as String? ?? '',
-      );
-
-  @override
-  Map<String, Object?> toJson() => {..._base(this), 'data': data};
-}
-
-class VideoDataSignal extends AudioDataSignal {
-  const VideoDataSignal({
-    required super.senderId,
-    required super.recipientId,
-    required super.timestamp,
-    required super.data,
-    required this.width,
-    required this.height,
-  });
-
-  final int width;
-  final int height;
-
-  @override
-  String get type => 'video_data';
-
-  factory VideoDataSignal.fromJson(Map<String, Object?> json) =>
-      VideoDataSignal(
-        senderId: json['senderId'] as String? ?? '',
-        recipientId: json['recipientId'] as String? ?? '',
-        timestamp: _dt(json['timestamp']),
-        data: json['data'] as String? ?? '',
-        width: (json['width'] as num?)?.toInt() ?? 0,
-        height: (json['height'] as num?)?.toInt() ?? 0,
-      );
-
-  @override
-  Map<String, Object?> toJson() => {
-    ..._base(this),
-    'data': data,
-    'width': width,
-    'height': height,
-  };
 }
 
 class GroupMessageFanoutSignal extends SignalMessage {
@@ -949,12 +861,21 @@ class GroupCallInviteSignal extends SignalMessage {
     required this.callType,
     required this.callId,
     required this.participants,
+    this.mediaE2ee = false,
   });
 
   final String groupId;
   final String callType;
   final String callId;
   final List<String> participants;
+
+  /// Bu istemci medya frame sifrelemesi yapabiliyor mu.
+  ///
+  /// Sunucu SFU'ya ancak **tum** katilimcilar bunu bildirdiginde sessizce
+  /// gecer; aksi halde medya Janus'ta acik olur ve gecis acik operator kabulu
+  /// ister. Alan yoksa `false` kabul edilir, yani eski istemci sessizce
+  /// SFU'ya gecirilmez.
+  final bool mediaE2ee;
 
   @override
   String get type => 'group_call_invite';
@@ -968,6 +889,7 @@ class GroupCallInviteSignal extends SignalMessage {
         callType: json['callType'] as String? ?? 'VOICE',
         callId: json['callId'] as String? ?? '',
         participants: _stringList(json['participants']),
+        mediaE2ee: json['mediaE2ee'] as bool? ?? false,
       );
 
   @override
@@ -977,6 +899,7 @@ class GroupCallInviteSignal extends SignalMessage {
     'callType': callType,
     'callId': callId,
     'participants': participants,
+    'mediaE2ee': mediaE2ee,
   };
 }
 
@@ -1097,11 +1020,16 @@ class GroupCallJoinRequestSignal extends SignalMessage {
     required this.groupId,
     required this.callId,
     required this.callType,
+    this.mediaE2ee = false,
   });
 
   final String groupId;
   final String callId;
   final String callType;
+
+  /// Sonradan katilan istemcinin frame sifreleme yetenegi. Tek bir eski
+  /// istemci bile bildirmezse sunucu SFU'ya sessizce gecmez.
+  final bool mediaE2ee;
 
   @override
   String get type => 'group_call_join_request';
@@ -1114,6 +1042,7 @@ class GroupCallJoinRequestSignal extends SignalMessage {
         groupId: json['groupId'] as String? ?? '',
         callId: json['callId'] as String? ?? '',
         callType: json['callType'] as String? ?? 'VOICE',
+        mediaE2ee: json['mediaE2ee'] as bool? ?? false,
       );
 
   @override
@@ -1122,6 +1051,7 @@ class GroupCallJoinRequestSignal extends SignalMessage {
     'groupId': groupId,
     'callId': callId,
     'callType': callType,
+    'mediaE2ee': mediaE2ee,
   };
 }
 
