@@ -46,3 +46,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# QA kosum ciktilari — kaynak tutulur, uretilen dosyalar tutulmaz.
+# GUVENLIK: qa/mock/tls ozel anahtar, qa/mock/state Signal oturum durumu icerir.
+qa/screenshots/
+qa/logs/
+qa/artifacts/
+qa/reports/audit/*.log
+qa/mock/server.aot
+qa/mock/server.pid
+qa/mock/state/
+qa/mock/tls/
