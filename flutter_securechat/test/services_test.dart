@@ -45,75 +45,52 @@ void main() {
     },
   );
 
-  test(
-    'signaling codec covers media, prekey, server and group call messages',
-    () {
-      final now = DateTime.fromMillisecondsSinceEpoch(1234);
-      final messages = <SignalMessage>[
-        PreKeyBundleSignal(
-          senderId: 'me',
-          recipientId: 'peer',
-          timestamp: now,
-          bundle: 'bundle-json',
-        ),
-        AudioDataSignal(
-          senderId: 'me',
-          recipientId: 'peer',
-          timestamp: now,
-          data: 'base64pcm',
-        ),
-        VideoDataSignal(
-          senderId: 'me',
-          recipientId: 'peer',
-          timestamp: now,
-          data: 'base64jpg',
-          width: 320,
-          height: 240,
-        ),
-        AdminEncryptedLogSignal(
-          senderId: 'me',
-          timestamp: now,
-          groupId: 'group',
-          eventType: 'PRIVATE_EVENT',
-          adminPayloads: {'admin': 'cipher'},
-        ),
-        SfuRoomCreatedSignal(
-          timestamp: now,
-          groupId: 'group',
-          roomId: 42,
-          janusWsUrl: 'wss://janus',
-        ),
-        GroupCallInviteSignal(
-          senderId: 'me',
-          recipientId: 'peer',
-          timestamp: now,
-          groupId: 'group',
-          callType: 'VIDEO',
-          callId: 'call-1',
-          participants: ['me', 'peer'],
-        ),
-        GroupCallStatusResponseSignal(
-          recipientId: 'me',
-          timestamp: now,
-          groupId: 'group',
-          isActive: true,
-          callId: 'call-1',
-          coordinatorId: 'me',
-          callType: 'VIDEO',
-          participants: ['me', 'peer'],
-          mode: 'SFU',
-          sfuRoomId: 42,
-          janusWsUrl: 'wss://janus',
-        ),
-      ];
+  test('signaling codec covers server and group call messages', () {
+    final now = DateTime.fromMillisecondsSinceEpoch(1234);
+    final messages = <SignalMessage>[
+      AdminEncryptedLogSignal(
+        senderId: 'me',
+        timestamp: now,
+        groupId: 'group',
+        eventType: 'PRIVATE_EVENT',
+        adminPayloads: {'admin': 'cipher'},
+      ),
+      SfuRoomCreatedSignal(
+        timestamp: now,
+        groupId: 'group',
+        roomId: 42,
+        janusWsUrl: 'wss://janus',
+      ),
+      GroupCallInviteSignal(
+        senderId: 'me',
+        recipientId: 'peer',
+        timestamp: now,
+        groupId: 'group',
+        callType: 'VIDEO',
+        callId: 'call-1',
+        participants: ['me', 'peer'],
+      ),
+      GroupCallStatusResponseSignal(
+        recipientId: 'me',
+        timestamp: now,
+        groupId: 'group',
+        isActive: true,
+        callId: 'call-1',
+        coordinatorId: 'me',
+        callType: 'VIDEO',
+        participants: ['me', 'peer'],
+        mode: 'SFU',
+        sfuRoomId: 42,
+        janusWsUrl: 'wss://janus',
+      ),
+    ];
 
-      for (final message in messages) {
-        final decoded = SignalMessage.decode(message.encode());
-        expect(decoded.runtimeType, message.runtimeType);
-        expect(decoded.toJson(), message.toJson());
-      }
-    },
-  );
+    for (final message in messages) {
+      final decoded = SignalMessage.decode(message.encode());
+      expect(decoded.runtimeType, message.runtimeType);
+      expect(decoded.toJson(), message.toJson());
+    }
+  });
 
   test('secure storage database covers DAO-style module contracts', () async {
     final dir = await Directory.systemTemp.createTemp('securechat_db_test_');

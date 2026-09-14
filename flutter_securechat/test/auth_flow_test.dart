@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_securechat/src/auth/auth_api.dart';
 import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/auth/phone_privacy.dart';
+import 'package:flutter_securechat/src/contacts/contact_discovery_api.dart';
 import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
 import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
@@ -79,6 +80,7 @@ void main() {
       );
       final signaling = InMemorySignalingService();
       final session = SessionStore();
+      final directoryApi = _RecordingDirectoryApi();
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
@@ -89,6 +91,7 @@ void main() {
         ),
         signaling: signaling,
         signalingUrl: 'ws://local',
+        privateDirectory: directoryApi,
       );
 
       expect(
@@ -110,6 +113,11 @@ void main() {
       expect(signaling.currentStatus.isConnected, isTrue);
       expect(requests['/api/v1/otp/request']?['email'], 'user@example.com');
       expect(requests['/api/v1/users/register']?['registrationToken'], 'reg-1');
+      expect(requests['/api/v1/users/register'], isNot(contains('phoneHash')));
+      expect(directoryApi.phoneHashes, isEmpty);
+      expect(directoryApi.accessToken, 'access-1');
+      expect(directoryApi.ownUserId, 'server-user');
+      expect(directoryApi.ownPhoneHash, await hashPhoneNumber('905551234567'));
       expect(
         requests['/api/v1/users/register'],
         isNot(contains('encryptedPhone')),
@@ -122,8 +130,45 @@ void main() {
 
       expect(await coordinator.refreshAccessToken(), 'access-2');
       expect(session.refreshToken, 'refresh-2');
+
+      final protocolStore = DatabaseCryptoProtocolStore(fixture.database);
+      expect(await protocolStore.getIdentityKeyPair(), isNotNull);
+      expect(await protocolStore.getAvailablePreKeyCount(), greaterThan(0));
+      await coordinator.logout();
+      expect(session.userId, isNull);
+      expect(await protocolStore.getIdentityKeyPair(), isNull);
+      expect(await protocolStore.getAvailablePreKeyCount(), 0);
     },
   );
+
+  test('initial prekey upload failure is not ignored', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      await request.drain<void>();
+      request.response
+        ..statusCode = HttpStatus.serviceUnavailable
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'error': 'prekey_store_unavailable'}));
+      await request.response.close();
+    });
+    final api = AuthApi(
+      baseUrl: 'http://${server.address.address}:${server.port}',
+    );
+    const bundle = SerializedPreKeyBundle(
+      identityPublicKey: [1],
+      registrationId: 1,
+      signedPreKeyId: 1,
+      signedPreKey: [2],
+      signedPreKeySignature: [3],
+      oneTimePreKeys: [],
+    );
+
+    await expectLater(
+      api.uploadPreKeys(bundle, 'access-token'),
+      throwsA(isA<AuthApiException>()),
+    );
+  });
 }
 
 Future<_Fixture> _openFixture() async {
@@ -146,5 +191,26 @@ class _Fixture {
   Future<void> close() async {
     await database.close();
     await directory.delete(recursive: true);
+  }
+}
+
+class _RecordingDirectoryApi implements ContactDiscoveryApi {
+  List<String>? phoneHashes;
+  String? accessToken;
+  String? ownPhoneHash;
+  String? ownUserId;
+
+  @override
+  Future<List<RegisteredUserMatch>> checkUsers(
+    List<String> phoneHashes,
+    String accessToken, {
+    String? ownPhoneHash,
+    String? ownUserId,
+  }) async {
+    this.phoneHashes = List<String>.of(phoneHashes);
+    this.accessToken = accessToken;
+    this.ownPhoneHash = ownPhoneHash;
+    this.ownUserId = ownUserId;
+    return const [];
   }
 }

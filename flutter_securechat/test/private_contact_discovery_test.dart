@@ -37,7 +37,10 @@ void main() {
       expect(fixture.evaluateRequests, 1);
       expect(fixture.lastBlindedBatch, hasLength(256));
       expect(fixture.lastEvaluateAuthorization, 'Bearer access-token');
-      expect(fixture.directoryUpdateBody, {'phoneHash': ownHash});
+      expect(fixture.directoryUpdateBody, {
+        'directoryToken': fixture.tokenForHash(ownHash),
+      });
+      expect(jsonEncode(fixture.directoryUpdateBody), isNot(contains(ownHash)));
       expect(fixture.snapshotRequests, 2);
       expect(
         jsonEncode(fixture.lastBlindedBatch),
@@ -222,12 +225,7 @@ class _PrivateDirectoryFixture {
   }
 
   Future<Map<String, String>> _entry(String phoneHash, String userId) async {
-    final point = _fullDomainPoint(phoneHash);
-    final evaluated = point.modPow(privateExponent, modulus);
-    final token = crypto.sha256.convert([
-      ...ascii.encode('elcim-directory-token-v1\x00'),
-      ..._toBytes(evaluated, 384),
-    ]).bytes;
+    final token = _tokenBytes(phoneHash);
     final label = _encode(
       crypto.sha256.convert([
         ...ascii.encode('elcim-directory-label-v1\x00'),
@@ -262,6 +260,17 @@ class _PrivateDirectoryFixture {
         ...box.mac.bytes,
       ]),
     };
+  }
+
+  String tokenForHash(String phoneHash) => _encode(_tokenBytes(phoneHash));
+
+  List<int> _tokenBytes(String phoneHash) {
+    final point = _fullDomainPoint(phoneHash);
+    final evaluated = point.modPow(privateExponent, modulus);
+    return crypto.sha256.convert([
+      ...ascii.encode('elcim-directory-token-v1\x00'),
+      ..._toBytes(evaluated, 384),
+    ]).bytes;
   }
 
   BigInt _fullDomainPoint(String phoneHash) {

@@ -10,6 +10,9 @@ import 'package:flutter_securechat/src/services/signaling_service.dart';
 
 AppContainer createWidgetTestContainer({
   AppNotificationRuntime? notificationRuntime,
+  /// Uzun sohbet davranisini (kaydirma, sinir tahmini) sinamak isteyen
+  /// testler kendi mesaj listesini verebilir.
+  List<LocalMessage> Function(String conversationId)? messagesFor,
 }) {
   final conversations = _testConversations();
   return AppContainer.testing(
@@ -18,7 +21,7 @@ AppContainer createWidgetTestContainer({
       conversations: conversations,
       messages: {
         for (final conversation in conversations)
-          conversation.id: _testMessages(conversation.id),
+          conversation.id: (messagesFor ?? _testMessages)(conversation.id),
       },
     ),
     crypto: LocalAeadCryptoService(

@@ -138,7 +138,8 @@ void main() {
         'server_hardened/signaling-server/src/main/kotlin/'
         'com/securechat/signaling/UserRegistry.kt',
       );
-      expect(registry, contains('directory.tokenForPhoneHash(phoneHash)'));
+      expect(registry, contains('directory.validateToken(directoryToken)'));
+      expect(routes, isNot(contains('val phoneHash: String')));
       expect(registry, contains('directory_key_id'));
       expect(
         registry,
@@ -162,7 +163,9 @@ void main() {
         'lib/src/contacts/private_contact_discovery.dart',
       );
       expect(privateClient, contains('_authenticatedBatchSize = 256'));
-      expect(privateClient, contains('_fullDomainPoint'));
+      expect(privateClient, contains('static BigInt fullDomainPoint'));
+      expect(privateClient, contains('static BigInt sampleGroupElement'));
+      expect(privateClient, contains('candidate < modulus'));
       expect(privateClient, contains('_resolveSnapshot'));
       expect(privateClient, isNot(contains('/api/v1/users/check')));
 
@@ -241,7 +244,17 @@ void main() {
       credentialState,
       contains('WHERE user_id = ?::uuid AND refresh_generation = ?'),
     );
-    expect(credentialState, isNot(contains('RedisManager')));
+    // Kalicilik PostgreSQL'de olmali: epoch DB'den okunur (snapshot SELECT).
+    // Redis yalniz instance'lar arasi iptal YAYINI icin kullanilir (pub/sub),
+    // dogruluk kaynagi degildir; yayin gitse bile epoch DB'de kalir.
+    expect(
+      credentialState,
+      contains('SELECT credential_epoch, refresh_generation'),
+    );
+    expect(credentialState, contains('INVALIDATE_CHANNEL'));
+    // Redis kullanimi yalniz publish/subscribe olmali; epoch'u Redis'ten
+    // okuyan bir yol (get/set anahtar) eklenmemeli.
+    expect(credentialState, isNot(contains('RedisManager.use { it.get')));
 
     final auth = source(
       'server_hardened/signaling-server/src/main/kotlin/'
@@ -389,7 +402,9 @@ void main() {
       'server_hardened/signaling-server/src/main/kotlin/'
       'com/securechat/signaling/TurnCredentialService.kt',
     );
-    expect(turn, contains('ServerPrivacy.blindIndex("turn-user"'));
+    expect(turn, contains('val opaqueUser = newOpaqueUserTag()'));
+    expect(turn, contains('private val random = SecureRandom()'));
+    expect(turn, isNot(contains('ServerPrivacy.blindIndex("turn-user"')));
     expect(turn, isNot(contains(r'"$expiry:$userId"')));
   });
 
