@@ -84,7 +84,7 @@ repo1.maven.org"`). `<trusted-artifacts>` KULLANILMADI.
 
 ## Duzeltilmeyenler — karar sizin
 
-### F-01 [KRITIK] Depolama olcege dayanmiyor
+### F-01 [COZULDU] Depolama olcege dayanmiyordu
 "Veritabani" tek bir JSON dosyasi: tamami bellekte tutuluyor ve **her
 degisiklikte tamami yeniden sifrelenip diske yaziliyor**.
 
@@ -105,16 +105,32 @@ Iyi tarafi: `_persist` atomik (tmp + flush + rename) ve yazma basarisiz
 olursa bellekteki anlik goruntu geri aliniyor. Veri kaybi riski yok, sorun
 tamamen olcek.
 
-Secenekler:
-1. **Gercek cozum:** artimli depolama (SQLCipher/sqflite veya mesaj basina
-   ayri kayit). Buyuk is, en dogrusu.
-2. **Ucuz hafifletme:** yazmalari kisa bir pencerede birlestirmek — gelen
-   mesaj basina 3 yazma 1'e iner (~3x). Ama dayanikliligi azaltir: cokme
-   aninda son yazmalar kaybolabilir. Urun karari.
-3. Mesaj budama eklemek (orn. sohbet basina son N mesaj).
+**COZUM:** SQLCipher uzerinde artimli depo (`EncryptedRecordStore`).
+Yalnizca DEGISEN kayitlar yazilir. Budama yapilmadi — hicbir mesaj silinmiyor.
 
-Not: `CLAUDE.md` "Room + SQLCipher" diyor; Flutter tarafi AEAD sifreli JSON
-kullaniyor. Gizlilik hedefi karsilaniyor ama dokuman gercekle ortusmuyor.
+Olculen sonuc:
+
+| gecmis | once | sonra |
+|---|---|---|
+| 50 | 7 000 us | 270 us |
+| 500 | 32 000 us | 215 us |
+| 1 000 | 57 000 us | 192 us |
+| 2 000 | 120 000 us | 181 us |
+| 5 000 | (10 dk'da bitmedi) | 157 us |
+
+Gelen mesaj akisi: **338 ms -> 1 ms**. Maliyet artik gecmis boyutundan
+bagimsiz.
+
+Yeni native bagimlilik EKLENMEDI: `libsqlcipher.so` zaten APK'da
+(`net.zetetic:sqlcipher-android`, Gradle dogrulama listesinde kayitli).
+`sqlite3` paketinin 3.x surumu kendi ikililerini derleme kancasiyla getirir
+ve bu tedarik zinciri dogrulamasini atlardi; 2.9.4 kutuphaneyi disaridan
+alir.
+
+Gecis geri donuslu: eski `.securejson` dosyasi SILINMEZ.
+
+Kalan (faz 2): okuma hala tumuyle bellege yukleniyor. Yazma sorunu cozuldu,
+bellek icin sayfalama ayri bir is.
 
 ### F-02 Mesaj duzenleme 15 dakikayla sinirli (sizin madde 5)
 Ozellik **var**: `chat_screen.dart:1240` `_editMessage`, balonda

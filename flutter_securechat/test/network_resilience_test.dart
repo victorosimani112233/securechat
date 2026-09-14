@@ -11,6 +11,8 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/storage_at_rest.dart';
+
 void main() {
   test(
     'offline queue persists encrypted signals and flushes in order',
@@ -33,7 +35,7 @@ void main() {
       expect(await queue.sendOrQueue(signal), isFalse);
       expect(await queue.getPendingCount(), 1);
       expect(
-        await fixture.file.readAsString(),
+        await storageAtRest(fixture.file),
         isNot(contains('ciphertext-only')),
       );
 

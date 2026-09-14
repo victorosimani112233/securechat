@@ -244,6 +244,21 @@ class LocalAeadCryptoService implements CryptoService {
     return utf8.decode(bytes);
   }
 
+  /// SQLCipher veritabani anahtari (32 bayt ham anahtar).
+  ///
+  /// JSON zarf anahtarindan AYRI turetilir. Ayni anahtar materyalini iki
+  /// farkli sifreleme semasinda kullanmak, birinde bulunan bir zayifligin
+  /// digerine tasinmasi anlamina gelir; HKDF baglami ve info degeri farkli
+  /// verilerek alan ayrimi saglanir.
+  Future<List<int>> deriveDatabaseKey() async {
+    final key = await _hkdf.deriveKey(
+      secretKey: _masterKey,
+      nonce: utf8.encode('sqlcipher-store'),
+      info: utf8.encode('securechat.flutter.sqlcipher.v1'),
+    );
+    return key.extractBytes();
+  }
+
   Future<SecretKey> _deriveKey(String context) {
     return _hkdf.deriveKey(
       secretKey: _masterKey,

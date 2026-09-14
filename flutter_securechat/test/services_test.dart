@@ -9,6 +9,8 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart'
     as storage;
 
+import 'support/storage_at_rest.dart';
+
 void main() {
   test(
     'local AEAD crypto round trips direct, group, and storage envelopes',
@@ -167,7 +169,7 @@ void main() {
     expect(await db.preKeys.exists(1), isTrue);
     expect(await db.sessions.exists('peer-1:1'), isTrue);
     expect(await db.senderKeys.exists('group', 'me', 1), isTrue);
-    expect(await file.readAsString(), isNot(contains('secret text')));
+    expect(await storageAtRest(file), isNot(contains('secret text')));
 
     final reopened = await SecureChatDatabase.open(file: file, crypto: crypto);
     addTearDown(reopened.close);

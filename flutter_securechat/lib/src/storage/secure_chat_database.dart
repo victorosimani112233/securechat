@@ -1,17 +1,19 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart';
+
 import '../services/crypto_service.dart';
+import 'encrypted_record_store.dart';
 import 'storage_entities.dart';
 
 class SecureChatDatabase {
   SecureChatDatabase._({
-    required File file,
-    required LocalAeadCryptoService crypto,
     required _StorageSnapshot snapshot,
-  }) : _file = file,
-       _crypto = crypto,
+    required EncryptedRecordStore store,
+  }) : _store = store,
        _snapshot = snapshot {
     conversations = ConversationDao._(this);
     messages = MessageDao._(this);
@@ -29,13 +31,21 @@ class SecureChatDatabase {
     pendingSignals = PendingSignalDao._(this);
   }
 
-  final File _file;
-  final LocalAeadCryptoService _crypto;
+  final EncryptedRecordStore _store;
+
+  /// Hata enjeksiyon testleri icin depoya erisim.
+  @visibleForTesting
+  EncryptedRecordStore get store => _store;
   _StorageSnapshot _snapshot;
   final _changed = StreamController<void>.broadcast();
   Future<void> _writeTail = Future<void>.value();
   Future<void>? _closeTask;
   bool _closed = false;
+
+  /// Anlik goruntunun tamami degistiginde (hesap silme, eski Room ice
+  /// aktarimi) depodaki eski satirlar da gitmelidir. Izleme yalnizca
+  /// dokunulan kayitlari bildigi icin bu durum ayrica isaretlenir.
+  bool _fullReset = false;
 
   late final ConversationDao conversations;
   late final MessageDao messages;
@@ -52,30 +62,96 @@ class SecureChatDatabase {
   late final CryptoStateDao cryptoState;
   late final PendingSignalDao pendingSignals;
 
+  /// Artimli deponun dosya yolu. Eski JSON dosyasi YERINDE BIRAKILIR:
+  /// gecis dogrulanana kadar geri donus yolu acik kalmali.
+  static File storeFileFor(File legacyFile) =>
+      File('${legacyFile.path}.sqlcipher');
+
   static Future<SecureChatDatabase> open({
     required File file,
     required LocalAeadCryptoService crypto,
   }) async {
-    if (await file.exists()) {
-      final envelope = await file.readAsString();
-      if (envelope.trim().isNotEmpty) {
-        final json =
-            jsonDecode(await crypto.decryptStorageJson(envelope))
-                as Map<String, Object?>;
-        return SecureChatDatabase._(
-          file: file,
-          crypto: crypto,
-          snapshot: _StorageSnapshot.fromJson(json),
-        );
-      }
-    }
-    final db = SecureChatDatabase._(
-      file: file,
-      crypto: crypto,
-      snapshot: _StorageSnapshot.empty(),
+    final store = await EncryptedRecordStore.open(
+      file: storeFileFor(file),
+      key: await crypto.deriveDatabaseKey(),
     );
-    await db._persist();
+    // Depo acildiktan sonraki her hata yolunda native tanitici KAPATILMALI.
+    // Bozuk bir depoda okuma hata verdiginde tanitici acik kaliyordu.
+    final _StorageSnapshot snapshot;
+    final _StorageSnapshot? legacy;
+    try {
+      legacy = store.count() == 0 ? await _readLegacy(file, crypto) : null;
+      snapshot = legacy ?? _load(store);
+    } catch (_) {
+      store.close();
+      rethrow;
+    }
+    final db = SecureChatDatabase._(snapshot: snapshot, store: store);
+    if (legacy != null) {
+      // Tek seferlik gecis: eski anlik goruntunun tamami artimli depoya
+      // yazilir. Eski dosya silinmez.
+      for (final collection in snapshot.tracked) {
+        collection.markAll();
+      }
+      await db._persist();
+    }
     return db;
+  }
+
+  /// Eski tek dosyali JSON deposunu okur; yoksa veya bossa `null` doner.
+  static Future<_StorageSnapshot?> _readLegacy(
+    File file,
+    LocalAeadCryptoService crypto,
+  ) async {
+    if (!await file.exists()) return null;
+    final envelope = await file.readAsString();
+    if (envelope.trim().isEmpty) return null;
+    final json =
+        jsonDecode(await crypto.decryptStorageJson(envelope))
+            as Map<String, Object?>;
+    return _StorageSnapshot.fromJson(json);
+  }
+
+  static _StorageSnapshot _load(EncryptedRecordStore store) {
+    Map<String, T> byString<T>(
+      String name,
+      T Function(Map<String, Object?> json) decode,
+    ) => {
+      for (final entry in store.loadCollection(name).entries)
+        entry.key: decode(entry.value),
+    };
+    Map<int, T> byInt<T>(
+      String name,
+      T Function(Map<String, Object?> json) decode,
+    ) => {
+      for (final entry in store.loadCollection(name).entries)
+        int.parse(entry.key): decode(entry.value),
+    };
+    return _StorageSnapshot(
+      conversations: byString('conversations', ConversationEntity.fromJson),
+      messages: byString('messages', MessageEntity.fromJson),
+      contacts: byString('contacts', ContactEntity.fromJson),
+      callLogs: byString('callLogs', CallLogEntity.fromJson),
+      scheduledMessages: byString(
+        'scheduledMessages',
+        ScheduledMessageEntity.fromJson,
+      ),
+      exportLogs: byString('exportLogs', ExportLogEntity.fromJson),
+      pendingTimerUpdates: byString(
+        'pendingTimerUpdates',
+        PendingTimerUpdateEntity.fromJson,
+      ),
+      identities: byString('identities', IdentityEntity.fromJson),
+      preKeys: byInt('preKeys', PreKeyEntity.fromJson),
+      signedPreKeys: byInt('signedPreKeys', SignedPreKeyEntity.fromJson),
+      sessions: byString('sessions', SessionEntity.fromJson),
+      senderKeys: byString('senderKeys', SenderKeyEntity.fromJson),
+      cryptoState: {
+        for (final entry in store.loadCollection('cryptoState').entries)
+          entry.key: entry.value['value'] as String,
+      },
+      pendingSignals: byString('pendingSignals', PendingSignalEntity.fromJson),
+    );
   }
 
   Future<void> close() {
@@ -90,6 +166,7 @@ class SecureChatDatabase {
   Future<void> _close() async {
     await _writeTail;
     await _changed.close();
+    _store.close();
   }
 
   /// Returns a portable, unencrypted snapshot for the password-protected
@@ -143,13 +220,19 @@ class SecureChatDatabase {
         );
       }
       _snapshot = replacement;
+      _fullReset = true;
+      for (final collection in replacement.tracked) {
+        collection.markAll();
+      }
     });
   }
 
   /// Clears every logical table in one serialized, atomically persisted
   /// snapshot replacement. The database file remains valid and encrypted.
-  Future<void> clearAll() =>
-      _write((_) => _snapshot = _StorageSnapshot.empty());
+  Future<void> clearAll() => _write((_) {
+    _snapshot = _StorageSnapshot.empty();
+    _fullReset = true;
+  });
 
   /// Drops only peer cryptographic state. Conversation/message/user data is
   /// preserved. Used once when replacing the pre-libsignal Flutter preview's
@@ -171,13 +254,17 @@ class SecureChatDatabase {
   Future<void> _write(FutureOr<void> Function(_StorageSnapshot s) mutate) {
     if (_closed) throw StateError('Secure chat database is closed');
     final operation = _writeTail.then<void>((_) async {
-      final before = _StorageSnapshot.fromJson(_snapshot.toJson());
       try {
         await mutate(_snapshot);
         await _persist();
         _changed.add(null);
       } catch (_) {
-        _snapshot = before;
+        // Geri alma yalnizca DOKUNULAN kayitlari eski degerine dondurur.
+        // Onceden burada anlik goruntunun tam derin kopyasi cikariliyordu;
+        // yazma yolundaki iki O(n) maliyetten biri buydu.
+        for (final collection in _snapshot.tracked) {
+          collection.rollback();
+        }
         rethrow;
       }
     });
@@ -190,17 +277,27 @@ class SecureChatDatabase {
     yield* _changed.stream.map((_) => project(_snapshot));
   }
 
+  /// Yalnizca degisen kayitlari yazar.
+  ///
+  /// Onceki surum her cagrida tum veriyi JSON'a cevirip sifreleyip diske
+  /// yaziyordu. Olculen maliyet: 50 mesajda 7 ms, 2 000 mesajda 120 ms —
+  /// gecmisle dogru orantili. Artik maliyet yalnizca degisen kayit sayisina
+  /// baglidir. Atomiklik SQLite isleminden gelir.
   Future<void> _persist() async {
-    await _file.parent.create(recursive: true);
-    final envelope = await _crypto.encryptStorageJson(
-      jsonEncode(_snapshot.toJson()),
+    final upserts = <String, Map<String, Map<String, Object?>>>{};
+    final deletions = <String, Set<String>>{};
+    for (final collection in _snapshot.tracked) {
+      collection.collect(upserts, deletions);
+    }
+    _store.applyChanges(
+      upserts: upserts,
+      deletions: deletions,
+      clearFirst: _fullReset,
     );
-    final tmp = File('${_file.path}.tmp');
-    await tmp.writeAsString(envelope, flush: true);
-    // File.rename replaces an existing regular file on Android/iOS/Linux.
-    // Deleting the destination first would create a crash window in which the
-    // authenticated database disappears entirely.
-    await tmp.rename(_file.path);
+    _fullReset = false;
+    for (final collection in _snapshot.tracked) {
+      collection.commit();
+    }
   }
 }
 
@@ -920,36 +1017,137 @@ class PendingSignalDao {
 
 class _StorageSnapshot {
   _StorageSnapshot({
-    required this.conversations,
-    required this.messages,
-    required this.contacts,
-    required this.callLogs,
-    required this.scheduledMessages,
-    required this.exportLogs,
-    required this.pendingTimerUpdates,
-    required this.identities,
-    required this.preKeys,
-    required this.signedPreKeys,
-    required this.sessions,
-    required this.senderKeys,
-    required this.cryptoState,
-    required this.pendingSignals,
-  });
+    required Map<String, ConversationEntity> conversations,
+    required Map<String, MessageEntity> messages,
+    required Map<String, ContactEntity> contacts,
+    required Map<String, CallLogEntity> callLogs,
+    required Map<String, ScheduledMessageEntity> scheduledMessages,
+    required Map<String, ExportLogEntity> exportLogs,
+    required Map<String, PendingTimerUpdateEntity> pendingTimerUpdates,
+    required Map<String, IdentityEntity> identities,
+    required Map<int, PreKeyEntity> preKeys,
+    required Map<int, SignedPreKeyEntity> signedPreKeys,
+    required Map<String, SessionEntity> sessions,
+    required Map<String, SenderKeyEntity> senderKeys,
+    required Map<String, PendingSignalEntity> pendingSignals,
+    required Map<String, String> cryptoState,
+  }) : conversations = _TrackedMap(
+         'conversations',
+         conversations,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       messages = _TrackedMap(
+         'messages',
+         messages,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       contacts = _TrackedMap(
+         'contacts',
+         contacts,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       callLogs = _TrackedMap(
+         'callLogs',
+         callLogs,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       scheduledMessages = _TrackedMap(
+         'scheduledMessages',
+         scheduledMessages,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       exportLogs = _TrackedMap(
+         'exportLogs',
+         exportLogs,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       pendingTimerUpdates = _TrackedMap(
+         'pendingTimerUpdates',
+         pendingTimerUpdates,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       identities = _TrackedMap(
+         'identities',
+         identities,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       preKeys = _TrackedMap(
+         'preKeys',
+         preKeys,
+         (value) => value.toJson(),
+         (key) => key.toString(),
+       ),
+       signedPreKeys = _TrackedMap(
+         'signedPreKeys',
+         signedPreKeys,
+         (value) => value.toJson(),
+         (key) => key.toString(),
+       ),
+       sessions = _TrackedMap(
+         'sessions',
+         sessions,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       senderKeys = _TrackedMap(
+         'senderKeys',
+         senderKeys,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       pendingSignals = _TrackedMap(
+         'pendingSignals',
+         pendingSignals,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       cryptoState = _TrackedMap(
+         'cryptoState',
+         cryptoState,
+         (value) => {'value': value},
+         (key) => key,
+       );
 
-  final Map<String, ConversationEntity> conversations;
-  final Map<String, MessageEntity> messages;
-  final Map<String, ContactEntity> contacts;
-  final Map<String, CallLogEntity> callLogs;
-  final Map<String, ScheduledMessageEntity> scheduledMessages;
-  final Map<String, ExportLogEntity> exportLogs;
-  final Map<String, PendingTimerUpdateEntity> pendingTimerUpdates;
-  final Map<String, IdentityEntity> identities;
-  final Map<int, PreKeyEntity> preKeys;
-  final Map<int, SignedPreKeyEntity> signedPreKeys;
-  final Map<String, SessionEntity> sessions;
-  final Map<String, SenderKeyEntity> senderKeys;
-  final Map<String, String> cryptoState;
-  final Map<String, PendingSignalEntity> pendingSignals;
+  final _TrackedMap<String, ConversationEntity> conversations;
+  final _TrackedMap<String, MessageEntity> messages;
+  final _TrackedMap<String, ContactEntity> contacts;
+  final _TrackedMap<String, CallLogEntity> callLogs;
+  final _TrackedMap<String, ScheduledMessageEntity> scheduledMessages;
+  final _TrackedMap<String, ExportLogEntity> exportLogs;
+  final _TrackedMap<String, PendingTimerUpdateEntity> pendingTimerUpdates;
+  final _TrackedMap<String, IdentityEntity> identities;
+  final _TrackedMap<int, PreKeyEntity> preKeys;
+  final _TrackedMap<int, SignedPreKeyEntity> signedPreKeys;
+  final _TrackedMap<String, SessionEntity> sessions;
+  final _TrackedMap<String, SenderKeyEntity> senderKeys;
+  final _TrackedMap<String, PendingSignalEntity> pendingSignals;
+  final _TrackedMap<String, String> cryptoState;
+
+  /// Degisiklik izleyen tum koleksiyonlar.
+  List<_Tracked> get tracked => [
+    conversations,
+    messages,
+    contacts,
+    callLogs,
+    scheduledMessages,
+    exportLogs,
+    pendingTimerUpdates,
+    identities,
+    preKeys,
+    signedPreKeys,
+    sessions,
+    senderKeys,
+    pendingSignals,
+    cryptoState,
+  ];
 
   bool get isPristineForLegacyImport =>
       conversations.isEmpty &&
@@ -1116,4 +1314,109 @@ extension _IterableSort<T> on Iterable<T> {
 extension _IterableFirst<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
   T? get lastOrNull => isEmpty ? null : last;
+}
+
+/// Yazma sirasinda hangi kayitlarin degistigini bilen koleksiyon.
+///
+/// Onceki tasarimda bunu bilmeye gerek yoktu: her yazmada dosyanin tamami
+/// yeniden yaziliyordu. Artimli depoya gecerken "neyi yazacagiz" sorusunu
+/// cevaplamak gerekti. DAO'larin hicbirini degistirmemek icin izleme
+/// `Map` arayuzunun arkasina konuldu; cagiran kod farki gormez.
+abstract interface class _Tracked {
+  String get collection;
+  bool get hasChanges;
+  void collect(
+    Map<String, Map<String, Map<String, Object?>>> upserts,
+    Map<String, Set<String>> deletions,
+  );
+  void rollback();
+  void commit();
+  void markAll();
+}
+
+class _TrackedMap<K, V> extends MapBase<K, V> implements _Tracked {
+  _TrackedMap(this.collection, this._inner, this._encode, this._idOf);
+
+  @override
+  final String collection;
+  final Map<K, V> _inner;
+  final Map<String, Object?> Function(V value) _encode;
+  final String Function(K key) _idOf;
+
+  /// Degisen anahtarlarin ONCEKI degerleri. `null`, kaydin o sirada
+  /// bulunmadigini gosterir. Geri alma icin tam derin kopya cikarmak
+  /// gerekmiyor; eski tasarimda her yazmada bu da O(n) maliyet uretiyordu.
+  final Map<K, V?> _previous = {};
+
+  void _mark(K key) {
+    if (_previous.containsKey(key)) return;
+    _previous[key] = _inner[key];
+  }
+
+  @override
+  V? operator [](Object? key) => _inner[key];
+
+  @override
+  void operator []=(K key, V value) {
+    _mark(key);
+    _inner[key] = value;
+  }
+
+  @override
+  V? remove(Object? key) {
+    if (key is K && _inner.containsKey(key)) _mark(key);
+    return _inner.remove(key);
+  }
+
+  @override
+  void clear() {
+    for (final key in _inner.keys) {
+      _mark(key);
+    }
+    _inner.clear();
+  }
+
+  @override
+  Iterable<K> get keys => _inner.keys;
+
+  @override
+  bool get hasChanges => _previous.isNotEmpty;
+
+  @override
+  void collect(
+    Map<String, Map<String, Map<String, Object?>>> upserts,
+    Map<String, Set<String>> deletions,
+  ) {
+    for (final key in _previous.keys) {
+      final current = _inner[key];
+      if (current == null) {
+        (deletions[collection] ??= <String>{}).add(_idOf(key));
+      } else {
+        (upserts[collection] ??= {})[_idOf(key)] = _encode(current);
+      }
+    }
+  }
+
+  @override
+  void rollback() {
+    for (final entry in _previous.entries) {
+      final value = entry.value;
+      if (value == null) {
+        _inner.remove(entry.key);
+      } else {
+        _inner[entry.key] = value;
+      }
+    }
+    _previous.clear();
+  }
+
+  @override
+  void commit() => _previous.clear();
+
+  @override
+  void markAll() {
+    for (final key in _inner.keys) {
+      _mark(key);
+    }
+  }
 }

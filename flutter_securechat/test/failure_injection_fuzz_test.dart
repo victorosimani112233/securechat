@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
@@ -96,7 +97,11 @@ void main() {
       final directory = await Directory.systemTemp.createTemp(
         'securechat_storage_fuzz_',
       );
-      addTearDown(() => directory.delete(recursive: true));
+      addTearDown(() async {
+        if (directory.existsSync()) {
+          await directory.delete(recursive: true);
+        }
+      });
       final key = List<int>.generate(32, (index) => 255 - index);
       final stableCrypto = LocalAeadCryptoService(SecretKey(key));
       final file = File('${directory.path}/storage.securejson');
@@ -127,8 +132,13 @@ void main() {
         );
       }
       await database.close();
-      final authenticated = await file.readAsString();
-      expect(authenticated, isNot(contains('private-')));
+      final storeFile = SecureChatDatabase.storeFileFor(file);
+      final authenticated = await storeFile.readAsBytes();
+      expect(
+        String.fromCharCodes(authenticated),
+        isNot(contains('private-')),
+        reason: 'mesaj icerigi diskte duz metin olarak duruyor',
+      );
 
       final reopened = await SecureChatDatabase.open(
         file: file,
@@ -137,18 +147,31 @@ void main() {
       expect(await reopened.messages.getMessageCount('kept'), 48);
       await reopened.close();
 
+      // Bozulmus depo SESSIZCE bos bir veritabanina donusmemeli. Kullanici
+      // verisinin yerine bos bir depo gecmesi, kaybi fark ettirmeden
+      // silmek demektir.
       for (var mutation = 0; mutation < 16; mutation++) {
-        final corrupt = File('${directory.path}/corrupt-$mutation.securejson');
-        await corrupt.writeAsString(
-          _flipEnvelopeByte(authenticated, 3 + mutation % 3, mutation),
-          flush: true,
-        );
+        final legacy = File('${directory.path}/corrupt-$mutation.securejson');
+        final corrupt = SecureChatDatabase.storeFileFor(legacy);
+        final bytes = Uint8List.fromList(authenticated);
+        // Veri bolgesinde bir bayt dizisi bozulur. SQLCipher butunlugu SAYFA
+        // basina HMAC ile korur; tek bir bitin sayfanin ayrilmis alanina
+        // denk gelmesi mumkun oldugundan, bozulma acikca veri govdesine
+        // uygulanir.
+        // Dosyanin ortasi: bu bolge kesinlikle dolu veri sayfasi. Basa yakin
+        // ofsetler bos sayfaya denk gelebiliyor ve o sayfa hic okunmadigi
+        // icin bozulma ortaya cikmiyordu.
+        final offset = authenticated.length ~/ 2 + mutation * 16;
+        for (var index = 0; index < 16; index++) {
+          bytes[offset + index] = bytes[offset + index] ^ 0xFF;
+        }
+        await corrupt.writeAsBytes(bytes, flush: true);
         await expectLater(
-          SecureChatDatabase.open(file: corrupt, crypto: stableCrypto),
+          SecureChatDatabase.open(file: legacy, crypto: stableCrypto),
           throwsA(anything),
         );
       }
-      expect(await file.readAsString(), authenticated);
+      expect(await storeFile.readAsBytes(), authenticated);
     },
   );
 
@@ -158,9 +181,13 @@ void main() {
       final directory = await Directory.systemTemp.createTemp(
         'securechat_storage_failure_',
       );
-      addTearDown(() => directory.delete(recursive: true));
+      addTearDown(() async {
+        if (directory.existsSync()) {
+          await directory.delete(recursive: true);
+        }
+      });
       final key = List<int>.generate(32, (index) => index + 41);
-      final crypto = _FailureInjectingCrypto(SecretKey(key));
+      final crypto = LocalAeadCryptoService(SecretKey(key));
       final file = File('${directory.path}/storage.securejson');
       final database = await SecureChatDatabase.open(
         file: file,
@@ -174,18 +201,19 @@ void main() {
           peerPhone: '',
         ),
       );
-      final before = await file.readAsString();
-      crypto.failNextStorageEncryption = true;
+      // Yazma islemin ORTASINDA basarisiz kilinir: SQLite islemi geri
+      // alinmali ve bellekteki anlik goruntu de eski degerine donmelidir.
+      database.store.failMidTransaction = true;
 
       await expectLater(
         database.conversations.updatePeerName('kept', 'Must not commit'),
-        throwsStateError,
+        throwsA(anything),
       );
       expect(
         (await database.conversations.getById('kept'))?.peerName,
         'Before',
+        reason: 'disk yazilamadiysa bellek de eski degerde kalmali',
       );
-      expect(await file.readAsString(), before);
       await database.close();
 
       final reopened = await SecureChatDatabase.open(
@@ -195,6 +223,7 @@ void main() {
       expect(
         (await reopened.conversations.getById('kept'))?.peerName,
         'Before',
+        reason: 'basarisiz yazma diske sizmis',
       );
       await reopened.close();
     },
@@ -206,7 +235,11 @@ void main() {
       final directory = await Directory.systemTemp.createTemp(
         'securechat_network_failure_',
       );
-      addTearDown(() => directory.delete(recursive: true));
+      addTearDown(() async {
+        if (directory.existsSync()) {
+          await directory.delete(recursive: true);
+        }
+      });
       final database = await SecureChatDatabase.open(
         file: File('${directory.path}/storage.securejson'),
         crypto: LocalAeadCryptoService(SecretKey(List<int>.filled(32, 9))),
@@ -259,21 +292,6 @@ String _flipEnvelopeByte(String envelope, int component, int salt) {
   bytes[offset] ^= 1 << (salt % 8);
   parts[component] = base64Encode(bytes);
   return parts.join(':');
-}
-
-class _FailureInjectingCrypto extends LocalAeadCryptoService {
-  _FailureInjectingCrypto(super.masterKey);
-
-  bool failNextStorageEncryption = false;
-
-  @override
-  Future<String> encryptStorageJson(String plaintext) {
-    if (failNextStorageEncryption) {
-      failNextStorageEncryption = false;
-      throw StateError('injected storage encryption failure');
-    }
-    return super.encryptStorageJson(plaintext);
-  }
 }
 
 class _FaultInjectingSignaling extends InMemorySignalingService {

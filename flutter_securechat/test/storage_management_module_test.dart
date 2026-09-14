@@ -7,6 +7,8 @@ import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_securechat/src/storage/storage_management_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/storage_at_rest.dart';
+
 void main() {
   test(
     'auto download matrix and encrypted policy persistence match Kotlin',
@@ -38,7 +40,7 @@ void main() {
         isFalse,
       );
       expect(
-        await f.dbFile.readAsString(),
+        await storageAtRest(f.dbFile),
         isNot(contains('videosOnCellular')),
       );
     },

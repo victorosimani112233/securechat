@@ -22,7 +22,7 @@ void main() {
     final body = 'x' * 200;
     final marks = <int, int>{};
     final sw = Stopwatch();
-    for (var i = 1; i <= 2000; i++) {
+    for (var i = 1; i <= 5000; i++) {
       sw..reset()..start();
       await db.messages.insert(
         MessageEntity(
@@ -33,7 +33,7 @@ void main() {
         ),
       );
       sw.stop();
-      if (const [50, 100, 250, 500, 1000, 1500, 2000].contains(i)) {
+      if (const [50, 100, 250, 500, 1000, 2000, 3000, 5000].contains(i)) {
         marks[i] = sw.elapsedMicroseconds;
       }
     }
@@ -52,7 +52,9 @@ void main() {
     seq.stop();
     // ignore: avoid_print
     print('INCOMING-SEQ ${seq.elapsedMilliseconds}ms (3 tam yazma)');
-    final size = await File('${dir.path}/db.json').length();
+    final size = await SecureChatDatabase.storeFileFor(
+      File('${dir.path}/db.json'),
+    ).length();
     // ignore: avoid_print
     print('SCALE ${marks.entries.map((e) => '${e.key}=${e.value}us').join(' ')} file=${size}B');
     await dir.delete(recursive: true);

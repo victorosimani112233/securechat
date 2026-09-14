@@ -8,6 +8,8 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/storage_at_rest.dart';
+
 void main() {
   test(
     'Room v22 fixture imports every table and binary Signal state',
@@ -68,7 +70,7 @@ void main() {
       );
       expect(await fixture.database.isLegacyRoomImportComplete(), isTrue);
 
-      final encrypted = await fixture.file.readAsString();
+      final encrypted = await storageAtRest(fixture.file);
       expect(encrypted, isNot(contains('legacy plaintext message')));
       expect(encrypted, isNot(contains(base64Encode([21, 22, 23]))));
     },

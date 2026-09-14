@@ -17,6 +17,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/private_chat_control_support.dart';
 
+import 'support/storage_at_rest.dart';
+
 void main() {
   test('custom schedule chooses the next selected weekday', () {
     final next = ScheduledMessageService.calculateNextTrigger(
@@ -52,7 +54,10 @@ void main() {
       fixture.signaling.sentMessages.whereType<EncryptedSignalMessage>(),
       hasLength(1),
     );
-    expect(await fixture.file.readAsString(), isNot(contains('later secret')));
+    expect(
+      await storageAtRest(fixture.file),
+      isNot(contains('later secret')),
+    );
   });
 
   test('daily scheduled message advances and is re-registered', () async {

@@ -7,6 +7,8 @@ import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/storage_at_rest.dart';
+
 void main() {
   test(
     'permission service delegates every platform permission explicitly',
@@ -40,7 +42,7 @@ void main() {
     await service.markPermissionWalkthroughSeen();
     expect(await service.isIntroSeen(), isTrue);
     expect(await service.isPermissionWalkthroughSeen(), isTrue);
-    final disk = await file.readAsString();
+    final disk = await storageAtRest(file);
     expect(disk, isNot(contains('onboarding_intro_seen')));
     expect(disk, isNot(contains('permission_walkthrough_seen')));
   });
