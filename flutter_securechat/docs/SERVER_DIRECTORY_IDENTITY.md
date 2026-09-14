@@ -5,8 +5,9 @@ Rehber (private contact discovery) modulunun bugun nasil calistigini, hangi
 sinirin acik oldugunu, sunucu tarafinda **ne yaptigimi** ve kapanis icin
 **ne yapilmasi gerektigini** ayrintili yazar.
 
-Flutter tarafina bu calisma kapsaminda dokunulmadi. Istemci degisikligi
-gerektiren adimlar bolum 6'da adim adim listelenmistir.
+2026-08-26 kripto incelemesiyle Flutter ve sunucu sozlesmesi guncellendi.
+Detayli bulgular `server_hardened/docs/CRYPTO_REVIEW_2026-08-26.md` belgesinde
+yer alir.
 
 ---
 
@@ -27,6 +28,12 @@ Rehber keskfi uc bagimsiz parcadan olusur.
 Sunucu bu adimda adres defteri hash'lerini **gormez** ve bir batch icindeki
 gercek kisi sayisini ayirt **edemez**.
 
+Bu garanti yalniz sorgu oblivious'ligidir. Ayni operator OPRF private key'ini
+ve `users.directory_token` snapshot'ini birlikte gorebiliyorsa kendi telefon
+sozlugunu degerlendirip kayitli telefon kimliklerini bulabilir. Honest-but-
+curious operatora karsi bu hedef tek sunuculu tasarimla saglanmaz; attested TEE
+veya non-colluding threshold OPRF/PSI gerekir.
+
 Kod: `PrivateDirectoryOprf.kt`, istemci tarafi
 `lib/src/contacts/private_contact_discovery.dart`.
 
@@ -43,13 +50,16 @@ veritabaninda** tutulur. Sunucuda caller-contact sosyal grafigi yoktur.
 
 Kod: `UserRegistry.privateDirectorySnapshot()`, `PrivateDirectoryOprf.sealUserId`.
 
-### 1.3 Kayit sirasinda kimligin indekslenmesi
+### 1.3 Kayit sonrasi kimligin indekslenmesi
 
 - `POST /api/v1/otp/verify` e-posta OTP'sini dogrular ve kisa omurlu bir
   **registration grant** doner.
-- `POST /api/v1/users/register` bu grant ile birlikte istemcinin verdigi
-  `userId` ve `phoneHash` degerlerini alir; `phoneHash`'ten OPRF tokeni
-  uretilir ve `users.directory_token` olarak yazilir.
+- `POST /api/v1/users/register` yalniz `userId` ve registration grant alir;
+  telefon hash'i API sinirini gecmez. Hesap rastgele, snapshot disi bir pending
+  token ile acilir.
+- Oturum acildiktan sonra istemci kendi hash'ini de 256'lik blind batch icinde
+  degerlendirir ve yalniz finalize edilmis 32-byte OPRF token'ini
+  `POST /api/v1/users/directory-token` ile gonderir.
 
 Bu ucuncu parca P0-02'nin konusudur.
 
@@ -61,8 +71,8 @@ Bu ucuncu parca P0-02'nin konusudur.
 
 1. Saldirgan kendi e-postasiyla `/otp/request` + `/otp/verify` yapar. Bu
    adim tamamen mesrudur; saldirgan gercekten o e-postanin sahibidir.
-2. Ayni akista `/users/register` istegine hedef kisinin normalize telefon
-   numarasinin SHA-256'sini yazar.
+2. Kayit sonrasi hedef kisinin normalize telefon numarasindan cihazda OPRF
+   token'i uretip kendi authenticated hesabi icin talep eder.
 3. Sunucunun elinde bu numaranin saldirgana ait olup olmadigini anlayacak
    **hicbir girdi yoktur**. Numara henuz kayitli degilse kayit basarili olur.
 
@@ -95,10 +105,10 @@ sekilde reddeder. Acik olan **ilk talep** penceresidir.
 - `AuthService.issueRegistrationToken()` — grant `sub=registration-grant`
   tasir; telefon, userId, directory token veya cihaz anahtari ile hicbir
   bagi yoktur.
-- `HttpRoutes.kt` `/api/v1/users/register` — `request.userId` ve
-  `request.phoneHash` dogrudan istemciden alinir.
-- `UserRegistry.prepareRegistration()` — yalniz **cakisma** kontrolu yapar;
-  sahiplik kontrolu yoktur ve yapamaz.
+- `HttpRoutes.kt` `/api/v1/users/register` telefon girdisi almaz;
+  `/api/v1/users/directory-token` finalize token alir.
+- `UserRegistry.updateOwnDirectoryToken()` token cakismasini kontrol eder;
+  telefon sahipligini kanitlayan bir girdi yoktur ve bu katman kanitlayamaz.
 
 ---
 
@@ -134,14 +144,47 @@ tek hesap kaydi, cache kaybindan sonra replay reddi, reddedilen kaydin
 grant'i yakmamasi, 8 paralel denemede tek kazanan, ve isaret satirinda
 hesap referansi bulunmamasi + purge.
 
-### 3.2 Yan etkiler
+### 3.2 Snapshot dolgusu ve kalici kota (2026-08-20)
+
+Iki ek sizinti kapatildi.
+
+**Kullanici sayisi.** `/api/v1/directory/snapshot` her hesaba ayni listeyi
+verir, dolayisiyla eleman sayisi dogrudan kayitli hesap sayisiydi. Kimlik
+dogrulamis herhangi bir istemci — ornegin gunde bir kez ceken biri — sunucunun
+buyuklugunu ve buyume hizini olcebiliyordu. Liste artik 256'lik kovaya
+yuvarlanir. Dolgu kayitlari gercek kayitlardan ayirt edilemez: etiket 32 byte,
+zarf 12+36+16 byte, ikisi de ayni bicimde base64url. Dolgu etiketi sunucu
+anahtariyla turer, boylece rebuild'ler arasinda sabit kalir — her rebuild'de
+degisen bir etiket, deterministik turemis gercek etiketlerin yaninda dolguyu
+ele verirdi. Zarf ise gercek kayitlarda da her muhurlemede degistigi icin
+yenilenir.
+
+Ayni degisiklik istek basina O(N) muhurlemeyi de kaldirdi: liste zaten herkes
+icin ayni oldugundan uyelik surumu degisene ya da 60 saniye dolana kadar
+paylasilir.
+
+**Kota.** OPRF degerlendirme kotasi yalniz Redis sliding window'undaydi. Redis
+bu dagitimda kasten kalicisizdir (RDB kapali, bkz. `RedisEphemeralPolicy`);
+restart ya da bellek baskisi tum sayaclari sifirliyordu. Yani enumeration'a
+karsi konan gunluk sinir, beklenerek ya da Redis dusurulerek tekrar tekrar
+denenebilir bir engeldi. Gunluk kota artik PostgreSQL'de `directory_quota`
+tablosunda tutulur: satir hesabin blind index'ini, gun kovasini ve sayaci
+tasir — ham `user_id` ya da istek zaman cizelgesi yok — ve iki gun sonra
+retention worker tarafindan silinir. Kontrol tek atomik ifadedir; reddedilen
+istek sayaci artirmaz, aksi halde sinira dayanan bir hesap kendini kalici
+olarak kilitleyebilirdi.
+
+Bunlarin ikisi de bolum 2'deki telefon sahipligi bosluguna dokunmaz; yalniz
+enumeration maliyetini ve sunucu buyuklugu sizintisini kapatirlar.
+
+### 3.3 Yan etkiler
 
 - Redis artik auth guvenlik kararlarinin tek sahibi degil. P0-03 ile
   birlikte credential iptali de PostgreSQL'e tasindi; boylece "Redis kaybi
   guvenligi geri aciyor" sinifi tamamen kapandi.
 - `users` tablosuna hicbir yeni kimlik iliskisi eklenmedi.
 
-### 3.3 Bilincli olarak yapmadiklarim
+### 3.4 Bilincli olarak yapmadiklarim
 
 | Fikir | Neden yapilmadi |
 |---|---|
@@ -211,12 +254,15 @@ isi ayrica degerlidir; secenegin ustune biner, yerine gecmez.
 
 ## 6. Istemci (Flutter) tarafinda yapilmasi gerekenler
 
-Bunlar bu calismada **yapilmadi**. Grant'i talebe kriptografik olarak
-baglamak icin gereken adimlardir.
+> Tarihsel taslak: Asagidaki commitment onerisi uygulanmadi ve mevcut wire
+> contract'i tarif etmez. Telefon hash'ini yeniden kayit istegine sokacagi ve
+> telefon sahipligini yine kanitlamayacagi icin 2026-08-26 review'unda
+> reddedildi. Mevcut contract bolum 1.3'tedir; kalan dogru cozum phone OTP veya
+> platformca dogrulanmis numara sahipligi kanitidir.
 
 ### 6.1 Amac
 
-Bugun grant hicbir seye bagli degildir. Sizan veya baska bir akistan alinan
+Bu taslagin yazildigi tarihte grant hicbir seye bagli degildi. Sizan bir
 bir grant, herhangi bir `userId` + `phoneHash` cifti icin kullanilabilir.
 Commitment bunu kapatir: grant yalniz **onceden beyan edilmis** tek bir
 talep icin gecerli olur.
@@ -283,9 +329,10 @@ planlanmalidir.
 
 ## 8. Karar bekleyen tek soru
 
-Bolum 5'teki A / B / C seceneklerinden hangisi? Secim yapilana kadar:
+Telefon sahipligi icin bolum 5'teki A / B / C seceneklerinden hangisi?
 
-- Sunucu mevcut davranisi korur (e-posta OTP + telefon hash beyani),
+- Sunucu telefon hash'i almaz ve finalize OPRF token'ini yalniz authenticated
+  hesaptan kabul eder; bu yine telefon sahipligi kaniti degildir,
 - P0-02 `SERVER_HARDENING_PROGRESS.md` icinde **EXTERNAL** olarak acik
   kalir,
 - Bolum 3'teki sertlestirmeler yururluktedir ve hangi secenek secilirse

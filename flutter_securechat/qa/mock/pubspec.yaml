@@ -1,0 +1,12 @@
+name: securechat_mock_server
+description: Multi-client mock signaling/API server with real Signal Protocol virtual peers.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  sdk: ">=3.9.0 <4.0.0"
+
+dependencies:
+  crypto: 3.0.7
+  cryptography: 2.9.0
+  libsignal_protocol_dart: 0.8.2

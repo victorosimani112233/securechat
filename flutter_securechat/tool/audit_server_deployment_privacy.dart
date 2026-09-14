@@ -284,6 +284,44 @@ List<String> auditServerDeploymentPrivacy({Directory? projectRoot}) {
     'the reverse proxy must reject a credential carried in the query string',
   );
 
+  // Testleri calistirmayan bir build, yesil olmayan agactan image uretebilir.
+  final buildScript = read('server_hardened/deploy/build_privacy_images.sh');
+  requireText(
+    buildScript,
+    ':signaling-server:test :bot-api:test',
+    'image build must run the server test suites first',
+  );
+  requireText(
+    buildScript,
+    r'SOURCE_COMMIT',
+    'image build must stamp the released commit',
+  );
+  // Surum kaydinda hangi ucuncu parti baytlarin calistigina dair kanit.
+  requireText(
+    buildScript,
+    'sbom.py',
+    'image build must produce an SBOM and run the SCA gate',
+  );
+  requireText(
+    buildScript,
+    'known_vulnerable.txt',
+    'the SCA gate must be checked against the advisory list',
+  );
+  // Belge test bagimliliklarini degil, dagitilan bilesenleri anlatmali.
+  requireText(
+    buildScript,
+    'runtime-artifacts.txt',
+    'the SBOM must describe the shipped runtime classpath',
+  );
+
+  // Container limiti olmadan JVM host RAM'ine gore hesaplar.
+  requireText(
+    compose,
+    'mem_limit:',
+    'services must declare a memory limit',
+  );
+  requireText(compose, 'cpus:', 'services must declare a cpu limit');
+
   forbidText(compose, 'redis_data', 'ephemeral Redis must not have a volume');
   forbidText(
     compose,

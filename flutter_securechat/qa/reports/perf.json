@@ -1,0 +1,111 @@
+{
+ "startup": {
+  "Soguk baslatma (3 tur medyan)": 1838,
+  "Soguk baslatma (min/maks)": "1827 / 1850",
+  "Sicak baslatma (3 tur medyan)": 116
+ },
+ "memory": {
+  "Bosta (ana ekran)": {
+   "pss_kb": 620534,
+   "native_kb": 63252,
+   "dalvik_kb": 6430,
+   "graphics_kb": 165527,
+   "views": 9
+  },
+  "Mesajlasma sirasinda": {
+   "pss_kb": 629866,
+   "native_kb": 57835,
+   "dalvik_kb": 4073,
+   "graphics_kb": 165527,
+   "views": 9
+  },
+  "12x sohbet ac/kapat sonrasi": {
+   "pss_kb": 643885,
+   "native_kb": 66147,
+   "dalvik_kb": 4513,
+   "graphics_kb": 165527,
+   "views": 9
+  }
+ },
+ "jank": {
+  "Sohbet listesi kaydirma": {
+   "label": "Sohbet listesi kaydirma",
+   "refreshHz": 120,
+   "hedefKareSuresiMs": 8.33,
+   "olculenKare": 2377,
+   "akiciKare": 2295,
+   "geckenKare": 82,
+   "jankYuzdesi": 3.45,
+   "missedFrames": 0,
+   "ortKareSuresiMs": 1.284,
+   "histogramMs": {
+    "7": 98,
+    "8": 2186,
+    "9": 11,
+    "15": 1,
+    "16": 77,
+    "17": 2,
+    "24": 1,
+    "25": 1
+   }
+  },
+  "Sohbet ekrani kaydirma": {
+   "label": "Sohbet ekrani kaydirma",
+   "refreshHz": 120,
+   "hedefKareSuresiMs": 8.33,
+   "olculenKare": 1949,
+   "akiciKare": 1880,
+   "geckenKare": 69,
+   "jankYuzdesi": 3.54,
+   "missedFrames": 0,
+   "ortKareSuresiMs": 1.269,
+   "histogramMs": {
+    "7": 87,
+    "8": 1787,
+    "9": 6,
+    "16": 64,
+    "17": 2,
+    "25": 3
+   }
+  },
+  "Sekme gecisleri": {
+   "label": "Sekme gecisleri",
+   "refreshHz": 120,
+   "hedefKareSuresiMs": 8.33,
+   "olculenKare": 1983,
+   "akiciKare": 1902,
+   "geckenKare": 81,
+   "jankYuzdesi": 4.08,
+   "missedFrames": 0,
+   "ortKareSuresiMs": 4.068,
+   "histogramMs": {
+    "7": 11,
+    "8": 1891,
+    "16": 67,
+    "24": 4,
+    "25": 10
+   }
+  }
+ },
+ "cpu": {
+  "Bosta": 0.0,
+  "Mesajlasma sirasinda": 0.0
+ },
+ "notes": [
+  "Tum olcumler DEBUG build uzerinde alindi (JIT + 83 MB kernel_blob). Release build belirgin sekilde daha dusuk bellek ve daha iyi jank verir; mutlak degerler release ile karsilastirilamaz, yalniz goreli trend anlamlidir.",
+  "dumpsys gfxinfo Flutter icin GECERSIZ: uygulama SurfaceView kullanip HWUI'yi bypass ediyor, gfxinfo 0 kare donduruyor. SurfaceFlinger --latency de Android 13+ uzerinde bos donuyor. Olcum SurfaceFlinger --timestats ile yapildi.",
+  "Jank yuzdesi hesabinda jestler arasi bosta bekleme araliklari (>200ms) haric tutuldu."
+ ],
+ "memory_trend_kb": [
+  631446,
+  631905,
+  629534,
+  630030
+ ],
+ "leak_cycle_kb": [
+  660481,
+  634353,
+  639001,
+  638073
+ ]
+}

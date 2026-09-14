@@ -1,0 +1,60 @@
+import 'dart:io';
+
+import 'package:cryptography/cryptography.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_securechat/src/services/crypto_service.dart';
+import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
+import 'package:flutter_securechat/src/storage/storage_entities.dart';
+
+/// OLCUM: mesaj sayisi arttikca tek bir mesaj yazmanin maliyeti.
+void main() {
+  test('write cost grows with history size', () async {
+    final dir = await Directory.systemTemp.createTemp('scale');
+    final db = await SecureChatDatabase.open(
+      file: File('${dir.path}/db.json'),
+      crypto: LocalAeadCryptoService(SecretKey(List.filled(32, 7))),
+    );
+    await db.conversations.insert(
+      ConversationEntity(
+        id: 'c1', peerId: 'p1', peerName: 'Peer', peerPhone: '+900000000',
+      ),
+    );
+    final body = 'x' * 200;
+    final marks = <int, int>{};
+    final sw = Stopwatch();
+    for (var i = 1; i <= 2000; i++) {
+      sw..reset()..start();
+      await db.messages.insert(
+        MessageEntity(
+          id: 'm$i', conversationId: 'c1', senderId: 'p1',
+          content: body, contentType: StorageMessageContentType.text,
+          timestamp: i, status: StorageMessageStatus.delivered,
+          isOutgoing: false,
+        ),
+      );
+      sw.stop();
+      if (const [50, 100, 250, 500, 1000, 1500, 2000].contains(i)) {
+        marks[i] = sw.elapsedMicroseconds;
+      }
+    }
+    // GERCEK AKIS: incoming_message_handler tek mesaj icin bu 3 yazmayi yapar
+    final seq = Stopwatch()..start();
+    await db.messages.insert(
+      MessageEntity(
+        id: 'real', conversationId: 'c1', senderId: 'p1',
+        content: body, contentType: StorageMessageContentType.text,
+        timestamp: 99999, status: StorageMessageStatus.delivered,
+        isOutgoing: false,
+      ),
+    );
+    await db.conversations.updateLastMessageById('c1', body, 99999);
+    await db.conversations.incrementUnreadCount('c1');
+    seq.stop();
+    // ignore: avoid_print
+    print('INCOMING-SEQ ${seq.elapsedMilliseconds}ms (3 tam yazma)');
+    final size = await File('${dir.path}/db.json').length();
+    // ignore: avoid_print
+    print('SCALE ${marks.entries.map((e) => '${e.key}=${e.value}us').join(' ')} file=${size}B');
+    await dir.delete(recursive: true);
+  }, timeout: const Timeout(Duration(minutes: 10)));
+}
