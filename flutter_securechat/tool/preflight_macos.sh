@@ -60,9 +60,24 @@ else
   note "Kurulum sonrası: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
 fi
 if xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1; then
-  ok "iOS SDK"
+  ok "iOS SDK $(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null)"
 else
   fail "iOS SDK yok — Xcode > Settings > Platforms"
+fi
+
+# Runner XCTest bir simulator gerektiriyor. Xcode 16'dan beri Xcode.app
+# simulator runtime'i ICERMEDEN geliyor; ayrica indirilmesi gerekiyor.
+# `simctl list devices available` yalniz calistirilabilir olanlari listeler.
+simulator="$(xcrun simctl list devices available 2>/dev/null \
+  | sed -nE 's/^[[:space:]]+(iPhone[^(]*[^ (])[[:space:]]+\([0-9A-F-]{36}\).*/\1/p' \
+  | head -1)"
+if [[ -n "$simulator" ]]; then
+  ok "iPhone simülatörü: $simulator"
+else
+  warn "Kurulu iPhone simülatörü yok — verify_ios_on_macos.sh test adımı çalışmaz"
+  note "Xcode > Settings > Components, ya da indirdiğiniz .dmg için:"
+  note "  xcodebuild -importPlatform <iOS_Simulator_Runtime.dmg>"
+  note "'flutter build ios --release --no-codesign' için simülatör GEREKMEZ."
 fi
 
 echo

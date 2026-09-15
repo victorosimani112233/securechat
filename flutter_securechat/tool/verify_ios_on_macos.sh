@@ -100,7 +100,35 @@ fi
 flutter build ios --release --no-codesign \
   "${dart_defines[@]}"
 
-simulator_name="${IOS_SIMULATOR_NAME:-iPhone 16 Pro}"
+# Simulator adi Xcode surumune gore degisir: her Xcode kendi cihaz
+# kumesiyle gelir ve eski model adlari kaybolur. Sabit bir ad ("iPhone 16
+# Pro") yazmak, gate'i Xcode yukseltmesinde kiriyordu — ustelik hatasi
+# "Unable to find a device matching the provided destination" oldugu icin
+# sorunun simulator adi oldugu anlasilmiyordu.
+#
+# IOS_SIMULATOR_NAME verilirse o kullanilir; verilmezse kurulu olanlardan
+# ilki secilir. Runner XCTest'i cihaz modelinden bagimsiz oldugu icin
+# hangisi oldugu onemli degil, VAR OLMASI onemli.
+if [[ -n "${IOS_SIMULATOR_NAME:-}" ]]; then
+  simulator_name="$IOS_SIMULATOR_NAME"
+else
+  # `simctl list devices available` yalniz calistirilabilir cihazlari
+  # listeler; runtime'i indirilmemis olanlar bu listede yer almaz.
+  simulator_name="$(
+    xcrun simctl list devices available 2>/dev/null \
+      | sed -nE 's/^[[:space:]]+(iPhone[^(]*[^ (])[[:space:]]+\([0-9A-F-]{36}\).*/\1/p' \
+      | head -1
+  )"
+  if [[ -z "$simulator_name" ]]; then
+    echo "Kurulu iPhone simulatoru yok; Runner XCTest kosulamaz." >&2
+    echo "Xcode > Settings > Components uzerinden bir iOS Simulator" >&2
+    echo "runtime'i indirin, ya da elinizdeki .dmg icin:" >&2
+    echo "  xcodebuild -importPlatform <iOS_Simulator_Runtime.dmg>" >&2
+    echo "Belirli bir cihaz kullanmak icin: IOS_SIMULATOR_NAME=\"...\"" >&2
+    exit 2
+  fi
+fi
+echo "Simulator: $simulator_name  (Xcode $(xcodebuild -version | head -1 | awk '{print $2}'))"
 if [[ "$offline_mode" == "1" ]]; then
   xcodebuild test \
     -workspace ios/Runner.xcworkspace \

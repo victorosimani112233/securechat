@@ -83,7 +83,34 @@ export SECURECHAT_CERT_PIN_SHA256_BACKUP=...
 ./tool/verify_ios_on_macos.sh
 ```
 
-Bu değerler `codemagic.yaml` içindeki ortam değişkenleriyle aynı.
+Bu değerler `codemagic.yaml` içindeki ortam değişkenleriyle aynı (CI artık
+kullanılmıyorsa da dosya, hangi girdilerin gerektiğinin kaydı olarak duruyor).
+
+### Xcode sürümü ve simülatör
+
+Proje belirli bir Xcode sürümüne bağlı değil; SDK, kurulu Xcode'un içinden
+gelir. Ayarlanması gereken bir "SDK sürümü" yok.
+
+Simülatör adı da sabit değil: `verify_ios_on_macos.sh` kurulu iPhone
+simülatörlerinden ilkini seçer ve hangisini seçtiğini yazar. Belirli bir
+cihaz isterseniz:
+
+```bash
+IOS_SIMULATOR_NAME="iPhone 17 Pro" ./tool/verify_ios_on_macos.sh
+```
+
+Xcode 16'dan beri Xcode.app simülatör imajı olmadan geliyor. Kurulu simülatör
+yoksa gate testleri atlamaz, açık bir hatayla durur. `flutter build ios
+--release --no-codesign` için simülatör gerekmez.
+
+### Deployment target
+
+`15.0` — üç yerde aynı olmak zorunda: `project.pbxproj` (üç yapılandırma),
+`ios/SQLCipher/Package.swift` ve `tool/audit_ios_readiness.dart` içindeki
+`_minimumIosVersion`. Audit tool üçünün eşitliğini denetler.
+
+Yükseltmek **kullanıcı kaybettirir**: bu sürümün altındaki cihazlar
+güncelleme alamaz. Yalnız Xcode gerçekten reddediyorsa yükseltin.
 
 ### CocoaPods gerekmiyor
 

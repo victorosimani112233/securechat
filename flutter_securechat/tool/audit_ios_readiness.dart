@@ -22,6 +22,18 @@ const _requiredInfoPlistKeys = {
   'BGTaskSchedulerPermittedIdentifiers',
 };
 
+/// Desteklenen en dusuk iOS surumu.
+///
+/// Uc yerde ayni olmak zorunda ve tek tek degistirilirse hata mesajlari
+/// yaniltici oluyor:
+///   - `ios/Runner.xcodeproj/project.pbxproj` (uc yapilandirma)
+///   - `ios/SQLCipher/Package.swift` (`.iOS(.vNN)`)
+///   - burasi
+///
+/// Yukseltmek KULLANICI KAYBETTIRIR: bu surumun altindaki cihazlar
+/// guncelleme alamaz. Yalniz Xcode gercekten reddediyorsa yukseltin.
+const _minimumIosVersion = '15.0';
+
 const _backgroundIdentifiers = {
   'com.securechat.app.background.maintenance',
   'com.securechat.app.background.sender-key-rotation',
@@ -145,10 +157,10 @@ void main() {
     r'IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);',
   ).allMatches(project).map((match) => match[1]!).toList();
   if (deploymentTargets.length < 3 ||
-      deploymentTargets.any((target) => target != '15.0')) {
+      deploymentTargets.any((target) => target != _minimumIosVersion)) {
     failures.add(
-      'Tum iOS deployment targetlari Firebase Swift paketleri icin 15.0 olmali: '
-      '$deploymentTargets',
+      'Tum iOS deployment targetlari $_minimumIosVersion olmali '
+      '(Firebase Swift paketlerinin sarti): $deploymentTargets',
     );
   }
   if (!project.contains('PRODUCT_BUNDLE_IDENTIFIER = com.securechat.app')) {
@@ -171,6 +183,19 @@ void main() {
       failures.add('SQLCipher paketinde zorunlu tanim eksik: $define');
     }
   }
+  // Gomulu SQLCipher paketi ayri bir platform bildirimi tasiyor. pbxproj ile
+  // ayrisirsa SPM "package is not compatible" der ve hata deployment target
+  // uyusmazligini isaret etmez; bagimliligin kendisi bozuk sanilir.
+  final packageMinimum = RegExp(
+    r'\.iOS\(\.v([0-9_]+)\)',
+  ).firstMatch(cipherPackage)?.group(1)?.replaceAll('_', '.');
+  if (packageMinimum != _minimumIosVersion.split('.').first) {
+    failures.add(
+      'ios/SQLCipher/Package.swift minimum iOS surumu pbxproj ile ayrisiyor: '
+      'paket .v$packageMinimum, proje $_minimumIosVersion',
+    );
+  }
+
   if (!cipherPackage.contains('.define("SQLITE_TEMP_STORE", to: "2")')) {
     failures.add(
       'SQLITE_TEMP_STORE=2 yok: gecici tablolar diske duz metin yazilir',
