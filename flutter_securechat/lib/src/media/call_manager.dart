@@ -153,7 +153,8 @@ class CallManager {
     }
     try {
       await groupMedia.enableMediaEncryption(mediaKey);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('prepare-media-encryption', error, stackTrace);
       // Alicilar anahtari ancak mediaE2ee=true davetinden sonra uygular.
       // Platform destegi yoksa davet false gider ve dagitilmis anahtar atilir.
       _mediaEncryptionActive = false;
@@ -195,7 +196,8 @@ class CallManager {
       await groupMedia.rotateMediaKey(rotated);
       _mediaKey = rotated;
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('rotate-media-key', error, stackTrace);
       _mediaEncryptionActive = false;
       return false;
     }
@@ -249,7 +251,8 @@ class CallManager {
       } else {
         await groupMedia.rotateMediaKey(mediaKey);
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('apply-incoming-media-key', error, stackTrace);
       _mediaEncryptionActive = false;
       await _finish(CallState.failed, notifyPeer: true);
       return false;
@@ -333,6 +336,20 @@ class CallManager {
   /// dinleyicide islenmemis sayilip root zone'a kaciyor ve orada olumcul
   /// isaretli crash raporu uretiyordu. Buradan gecince ayni hata gizlilik
   /// guvenli teshis sinirinda, olumcul olmayan kayit olarak toplaniyor.
+  /// Cagri hatasini teshis sinirina bildirir.
+  ///
+  /// Bu bloklar kullaniciya dogru davraniyordu (cagri `failed` durumuna
+  /// geciyor, karsi taraf bilgilendiriliyor) ama HATANIN KENDISI kayboluyordu.
+  /// Sahadan "arama basarisiz" raporu geldiginde nedeni bulunacak hicbir iz
+  /// kalmiyordu. Davranis degismez; yalnizca iz birakilir.
+  void _reportCallFailure(String stage, Object error, StackTrace stackTrace) {
+    if (_disposed || _operations.isClosed) return;
+    _operations.run(
+      'call-manager.$stage',
+      Future<void>.error(error, stackTrace),
+    );
+  }
+
   void _reportSignalStreamFailure(Object error, StackTrace stackTrace) {
     if (_disposed || _operations.isClosed) return;
     _operations.run(
@@ -414,7 +431,8 @@ class CallManager {
       _setSession(session.copyWith(state: CallState.ringing));
       _startRingTimeout();
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('initiate-call', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: false);
       return false;
     }
@@ -499,7 +517,8 @@ class CallManager {
       if (!allSent) throw StateError('One or more group invites failed');
       _setSession(session.copyWith(state: CallState.active));
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('initiate-group-call', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: true);
       return false;
     }
@@ -545,7 +564,8 @@ class CallManager {
       _pendingOffer = null;
       await _replayPendingIce();
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('accept-call', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: true);
       return false;
     }
@@ -594,7 +614,8 @@ class CallManager {
         await _acceptGroupPeerOffer(entry.key, entry.value);
       }
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('accept-group-call', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: true);
       return false;
     }
@@ -792,7 +813,8 @@ class CallManager {
       _setSession(session.copyWith(state: CallState.connecting));
       await _media.applyAnswer(signal.sdp);
       await _replayPendingIce();
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('handle-answer', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: true);
     }
   }
