@@ -11,7 +11,7 @@ Betik hiçbir şey kurmaz; eksik olan her madde için çalıştırılacak komutu
 
 ## 1 · Depoyu taşıma
 
-`origin` uzak sunucusu bir **LAN adresi** (`http://10.4.10.53:8082/...`).
+`origin` uzak sunucusu bir **LAN adresi** (`git remote -v` ile görürsünüz).
 Mac aynı ağda değilse oradan klonlanamaz. Çalışan uzak sunucu GitHub:
 
 ```bash
