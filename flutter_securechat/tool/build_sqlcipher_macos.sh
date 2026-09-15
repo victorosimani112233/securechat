@@ -37,6 +37,10 @@ command -v cc >/dev/null || {
 # Guvenlik acisindan kritik olan ikisi: TEMP_STORE=2 (gecici tablolar diske
 # duz metin yazilmaz) ve OMIT_LOAD_EXTENSION.
 readonly defines=(
+  # ZORUNLU: assert() govdeleri yalniz SQLITE_DEBUG tanimliyken var olan
+  # alanlara basvuruyor. Amalgamation NDEBUG'i kendi tanimliyor ama
+  # <assert.h> daha once dahil edilmisse gec kaliyor.
+  -DNDEBUG=1
   -DSQLITE_HAS_CODEC
   -DSQLCIPHER_CRYPTO_CC
   -DSQLITE_TEMP_STORE=2

@@ -196,6 +196,19 @@ void main() {
     );
   }
 
+  // NDEBUG olmadan assert() govdeleri derleniyor ve yalniz SQLITE_DEBUG
+  // tanimliyken var olan alanlara basvuruyorlar; iOS derlemesi
+  // "No member named 'zEnd' in 'struct EdupBuf'" ile duruyordu.
+  if (!cipherPackage.contains('.define("NDEBUG", to: "1")')) {
+    failures.add(
+      'SQLCipher paketinde NDEBUG yok: assert govdeleri derlenir ve iOS '
+      'derlemesi kirilir',
+    );
+  }
+  // SQLITE_DEBUG `#ifdef` ile denetleniyor; 0 degeri bile onu ACAR.
+  if (cipherPackage.contains('.define("SQLITE_DEBUG"')) {
+    failures.add('SQLCipher paketinde SQLITE_DEBUG tanimlanmis olmamali');
+  }
   if (!cipherPackage.contains('.define("SQLITE_TEMP_STORE", to: "2")')) {
     failures.add(
       'SQLITE_TEMP_STORE=2 yok: gecici tablolar diske duz metin yazilir',

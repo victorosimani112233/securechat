@@ -3,13 +3,36 @@ import 'dart:io';
 
 import 'package:flutter_securechat/src/storage/encrypted_record_store.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/sqlite3.dart';
 // Paket ici import: `FfiSqlite3` fabrikasi `package:sqlite3/sqlite3.dart`
 // tarafindan disa aktarilmiyor ama BELIRLI bir kutuphaneye baglanmis bir
 // ornek uretmenin tek yolu bu. Bu testin butun degeri gercek bir DUZ SQLite
 // kutuphanesine baglanabilmesinde; taklit bir nesne ile yapilsaydi asil
-// tehlikeyi — iOS'un sistem kutuphanesinin davranisini — hic sinamazdi.
+// tehlikeyi — Apple platformlarinin sistem kutuphanesinin davranisini — hic
+// sinamazdi.
 // ignore: implementation_imports
 import 'package:sqlite3/src/ffi/implementation.dart';
+
+/// Sistemin DUZ SQLite kutuphanesi. Adi platforma gore degisir.
+///
+/// Bu kutuphane her Unix'te bulunur; SQLCipher'in aksine ayrica kurulmaz.
+/// Bulunamazsa test atlanmaz, basarisiz olur: "duz SQLite tehlikeli"
+/// degismezi sinanamiyorsa bunun sessiz kalmamasi gerekir.
+DynamicLibrary _openPlainSqlite() {
+  final candidates = <String>[
+    if (Platform.isMacOS) ...['libsqlite3.dylib', '/usr/lib/libsqlite3.dylib'],
+    if (Platform.isLinux) ...['libsqlite3.so.0', 'libsqlite3.so'],
+  ];
+  final failures = <String>[];
+  for (final candidate in candidates) {
+    try {
+      return DynamicLibrary.open(candidate);
+    } on ArgumentError catch (error) {
+      failures.add('$candidate (${error.message})');
+    }
+  }
+  throw StateError('Duz SQLite bulunamadi. Denenenler: ${failures.join(', ')}');
+}
 
 /// Depo acilisindaki "baglanan kutuphane gercekten SQLCipher mi" denetimi.
 ///
@@ -28,10 +51,9 @@ void main() {
   });
 
   test('duz SQLite PRAGMA key kabul eder ama DUZ METIN yazar', () {
-    final plain = FfiSqlite3(DynamicLibrary.open('libsqlite3.so.0'));
+    final plain = FfiSqlite3(_openPlainSqlite());
     final path = '${workspace.path}/plain.db';
     final database = plain.open(path);
-    addTearDown(database.dispose);
 
     // Hata YOK: duz SQLite tanimadigi pragmayi sessizce yok sayar. Kirilgan
     // nokta tam olarak burasi.
@@ -40,8 +62,7 @@ void main() {
     database.execute("INSERT INTO t VALUES ('GIZLI_MESAJ_ICERIGI');");
     database.dispose();
 
-    final bytes = File(path).readAsBytesSync();
-    final raw = String.fromCharCodes(bytes);
+    final raw = String.fromCharCodes(File(path).readAsBytesSync());
     expect(
       raw.startsWith('SQLite format 3'),
       isTrue,
@@ -55,7 +76,7 @@ void main() {
   });
 
   test('denetim duz SQLite baglantisini reddeder', () {
-    final plain = FfiSqlite3(DynamicLibrary.open('libsqlite3.so.0'));
+    final plain = FfiSqlite3(_openPlainSqlite());
     final database = plain.openInMemory();
     addTearDown(database.dispose);
 
@@ -65,19 +86,13 @@ void main() {
     );
   });
 
-  test('denetim SQLCipher baglantisini gecirir', () {
-    final cipher = FfiSqlite3(DynamicLibrary.open('libsqlcipher.so.0'));
-    final database = cipher.openInMemory();
-    addTearDown(database.dispose);
-
+  test('degisken adi sozlesmesi sabit', () {
+    // `tool/build_sqlcipher_macos.sh` ve belgeler bu adi kullaniyor.
     expect(
-      () => EncryptedRecordStore.assertCipherAvailable(database),
-      returnsNormally,
+      EncryptedRecordStore.libraryPathVariable,
+      'SECURECHAT_SQLCIPHER_PATH',
     );
-    expect(database.select('PRAGMA cipher_version;'), isNotEmpty);
   });
-
-  envOverrideTests();
 
   test('gercek depo hem acilir hem diske sifreli yazar', () async {
     final file = File('${workspace.path}/store.db');
@@ -99,22 +114,24 @@ void main() {
     expect(raw.startsWith('SQLite format 3'), isFalse);
     expect(raw.contains('GIZLI_MESAJ_ICERIGI'), isFalse);
   });
-}
 
-/// Kutuphanenin yeri ortam degiskeniyle bildirilebilmeli.
-///
-/// Gelistirme makinesinde SQLCipher her zaman bir paket yoneticisinden
-/// gelmiyor: Homebrew kurulumu ag ister ve kisitli baglantida kutuphane
-/// depodaki gomulu kaynaktan elle uretiliyor. O dosya standart yollarin
-/// hicbirinde olmadigi icin disaridan bildirilebilmesi gerekiyor.
-void envOverrideTests() {
-  test('degisken adi sozlesmesi sabit', () {
-    expect(
-      EncryptedRecordStore.libraryPathVariable,
-      'SECURECHAT_SQLCIPHER_PATH',
-      reason:
-          'tool/build_sqlcipher_macos.sh ve belgeler bu adi kullaniyor; '
-          'degistirilirse ikisi de guncellenmeli',
+  test('denetim SQLCipher baglantisini gecirir', () async {
+    // Deponun kendi cozumlemesini kullaniyoruz: kutuphane yollari platforma
+    // gore degisiyor ve burada tekrar yazilsaydi ikisi zamanla ayrisirdi.
+    // Bir kez acmak `_resolveLibrary`'yi tetikler, sonrasinda genel
+    // `sqlite3` ornegi de SQLCipher'a bagli olur.
+    final store = await EncryptedRecordStore.open(
+      file: File('${workspace.path}/resolve.db'),
+      key: List<int>.generate(32, (index) => index),
     );
+    store.close();
+
+    final database = sqlite3.openInMemory();
+    addTearDown(database.dispose);
+    expect(
+      () => EncryptedRecordStore.assertCipherAvailable(database),
+      returnsNormally,
+    );
+    expect(database.select('PRAGMA cipher_version;'), isNotEmpty);
   });
 }

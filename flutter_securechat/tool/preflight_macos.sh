@@ -132,10 +132,13 @@ fi
 
 echo
 echo "Android araç zinciri (isteğe bağlı — yalnız Android derlemesi için)"
-if command -v java >/dev/null; then
+# macOS'ta /usr/bin/java her zaman VARDIR; kurulu bir JDK yoksa calistirinca
+# "Unable to locate a Java Runtime" der. Yalniz varligina bakmak bu stub'i
+# gercek kurulum sanmaya yol aciyordu.
+if java -version >/dev/null 2>&1; then
   ok "Java $(java -version 2>&1 | head -1 | sed 's/.*"\(.*\)".*/\1/')"
 else
-  warn "java bulunamadı — Android derlemesi çalışmaz (iOS etkilenmez)"
+  warn "Çalışan bir JDK yok — Android derlemesi çalışmaz (iOS etkilenmez)"
   note "brew install --cask temurin@21"
 fi
 if [[ -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ]]; then

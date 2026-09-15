@@ -32,6 +32,23 @@ let package = Package(
       sources: ["sqlite3.c"],
       publicHeadersPath: "include",
       cSettings: [
+        // assert() govdelerini kapatir — ZORUNLU.
+        //
+        // Amalgamation satir 14162'de NDEBUG'i kendisi tanimliyor, ama bu
+        // <assert.h> daha once dahil edilmisse GEC KALIYOR: assert makrosu
+        // o anda zaten genislemis oluyor. Apple baslik zincirinde durum
+        // buydu ve assert govdeleri derlenmeye calisildi. O govdeler yalniz
+        // SQLITE_DEBUG tanimliyken var olan alanlara basvuruyor:
+        //
+        //   No member named 'zEnd' in 'struct EdupBuf'
+        //   Call to undeclared function 'sqlite3BtreeHoldsAllMutexes'
+        //
+        // Komut satirindan verilince ilk satirdan once gecerli olur.
+        // SQLCipher'in kendi podspec'i de NDEBUG=1 veriyor.
+        //
+        // SQLITE_DEBUG'i TANIMLAMAYIN: `#ifdef` ile bakildigi icin 0 degeri
+        // bile onu acar.
+        .define("NDEBUG", to: "1"),
         // SQLCipher'i etkinlestiren zorunlu tanim.
         .define("SQLITE_HAS_CODEC"),
         // Apple platformlarinda sifreleme saglayicisi CommonCrypto.
