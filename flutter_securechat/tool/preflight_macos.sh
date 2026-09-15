@@ -53,11 +53,31 @@ fi
 
 echo
 echo "iOS araç zinciri"
-if command -v xcodebuild >/dev/null; then
+# Aktif geliştirici dizini HER ŞEYDEN önce gelir: `xcrun` bütün araçları
+# buradan çözer. Command Line Tools'u gösterirken iPhoneOS SDK'sı yoktur,
+# `xcodebuild` hiç çalışmaz ve `simctl` boş döner. Homebrew kurulumu bu
+# ayarı kendine çevirebiliyor, yani bir kez doğru olması yetmiyor.
+developer_directory="$(xcode-select -p 2>/dev/null || true)"
+case "$developer_directory" in
+  *Xcode.app*)
+    ok "Aktif geliştirici dizini: $developer_directory"
+    ;;
+  "")
+    fail "xcode-select yanıt vermiyor — Xcode kurulu değil"
+    ;;
+  *)
+    fail "Aktif geliştirici dizini Xcode değil: $developer_directory"
+    note "sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    note "Bu ayar Homebrew kurulumundan sonra değişmiş olabilir."
+    ;;
+esac
+
+if command -v xcodebuild >/dev/null && xcodebuild -version >/dev/null 2>&1; then
   ok "Xcode $(xcodebuild -version 2>/dev/null | head -1 | awk '{print $2}')"
+elif [[ -d /Applications/Xcode.app ]]; then
+  fail "Xcode.app var ama xcodebuild çalışmıyor — yukarıdaki xcode-select satırına bakın"
 else
-  fail "xcodebuild bulunamadı — App Store'dan Xcode kurun"
-  note "Kurulum sonrası: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+  fail "Xcode kurulu değil — App Store'dan kurun (Command Line Tools yetmez)"
 fi
 if xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1; then
   ok "iOS SDK $(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null)"

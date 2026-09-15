@@ -77,6 +77,8 @@ void main() {
     expect(database.select('PRAGMA cipher_version;'), isNotEmpty);
   });
 
+  envOverrideTests();
+
   test('gercek depo hem acilir hem diske sifreli yazar', () async {
     final file = File('${workspace.path}/store.db');
     final store = await EncryptedRecordStore.open(
@@ -96,5 +98,23 @@ void main() {
     final raw = String.fromCharCodes(file.readAsBytesSync());
     expect(raw.startsWith('SQLite format 3'), isFalse);
     expect(raw.contains('GIZLI_MESAJ_ICERIGI'), isFalse);
+  });
+}
+
+/// Kutuphanenin yeri ortam degiskeniyle bildirilebilmeli.
+///
+/// Gelistirme makinesinde SQLCipher her zaman bir paket yoneticisinden
+/// gelmiyor: Homebrew kurulumu ag ister ve kisitli baglantida kutuphane
+/// depodaki gomulu kaynaktan elle uretiliyor. O dosya standart yollarin
+/// hicbirinde olmadigi icin disaridan bildirilebilmesi gerekiyor.
+void envOverrideTests() {
+  test('degisken adi sozlesmesi sabit', () {
+    expect(
+      EncryptedRecordStore.libraryPathVariable,
+      'SECURECHAT_SQLCIPHER_PATH',
+      reason:
+          'tool/build_sqlcipher_macos.sh ve belgeler bu adi kullaniyor; '
+          'degistirilirse ikisi de guncellenmeli',
+    );
   });
 }

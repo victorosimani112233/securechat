@@ -149,7 +149,10 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
       ..overrideFor(
         sqlite_open.OperatingSystem.linux,
         // Dagitim paketi; testler bu yolda kosuyor.
-        () => _openFirst(const ['libsqlcipher.so.0', 'libsqlcipher.so']),
+        () => _openFirst(_hostCandidates(const [
+          'libsqlcipher.so.0',
+          'libsqlcipher.so',
+        ])),
       )
       ..overrideFor(
         sqlite_open.OperatingSystem.iOS,
@@ -164,14 +167,34 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
         // Homebrew iki farkli one ek kullanir (Apple Silicon /opt/homebrew,
         // Intel /usr/local) ve ikisi de dyld'nin varsayilan arama yolunda
         // DEGILDIR — bu yuzden tam yollar denenir.
-        () => _openFirst(const [
+        () => _openFirst(_hostCandidates(const [
           'libsqlcipher.dylib',
           '/opt/homebrew/lib/libsqlcipher.dylib',
           '/opt/homebrew/opt/sqlcipher/lib/libsqlcipher.dylib',
           '/usr/local/lib/libsqlcipher.dylib',
           '/usr/local/opt/sqlcipher/lib/libsqlcipher.dylib',
-        ]),
+        ])),
       );
+  }
+
+  /// Kutuphanenin yerini dısarıdan bildirmeye yarayan degisken.
+  ///
+  /// Gelistirme makinesinde SQLCipher her zaman bir paket yoneticisinden
+  /// gelmiyor. Homebrew kurulumu ag ister; kisitli baglantida
+  /// `tool/build_sqlcipher_macos.sh` depodaki gomulu kaynaktan yerel bir
+  /// kutuphane uretiyor ve o dosya standart yollarin hicbirinde olmuyor.
+  /// `/usr/local/lib` altina kopyalamak sudo gerektirir; `DYLD_LIBRARY_PATH`
+  /// ise macOS'ta SIP tarafindan temizlenebiliyor. Acik bir degisken ikisini
+  /// de gerektirmez.
+  static const libraryPathVariable = 'SECURECHAT_SQLCIPHER_PATH';
+
+  /// Once degiskenin gosterdigi yol, sonra platformun alisildik yerleri.
+  static List<String> _hostCandidates(List<String> defaults) {
+    final override = Platform.environment[libraryPathVariable];
+    return [
+      if (override != null && override.isNotEmpty) override,
+      ...defaults,
+    ];
   }
 
   /// Adaylari sirayla dener, ilk acilani dondurur.

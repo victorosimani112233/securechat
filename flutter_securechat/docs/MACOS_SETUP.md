@@ -43,6 +43,35 @@ Son ikisi Signal oturum durumu ve TLS özel anahtarı içerir ve zaten
 Flutter sürümü farklıysa çalışır ama doğrulanmamıştır; `pubspec.yaml`
 sürümleri tam pinli olduğu için çözümleme sapması sınırlıdır.
 
+### Homebrew kurulumunun yan etkisi
+
+Homebrew, Command Line Tools kurarken **aktif geliştirici dizinini kendine
+çevirebiliyor**. Bu olduğunda:
+
+```
+xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer
+directory '/Library/Developer/CommandLineTools' is a command line tools instance
+```
+
+`xcrun` bütün araçları bu dizinden çözdüğü için iPhoneOS SDK'sı kaybolur,
+`xcodebuild` çalışmaz, `simctl` boş döner. Düzeltmesi:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+Preflight betiği bunu ilk sırada denetler; bir kez doğru olması yetmiyor.
+
+### iOS platformu ile simülatör runtime'ı ayrı şeyler
+
+| | ne için | nasıl kurulur |
+|---|---|---|
+| iPhoneOS SDK | **cihaz** için derleme | Xcode platformu — `xcodebuild -downloadPlatform iOS` |
+| Simulator runtime | simülatörü çalıştırma | ayrı `.dmg` — `xcodebuild -importPlatform <dosya>.dmg` |
+
+Runtime'ı kurmuş olmak cihaz SDK'sını getirmez. `flutter build ios --release
+--no-codesign` cihaz SDK'sını ister.
+
 ### SQLCipher neden ayrıca gerekiyor
 
 `flutter test` **ana makinede** (macOS) koşar ve gerçek bir şifreli veritabanı
@@ -52,6 +81,24 @@ listesiyle aynıdır; Homebrew her iki mimaride de bu yollardan birine kurar.
 
 Bu **yalnız testler için**. iOS uygulaması `ios/SQLCipher` altındaki gömülü
 kopyayı kullanır, sistemdekini değil.
+
+#### Homebrew olmadan
+
+Homebrew kurulumu ağ ister. Kısıtlı bağlantıda gerek yok — kaynak zaten
+depoda, derleyici zaten Xcode ile geliyor:
+
+```bash
+./tool/build_sqlcipher_macos.sh
+```
+
+`~/.securechat/lib/libsqlcipher.dylib` üretir, ürettiği kütüphanenin gerçekten
+SQLCipher olduğunu doğrular ve tanıtma komutunu yazar:
+
+```bash
+export SECURECHAT_SQLCIPHER_PATH="$HOME/.securechat/lib/libsqlcipher.dylib"
+```
+
+Bu değişken tanımlıysa standart yollardan önce o dosya denenir.
 
 ## 3 · Doğrulama sırası
 
