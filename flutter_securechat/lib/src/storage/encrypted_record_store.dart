@@ -6,6 +6,20 @@ import 'package:meta/meta.dart';
 import 'package:sqlite3/open.dart' as sqlite_open;
 import 'package:sqlite3/sqlite3.dart';
 
+/// Depo SIFRELI olarak acilamadi.
+///
+/// Bu istisna bilerek "acamadim" anlamina gelir, "sifresiz actim" anlamina
+/// degil. Sifreleme saglanamiyorsa mesaj veritabanini duz metin yazmaktansa
+/// hic acmamak dogru davranistir; cagiran taraf bunu kullaniciya bildirmeli.
+class StorageEncryptionUnavailableException implements Exception {
+  const StorageEncryptionUnavailableException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'StorageEncryptionUnavailableException: $message';
+}
+
 /// SQLCipher uzerinde calisan, ARTIMLI yazan kayit deposu.
 ///
 /// Neden gerekti: onceki depo tum veriyi tek bir sifreli JSON dosyasinda
@@ -61,36 +75,123 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
     _resolveLibrary();
     await file.parent.create(recursive: true);
     final database = sqlite3.open(file.path);
-    // Ham anahtar: parola degil, zaten HKDF ile turetilmis 32 bayt.
-    // SQLCipher'in kendi KDF'ini calistirmak hem gereksiz hem yavas olurdu.
-    final hex = key
-        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
-    database.execute('PRAGMA key = "x\'$hex\'";');
-    // Anahtarin dogrulugunu hemen dogrula: yanlis anahtarla ilk gercek
-    // sorguya kadar hata gorunmezdi.
-    database.select('SELECT count(*) FROM sqlite_master;');
-    // WAL: yazmalar dosyanin sonuna eklenir, sayfalar yerinde yeniden
-    // yazilmaz. Artimli yazmanin karsiligini burada aliyoruz.
-    database.execute('PRAGMA journal_mode = WAL;');
-    database.execute('PRAGMA synchronous = NORMAL;');
-    database.execute(_schema);
+    try {
+      // Anahtari vermeden ONCE: baglanan kutuphane gercekten SQLCipher mi?
+      assertCipherAvailable(database);
+      // Ham anahtar: parola degil, zaten HKDF ile turetilmis 32 bayt.
+      // SQLCipher'in kendi KDF'ini calistirmak hem gereksiz hem yavas olurdu.
+      final hex = key
+          .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+          .join();
+      database.execute('PRAGMA key = "x\'$hex\'";');
+      // Anahtarin dogrulugunu hemen dogrula: yanlis anahtarla ilk gercek
+      // sorguya kadar hata gorunmezdi.
+      database.select('SELECT count(*) FROM sqlite_master;');
+      // WAL: yazmalar dosyanin sonuna eklenir, sayfalar yerinde yeniden
+      // yazilmaz. Artimli yazmanin karsiligini burada aliyoruz.
+      database.execute('PRAGMA journal_mode = WAL;');
+      database.execute('PRAGMA synchronous = NORMAL;');
+      database.execute(_schema);
+    } catch (_) {
+      // Acilan tanitici sizmasin: yanlis anahtar, SQLCipher yoklugu veya
+      // bozuk dosya durumlarinin hepsi buradan gecer.
+      database.dispose();
+      rethrow;
+    }
     return EncryptedRecordStore._(database);
   }
 
-  /// Test ortaminda ve cihazda ayni kutuphane adi bulunmaz.
+  /// Baglanan kutuphanenin SQLCipher oldugunu dogrular; degilse ACMAZ.
+  ///
+  /// Duz SQLite, TANIMADIGI pragmalari hata vermeden yok sayar — `PRAGMA key`
+  /// dahil. Bu denetim olmadan duz SQLite'a baglanan bir platformda acilis
+  /// BASARILI gorunur ve veritabani sifresiz yazilir; hicbir yerde iz kalmaz.
+  /// iOS'ta tam olarak bu durum vardi: sistem kutuphanesi duz SQLite ve
+  /// `_resolveLibrary` icin bir iOS dali yoktu.
+  ///
+  /// Ayirt edici: duz SQLite `PRAGMA cipher_version` icin HIC SATIR
+  /// dondurmez, SQLCipher `4.5.6 community` gibi bir deger dondurur.
+  @visibleForTesting
+  static void assertCipherAvailable(Database database) {
+    final ResultSet result;
+    try {
+      result = database.select('PRAGMA cipher_version;');
+    } on SqliteException catch (error) {
+      throw StorageEncryptionUnavailableException(
+        'PRAGMA cipher_version calistirilamadi: ${error.message}',
+      );
+    }
+    if (result.isEmpty || result.first.values.first == null) {
+      throw const StorageEncryptionUnavailableException(
+        'Baglanan SQLite kutuphanesi SQLCipher degil; sifrelenmemis bir '
+        'veritabani yazmamak icin depo acilmadi.',
+      );
+    }
+  }
+
+  /// Her platformda SQLCipher'i baglar. Kutuphanenin adi ve yeri platforma
+  /// gore degisir; hicbirinde varsayilan cozumlemeye GUVENILMEZ.
+  ///
+  /// Varsayilan cozumleme (`package:sqlite3` icindeki `_defaultOpen`) Apple
+  /// platformlarinda sistemin DUZ SQLite'ina duser. Duz SQLite `PRAGMA key`i
+  /// sessizce yok saydigi icin sonuc, hata vermeyen ve sifresiz yazan bir
+  /// veritabani olur. `assertCipherAvailable` bu durumu yakalar; buradaki
+  /// overrideler ise hic olusmamasini saglar.
   static void _resolveLibrary() {
     if (_libraryResolved) return;
     _libraryResolved = true;
     sqlite_open.open
       ..overrideFor(
         sqlite_open.OperatingSystem.android,
+        // APK icinde: net.zetetic:sqlcipher-android.
         () => DynamicLibrary.open('libsqlcipher.so'),
       )
       ..overrideFor(
         sqlite_open.OperatingSystem.linux,
-        () => DynamicLibrary.open('libsqlcipher.so.0'),
+        // Dagitim paketi; testler bu yolda kosuyor.
+        () => _openFirst(const ['libsqlcipher.so.0', 'libsqlcipher.so']),
+      )
+      ..overrideFor(
+        sqlite_open.OperatingSystem.iOS,
+        // `ios/SQLCipher` paketi uygulama IKILISINE statik baglanir, ayri bir
+        // dylib yoktur. `process()` once ana ikiliye bakar, dolayisiyla
+        // gomulu SQLCipher iOS'un sistem SQLite'ini golgeler.
+        DynamicLibrary.process,
+      )
+      ..overrideFor(
+        sqlite_open.OperatingSystem.macOS,
+        // Mac yalniz GELISTIRME makinesi: `flutter test` burada kosuyor.
+        // Homebrew iki farkli one ek kullanir (Apple Silicon /opt/homebrew,
+        // Intel /usr/local) ve ikisi de dyld'nin varsayilan arama yolunda
+        // DEGILDIR — bu yuzden tam yollar denenir.
+        () => _openFirst(const [
+          'libsqlcipher.dylib',
+          '/opt/homebrew/lib/libsqlcipher.dylib',
+          '/opt/homebrew/opt/sqlcipher/lib/libsqlcipher.dylib',
+          '/usr/local/lib/libsqlcipher.dylib',
+          '/usr/local/opt/sqlcipher/lib/libsqlcipher.dylib',
+        ]),
       );
+  }
+
+  /// Adaylari sirayla dener, ilk acilani dondurur.
+  ///
+  /// Hicbiri acilmazsa denenen TUM yollari iceren bir hata firlatir: tek
+  /// adayin adini tasiyan `ArgumentError` mesaji, kurulumun neresinin eksik
+  /// oldugunu anlatmaya yetmiyordu.
+  static DynamicLibrary _openFirst(List<String> candidates) {
+    final failures = <String>[];
+    for (final candidate in candidates) {
+      try {
+        return DynamicLibrary.open(candidate);
+      } on ArgumentError catch (error) {
+        failures.add('$candidate (${error.message})');
+      }
+    }
+    throw StorageEncryptionUnavailableException(
+      'SQLCipher kutuphanesi bulunamadi. Denenen yollar: '
+      '${failures.join(', ')}',
+    );
   }
 
   /// Bir koleksiyonun tamamini kimlik -> JSON olarak okur.
