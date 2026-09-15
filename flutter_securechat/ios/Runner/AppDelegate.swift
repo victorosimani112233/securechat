@@ -5,6 +5,7 @@ import UIKit
 import workmanager_apple
 import firebase_messaging
 import LocalAuthentication
+import SQLCipher
 import UserNotifications
 
 @main
@@ -41,6 +42,16 @@ import UserNotifications
       object: nil
     )
     installPrivacyOverlayHooks()
+    // Gomulu SQLCipher'i uygulama ikilisinde tutar.
+    //
+    // SQLCipher'a yalniz Dart FFI tarafindan basvuruluyor; Swift veya
+    // Objective-C hicbir simgesine dokunmuyor. Bu cagri olmadan baglayici,
+    // basvurulmayan statik kutuphaneyi atar ve uygulama iOS'un DUZ
+    // SQLite'ina duser — o da `PRAGMA key`i sessizce yok sayip veritabanini
+    // SIFRESIZ yazar. Dart tarafindaki `PRAGMA cipher_version` denetimi bu
+    // durumu yakalayip depoyu hic acmaz; buradaki cagri sorunun en bastan
+    // olusmamasi icin.
+    SQLCipherRuntime.ensureLinked()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

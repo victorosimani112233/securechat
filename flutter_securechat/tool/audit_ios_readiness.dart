@@ -155,6 +155,68 @@ void main() {
     failures.add('iOS bundle ID com.securechat.app degil');
   }
 
+  // SQLCipher iOS'ta ayri bir sistem kutuphanesi DEGIL; uygulama ikilisine
+  // gomulmek zorunda. Zincirin herhangi bir halkasi koparsa uygulama iOS'un
+  // duz SQLite'ina duser — o da `PRAGMA key`i sessizce yok sayip mesaj
+  // veritabanini SIFRESIZ yazar. Calisma aninda `assertCipherAvailable`
+  // bunu yakalayip depoyu acmiyor; buradaki denetimler ise durumun release
+  // derlemesine hic girmemesi icin.
+  if (!File('${root.path}/ios/SQLCipher/Sources/CSQLCipher/sqlite3.c')
+      .existsSync()) {
+    failures.add('Gomulu SQLCipher amalgamation dosyasi yok');
+  }
+  final cipherPackage = read('ios/SQLCipher/Package.swift');
+  for (final define in ['SQLITE_HAS_CODEC', 'SQLCIPHER_CRYPTO_CC']) {
+    if (!cipherPackage.contains(define)) {
+      failures.add('SQLCipher paketinde zorunlu tanim eksik: $define');
+    }
+  }
+  if (!cipherPackage.contains('.define("SQLITE_TEMP_STORE", to: "2")')) {
+    failures.add(
+      'SQLITE_TEMP_STORE=2 yok: gecici tablolar diske duz metin yazilir',
+    );
+  }
+  for (final wiring in [
+    'XCLocalSwiftPackageReference "SQLCipher"',
+    'relativePath = SQLCipher;',
+    'productName = SQLCipher;',
+    'SQLCipher in Frameworks',
+  ]) {
+    if (!project.contains(wiring)) {
+      failures.add('SQLCipher paketi Xcode projesine bagli degil: $wiring');
+    }
+  }
+  if (!swift.contains('SQLCipherRuntime.ensureLinked()')) {
+    failures.add(
+      'AppDelegate SQLCipherRuntime.ensureLinked cagirmiyor; baglayici '
+      'basvurulmayan statik kutuphaneyi atabilir',
+    );
+  }
+  final store = read('lib/src/storage/encrypted_record_store.dart');
+  if (!store.contains('OperatingSystem.iOS') ||
+      !store.contains('OperatingSystem.macOS')) {
+    failures.add('EncryptedRecordStore Apple platformlari icin override etmiyor');
+  }
+  if (!store.contains('PRAGMA cipher_version')) {
+    failures.add('Depo acilisinda SQLCipher dogrulamasi yok');
+  }
+
+  // Xcode projesinde tanimsiz nesne kimligi kalmamali: pbxproj elle
+  // duzenlendiginde en sik yapilan hata, listeye eklenip bolumu yazilmayan
+  // (veya tersi) bir kimliktir ve Xcode projeyi hic acmaz.
+  final declared = RegExp(r'^\t\t([0-9A-F]{24}) /\*', multiLine: true)
+      .allMatches(project)
+      .map((match) => match[1]!)
+      .toSet();
+  final referenced = RegExp(r'^\t{3,4}([0-9A-F]{24}) /\*', multiLine: true)
+      .allMatches(project)
+      .map((match) => match[1]!)
+      .toSet();
+  final dangling = referenced.difference(declared);
+  if (dangling.isNotEmpty) {
+    failures.add('project.pbxproj icinde tanimsiz nesne kimligi: $dangling');
+  }
+
   final firebase = read('lib/src/push/push_service.dart');
   if (!firebase.contains('SECURECHAT_FIREBASE_IOS_APP_ID') ||
       !firebase.contains("iosBundleId: 'com.securechat.app'")) {
