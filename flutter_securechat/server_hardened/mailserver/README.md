@@ -94,6 +94,7 @@ Dosyalar:
 | Yol | Ne |
 |-----|-----|
 | `compose.mail.yml` | iki servislik stack |
+| `compose.standalone.yml` | uygulama stack'i olmadan çalıştırmak için override |
 | `.env.mail.example` | ortam değişkeni şablonu |
 | `postfix/` | Dockerfile, `main.cf` şablonu, `master.cf`, SASL, entrypoint |
 | `opendkim/` | Dockerfile, config şablonu, anahtar üreten entrypoint |
@@ -139,10 +140,42 @@ görürsün.
 
 Domain tarafı: gerçek bedava domain artık yok (Freenom kapandı).
 **afraid.org FreeDNS** ücretsiz subdomain verir ve TXT kaydı desteklediği için
-SPF/DKIM/DMARC kurulabilir. Alternatif: `.xyz` gibi bir TLD ilk yıl ~1–2 $.
+SPF/DKIM/DMARC kurulabilir. Alternatif: `.xyz` gibi bir TLD ilk yıl ~1–2 $,
+`.com` ~3–10 $.
 
 > DuckDNS ve nip.io **işe yaramaz** — `mail._domainkey.<ad>` altına TXT
 > koyamazsın, DKIM kurulamaz.
+
+> Ucuz TLD uyarısı: `.xyz`, `.top`, `.site` gibi TLD'ler Spamhaus'un kötüye
+> kullanılan TLD listelerinde. Kurulumun doğruluğunu (`SPF/DKIM/DMARC: PASS`)
+> yine kanıtlarlar — bu deterministik bir kontrol. Ama "inbox'a mı düşüyor"
+> sorusunun cevabını **belirsizleştirirler**: spam'e düşerse sebebin kurulum
+> mu TLD mi olduğunu ayırt edemezsin.
+
+**Sunucun yokken bu yolu şöyle kurarsın:**
+
+```bash
+# 1. Sertifika — DNS-01, public sunucu gerekmiyor (bkz. 4.4)
+CERTBOT_MODE=dns-cloudflare ./scripts/issue-cert.sh
+
+# 2. .env.mail: relay bilgileri + bagimsiz ag
+#      MAIL_RELAYHOST=[smtp-relay.brevo.com]:587
+#      RELAY_USERNAME=...
+#      RELAY_PASSWORD_FILE=/etc/elcim/secrets/relay_password
+#      APP_NETWORK=elcim-mail-standalone
+
+# 3. Uygulama stack'i olmadan ayaga kaldir
+docker compose --env-file .env.mail \
+    -f compose.mail.yml -f compose.standalone.yml up -d --build
+
+# 4. DNS kayitlarini ekle, sonra gercek gonderim testi
+./scripts/print-dns-records.sh
+./scripts/smoke-test.sh kendi-adresin@gmail.com
+```
+
+`compose.standalone.yml` olmadan `up` **başarısız olur**: `compose.mail.yml`
+postfix'i uygulama stack'inin var olan ağına (`external`) bağlar, o stack
+ayakta değilken böyle bir ağ yoktur.
 
 ### C) Oracle Cloud Always Free VM — süresiz 0 TL barındırma
 4 ARM çekirdek / 24 GB RAM, gerçekten süresiz ücretsiz. Image'lar
@@ -191,8 +224,30 @@ chmod 600 /etc/elcim/secrets/smtp_password
 ```bash
 ./scripts/issue-cert.sh
 ```
-`MAIL_TLS_DIR`'in `/etc/letsencrypt/live/mail.elcim.app` olduğunu doğrula.
+`MAIL_TLS_DIR`'in `/etc/letsencrypt/live/mail.<domain>` olduğunu doğrula.
 Script yenilenme sonrası postfix'i yeniden başlatan deploy hook'u da kurar.
+
+Dört mod var, `.env.mail` içindeki `CERTBOT_MODE` ile seçilir:
+
+| Mod | Ne zaman | Public sunucu gerekir mi |
+|-----|----------|--------------------------|
+| `standalone` | Sunucuda, 80/tcp boş | Evet |
+| `webroot` | Sunucuda, nginx çalışıyor | Evet |
+| **`dns-cloudflare`** | **VPS almadan, kendi makinende** | **Hayır** |
+| `dns-manual` | DNS'i Cloudflare'de değilse | Hayır (ama otomatik yenilenmez) |
+
+`dns-cloudflare` DNS-01 doğrulaması yapar: sertifikayı almak için 80/443'ün
+dışarıdan erişilebilir olması gerekmez, DNS'e geçici bir TXT kaydı konur.
+Sunucu satın almadan önce gerçek bir Let's Encrypt sertifikası almanın yolu
+budur. Gereken: Cloudflare'de `Zone:DNS:Edit` yetkili bir API token.
+
+```bash
+apt-get install -y python3-certbot-dns-cloudflare
+printf '%s' 'CF_TOKEN' > /etc/elcim/secrets/cloudflare_token
+chmod 600 /etc/elcim/secrets/cloudflare_token
+# .env.mail: CERTBOT_MODE=dns-cloudflare, CF_API_TOKEN_FILE=...
+./scripts/issue-cert.sh
+```
 
 > Sertifika **zorunlu**. İstemci tarafı `starttls.required=true` ile bağlanıp
 > hostname doğrular; self-signed sertifikayla OTP gönderimi çalışmaz.

@@ -1,0 +1,25 @@
+# Mail stack'ini UYGULAMA STACK'I OLMADAN calistirmak icin override.
+#
+# compose.mail.yml postfix'i uygulama stack'inin var olan agina (external)
+# baglar. Test ederken o stack ayakta olmaz; bu override onun yerine
+# mail stack'ine ait bagimsiz bir ag olusturur.
+#
+# Kullanim:
+#   docker compose --env-file .env.mail \
+#       -f compose.mail.yml -f compose.standalone.yml up -d --build
+#
+# .env.mail icinde ayrica sunu ayarla ki smoke-test.sh dogru aga baglansin:
+#   APP_NETWORK=elcim-mail-standalone
+services:
+  postfix:
+    networks:
+      mail-internal: {}
+      app-egress:
+        aliases:
+          - ${MAIL_HOSTNAME:?MAIL_HOSTNAME zorunlu}
+
+networks:
+  app-egress:
+    external: false
+    name: elcim-mail-standalone
+    driver: bridge

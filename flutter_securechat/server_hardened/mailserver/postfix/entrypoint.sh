@@ -62,6 +62,12 @@ if [ -n "${MAIL_RELAYHOST:-}" ]; then
     umask 022
     unset RELAY_PASSWORD
 
+    # Relay blogu bazi ayarlari yeniden tanimlar. Ayni anahtari iki kez
+    # yazmak postfix'te "overriding earlier entry" uyarisi uretir; taban
+    # degerleri once siliyoruz.
+    sed -i -E '/^[[:space:]]*(smtp_tls_security_level|smtp_tls_mandatory_ciphers)[[:space:]]*=/d' \
+        /etc/postfix/main.cf
+
     cat >> /etc/postfix/main.cf <<RELAYCF
 
 # --- Smarthost (entrypoint tarafindan eklendi) ------------------------------
@@ -83,10 +89,32 @@ fi
 # Let's Encrypt privkey.pem root:root 0600'dur ve mount read-only gelir.
 # Postfix smtpd'nin okuyabilmesi icin container-yerel bir kopya cikariyoruz.
 mkdir -p /etc/postfix/certs
-[ -r "$TLS_SOURCE_DIR/fullchain.pem" ] || die "$TLS_SOURCE_DIR/fullchain.pem yok — certbot ile uret"
-[ -r "$TLS_SOURCE_DIR/privkey.pem" ]   || die "$TLS_SOURCE_DIR/privkey.pem yok"
-cp "$TLS_SOURCE_DIR/fullchain.pem" /etc/postfix/certs/fullchain.pem
-cp "$TLS_SOURCE_DIR/privkey.pem"   /etc/postfix/certs/privkey.pem
+
+# Iki yerlesim desteklenir:
+#   a) duz dizin        -> <mount>/fullchain.pem
+#   b) letsencrypt koku -> <mount>/live/<host>/fullchain.pem
+#
+# (b) sart cunku certbot'un live/ dizinindeki dosyalar archive/ icine
+# giden SEMBOLIK LINK'lerdir. Yalniz live/<host> mount edilirse linkler
+# mount disini gosterir ve konteyner icinde kirilir; koku mount etmek
+# her iki tarafi da kapsar.
+if [ -r "$TLS_SOURCE_DIR/fullchain.pem" ]; then
+    cert_dir="$TLS_SOURCE_DIR"
+elif [ -r "$TLS_SOURCE_DIR/live/$MAIL_HOSTNAME/fullchain.pem" ]; then
+    cert_dir="$TLS_SOURCE_DIR/live/$MAIL_HOSTNAME"
+else
+    die "Sertifika bulunamadi. Bakilan yerler:
+       $TLS_SOURCE_DIR/fullchain.pem
+       $TLS_SOURCE_DIR/live/$MAIL_HOSTNAME/fullchain.pem
+     MAIL_TLS_DIR certbot'un config kokunu (live/ ve archive/ iceren dizin)
+     ya da gercek dosyalarin bulundugu bir dizini gostermeli."
+fi
+[ -r "$cert_dir/privkey.pem" ] || die "$cert_dir/privkey.pem okunamiyor"
+log "Sertifika kaynagi: $cert_dir"
+
+# cp -L: sembolik linkleri izleyip GERCEK icerigi kopyalar.
+cp -L "$cert_dir/fullchain.pem" /etc/postfix/certs/fullchain.pem
+cp -L "$cert_dir/privkey.pem"   /etc/postfix/certs/privkey.pem
 chown root:postfix /etc/postfix/certs/privkey.pem /etc/postfix/certs/fullchain.pem
 chmod 0640 /etc/postfix/certs/privkey.pem
 chmod 0644 /etc/postfix/certs/fullchain.pem
