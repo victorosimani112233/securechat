@@ -363,8 +363,19 @@ class MockServer {
         ..usePrivateKey(privateKey);
       // Cihaz uygulaması pin doğrulamasını kendi yaptığı için sistem trust
       // store'una eklenmemiş kısa ömürlü sertifika yeterlidir.
+      //
+      // Dinlenen adres `anyIPv4` olmak ZORUNDA: fiziksel bir telefon
+      // geliştirme makinesine ancak LAN adresinden ulaşabilir. Burası
+      // `loopbackIPv4` olduğu sürece sunucu ayakta görünüyor, aynı makineden
+      // yapılan `curl` çalışıyor, ama telefon hiç bağlanamıyor — belirti
+      // "bağlantı kurulamadı" olduğu için ağ ya da sertifika sorunu
+      // sanılıyor. Düz HTTP dalı zaten `anyIPv4` kullanıyordu; ikisi
+      // ayrışmış durumdaydı.
+      //
+      // Bu sunucu yalnız QA içindir: sahte veri taşır, gerçek posta
+      // göndermez, OTP kodu sabittir. LAN'a açılması bilinçli.
       server = await HttpServer.bindSecure(
-        InternetAddress.loopbackIPv4,
+        InternetAddress.anyIPv4,
         port,
         context,
         shared: false,
