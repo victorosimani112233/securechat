@@ -84,6 +84,48 @@ generate primary
 # degistirilmesi gerekirse istemci guncellemesi beklemeden gecilebilsin.
 generate backup
 
+# --- Ozel rehber (private contact discovery) anahtari --------------------
+#
+# Uygulama kayittan hemen sonra `/api/v1/directory/config` cagiriyor.
+# Modul yuklu degilse mock sunucu 501 donuyor ve uygulama — DOGRU davranarak
+# — guvensiz bir yedege dusmek yerine hata veriyor. Onboarding orada
+# tikaniyor ve ekranda "kod hatali veya suresi dolmus" yaziyor; sebep
+# OTP degil.
+#
+# Anahtar da sertifikalar gibi depoya girmiyor: gercek bir RSA ozel
+# anahtari. Burada uretiliyor, var olani yeniden uretilmiyor.
+directory_json="$tls_directory/directory.json"
+if [[ "${FORCE:-0}" == "1" || ! -f "$directory_json" ]]; then
+  directory_key="$tls_directory/directory.key.pem"
+  openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
+    -out "$directory_key" 2>/dev/null
+  chmod 600 "$directory_key"
+
+  # `-modulus` ciktisi "Modulus=ABCD..." biciminde.
+  modulus="$(openssl rsa -in "$directory_key" -noout -modulus 2>/dev/null \
+    | sed 's/^Modulus=//' | tr 'A-F' 'a-f')"
+  # Ozel ustel `-text` ciktisinda satirlara bolunmus ve iki nokta ile
+  # ayrilmis bayt dizisi olarak geliyor.
+  private_exponent="$(openssl rsa -in "$directory_key" -noout -text 2>/dev/null \
+    | awk '/privateExponent:/{flag=1;next} /^[a-zA-Z]/{flag=0} flag' \
+    | tr -d ' :\n')"
+  # ASN.1 isaret bitini ayirmak icin eklenen bas sifir bayti, sabit uzunluklu
+  # hex gosterimde fazladan kalir.
+  while [[ ${#private_exponent} -gt ${#modulus} && "${private_exponent:0:2}" == "00" ]]; do
+    private_exponent="${private_exponent:2}"
+  done
+
+  [[ ${#modulus} -eq 768 && ${#private_exponent} -eq 768 ]] || {
+    echo "RSA anahtari beklenen uzunlukta degil (n=${#modulus} d=${#private_exponent})" >&2
+    exit 1
+  }
+  printf '{"n":"%s","e":65537,"d":"%s","bits":3072}\n' \
+    "$modulus" "$private_exponent" > "$directory_json"
+  echo "Rehber anahtari uretildi: $directory_json"
+else
+  echo "Var olan rehber anahtari kullaniliyor: $directory_json"
+fi
+
 primary_pin="$(cat "$tls_directory/primary.pin")"
 backup_pin="$(cat "$tls_directory/backup.pin")"
 port="${MOCK_PORT:-8443}"

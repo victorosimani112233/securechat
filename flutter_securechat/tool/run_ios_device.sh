@@ -53,7 +53,10 @@ step "Sertifika"
 primary_pin="$(cat "$tls_directory/primary.pin")"
 backup_pin="$(cat "$tls_directory/backup.pin")"
 [[ -n "$primary_pin" && -n "$backup_pin" ]] || die "Pin dosyalari bos."
+[[ -f "$tls_directory/directory.json" ]] \
+  || die "Rehber anahtari yok: $tls_directory/directory.json"
 ok "primary $primary_pin"
+ok "rehber anahtari hazir"
 
 # --- 3. Sunucu --------------------------------------------------------------
 step "Mock sunucu"
@@ -64,10 +67,16 @@ if [[ -n "$listening" ]]; then
   fi
   ok "zaten calisiyor"
 else
+  # `--directory` ZORUNLU: uygulama kayittan hemen sonra
+  # /api/v1/directory/config cagiriyor ve modul yuklu degilse sunucu 501
+  # donuyor. Uygulama bunu dogru sekilde hata sayiyor (guvensiz yedege
+  # dusmuyor), ama onboarding orada tikaniyor ve ekranda "kod hatali veya
+  # suresi dolmus" yaziyor — sebep OTP degil.
   nohup dart run qa/mock/bin/server.dart \
     --port "$port" \
     --cert "$tls_directory/primary.cert.pem" \
     --key "$tls_directory/primary.key.pem" \
+    --directory "$tls_directory/directory.json" \
     --state qa/mock/state > "$log_file" 2>&1 &
   note "baslatiliyor (gunluk: $log_file)"
   for _ in $(seq 1 30); do
