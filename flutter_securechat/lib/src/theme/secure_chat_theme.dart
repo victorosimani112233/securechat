@@ -169,6 +169,16 @@ class SecureChatTheme {
         letterSpacing: .3,
       ),
     );
+    // Acilir yuzeylerin ortak rengi: mesaj balonlari ve kartlarla ayni
+    // tarif (bkz. `AzureSurface.colorOf`). Opak olmasi sart.
+    final dialogSurface = Color.alphaBlend(
+      scheme.surface.withValues(alpha: .96),
+      AzureTokens.ground(dark),
+    );
+    final shadow = dark
+        ? Colors.black.withValues(alpha: .6)
+        : AzureTokens.ink.withValues(alpha: .18);
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -192,6 +202,92 @@ class SecureChatTheme {
             ? AzureTokens.nightRaise.withValues(alpha: .72)
             : Colors.white.withValues(alpha: .72),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      // --- Acilir yuzeyler --------------------------------------------
+      //
+      // Diyaloglar, alt sayfalar ve menuler varsayilan Material gorunumunde
+      // kaliyordu: kare kose, tema disi bir yuzey rengi ve Material 3'un
+      // kendi renk tonlamasi. Arka planda kayan desenin uzerinde bunlar
+      // uygulamadan kopuk duruyordu.
+      //
+      // Yuzey rengi mesaj balonlari ve kartlarla AYNI tarifle uretiliyor
+      // (yuzey rengi zemine harmanlanir), boylece tek bir malzeme dili
+      // olusuyor. Opak olmasi sart: yari saydam bir diyalog altindaki
+      // hareketli deseni gosterir ve metin okunmaz hale gelir.
+      //
+      // `surfaceTintColor` kapali: Material 3 yuzeyleri yukseklige gore
+      // birincil renkle tonluyor, bu da secilmis paleti kaydiriyor.
+      dialogTheme: DialogThemeData(
+        backgroundColor: dialogSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shadowColor: shadow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .48)),
+        ),
+        titleTextStyle: textTheme.titleLarge?.copyWith(
+          color: scheme.onSurface,
+        ),
+        contentTextStyle: textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: dialogSurface,
+        surfaceTintColor: Colors.transparent,
+        modalBackgroundColor: dialogSurface,
+        elevation: 3,
+        modalElevation: 3,
+        shadowColor: shadow,
+        showDragHandle: true,
+        dragHandleColor: scheme.outlineVariant,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: dialogSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shadowColor: shadow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .48)),
+        ),
+        textStyle: textTheme.bodyMedium?.copyWith(color: scheme.onSurface),
+      ),
+      timePickerTheme: TimePickerThemeData(
+        backgroundColor: dialogSurface,
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .48)),
+        ),
+      ),
+      datePickerTheme: DatePickerThemeData(
+        backgroundColor: dialogSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .48)),
+        ),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(dialogSurface),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(3),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: .48),
+              ),
+            ),
+          ),
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: false,

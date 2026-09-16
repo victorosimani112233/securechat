@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../background/scheduled_message_service.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/avatar.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/azure_backdrop.dart';
@@ -230,41 +231,68 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(context.l10n.sched_pick_recipient),
+        contentPadding: const EdgeInsets.symmetric(vertical: 8),
         content: SizedBox(
-          width: 420,
+          // Sabit 420 px genislik dar telefonda tasiyordu. `maxFinite`
+          // diyalogun kendi sinirlarina uyar.
+          width: double.maxFinite,
           child: StreamBuilder<List<Conversation>>(
             stream: conversations.watchConversations(),
             builder: (context, snapshot) {
               final items = snapshot.data ?? const [];
+              if (items.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                  child: Text(
+                    context.l10n.no_chats_yet,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                );
+              }
               return StatefulBuilder(
-                builder: (context, setDialogState) => ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    return CheckboxListTile(
-                      value: _selectedRecipients.containsKey(item.id),
-                      title: Text(item.peerName),
-                      secondary: Icon(
-                        item.isGroup ? Icons.group : Icons.person,
-                      ),
-                      onChanged: (_) {
-                        setDialogState(() {
-                          _selectedRecipients.containsKey(item.id)
-                              ? _selectedRecipients.remove(item.id)
-                              : _selectedRecipients[item.id] = item.peerName;
-                        });
-                        setState(() {});
-                      },
-                    );
-                  },
+                builder: (context, setDialogState) => ConstrainedBox(
+                  // Uzun listede diyalog ekrani asmasin; icerik kaysin.
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * .5,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: items.length,
+                    itemBuilder: (context, index) {
+                      final item = items[index];
+                      final selected = _selectedRecipients.containsKey(item.id);
+                      return CheckboxListTile(
+                        value: selected,
+                        title: Text(item.peerName),
+                        // Uygulamanin geri kalaninda kisiler bu avatarla
+                        // gosteriliyor; genel ikon burayi yabanci
+                        // gosteriyordu.
+                        secondary: GeneratedAvatar(
+                          name: item.peerName,
+                          size: 36,
+                          isGroup: item.isGroup,
+                        ),
+                        onChanged: (_) {
+                          setDialogState(() {
+                            selected
+                                ? _selectedRecipients.remove(item.id)
+                                : _selectedRecipients[item.id] = item.peerName;
+                          });
+                          setState(() {});
+                        },
+                      );
+                    },
+                  ),
                 ),
               );
             },
           ),
         ),
         actions: [
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: Text(context.l10n.action_ok),
           ),
