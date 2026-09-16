@@ -593,6 +593,42 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settings_silent => 'Sessiz';
 
   @override
+  String get sound_system => 'Cihaz varsayılanı';
+
+  @override
+  String get sound_chime => 'Çınlama';
+
+  @override
+  String get sound_bell => 'Çan';
+
+  @override
+  String get sound_tap => 'Dokunuş';
+
+  @override
+  String get sound_warm => 'Sıcak';
+
+  @override
+  String get sound_soft => 'Yumuşak';
+
+  @override
+  String get sound_melody => 'Ezgi';
+
+  @override
+  String get sound_flow => 'Akış';
+
+  @override
+  String get sound_sparkle => 'Parıltı';
+
+  @override
+  String get sound_beep => 'Bip';
+
+  @override
+  String get sound_ding => 'Ding';
+
+  @override
+  String get sound_preview => 'Sesi dinle';
+
+  @override
   String get settings_share_last_seen => 'Son görülmeyi paylaş';
 
   @override

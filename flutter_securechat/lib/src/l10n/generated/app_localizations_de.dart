@@ -593,6 +593,42 @@ class AppLocalizationsDe extends AppLocalizations {
   String get settings_silent => 'Lautlos';
 
   @override
+  String get sound_system => 'Device default';
+
+  @override
+  String get sound_chime => 'Chime';
+
+  @override
+  String get sound_bell => 'Bell';
+
+  @override
+  String get sound_tap => 'Tap';
+
+  @override
+  String get sound_warm => 'Warm';
+
+  @override
+  String get sound_soft => 'Soft';
+
+  @override
+  String get sound_melody => 'Melody';
+
+  @override
+  String get sound_flow => 'Flow';
+
+  @override
+  String get sound_sparkle => 'Sparkle';
+
+  @override
+  String get sound_beep => 'Beep';
+
+  @override
+  String get sound_ding => 'Ding';
+
+  @override
+  String get sound_preview => 'Play sound';
+
+  @override
   String get settings_share_last_seen => 'Zuletzt online teilen';
 
   @override

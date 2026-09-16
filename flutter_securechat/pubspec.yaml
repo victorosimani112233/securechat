@@ -46,6 +46,7 @@ flutter:
     - assets/images/new_logo.png
     - assets/images/splash_logo.png
     - assets/licenses/audioswitch_APACHE-2.0.txt
+    - assets/sounds/
   fonts:
     - family: Inter
       fonts:

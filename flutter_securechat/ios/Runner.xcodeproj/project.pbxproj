@@ -18,6 +18,16 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		A11CE001A11CE001A11CE001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A11CE002A11CE002A11CE002 /* PrivacyInfo.xcprivacy */; };
+		5C5000000000000000000002 /* elcim_beep.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000001 /* elcim_beep.wav */; };
+		5C5000000000000000000004 /* elcim_bell.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000003 /* elcim_bell.wav */; };
+		5C5000000000000000000006 /* elcim_chime.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000005 /* elcim_chime.wav */; };
+		5C5000000000000000000008 /* elcim_ding.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000007 /* elcim_ding.wav */; };
+		5C500000000000000000000A /* elcim_flow.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000009 /* elcim_flow.wav */; };
+		5C500000000000000000000C /* elcim_melody.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C500000000000000000000B /* elcim_melody.wav */; };
+		5C500000000000000000000E /* elcim_soft.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C500000000000000000000D /* elcim_soft.wav */; };
+		5C5000000000000000000010 /* elcim_sparkle.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C500000000000000000000F /* elcim_sparkle.wav */; };
+		5C5000000000000000000012 /* elcim_tap.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000011 /* elcim_tap.wav */; };
+		5C5000000000000000000014 /* elcim_warm.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000013 /* elcim_warm.wav */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +73,16 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A11CE002A11CE002A11CE002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A11CE003A11CE003A11CE003 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
+		5C5000000000000000000001 /* elcim_beep.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_beep.wav"; path = "Runner/Sounds/elcim_beep.wav"; sourceTree = "<group>"; };
+		5C5000000000000000000003 /* elcim_bell.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_bell.wav"; path = "Runner/Sounds/elcim_bell.wav"; sourceTree = "<group>"; };
+		5C5000000000000000000005 /* elcim_chime.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_chime.wav"; path = "Runner/Sounds/elcim_chime.wav"; sourceTree = "<group>"; };
+		5C5000000000000000000007 /* elcim_ding.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_ding.wav"; path = "Runner/Sounds/elcim_ding.wav"; sourceTree = "<group>"; };
+		5C5000000000000000000009 /* elcim_flow.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_flow.wav"; path = "Runner/Sounds/elcim_flow.wav"; sourceTree = "<group>"; };
+		5C500000000000000000000B /* elcim_melody.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_melody.wav"; path = "Runner/Sounds/elcim_melody.wav"; sourceTree = "<group>"; };
+		5C500000000000000000000D /* elcim_soft.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_soft.wav"; path = "Runner/Sounds/elcim_soft.wav"; sourceTree = "<group>"; };
+		5C500000000000000000000F /* elcim_sparkle.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_sparkle.wav"; path = "Runner/Sounds/elcim_sparkle.wav"; sourceTree = "<group>"; };
+		5C5000000000000000000011 /* elcim_tap.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_tap.wav"; path = "Runner/Sounds/elcim_tap.wav"; sourceTree = "<group>"; };
+		5C5000000000000000000013 /* elcim_warm.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_warm.wav"; path = "Runner/Sounds/elcim_warm.wav"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,6 +110,16 @@
 			isa = PBXGroup;
 			children = (
 				78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */,
+				5C5000000000000000000001 /* elcim_beep.wav */,
+				5C5000000000000000000003 /* elcim_bell.wav */,
+				5C5000000000000000000005 /* elcim_chime.wav */,
+				5C5000000000000000000007 /* elcim_ding.wav */,
+				5C5000000000000000000009 /* elcim_flow.wav */,
+				5C500000000000000000000B /* elcim_melody.wav */,
+				5C500000000000000000000D /* elcim_soft.wav */,
+				5C500000000000000000000F /* elcim_sparkle.wav */,
+				5C5000000000000000000011 /* elcim_tap.wav */,
+				5C5000000000000000000013 /* elcim_warm.wav */,
 				3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */,
 				9740EEB21CF90195004384FC /* Debug.xcconfig */,
 				7AFA3C8E1D35360C0083082E /* Release.xcconfig */,
@@ -239,6 +269,16 @@
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
 				A11CE001A11CE001A11CE001 /* PrivacyInfo.xcprivacy in Resources */,
+				5C5000000000000000000002 /* elcim_beep.wav in Resources */,
+				5C5000000000000000000004 /* elcim_bell.wav in Resources */,
+				5C5000000000000000000006 /* elcim_chime.wav in Resources */,
+				5C5000000000000000000008 /* elcim_ding.wav in Resources */,
+				5C500000000000000000000A /* elcim_flow.wav in Resources */,
+				5C500000000000000000000C /* elcim_melody.wav in Resources */,
+				5C500000000000000000000E /* elcim_soft.wav in Resources */,
+				5C5000000000000000000010 /* elcim_sparkle.wav in Resources */,
+				5C5000000000000000000012 /* elcim_tap.wav in Resources */,
+				5C5000000000000000000014 /* elcim_warm.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

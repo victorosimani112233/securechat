@@ -1200,6 +1200,78 @@ abstract class AppLocalizations {
   /// **'Silent'**
   String get settings_silent;
 
+  /// No description provided for @sound_system.
+  ///
+  /// In en, this message translates to:
+  /// **'Device default'**
+  String get sound_system;
+
+  /// No description provided for @sound_chime.
+  ///
+  /// In en, this message translates to:
+  /// **'Chime'**
+  String get sound_chime;
+
+  /// No description provided for @sound_bell.
+  ///
+  /// In en, this message translates to:
+  /// **'Bell'**
+  String get sound_bell;
+
+  /// No description provided for @sound_tap.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap'**
+  String get sound_tap;
+
+  /// No description provided for @sound_warm.
+  ///
+  /// In en, this message translates to:
+  /// **'Warm'**
+  String get sound_warm;
+
+  /// No description provided for @sound_soft.
+  ///
+  /// In en, this message translates to:
+  /// **'Soft'**
+  String get sound_soft;
+
+  /// No description provided for @sound_melody.
+  ///
+  /// In en, this message translates to:
+  /// **'Melody'**
+  String get sound_melody;
+
+  /// No description provided for @sound_flow.
+  ///
+  /// In en, this message translates to:
+  /// **'Flow'**
+  String get sound_flow;
+
+  /// No description provided for @sound_sparkle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sparkle'**
+  String get sound_sparkle;
+
+  /// No description provided for @sound_beep.
+  ///
+  /// In en, this message translates to:
+  /// **'Beep'**
+  String get sound_beep;
+
+  /// No description provided for @sound_ding.
+  ///
+  /// In en, this message translates to:
+  /// **'Ding'**
+  String get sound_ding;
+
+  /// No description provided for @sound_preview.
+  ///
+  /// In en, this message translates to:
+  /// **'Play sound'**
+  String get sound_preview;
+
   /// No description provided for @settings_share_last_seen.
   ///
   /// In en, this message translates to:

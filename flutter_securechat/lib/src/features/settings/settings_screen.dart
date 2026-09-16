@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
 
 import '../../services/app_container.dart';
 import '../../l10n/l10n.dart';
@@ -310,7 +311,7 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
-  /// Bildirim SESI — yalniz ses secimi.
+  /// Bildirim SESI — yalniz ses secimi, her secenek dinlenebilir.
   ///
   /// "Mesaj icerigini goster" buradaydi; oraya ait degil. O ayar kilit
   /// ekraninda ne gorunecegini belirliyor, yani bir GIZLILIK karari.
@@ -326,42 +327,11 @@ class SettingsScreen extends StatelessWidget {
     AppSettingsState initial,
   ) => showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     showDragHandle: true,
-    builder: (sheetContext) => SafeArea(
-      child: StreamBuilder<AppSettingsState>(
-        stream: service.states,
-        initialData: initial,
-        builder: (context, snapshot) {
-          final sound = (snapshot.data ?? initial).notificationSound;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _SheetHeading(context.l10n.settings_notification_sound),
-              // `RadioListTile.groupValue`/`onChanged` Flutter 3.32'den
-              // sonra kullanimdan kaldirildi; secim artik ust bilesende
-              // toplaniyor.
-              RadioGroup<NotificationSoundPreference>(
-                groupValue: sound,
-                onChanged: (value) {
-                  if (value == null) return;
-                  _run(context, () => service.setNotificationSound(value));
-                },
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final option in NotificationSoundPreference.values)
-                      RadioListTile<NotificationSoundPreference>(
-                        value: option,
-                        title: Text(_soundLabel(context, option)),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          );
-        },
-      ),
+    builder: (sheetContext) => _NotificationSoundSheet(
+      service: service,
+      initial: initial,
     ),
   );
 
@@ -645,9 +615,7 @@ class SettingsScreen extends StatelessWidget {
   static String _soundLabel(
     BuildContext context,
     NotificationSoundPreference? value,
-  ) => value == NotificationSoundPreference.silent
-      ? context.l10n.settings_silent
-      : context.l10n.settings_default_notification_sound;
+  ) => _soundName(context, value ?? NotificationSoundPreference.system);
 }
 
 /// Alt sayfalarin basligi.
@@ -667,4 +635,123 @@ class _SheetHeading extends StatelessWidget {
       child: Text(text, style: Theme.of(context).textTheme.titleMedium),
     ),
   );
+}
+
+/// Ses secim sayfasi.
+///
+/// Onizleme sart: kullanici duymadan secim yapamaz. Onizleme, bildirimi
+/// calanin aksine UYGULAMA tarafindan calinir; bu yuzden ayni dosyanin
+/// Flutter varligi olarak da paketlenmesi gerekiyor (`assets/sounds/`).
+/// Platform kaynagindaki kopya sistemin calmasi icin, buradaki kopya
+/// dinlemek icin.
+class _NotificationSoundSheet extends StatefulWidget {
+  const _NotificationSoundSheet({required this.service, required this.initial});
+
+  final SettingsService service;
+  final AppSettingsState initial;
+
+  @override
+  State<_NotificationSoundSheet> createState() =>
+      _NotificationSoundSheetState();
+}
+
+class _NotificationSoundSheetState extends State<_NotificationSoundSheet> {
+  final AudioPlayer _player = AudioPlayer();
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  /// Secilen sesi calar. Onceki calma kesilir: art arda secim yapildiginda
+  /// sesler ust uste binmemeli.
+  Future<void> _preview(NotificationSoundPreference option) async {
+    final asset = option.asset;
+    if (asset == null) return;
+    try {
+      await _player.stop();
+      await _player.setAsset('assets/sounds/$asset.wav');
+      await _player.play();
+    } catch (_) {
+      // Onizleme calmazsa secim yine de yapilabilmeli; bu bir kolaylik,
+      // ayarin kendisi degil.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: StreamBuilder<AppSettingsState>(
+      stream: widget.service.states,
+      initialData: widget.initial,
+      builder: (context, snapshot) {
+        final selected =
+            (snapshot.data ?? widget.initial).notificationSound;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SheetHeading(context.l10n.settings_notification_sound),
+            Flexible(
+              child: SingleChildScrollView(
+                child: RadioGroup<NotificationSoundPreference>(
+                  groupValue: selected,
+                  onChanged: (value) {
+                    if (value == null) return;
+                    _preview(value);
+                    SettingsScreen._run(
+                      context,
+                      () => widget.service.setNotificationSound(value),
+                    );
+                  },
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final option in NotificationSoundPreference.values)
+                        RadioListTile<NotificationSoundPreference>(
+                          value: option,
+                          title: Text(_soundName(context, option)),
+                          // Secili sesi tekrar dinlemek icin: radyo dugmesine
+                          // basmak zaten secili olani degistirmedigi icin
+                          // onizlemeyi tetiklemiyor.
+                          secondary: option.asset == null
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.play_arrow),
+                                  tooltip: context.l10n.sound_preview,
+                                  onPressed: () => _preview(option),
+                                ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+/// Bir ses secenegi icin gorunen ad.
+///
+/// Hem ayarlar listesindeki ozet satiri hem secim sayfasi ayni adi
+/// kullanmali; iki yerde ayri yazilirsa zamanla ayrisiyorlar.
+String _soundName(BuildContext context, NotificationSoundPreference option) {
+  final l10n = context.l10n;
+  return switch (option) {
+    NotificationSoundPreference.silent => l10n.settings_silent,
+    NotificationSoundPreference.system => l10n.sound_system,
+    NotificationSoundPreference.chime => l10n.sound_chime,
+    NotificationSoundPreference.bell => l10n.sound_bell,
+    NotificationSoundPreference.tap => l10n.sound_tap,
+    NotificationSoundPreference.warm => l10n.sound_warm,
+    NotificationSoundPreference.soft => l10n.sound_soft,
+    NotificationSoundPreference.melody => l10n.sound_melody,
+    NotificationSoundPreference.flow => l10n.sound_flow,
+    NotificationSoundPreference.sparkle => l10n.sound_sparkle,
+    NotificationSoundPreference.beep => l10n.sound_beep,
+    NotificationSoundPreference.ding => l10n.sound_ding,
+  };
 }

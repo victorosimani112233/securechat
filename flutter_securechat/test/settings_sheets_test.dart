@@ -42,22 +42,41 @@ void main() {
     );
   });
 
-  test('sayfalar ayar akisini dinliyor, yerel kopya tutmuyor', () {
+  test('ayar sayfalari akisi dinliyor, yerel kopya tutmuyor', () {
     // Yerel kopya iki soruna yol aciyordu: deger ancak kaydetme bittikten
     // sonra degisiyordu (dokunusa tepkisiz goruntu), ve kaydetme BASARISIZ
     // olsa bile ekran yeni degeri gosteriyordu.
-    for (final sheet in ['_showNotificationSheet', '_showPrivacySheet']) {
-      final body = bodyOf(sheet);
+    //
+    // Denetim yalniz AYAR sayfalarini kapsiyor. Dosyadaki diger
+    // `StatefulBuilder` kullanimlari (orn. hesap silme onayindaki 'siliniyor'
+    // durumu) mesru yerel durumdur ve bu kuralin disindadir.
+    final sheets = {
+      'gizlilik': bodyOf('_showPrivacySheet'),
+      'ses': source.substring(source.indexOf('class _NotificationSoundSheet')),
+    };
+    for (final entry in sheets.entries) {
       expect(
-        body,
-        contains('stream: service.states'),
-        reason: '$sheet ayar akisini dinlemeli',
+        entry.value,
+        isNot(contains('StatefulBuilder')),
+        reason: '${entry.key} sayfasi yerel kopya tutmamali',
       );
       expect(
-        body,
-        isNot(contains('StatefulBuilder')),
-        reason: '$sheet yerel kopya tutmamali',
+        entry.value,
+        contains(RegExp(r'stream: (widget\.)?service\.states')),
+        reason: '${entry.key} sayfasi ayar akisini dinlemeli',
       );
     }
+  });
+
+  test('ses secenekleri dinlenebilir', () {
+    // Duymadan secim yapilamaz. Onizleme, bildirimi calanin aksine UYGULAMA
+    // tarafindan calindigi icin ayni dosyanin Flutter varligi olarak da
+    // paketlenmesi gerekiyor.
+    expect(source, contains("setAsset('assets/sounds/"));
+    expect(
+      File('pubspec.yaml').readAsStringSync(),
+      contains('assets/sounds/'),
+      reason: 'onizleme dosyalari Flutter varligi olarak paketlenmeli',
+    );
   });
 }
