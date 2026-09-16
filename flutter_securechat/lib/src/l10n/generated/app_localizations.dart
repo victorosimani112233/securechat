@@ -1716,6 +1716,48 @@ abstract class AppLocalizations {
   /// **'Bulk sending is unavailable.'**
   String get bulk_unavailable;
 
+  /// No description provided for @bulk_explainer_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent separately to each'**
+  String get bulk_explainer_title;
+
+  /// No description provided for @bulk_explainer_body.
+  ///
+  /// In en, this message translates to:
+  /// **'The same message is sent to each selected chat as a separate message. Recipients cannot see each other and no group is created.'**
+  String get bulk_explainer_body;
+
+  /// No description provided for @bulk_search_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search people or groups'**
+  String get bulk_search_hint;
+
+  /// No description provided for @bulk_selected_count.
+  ///
+  /// In en, this message translates to:
+  /// **'{arg1} of {arg2} selected'**
+  String bulk_selected_count(Object arg1, Object arg2);
+
+  /// No description provided for @bulk_no_recipients.
+  ///
+  /// In en, this message translates to:
+  /// **'No chats to send to'**
+  String get bulk_no_recipients;
+
+  /// No description provided for @bulk_no_results.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching chats'**
+  String get bulk_no_results;
+
+  /// No description provided for @bulk_message_required.
+  ///
+  /// In en, this message translates to:
+  /// **'Write your message first'**
+  String get bulk_message_required;
+
   /// No description provided for @select_all.
   ///
   /// In en, this message translates to:

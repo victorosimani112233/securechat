@@ -867,6 +867,30 @@ class AppLocalizationsTr extends AppLocalizations {
   String get bulk_unavailable => 'Toplu gönderim kullanılamıyor.';
 
   @override
+  String get bulk_explainer_title => 'Herkese ayrı ayrı gider';
+
+  @override
+  String get bulk_explainer_body =>
+      'Seçtiğiniz her sohbete aynı mesaj ayrı bir mesaj olarak gönderilir. Alıcılar birbirini görmez ve grup oluşturulmaz.';
+
+  @override
+  String get bulk_search_hint => 'Kişi veya grup ara';
+
+  @override
+  String bulk_selected_count(Object arg1, Object arg2) {
+    return '$arg1 / $arg2 seçili';
+  }
+
+  @override
+  String get bulk_no_recipients => 'Gönderilecek sohbet yok';
+
+  @override
+  String get bulk_no_results => 'Eşleşen sohbet yok';
+
+  @override
+  String get bulk_message_required => 'Önce mesajınızı yazın';
+
+  @override
   String get select_all => 'Tümünü seç';
 
   @override

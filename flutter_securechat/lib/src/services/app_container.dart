@@ -1058,7 +1058,7 @@ class AppOnboardingRuntime {
 
 class AppBulkRuntime {
   const AppBulkRuntime({required this.service});
-  final BulkMessageService service;
+  final BulkMessageSender service;
 }
 
 class AppSettingsRuntime {

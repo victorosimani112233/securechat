@@ -867,6 +867,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get bulk_unavailable => 'Bulk sending is unavailable.';
 
   @override
+  String get bulk_explainer_title => 'Sent separately to each';
+
+  @override
+  String get bulk_explainer_body =>
+      'The same message is sent to each selected chat as a separate message. Recipients cannot see each other and no group is created.';
+
+  @override
+  String get bulk_search_hint => 'Search people or groups';
+
+  @override
+  String bulk_selected_count(Object arg1, Object arg2) {
+    return '$arg1 of $arg2 selected';
+  }
+
+  @override
+  String get bulk_no_recipients => 'No chats to send to';
+
+  @override
+  String get bulk_no_results => 'No matching chats';
+
+  @override
+  String get bulk_message_required => 'Write your message first';
+
+  @override
   String get select_all => 'Select all';
 
   @override

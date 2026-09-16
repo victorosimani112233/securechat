@@ -379,6 +379,19 @@
   "entire_chat": "Tüm sohbet",
   "admin_only_screen": "Bu ekran sadece grup yöneticilerine açıktır",
   "bulk_unavailable": "Toplu gönderim kullanılamıyor.",
+  "bulk_explainer_title": "Herkese ayrı ayrı gider",
+  "bulk_explainer_body": "Seçtiğiniz her sohbete aynı mesaj ayrı bir mesaj olarak gönderilir. Alıcılar birbirini görmez ve grup oluşturulmaz.",
+  "bulk_search_hint": "Kişi veya grup ara",
+  "bulk_selected_count": "{arg1} / {arg2} seçili",
+  "@bulk_selected_count": {
+    "placeholders": {
+      "arg1": {},
+      "arg2": {}
+    }
+  },
+  "bulk_no_recipients": "Gönderilecek sohbet yok",
+  "bulk_no_results": "Eşleşen sohbet yok",
+  "bulk_message_required": "Önce mesajınızı yazın",
   "select_all": "Tümünü seç",
   "group": "Grup",
   "send_to_recipients": "{arg1} alıcıya gönder",

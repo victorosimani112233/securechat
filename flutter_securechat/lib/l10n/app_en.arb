@@ -379,6 +379,19 @@
   "entire_chat": "Entire chat",
   "admin_only_screen": "This screen is available only to group admins",
   "bulk_unavailable": "Bulk sending is unavailable.",
+  "bulk_explainer_title": "Sent separately to each",
+  "bulk_explainer_body": "The same message is sent to each selected chat as a separate message. Recipients cannot see each other and no group is created.",
+  "bulk_search_hint": "Search people or groups",
+  "bulk_selected_count": "{arg1} of {arg2} selected",
+  "@bulk_selected_count": {
+    "placeholders": {
+      "arg1": {},
+      "arg2": {}
+    }
+  },
+  "bulk_no_recipients": "No chats to send to",
+  "bulk_no_results": "No matching chats",
+  "bulk_message_required": "Write your message first",
   "select_all": "Select all",
   "group": "Group",
   "send_to_recipients": "Send to {arg1} recipients",
