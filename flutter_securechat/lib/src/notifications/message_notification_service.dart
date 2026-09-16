@@ -378,9 +378,12 @@ class MessageNotificationCoordinator {
     final total = _counts.values.fold<int>(0, (sum, value) => sum + value);
     final privacy = !_session.showNotificationContent;
     final conversationSilent = event.isMuted && !event.isMention;
-    final preference = NotificationSoundPreference.fromStorage(
-      _session.notificationSound,
-    );
+    // Sohbete ozel ses, uygulama genelindeki ayari EZER. Sessize alinmis bir
+    // sohbet yine sessiz kalir: susturma daha guclu bir karar.
+    final custom = event.customSound;
+    final preference = custom == null
+        ? NotificationSoundPreference.fromStorage(_session.notificationSound)
+        : NotificationSoundPreference.fromStorage(custom);
     final silent =
         _isForeground ||
         conversationSilent ||

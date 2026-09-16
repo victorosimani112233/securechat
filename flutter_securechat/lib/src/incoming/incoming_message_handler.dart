@@ -36,6 +36,7 @@ class IncomingMessageEvent {
     required this.timestamp,
     required this.isMuted,
     required this.isMention,
+    this.customSound,
   });
 
   final String messageId;
@@ -45,6 +46,10 @@ class IncomingMessageEvent {
   final DateTime timestamp;
   final bool isMuted;
   final bool isMention;
+
+  /// Sohbete ozel bildirim sesinin adi; yoksa null ve uygulama genelindeki
+  /// ses kullanilir.
+  final String? customSound;
 }
 
 /// Cozulmus bir cagri medya anahtarini cagri yoneticisine ulastiran sinir.
@@ -468,6 +473,7 @@ class IncomingMessageHandler {
         timestamp: signal.timestamp,
         isMuted: storedConversation?.isMuted == true,
         isMention: isMention,
+        customSound: storedConversation?.customNotificationUri,
       ),
     );
     final localUserId = _session.userId;

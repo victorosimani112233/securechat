@@ -1272,6 +1272,12 @@ abstract class AppLocalizations {
   /// **'Play sound'**
   String get sound_preview;
 
+  /// No description provided for @sound_inherit.
+  ///
+  /// In en, this message translates to:
+  /// **'Use app setting'**
+  String get sound_inherit;
+
   /// No description provided for @sound_system_picker.
   ///
   /// In en, this message translates to:

@@ -2,81 +2,103 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// Ayarlar alt sayfalarinin iki degismezi.
+/// Ayar sayfalari ve bildirim sesi secicisinin degismezleri.
 ///
-/// Bu test KAYNAK METNI uzerinde calisiyor, calisan widget uzerinde degil.
-/// Sebebi: `SettingsScreen` gercek bir `SettingsService` istiyor, o da
+/// Bu testler KAYNAK METNI uzerinde calisiyor, calisan widget uzerinde
+/// degil. Sebebi: `SettingsScreen` gercek bir `SettingsService` istiyor, o da
 /// `ScheduledMessageService` -> DAO -> veritabani zincirini cekiyor. Bu
-/// iki kural icin o kurulumu ayaga kaldirmak orantisiz kaliyor.
+/// kurallar icin o kurulumu ayaga kaldirmak orantisiz kaliyor.
 ///
-/// Zayif tarafi acik: bicimlendirme degisirse kirilabilir. Buna ragmen
-/// deger uretiyor, cunku sinadigi iki hata da SESSIZ: ekran yanlis yerde
-/// duran ya da guncellenmeyen bir anahtar gosteriyor, hicbir yerde hata
-/// olusmuyor.
+/// Zayif tarafi acik: bicimlendirme degisirse kirilabilir. Buna ragmen deger
+/// uretiyor, cunku sinadiklari hatalarin hepsi SESSIZ — ekran yanlis yerde
+/// duran, guncellenmeyen ya da dinlenemeyen bir secenek gosteriyor ve
+/// hicbir yerde hata olusmuyor.
 void main() {
-  final source = File(
+  final settings = File(
     'lib/src/features/settings/settings_screen.dart',
+  ).readAsStringSync();
+  final picker = File(
+    'lib/src/widgets/notification_sound_picker.dart',
+  ).readAsStringSync();
+  final chatInfo = File(
+    'lib/src/features/chat/chat_info_screen.dart',
   ).readAsStringSync();
 
   String bodyOf(String methodName) {
-    final start = source.indexOf('static Future<void> $methodName(');
+    final start = settings.indexOf('static Future<void> $methodName(');
     expect(start, isNot(-1), reason: '$methodName bulunamadi');
-    final rest = source.substring(start + 1);
+    final rest = settings.substring(start + 1);
     final next = rest.indexOf('  static ');
     return next == -1 ? rest : rest.substring(0, next);
   }
 
   test('bildirim sayfasi yalniz ses, onizleme gizlilige ait', () {
     // "Mesaj icerigini goster" kilit ekraninda ne gorunecegini belirliyor:
-    // bir gizlilik karari, ses tercihiyle ilgisi yok. Bildirim sayfasinda
-    // duruyordu.
+    // bir gizlilik karari, ses tercihiyle ilgisi yok.
     expect(
       bodyOf('_showNotificationSheet'),
       isNot(contains('settings_show_message_preview')),
-      reason: 'onizleme anahtari bildirim SESI sayfasinda olmamali',
     );
     expect(
       bodyOf('_showPrivacySheet'),
       contains('settings_show_message_preview'),
-      reason: 'onizleme anahtari gizlilik sayfasinda olmali',
     );
   });
 
-  test('ayar sayfalari akisi dinliyor, yerel kopya tutmuyor', () {
+  test('gizlilik sayfasi ayar akisini dinliyor, yerel kopya tutmuyor', () {
     // Yerel kopya iki soruna yol aciyordu: deger ancak kaydetme bittikten
-    // sonra degisiyordu (dokunusa tepkisiz goruntu), ve kaydetme BASARISIZ
-    // olsa bile ekran yeni degeri gosteriyordu.
-    //
-    // Denetim yalniz AYAR sayfalarini kapsiyor. Dosyadaki diger
-    // `StatefulBuilder` kullanimlari (orn. hesap silme onayindaki 'siliniyor'
-    // durumu) mesru yerel durumdur ve bu kuralin disindadir.
-    final sheets = {
-      'gizlilik': bodyOf('_showPrivacySheet'),
-      'ses': source.substring(source.indexOf('class _NotificationSoundSheet')),
-    };
-    for (final entry in sheets.entries) {
-      expect(
-        entry.value,
-        isNot(contains('StatefulBuilder')),
-        reason: '${entry.key} sayfasi yerel kopya tutmamali',
-      );
-      expect(
-        entry.value,
-        contains(RegExp(r'stream: (widget\.)?service\.states')),
-        reason: '${entry.key} sayfasi ayar akisini dinlemeli',
-      );
-    }
+    // sonra degisiyordu, ve kaydetme BASARISIZ olsa bile ekran yeni degeri
+    // gosteriyordu.
+    final body = bodyOf('_showPrivacySheet');
+    expect(body, isNot(contains('StatefulBuilder')));
+    expect(body, contains('stream: service.states'));
   });
 
-  test('ses secenekleri dinlenebilir', () {
-    // Duymadan secim yapilamaz. Onizleme, bildirimi calanin aksine UYGULAMA
-    // tarafindan calindigi icin ayni dosyanin Flutter varligi olarak da
-    // paketlenmesi gerekiyor.
-    expect(source, contains("setAsset('assets/sounds/"));
+  test('ses secenekleri dinlenebilir ve varliklar paketli', () {
+    // Duymadan secim yapilamaz. Onizlemeyi bildirimi calanin aksine UYGULAMA
+    // caliyor, yani platform kaynagina erisemiyor; ayni dosyalarin Flutter
+    // varligi olarak da paketlenmesi gerekiyor.
+    expect(picker, contains("setAsset('assets/sounds/"));
     expect(
       File('pubspec.yaml').readAsStringSync(),
       contains('assets/sounds/'),
       reason: 'onizleme dosyalari Flutter varligi olarak paketlenmeli',
     );
+    for (final sound in [
+      'chime', 'bell', 'tap', 'warm', 'soft',
+      'melody', 'flow', 'sparkle', 'beep', 'ding',
+    ]) {
+      expect(
+        File('assets/sounds/elcim_$sound.wav').existsSync(),
+        isTrue,
+        reason: 'onizleme dosyasi eksik: $sound',
+      );
+      expect(
+        File('ios/Runner/Sounds/elcim_$sound.wav').existsSync(),
+        isTrue,
+        reason: 'iOS ses dosyasi eksik: $sound',
+      );
+      expect(
+        File('android/app/src/main/res/raw/elcim_$sound.wav').existsSync(),
+        isTrue,
+        reason: 'Android ses dosyasi eksik: $sound',
+      );
+    }
+  });
+
+  test('ses secicisi iki yerde de AYNI bilesen', () {
+    // Ayri ayri yazilsalardi listeler zamanla ayrisirdi: bir yere eklenen
+    // ses digerinde gorunmezdi.
+    expect(settings, contains('NotificationSoundPicker('));
+    expect(chatInfo, contains('NotificationSoundPicker('));
+    // 'Uygulama ayarini kullan' yalniz sohbete ozel secimde anlamli.
+    expect(chatInfo, contains('allowInherit: true'));
+    expect(settings, isNot(contains('allowInherit: true')));
+  });
+
+  test('susturulmus sohbette ses satiri gizli', () {
+    // Susturma daha guclu bir karar; ikisini ayni anda gostermek celiskili
+    // goruntu veriyor.
+    expect(chatInfo, contains('if (!c.isMuted)'));
   });
 }

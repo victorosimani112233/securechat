@@ -4,6 +4,8 @@ import '../../chat/chat_info_service.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
 import '../../widgets/azure_options.dart';
+import '../../settings/settings_service.dart';
+import '../../widgets/notification_sound_picker.dart';
 import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
@@ -161,8 +163,52 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
         value: c.isLocked,
         onChanged: (value) => service.setLocked(c.id, value),
       ),
+      // Sohbete ozel ses. Susturulmus bir sohbette anlamsiz oldugu icin
+      // satir orada gizleniyor: susturma daha guclu bir karar ve ikisini
+      // ayni anda gostermek celiskili goruntu veriyor.
+      if (!c.isMuted)
+        ListTile(
+          leading: const Icon(Icons.music_note_outlined),
+          title: Text(context.l10n.settings_notification_sound),
+          subtitle: Text(
+            c.customNotificationUri == null
+                ? context.l10n.sound_inherit
+                : soundName(
+                    context,
+                    NotificationSoundPreference.fromStorage(
+                      c.customNotificationUri!,
+                    ),
+                  ),
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _soundSheet(service, c),
+        ),
     ],
   );
+
+  /// Sohbete ozel bildirim sesi secimi.
+  ///
+  /// Uygulama genelindeki secimle AYNI sayfa kullaniliyor; tek farki
+  /// "uygulama ayarini kullan" secenegi. Ayri yazilsalardi listeler zamanla
+  /// ayrisirdi.
+  Future<void> _soundSheet(ChatInfoService service, ConversationEntity c) =>
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) => NotificationSoundPicker(
+          allowInherit: true,
+          selected: c.customNotificationUri == null
+              ? null
+              : NotificationSoundPreference.fromStorage(
+                  c.customNotificationUri!,
+                ),
+          onSelected: (value) {
+            service.setNotificationSound(c.id, value?.name);
+            Navigator.pop(sheetContext);
+          },
+        ),
+      );
 
   Widget _tile(IconData icon, String title, VoidCallback onTap) => ListTile(
     leading: Icon(icon),

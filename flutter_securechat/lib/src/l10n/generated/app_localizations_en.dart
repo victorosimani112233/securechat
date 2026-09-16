@@ -629,6 +629,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sound_preview => 'Play sound';
 
   @override
+  String get sound_inherit => 'Use app setting';
+
+  @override
   String get sound_system_picker => 'More sounds on this device';
 
   @override

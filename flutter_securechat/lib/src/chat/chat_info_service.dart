@@ -33,6 +33,17 @@ class ChatInfoService {
       _database.messages.searchMessages(id, query);
   Future<void> updateNote(String id, String note) =>
       _database.conversations.updateContactNote(id, note.trim());
+  /// Sohbete ozel bildirim sesi. null verilince uygulama genelindeki ses
+  /// kullanilir.
+  ///
+  /// Alan `customNotificationUri` adini eski Kotlin uygulamasindan tasiyor;
+  /// orada sistem ses URI'si saklaniyordu. Burada paketlenmis bir sesin
+  /// ADI tutuluyor (`NotificationSoundPreference.name`), cunku ses artik
+  /// uygulamayla birlikte geliyor ve iki platformda da ayni adla
+  /// bulunuyor.
+  Future<void> setNotificationSound(String id, String? sound) =>
+      _database.conversations.updateCustomNotification(id, sound);
+
   Future<void> setMuted(String id, bool value) =>
       _database.conversations.updateMuted(id, value);
   Future<void> setLocked(String id, bool value) =>

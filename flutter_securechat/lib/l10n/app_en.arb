@@ -267,6 +267,7 @@
   "sound_beep": "Beep",
   "sound_ding": "Ding",
   "sound_preview": "Play sound",
+  "sound_inherit": "Use app setting",
   "sound_system_picker": "More sounds on this device",
   "sound_system_picker_desc": "Pick any sound from system settings",
   "settings_share_last_seen": "Share last seen",
