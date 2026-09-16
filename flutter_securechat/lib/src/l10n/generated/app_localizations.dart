@@ -1272,6 +1272,18 @@ abstract class AppLocalizations {
   /// **'Play sound'**
   String get sound_preview;
 
+  /// No description provided for @sound_system_picker.
+  ///
+  /// In en, this message translates to:
+  /// **'More sounds on this device'**
+  String get sound_system_picker;
+
+  /// No description provided for @sound_system_picker_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick any sound from system settings'**
+  String get sound_system_picker_desc;
+
   /// No description provided for @settings_share_last_seen.
   ///
   /// In en, this message translates to:

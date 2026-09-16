@@ -720,6 +720,18 @@ class _NotificationSoundSheetState extends State<_NotificationSoundSheet> {
                 ],
               ),
             ),
+            const Divider(height: 24),
+            // Paketlenmis sesler sinirli bir liste. Cihazdaki HER sesi
+            // secebilmenin tek yolu sistemin kendi secicisi — Android 8'den
+            // beri kanalin sesi zaten yalnizca oradan degistirilebiliyor.
+            ListTile(
+              leading: const Icon(Icons.library_music_outlined),
+              title: Text(context.l10n.sound_system_picker),
+              subtitle: Text(context.l10n.sound_system_picker_desc),
+              trailing: const Icon(Icons.open_in_new, size: 18),
+              onTap: () => widget.service.openSystemSoundSettings(),
+            ),
+            const SizedBox(height: 8),
           ],
         );
       },

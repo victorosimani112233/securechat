@@ -628,6 +628,12 @@ class AppLocalizationsAr extends AppLocalizations {
   String get sound_preview => 'Play sound';
 
   @override
+  String get sound_system_picker => 'More sounds on this device';
+
+  @override
+  String get sound_system_picker_desc => 'Pick any sound from system settings';
+
+  @override
   String get settings_share_last_seen => 'مشاركة آخر ظهور';
 
   @override

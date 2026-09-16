@@ -267,6 +267,8 @@
   "sound_beep": "Bip",
   "sound_ding": "Ding",
   "sound_preview": "Sesi dinle",
+  "sound_system_picker": "Cihazdaki diğer sesler",
+  "sound_system_picker_desc": "Sistem ayarlarından herhangi bir sesi seçin",
   "settings_share_last_seen": "Son görülmeyi paylaş",
   "settings_screen_protection": "Ekran koruması etkin",
   "camera": "Kamera",

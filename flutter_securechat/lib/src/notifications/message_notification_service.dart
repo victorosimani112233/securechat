@@ -108,11 +108,18 @@ class PluginLocalNotificationPresenter
   ///
   /// Yan faydasi: kullanici her sesi sistem ayarlarindan ayrica
   /// ozellestirebiliyor ve o ayar kaliciligini koruyor.
-  static String _channelFor(LocalMessageNotification notification) {
-    if (notification.silent) return lowChannelId;
-    final sound = notification.sound;
-    return sound == null ? highChannelId : 'elcim_messages_$sound';
-  }
+  static String _channelFor(LocalMessageNotification notification) =>
+      notification.silent
+      ? lowChannelId
+      : channelForSound(notification.sound);
+
+  /// Bir sesin kanal kimligi.
+  ///
+  /// Ayarlar ekrani da bunu kullaniyor: sistem ses secicisini acarken hangi
+  /// kanalin ayarlarina gidilecegini bilmesi gerekiyor. Iki yerde ayri
+  /// hesaplanirsa kullanici yanlis kanalin ayarina duser.
+  static String channelForSound(String? sound) =>
+      sound == null ? highChannelId : 'elcim_messages_$sound';
 
   final FlutterLocalNotificationsPlugin _plugin;
   final ServiceStrings _strings;

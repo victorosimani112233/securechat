@@ -1,4 +1,6 @@
 import 'dart:async';
+import '../notifications/message_notification_service.dart';
+import '../platform/native_bridge.dart';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -116,6 +118,7 @@ class SettingsService {
   final Directory _profileDirectory;
   final FullscreenController _fullscreen;
   final Future<void> Function()? _clearNotifications;
+  final NativeBridge _bridge = const NativeBridge();
   final _changes = StreamController<AppSettingsState>.broadcast();
 
   AppSettingsState get current => AppSettingsState(
@@ -171,6 +174,23 @@ class SettingsService {
     await _persistAndEmit();
     if (changed) await _clearNotifications?.call();
   }
+
+  /// Secili sesin SISTEM ayarlarini acar.
+  ///
+  /// Paketlenmis sesler sinirli bir liste; cihazdaki her sesi secebilmenin
+  /// tek yolu sistemin kendi secicisi. Android 8'den beri bir kanalin sesi
+  /// zaten yalnizca oradan degistirilebiliyor.
+  ///
+  /// Kanal kimligi burada hesaplaniyor, arayuzde degil: arayuzun bildirim
+  /// altyapisini tanimasi gerekmiyor (bkz. architecture_boundaries_test).
+  Future<bool> openSystemSoundSettings() => _bridge
+      .openNotificationChannelSettings(
+        PluginLocalNotificationPresenter.channelForSound(
+          NotificationSoundPreference.fromStorage(
+            _session.notificationSound,
+          ).asset,
+        ),
+      );
 
   Future<void> setNotificationSound(NotificationSoundPreference value) async {
     _session.notificationSound = value.name;

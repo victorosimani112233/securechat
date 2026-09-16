@@ -88,6 +88,11 @@ import UserNotifications
         self?.authenticateLockedChat(call.arguments, result: result)
       case "getCallReadiness":
         self?.getCallReadiness(result: result)
+      case "openNotificationChannelSettings":
+        // iOS'ta bildirim KANALI kavrami yok; ses secimi paketlenmis
+        // listeden yapiliyor. Burada yalnizca uygulamanin bildirim
+        // ayarlari aciliyor (izin, banner, kilit ekrani gorunumu).
+        self?.openNotificationSettings(result: result)
       case "openCallReadinessSetting":
         self?.openCallReadinessSetting(call.arguments, result: result)
       case "requestContactsPermission":
@@ -153,6 +158,14 @@ import UserNotifications
         ])
       }
     }
+  }
+
+  private func openNotificationSettings(result: @escaping FlutterResult) {
+    guard let url = URL(string: UIApplication.openSettingsURLString) else {
+      result(false)
+      return
+    }
+    UIApplication.shared.open(url, options: [:]) { opened in result(opened) }
   }
 
   private func openCallReadinessSetting(_ arguments: Any?, result: @escaping FlutterResult) {

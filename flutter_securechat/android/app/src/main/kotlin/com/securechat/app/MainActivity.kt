@@ -74,6 +74,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "endNativeCall" -> updateNativeCall(call.arguments, false, result)
                     "authenticateLockedChat" -> authenticateLockedChat(call.arguments, result)
                     "getCallReadiness" -> getCallReadiness(result)
+                    "openNotificationChannelSettings" -> openNotificationChannelSettings(call.arguments, result)
                     "openCallReadinessSetting" -> openCallReadinessSetting(call.arguments, result)
                     "requestContactsPermission" -> requestContactsPermission(result)
                     "readContacts" -> readContacts(result)
@@ -196,6 +197,42 @@ class MainActivity : FlutterFragmentActivity() {
                 "overlay" to if (Settings.canDrawOverlays(this)) "granted" else "denied"
             )
         )
+    }
+
+    /**
+     * Bir bildirim kanalinin sistem ayarlarini acar.
+     *
+     * Android 8'den beri kanalin sesi olusturulduktan SONRA kod ile
+     * degistirilemiyor; kullanicinin cihazindaki her sesi secebilmesinin
+     * tek yolu bu ekran. Kanal henuz olusmamissa (o sesle hic bildirim
+     * gelmemisse) sistem ekrani acamaz; o durumda uygulamanin genel
+     * bildirim ayarlarina dusulur.
+     */
+    private fun openNotificationChannelSettings(arguments: Any?, result: MethodChannel.Result) {
+        val channelId = (arguments as? Map<*, *>)?.get("channelId")?.toString().orEmpty()
+        val manager = getSystemService(NotificationManager::class.java)
+        val exists = channelId.isNotEmpty() &&
+            manager?.getNotificationChannel(channelId) != null
+        val intent = if (exists) {
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
+            }
+        } else {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            }
+        }
+        if (intent.resolveActivity(packageManager) == null) {
+            result.success(false)
+            return
+        }
+        try {
+            startActivity(intent)
+            result.success(true)
+        } catch (_: Exception) {
+            result.success(false)
+        }
     }
 
     private fun openCallReadinessSetting(arguments: Any?, result: MethodChannel.Result) {

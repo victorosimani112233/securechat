@@ -629,6 +629,13 @@ class AppLocalizationsTr extends AppLocalizations {
   String get sound_preview => 'Sesi dinle';
 
   @override
+  String get sound_system_picker => 'Cihazdaki diğer sesler';
+
+  @override
+  String get sound_system_picker_desc =>
+      'Sistem ayarlarından herhangi bir sesi seçin';
+
+  @override
   String get settings_share_last_seen => 'Son görülmeyi paylaş';
 
   @override

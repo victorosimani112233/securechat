@@ -29,6 +29,21 @@ class NativeBridge {
     return result ?? const {};
   }
 
+  /// Secilen bildirim kanalinin SISTEM ayarlarini acar.
+  ///
+  /// Neden gerekli: paketlenmis sesler sinirli bir liste. Kullanicinin
+  /// cihazindaki HER sesi secebilmesinin tek yolu sistemin kendi secicisi.
+  /// Android 8'den beri kanalin sesi zaten yalnizca oradan degistirilebiliyor
+  /// — uygulama kodu bir kanalin sesini olusturulduktan sonra degistiremiyor.
+  ///
+  /// iOS'ta kanal kavrami yok; orada uygulamanin bildirim ayarlari aciliyor.
+  /// Ses secimi iOS'ta paketlenmis listeden yapilmaya devam ediyor.
+  Future<bool> openNotificationChannelSettings(String channelId) async =>
+      await _methods.invokeMethod<bool>('openNotificationChannelSettings', {
+        'channelId': channelId,
+      }) ??
+      false;
+
   Future<bool> openCallReadinessSetting(String kind) async =>
       await _methods.invokeMethod<bool>('openCallReadinessSetting', {
         'kind': kind,
