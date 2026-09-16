@@ -224,6 +224,23 @@ void main() {
       failures.add('SQLCipher paketi Xcode projesine bagli degil: $wiring');
     }
   }
+  // Gomulu SQLCipher statik baglaniyor ve Dart ona `DynamicLibrary.process()`
+  // uzerinden, yani `dlsym` ile ulasiyor. `dlsym` ancak DISA AKTARILMIS
+  // simgeleri gorur; statik kutuphaneden gelen simgeler varsayilan olarak
+  // dinamik simge tablosuna girmez.
+  //
+  // Bayrak olmadigi durumda simgelerin bir kismi disa aktarilmis, bir kismi
+  // olmamisti (250 yerine 73). Sonuc: `sqlite3_open_v2` bizim SQLCipher'dan,
+  // `sqlite3_extended_result_codes` Apple'in `libsqlite3.dylib`'inden
+  // cozuluyordu. Veritabani tanitici yanlis kutuphaneye gidince surec
+  // EXC_BAD_ACCESS ile oluyordu — ve bu YALNIZ AOT derlemelerinde
+  // goruluyordu, debug'da JIT farkli cozumleme yaptigi icin sorun cikmiyordu.
+  if (!project.contains('-Wl,-export_dynamic')) {
+    failures.add(
+      'Runner hedefinde -Wl,-export_dynamic yok: SQLCipher simgeleri dlsym '
+      'icin disa aktarilmaz ve sistem libsqlite3 ile karisir',
+    );
+  }
   if (!swift.contains('SQLCipherRuntime.ensureLinked()')) {
     failures.add(
       'AppDelegate SQLCipherRuntime.ensureLinked cagirmiyor; baglayici '
