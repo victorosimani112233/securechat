@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../chat/chat_info_service.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/azure_options.dart';
 import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
@@ -243,15 +244,23 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
       const Duration(days: 7),
       const Duration(days: 30),
     ];
+    // Secili sure satirda isaretlensin; oncesinde hicbir secenek secili
+    // gorunmuyordu ve kullanici mevcut ayarini goremiyordu.
+    final current = Duration(milliseconds: c.disappearingDuration);
     final value = await showDialog<Duration>(
       context: context,
       builder: (context) => SimpleDialog(
         title: Text(context.l10n.disappearing_messages),
+        contentPadding: const EdgeInsets.only(bottom: 12),
         children: [
           for (final option in options)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, option),
-              child: Text(_duration(context, option.inMilliseconds)),
+            AzureOptionTile(
+              selected: option == current,
+              icon: option == Duration.zero
+                  ? Icons.timer_off_outlined
+                  : Icons.timer_outlined,
+              title: _duration(context, option.inMilliseconds),
+              onTap: () => Navigator.pop(context, option),
             ),
         ],
       ),

@@ -25,6 +25,7 @@ import '../../services/conversation_repository.dart';
 import '../../services/peer_activity_source.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/azure_options.dart';
 import '../../theme/secure_chat_theme.dart';
 import '../../widgets/haptics.dart';
 import '../calls/call_screen.dart';
@@ -1508,40 +1509,25 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
-        child: AzureGlassPanel(
-          strong: true,
-          padding: EdgeInsets.zero,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.timer_outlined),
-                title: Text(context.l10n.disappearing_messages),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AzureSheetHeading(context.l10n.disappearing_messages),
+            for (final duration in options)
+              AzureOptionTile(
+                selected: duration == conversation.disappearingDuration,
+                icon: duration == Duration.zero
+                    ? Icons.timer_off_outlined
+                    : Icons.timer_outlined,
+                title: duration == Duration.zero
+                    ? context.l10n.off
+                    : duration.inHours == 24
+                    ? context.l10n.hours(24)
+                    : context.l10n.days(duration.inDays),
+                onTap: () => Navigator.pop(sheetContext, duration),
               ),
-              for (final duration in options)
-                ListTile(
-                  leading: Icon(
-                    duration == Duration.zero
-                        ? Icons.timer_off_outlined
-                        : Icons.timer_outlined,
-                  ),
-                  title: Text(
-                    duration == Duration.zero
-                        ? context.l10n.off
-                        : duration.inHours == 24
-                        ? context.l10n.hours(24)
-                        : context.l10n.days(duration.inDays),
-                  ),
-                  trailing: duration == conversation.disappearingDuration
-                      ? Icon(
-                          Icons.check_circle,
-                          color: Theme.of(context).colorScheme.primary,
-                        )
-                      : null,
-                  onTap: () => Navigator.pop(sheetContext, duration),
-                ),
-            ],
-          ),
+            const SizedBox(height: 10),
+          ],
         ),
       ),
     );

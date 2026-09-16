@@ -10,6 +10,7 @@ import '../../settings/account_data_service.dart';
 import '../../settings/settings_service.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/azure_options.dart';
 import '../../widgets/azure_surface.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -262,19 +263,20 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => SimpleDialog(
         title: Text(context.l10n.settings_chat_theme),
-        children: AppThemePreference.values
-            .map(
-              (value) => ListTile(
-                leading: Icon(
-                  value == selected
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                ),
-                title: Text(_themeLabel(context, value)),
-                onTap: () => Navigator.pop(context, value),
-              ),
-            )
-            .toList(growable: false),
+        contentPadding: const EdgeInsets.only(bottom: 12),
+        children: [
+          for (final option in AppThemePreference.values)
+            AzureOptionTile(
+              selected: option == selected,
+              icon: switch (option) {
+                AppThemePreference.system => Icons.brightness_auto_outlined,
+                AppThemePreference.light => Icons.light_mode_outlined,
+                AppThemePreference.dark => Icons.dark_mode_outlined,
+              },
+              title: _themeLabel(context, option),
+              onTap: () => Navigator.pop(context, option),
+            ),
+        ],
       ),
     );
     if (value != null && context.mounted) {
@@ -291,19 +293,16 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => SimpleDialog(
         title: Text(context.l10n.settings_language),
-        children: AppLanguagePreference.values
-            .map(
-              (value) => ListTile(
-                leading: Icon(
-                  value == selected
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                ),
-                title: Text(_languageLabel(value)),
-                onTap: () => Navigator.pop(context, value),
-              ),
-            )
-            .toList(growable: false),
+        contentPadding: const EdgeInsets.only(bottom: 12),
+        children: [
+          for (final option in AppLanguagePreference.values)
+            AzureOptionTile(
+              selected: option == selected,
+              icon: Icons.translate_outlined,
+              title: _languageLabel(option),
+              onTap: () => Navigator.pop(context, option),
+            ),
+        ],
       ),
     );
     if (value != null && context.mounted) {
@@ -685,54 +684,67 @@ class _NotificationSoundSheetState extends State<_NotificationSoundSheet> {
       stream: widget.service.states,
       initialData: widget.initial,
       builder: (context, snapshot) {
-        final selected =
-            (snapshot.data ?? widget.initial).notificationSound;
+        final selected = (snapshot.data ?? widget.initial).notificationSound;
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _SheetHeading(context.l10n.settings_notification_sound),
+            AzureSheetHeading(
+              context.l10n.settings_notification_sound,
+              subtitle: context.l10n.sound_preview,
+            ),
             Flexible(
-              child: SingleChildScrollView(
-                child: RadioGroup<NotificationSoundPreference>(
-                  groupValue: selected,
-                  onChanged: (value) {
-                    if (value == null) return;
-                    _preview(value);
-                    SettingsScreen._run(
-                      context,
-                      () => widget.service.setNotificationSound(value),
-                    );
-                  },
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (final option in NotificationSoundPreference.values)
-                        RadioListTile<NotificationSoundPreference>(
-                          value: option,
-                          title: Text(_soundName(context, option)),
-                          // Secili sesi tekrar dinlemek icin: radyo dugmesine
-                          // basmak zaten secili olani degistirmedigi icin
-                          // onizlemeyi tetiklemiyor.
-                          secondary: option.asset == null
-                              ? null
-                              : IconButton(
-                                  icon: const Icon(Icons.play_arrow),
-                                  tooltip: context.l10n.sound_preview,
-                                  onPressed: () => _preview(option),
-                                ),
-                        ),
-                    ],
-                  ),
-                ),
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.only(bottom: 8),
+                children: [
+                  for (final option in NotificationSoundPreference.values)
+                    AzureOptionTile(
+                      selected: option == selected,
+                      icon: _soundIcon(option),
+                      title: _soundName(context, option),
+                      trailing: option.asset == null
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.play_circle_outline),
+                              tooltip: context.l10n.sound_preview,
+                              onPressed: () => _preview(option),
+                            ),
+                      onTap: () {
+                        _preview(option);
+                        SettingsScreen._run(
+                          context,
+                          () => widget.service.setNotificationSound(option),
+                        );
+                      },
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
           ],
         );
       },
     ),
   );
 }
+
+/// Her sesin karakterine yakin bir ikon.
+///
+/// Uzun bir listede yalniz adlar birbirine benziyor; ikon satirlari
+/// birbirinden ayirmanin en ucuz yolu.
+IconData _soundIcon(NotificationSoundPreference option) => switch (option) {
+  NotificationSoundPreference.silent => Icons.notifications_off_outlined,
+  NotificationSoundPreference.system => Icons.smartphone_outlined,
+  NotificationSoundPreference.chime => Icons.notifications_active_outlined,
+  NotificationSoundPreference.bell => Icons.doorbell_outlined,
+  NotificationSoundPreference.tap => Icons.touch_app_outlined,
+  NotificationSoundPreference.warm => Icons.wb_twilight_outlined,
+  NotificationSoundPreference.soft => Icons.cloud_outlined,
+  NotificationSoundPreference.melody => Icons.music_note_outlined,
+  NotificationSoundPreference.flow => Icons.waves_outlined,
+  NotificationSoundPreference.sparkle => Icons.auto_awesome_outlined,
+  NotificationSoundPreference.beep => Icons.graphic_eq_outlined,
+  NotificationSoundPreference.ding => Icons.notifications_none_outlined,
+};
 
 /// Bir ses secenegi icin gorunen ad.
 ///
