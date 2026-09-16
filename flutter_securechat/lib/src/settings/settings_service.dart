@@ -39,16 +39,26 @@ enum NotificationSoundPreference {
 
   const NotificationSoundPreference(this.asset);
 
+  /// Uygulamanin varsayilan sesi.
+  ///
+  /// Tek yerde tanimli: saklama varsayilani, sifirlama ve taninmayan deger
+  /// hepsi buna bakiyor. Ayri ayri yazilsalardi varsayilan degistiginde
+  /// biri atlanirdi.
+  static const defaultSound = flow;
+
   /// Paketlenmis dosyanin adi; `silent` ve `system` icin null.
   final String? asset;
 
   /// Kalici saklamada kullanilan ad. Eski kayitlarda 'default' yaziyordu.
   static NotificationSoundPreference fromStorage(String value) {
-    if (value == 'default') return system;
     for (final option in values) {
       if (option.name == value) return option;
     }
-    return system;
+    // Eski kayitlarda 'default' yaziyordu ve "uygulamanin varsayilani"
+    // demekti; varsayilan degistigi icin yeni varsayilana esleniyor.
+    // Taninmayan bir deger de buraya duser: bildirim hic calmamaktansa
+    // varsayilan sesle calsin.
+    return defaultSound;
   }
 }
 

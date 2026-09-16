@@ -64,60 +64,68 @@ class _NotificationSoundPickerState extends State<NotificationSoundPicker> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AzureSheetHeading(
-            l10n.settings_notification_sound,
-            subtitle: l10n.sound_preview,
-          ),
-          Flexible(
-            child: ListView(
-              shrinkWrap: true,
-              padding: const EdgeInsets.only(bottom: 8),
-              children: [
-                if (widget.allowInherit)
-                  AzureOptionTile(
-                    selected: widget.selected == null,
-                    icon: Icons.settings_outlined,
-                    title: l10n.sound_inherit,
-                    onTap: () => widget.onSelected(null),
-                  ),
-                for (final option in NotificationSoundPreference.values)
-                  AzureOptionTile(
-                    selected: option == widget.selected,
-                    icon: soundIcon(option),
-                    title: soundName(context, option),
-                    trailing: option.asset == null
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.play_circle_outline),
-                            tooltip: l10n.sound_preview,
-                            onPressed: () => _preview(option),
-                          ),
-                    onTap: () {
-                      _preview(option);
-                      widget.onSelected(option);
-                    },
-                  ),
-              ],
+      // Sayfa ekranin tamamini kaplamasin: ustte kalan bosluga dokunarak
+      // kapatmak, kaydirma hareketinin listeye gittigi durumda tek yol.
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .78,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AzureSheetHeading(
+              l10n.settings_notification_sound,
+              subtitle: l10n.sound_preview,
+              onClose: () => Navigator.maybePop(context),
             ),
-          ),
-          if (widget.onSystemSettings case final VoidCallback open) ...[
-            const Divider(height: 24),
-            // Paketlenmis sesler sinirli bir liste. Cihazdaki HER sesi
-            // secebilmenin tek yolu sistemin kendi secicisi — Android 8'den
-            // beri kanalin sesi zaten yalnizca oradan degistirilebiliyor.
-            ListTile(
-              leading: const Icon(Icons.library_music_outlined),
-              title: Text(l10n.sound_system_picker),
-              subtitle: Text(l10n.sound_system_picker_desc),
-              trailing: const Icon(Icons.open_in_new, size: 18),
-              onTap: open,
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.only(bottom: 8),
+                children: [
+                  if (widget.allowInherit)
+                    AzureOptionTile(
+                      selected: widget.selected == null,
+                      icon: Icons.settings_outlined,
+                      title: l10n.sound_inherit,
+                      onTap: () => widget.onSelected(null),
+                    ),
+                  for (final option in NotificationSoundPreference.values)
+                    AzureOptionTile(
+                      selected: option == widget.selected,
+                      icon: soundIcon(option),
+                      title: soundName(context, option),
+                      trailing: option.asset == null
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.play_circle_outline),
+                              tooltip: l10n.sound_preview,
+                              onPressed: () => _preview(option),
+                            ),
+                      onTap: () {
+                        _preview(option);
+                        widget.onSelected(option);
+                      },
+                    ),
+                ],
+              ),
             ),
+            if (widget.onSystemSettings case final VoidCallback open) ...[
+              const Divider(height: 24),
+              // Paketlenmis sesler sinirli bir liste. Cihazdaki HER sesi
+              // secebilmenin tek yolu sistemin kendi secicisi — Android 8'den
+              // beri kanalin sesi zaten yalnizca oradan degistirilebiliyor.
+              ListTile(
+                leading: const Icon(Icons.library_music_outlined),
+                title: Text(l10n.sound_system_picker),
+                subtitle: Text(l10n.sound_system_picker_desc),
+                trailing: const Icon(Icons.open_in_new, size: 18),
+                onTap: open,
+              ),
+            ],
+            const SizedBox(height: 8),
           ],
-          const SizedBox(height: 8),
-        ],
+        ),
       ),
     );
   }

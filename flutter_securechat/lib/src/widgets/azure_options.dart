@@ -73,7 +73,9 @@ class AzureOptionTile extends StatelessWidget {
                     child: Icon(
                       icon,
                       size: 19,
-                      color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                      color: selected
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -110,9 +112,7 @@ class AzureOptionTile extends StatelessWidget {
                 Icon(
                   selected ? Icons.check_circle : Icons.circle_outlined,
                   size: 20,
-                  color: selected
-                      ? scheme.primary
-                      : scheme.outlineVariant,
+                  color: selected ? scheme.primary : scheme.outlineVariant,
                 ),
               ],
             ),
@@ -128,30 +128,55 @@ class AzureOptionTile extends StatelessWidget {
 /// Sayfalarin cogunda baslik yoktu; acilan panelin neyi degistirdigi yalniz
 /// satirlardan anlasiliyordu.
 class AzureSheetHeading extends StatelessWidget {
-  const AzureSheetHeading(this.text, {super.key, this.subtitle});
+  const AzureSheetHeading(this.text, {super.key, this.subtitle, this.onClose});
 
   final String text;
   final String? subtitle;
+
+  /// Kapatma dugmesi.
+  ///
+  /// Uzun listeli bir sayfa ekrani neredeyse tamamen kapliyor: disarida
+  /// dokunulacak yer kalmiyor ve asagi kaydirma hareketi sayfayi kapatmak
+  /// yerine LISTEYE gidiyor. Kullanici sikisip kaliyordu. Acik bir cikis
+  /// dugmesi bu duruma bagli olmayan tek cozum.
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsetsDirectional.fromSTEB(24, 4, 24, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      padding: EdgeInsetsDirectional.fromSTEB(
+        24,
+        4,
+        onClose == null ? 24 : 8,
+        14,
+      ),
+      child: Row(
         children: [
-          Text(text, style: theme.textTheme.titleMedium),
-          if (subtitle case final String value)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                value,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(text, style: theme.textTheme.titleMedium),
+                if (subtitle case final String value)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      value,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (onClose case final VoidCallback close)
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+              onPressed: close,
             ),
         ],
       ),

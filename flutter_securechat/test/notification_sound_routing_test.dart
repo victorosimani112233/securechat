@@ -8,9 +8,11 @@ void main() {
   test('eski kayitlardaki "default" degeri kaybolmaz', () {
     // Ses secenegi iki degerden on ikiye cikti. Eski kurulumlarda saklanan
     // 'default' taninmazsa kullanici ayarini kaybederdi.
+    // 'default' "uygulamanin varsayilani" demekti; varsayilan degistigi
+    // icin yeni varsayilana eslenir.
     expect(
       NotificationSoundPreference.fromStorage('default'),
-      NotificationSoundPreference.system,
+      NotificationSoundPreference.defaultSound,
     );
     expect(
       NotificationSoundPreference.fromStorage('silent'),
@@ -24,8 +26,16 @@ void main() {
     // bildirim hic calmamaktansa varsayilan sesle calsin.
     expect(
       NotificationSoundPreference.fromStorage('kaldirilmis-ses'),
-      NotificationSoundPreference.system,
+      NotificationSoundPreference.defaultSound,
     );
+  });
+
+  test('varsayilan ses paketlenmis bir ses', () {
+    // Varsayilan `system` olsaydi kullanicilar cihaz sesini duyardi ve
+    // uygulamanin kendi kimligi olmazdi. Dosyasiz bir varsayilan ayrica
+    // 'sesi dinle' dugmesini de anlamsiz kilardi.
+    expect(NotificationSoundPreference.defaultSound.asset, isNotNull);
+    expect(NotificationSoundPreference.defaultSound, NotificationSoundPreference.flow);
   });
 
   test('her ses secenegi iki platformda da ayni dosyayi gosterir', () {
