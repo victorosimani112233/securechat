@@ -97,10 +97,7 @@ class SettingsScreen extends StatelessWidget {
             _tile(
               Icons.notifications_outlined,
               l10n.settings_notification_sound,
-              settings?.showNotificationContent == false
-                  ? l10n.settings_content_hidden
-                  : '${l10n.settings_content_visible} · '
-                        '${_soundLabel(context, settings?.notificationSound)}',
+              _soundLabel(context, settings?.notificationSound),
               onTap: service == null
                   ? null
                   : () => _showNotificationSheet(context, service, settings!),
@@ -108,9 +105,7 @@ class SettingsScreen extends StatelessWidget {
             _tile(
               Icons.lock_outline,
               l10n.settings_privacy,
-              settings?.shareLastSeen == false
-                  ? l10n.settings_last_seen_hidden
-                  : l10n.settings_last_seen_shared,
+              _privacySummary(context, settings),
               onTap: service == null
                   ? null
                   : () => _showPrivacySheet(context, service, settings!),
@@ -322,6 +317,16 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
+  /// Bildirim SESI — yalniz ses secimi.
+  ///
+  /// "Mesaj icerigini goster" buradaydi; oraya ait degil. O ayar kilit
+  /// ekraninda ne gorunecegini belirliyor, yani bir GIZLILIK karari.
+  /// Gizlilik sayfasina tasindi.
+  ///
+  /// Sayfa kendi kopyasini tutmuyor, `service.states` akisini dinliyor.
+  /// Yerel kopya iki soruna yol aciyordu: deger ancak kaydetme bittikten
+  /// sonra degisiyordu (dokunusa tepkisiz goruntu), ve kaydetme BASARISIZ
+  /// olsa bile ekran yeni degeri gosteriyordu — yani yalan soyluyordu.
   static Future<void> _showNotificationSheet(
     BuildContext context,
     SettingsService service,
@@ -329,71 +334,48 @@ class SettingsScreen extends StatelessWidget {
   ) => showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
-    builder: (sheetContext) {
-      var content = initial.showNotificationContent;
-      var sound = initial.notificationSound;
-      return StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
-          child: Column(
+    builder: (sheetContext) => SafeArea(
+      child: StreamBuilder<AppSettingsState>(
+        stream: service.states,
+        initialData: initial,
+        builder: (context, snapshot) {
+          final sound = (snapshot.data ?? initial).notificationSound;
+          return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SwitchListTile(
-                title: Text(context.l10n.settings_show_message_preview),
-                subtitle: Text(context.l10n.settings_notification_preview_desc),
-                value: content,
-                onChanged: (value) async {
-                  await _run(
-                    context,
-                    () => service.setShowNotificationContent(value),
-                  );
-                  setSheetState(() => content = value);
+              _SheetHeading(context.l10n.settings_notification_sound),
+              // `RadioListTile.groupValue`/`onChanged` Flutter 3.32'den
+              // sonra kullanimdan kaldirildi; secim artik ust bilesende
+              // toplaniyor.
+              RadioGroup<NotificationSoundPreference>(
+                groupValue: sound,
+                onChanged: (value) {
+                  if (value == null) return;
+                  _run(context, () => service.setNotificationSound(value));
                 },
-              ),
-              ListTile(
-                leading: Icon(
-                  sound == NotificationSoundPreference.defaultSound
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final option in NotificationSoundPreference.values)
+                      RadioListTile<NotificationSoundPreference>(
+                        value: option,
+                        title: Text(_soundLabel(context, option)),
+                      ),
+                  ],
                 ),
-                title: Text(context.l10n.settings_default_notification_sound),
-                onTap: () async {
-                  await _run(
-                    context,
-                    () => service.setNotificationSound(
-                      NotificationSoundPreference.defaultSound,
-                    ),
-                  );
-                  setSheetState(
-                    () => sound = NotificationSoundPreference.defaultSound,
-                  );
-                },
               ),
-              ListTile(
-                leading: Icon(
-                  sound == NotificationSoundPreference.silent
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                ),
-                title: Text(context.l10n.settings_silent),
-                onTap: () async {
-                  await _run(
-                    context,
-                    () => service.setNotificationSound(
-                      NotificationSoundPreference.silent,
-                    ),
-                  );
-                  setSheetState(
-                    () => sound = NotificationSoundPreference.silent,
-                  );
-                },
-              ),
+              const SizedBox(height: 8),
             ],
-          ),
-        ),
-      );
-    },
+          );
+        },
+      ),
+    ),
   );
 
+  /// Gizlilik — karsi tarafin ve kilit ekraninin ne gorecegi.
+  ///
+  /// Bildirim onizlemesi de burada: kilit ekraninda mesaj icerigi gorunup
+  /// gorunmeyecegi bir gizlilik karari, ses tercihiyle ilgisi yok.
   static Future<void> _showPrivacySheet(
     BuildContext context,
     SettingsService service,
@@ -401,32 +383,45 @@ class SettingsScreen extends StatelessWidget {
   ) => showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
-    builder: (sheetContext) {
-      var shareLastSeen = initial.shareLastSeen;
-      return StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
-          child: Column(
+    builder: (sheetContext) => SafeArea(
+      child: StreamBuilder<AppSettingsState>(
+        stream: service.states,
+        initialData: initial,
+        builder: (context, snapshot) {
+          final settings = snapshot.data ?? initial;
+          return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _SheetHeading(context.l10n.settings_privacy),
               SwitchListTile(
+                secondary: const Icon(Icons.visibility_outlined),
+                title: Text(context.l10n.settings_show_message_preview),
+                subtitle: Text(context.l10n.settings_notification_preview_desc),
+                value: settings.showNotificationContent,
+                onChanged: (value) => _run(
+                  context,
+                  () => service.setShowNotificationContent(value),
+                ),
+              ),
+              SwitchListTile(
+                secondary: const Icon(Icons.schedule_outlined),
                 title: Text(context.l10n.settings_share_last_seen),
                 subtitle: Text(context.l10n.settings_presence_immediate_desc),
-                value: shareLastSeen,
-                onChanged: (value) async {
-                  await _run(context, () => service.setShareLastSeen(value));
-                  setSheetState(() => shareLastSeen = value);
-                },
+                value: settings.shareLastSeen,
+                onChanged: (value) =>
+                    _run(context, () => service.setShareLastSeen(value)),
               ),
               ListTile(
                 leading: const Icon(Icons.screenshot_monitor_outlined),
                 title: Text(context.l10n.settings_screen_protection),
                 subtitle: Text(context.l10n.settings_screen_protection_desc),
               ),
+              const SizedBox(height: 8),
             ],
-          ),
-        ),
-      );
-    },
+          );
+        },
+      ),
+    ),
   );
 
   static Future<void> _showProfilePhotoSheet(
@@ -636,10 +631,47 @@ class SettingsScreen extends StatelessWidget {
     _ => 'Sistem / System',
   };
 
+  /// Gizlilik satirinin ozeti: iki ayarin da durumu tek satirda.
+  ///
+  /// Onceden yalniz son gorulme yaziyordu; bildirim onizlemesi bu sayfaya
+  /// tasindigi icin o da ozete girdi.
+  static String _privacySummary(
+    BuildContext context,
+    AppSettingsState? settings,
+  ) {
+    final l10n = context.l10n;
+    final lastSeen = settings?.shareLastSeen == false
+        ? l10n.settings_last_seen_hidden
+        : l10n.settings_last_seen_shared;
+    final preview = settings?.showNotificationContent == false
+        ? l10n.settings_content_hidden
+        : l10n.settings_content_visible;
+    return '$lastSeen · $preview';
+  }
+
   static String _soundLabel(
     BuildContext context,
     NotificationSoundPreference? value,
   ) => value == NotificationSoundPreference.silent
       ? context.l10n.settings_silent
       : context.l10n.settings_default_notification_sound;
+}
+
+/// Alt sayfalarin basligi.
+///
+/// Sayfalarin hicbirinde baslik yoktu; acilan panelin neyi degistirdigi
+/// yalniz satirlardan anlasiliyordu.
+class _SheetHeading extends StatelessWidget {
+  const _SheetHeading(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsetsDirectional.fromSTEB(20, 4, 20, 12),
+    child: Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Text(text, style: Theme.of(context).textTheme.titleMedium),
+    ),
+  );
 }

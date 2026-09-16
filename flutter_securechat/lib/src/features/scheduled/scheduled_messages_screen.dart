@@ -107,17 +107,12 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
         ),
         if (_repeat == ScheduledRepeat.custom) ...[
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 6,
-            children: List.generate(7, (index) {
-              final day = index + 1;
-              return FilterChip(
-                label: Text(context.l10n.weekdays_short.split(',')[index]),
-                selected: _days.contains(day),
-                onSelected: (_) => setState(() {
-                  _days.contains(day) ? _days.remove(day) : _days.add(day);
-                }),
-              );
+          _WeekdayField(
+            selected: _days,
+            onChanged: (days) => setState(() {
+              _days
+                ..clear()
+                ..addAll(days);
             }),
           ),
         ],
@@ -370,5 +365,119 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
     final date = DateTime.fromMillisecondsSinceEpoch(milliseconds);
     return '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')} '
         '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+/// Haftanin gunlerini secen acilir alan.
+///
+/// Onceden yedi ayri `FilterChip` yan yana duruyordu: dar ekranda iki satira
+/// sariyor, secili olanlar dagilinca "hangi gunler secili" tek bakista
+/// okunamiyordu. Burada alan kapaliyken secimi OZETLIYOR.
+///
+/// Tek secimlik bir `DropdownButton` kullanilamaz: zamanlama modeli birden
+/// cok gun tasiyor (`ScheduledDraft.days` bir `Set<int>`), yani secim
+/// coklu olmak zorunda. Bu yuzden acilir gorunumlu bir alan, iceride onay
+/// kutulariyla birlikte.
+class _WeekdayField extends StatelessWidget {
+  const _WeekdayField({required this.selected, required this.onChanged});
+
+  /// ISO 8601 gun numaralari: 1 = Pazartesi ... 7 = Pazar.
+  final Set<int> selected;
+  final ValueChanged<Set<int>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final names = l10n.weekdays_short.split(',');
+    final ordered = selected.toList()..sort();
+    final summary = ordered.isEmpty
+        ? l10n.schedule_days_empty
+        : ordered.map((day) => names[day - 1]).join(', ');
+    final scheme = Theme.of(context).colorScheme;
+
+    return InkWell(
+      onTap: () async {
+        final result = await showDialog<Set<int>>(
+          context: context,
+          builder: (dialogContext) => _WeekdayDialog(selected: selected),
+        );
+        if (result != null) onChanged(result);
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: l10n.schedule_days_label,
+          border: const OutlineInputBorder(),
+          suffixIcon: const Icon(Icons.arrow_drop_down),
+        ),
+        child: Text(
+          summary,
+          style: ordered.isEmpty
+              ? TextStyle(color: scheme.onSurfaceVariant)
+              : null,
+        ),
+      ),
+    );
+  }
+}
+
+class _WeekdayDialog extends StatefulWidget {
+  const _WeekdayDialog({required this.selected});
+
+  final Set<int> selected;
+
+  @override
+  State<_WeekdayDialog> createState() => _WeekdayDialogState();
+}
+
+class _WeekdayDialogState extends State<_WeekdayDialog> {
+  late final Set<int> _draft = {...widget.selected};
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final names = l10n.weekdays_short.split(',');
+    return AlertDialog(
+      title: Text(l10n.schedule_days_label),
+      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (var day = 1; day <= 7; day++)
+              CheckboxListTile(
+                value: _draft.contains(day),
+                title: Text(names[day - 1]),
+                onChanged: (checked) => setState(() {
+                  checked == true ? _draft.add(day) : _draft.remove(day);
+                }),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => setState(() {
+            // Hepsi seciliyse temizler, degilse tamamlar: tek dugmeyle iki
+            // yonlu, ayri bir "temizle" dugmesine gerek kalmiyor.
+            if (_draft.length == 7) {
+              _draft.clear();
+            } else {
+              _draft.addAll([for (var day = 1; day <= 7; day++) day]);
+            }
+          }),
+          child: Text(l10n.select_all),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.cancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _draft),
+          child: Text(l10n.save),
+        ),
+      ],
+    );
   }
 }

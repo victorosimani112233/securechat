@@ -300,6 +300,8 @@
   "repeat_daily": "Her gün",
   "repeat_custom": "Özel",
   "weekdays_short": "Pzt,Sal,Çar,Per,Cum,Cmt,Paz",
+  "schedule_days_label": "Günler",
+  "schedule_days_empty": "Gün seçin",
   "delivery_time": "Gönderim saati",
   "message_content": "Mesaj içeriği",
   "recipients": "Alıcılar",

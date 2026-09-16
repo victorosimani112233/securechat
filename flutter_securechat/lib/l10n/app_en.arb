@@ -300,6 +300,8 @@
   "repeat_daily": "Daily",
   "repeat_custom": "Custom",
   "weekdays_short": "Mon,Tue,Wed,Thu,Fri,Sat,Sun",
+  "schedule_days_label": "Days",
+  "schedule_days_empty": "Select days",
   "delivery_time": "Delivery time",
   "message_content": "Message content",
   "recipients": "Recipients",
