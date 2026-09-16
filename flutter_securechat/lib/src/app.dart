@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'features/auth/auth_screen.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'features/backup/backup_screen.dart';
-import 'features/bulk/bulk_message_screen.dart';
 import 'features/calls/call_screen.dart';
 import 'features/calls/call_readiness_screen.dart';
 import 'features/calls/ongoing_call_bar.dart';
@@ -15,6 +14,7 @@ import 'features/contacts/contacts_screen.dart';
 import 'features/export/export_history_screen.dart';
 import 'features/groups/group_info_screen.dart';
 import 'features/onboarding/launch_flow.dart';
+import 'features/settings/about_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/auto_download_screen.dart';
 import 'features/settings/storage_usage_screen.dart';
@@ -143,7 +143,6 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
           '/launch': (_) => const LaunchScreen(),
           '/onboarding': (_) => const OnboardingScreen(),
           '/permissions': (_) => const PermissionWalkthroughScreen(),
-          '/bulk-message': (_) => const BulkMessageScreen(),
           '/auth': (_) => const AuthScreen(),
           '/': (_) => const MainShell(),
           '/chat': (_) => const ChatScreen(),
@@ -157,6 +156,7 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
           '/group-info': (_) => const GroupInfoScreen(),
           '/auto-download': (_) => const AutoDownloadScreen(),
           '/storage-usage': (_) => const StorageUsageScreen(),
+          '/about': (_) => const AboutScreen(),
           '/chat-info': (_) => const ChatInfoScreen(),
         },
         initialRoute: '/launch',

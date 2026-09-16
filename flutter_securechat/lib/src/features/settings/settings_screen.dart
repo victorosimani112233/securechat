@@ -161,12 +161,6 @@ class SettingsScreen extends StatelessWidget {
               onTap: () => Navigator.pushNamed(context, '/scheduled-messages'),
             ),
             _tile(
-              Icons.send_to_mobile_outlined,
-              l10n.settings_bulk_message,
-              l10n.settings_bulk_message_desc,
-              onTap: () => Navigator.pushNamed(context, '/bulk-message'),
-            ),
-            _tile(
               Icons.sd_storage_outlined,
               l10n.settings_storage_usage,
               l10n.settings_storage_desc,
@@ -179,11 +173,10 @@ class SettingsScreen extends StatelessWidget {
               onTap: () => Navigator.pushNamed(context, '/backup'),
             ),
             _tile(
-              Icons.article_outlined,
-              l10n.settings_open_source_licenses,
-              l10n.settings_open_source_licenses_desc,
-              onTap: () =>
-                  showLicensePage(context: context, applicationName: 'Elçim'),
+              Icons.info_outline,
+              l10n.settings_about,
+              l10n.settings_about_desc,
+              onTap: () => Navigator.pushNamed(context, '/about'),
             ),
             const Divider(),
             ListTile(

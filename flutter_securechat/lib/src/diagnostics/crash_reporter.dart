@@ -114,6 +114,10 @@ class PrivacyCrashReporter implements CrashReporter {
   final Directory _directory;
   final DiagnosticsPlatformGateway _platform;
   final CrashMetadata _metadata;
+
+  /// Cihaz ve surum bilgisi. Hakkinda sayfasi surumu buradan okuyor;
+  /// ayri bir paket eklemekten kacinmak icin var olan kaynak kullaniliyor.
+  CrashMetadata get metadata => _metadata;
   final int maximumFiles;
   final Map<String, Object> _customKeys = {};
   String? _userHash;

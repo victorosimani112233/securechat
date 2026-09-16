@@ -1470,6 +1470,18 @@ abstract class AppLocalizations {
   /// **'Mon,Tue,Wed,Thu,Fri,Sat,Sun'**
   String get weekdays_short;
 
+  /// No description provided for @schedule_days_label.
+  ///
+  /// In en, this message translates to:
+  /// **'Days'**
+  String get schedule_days_label;
+
+  /// No description provided for @schedule_days_empty.
+  ///
+  /// In en, this message translates to:
+  /// **'Select days'**
+  String get schedule_days_empty;
+
   /// No description provided for @delivery_time.
   ///
   /// In en, this message translates to:
@@ -3041,6 +3053,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Review the software licenses included in this build.'**
   String get settings_open_source_licenses_desc;
+
+  /// No description provided for @settings_about.
+  ///
+  /// In en, this message translates to:
+  /// **'About'**
+  String get settings_about;
+
+  /// No description provided for @settings_about_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Version, security notes and licenses'**
+  String get settings_about_desc;
+
+  /// No description provided for @about_security_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Security'**
+  String get about_security_title;
+
+  /// No description provided for @about_security_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages are end-to-end encrypted with the Signal Protocol. Message content never reaches the server. The local database is encrypted with SQLCipher.'**
+  String get about_security_body;
+
+  /// No description provided for @about_version.
+  ///
+  /// In en, this message translates to:
+  /// **'Version'**
+  String get about_version;
 
   /// No description provided for @missed_call.
   ///

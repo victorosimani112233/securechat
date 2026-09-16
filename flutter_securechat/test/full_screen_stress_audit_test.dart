@@ -31,7 +31,6 @@ const _group = Conversation(
 const _routes = <String, Object?>{
   '/onboarding': null,
   '/permissions': null,
-  '/bulk-message': null,
   '/auth': null,
   '/contacts': null,
   '/call-readiness': null,
@@ -40,6 +39,7 @@ const _routes = <String, Object?>{
   '/backup': null,
   '/auto-download': null,
   '/storage-usage': null,
+  '/about': null,
   '/chat': _conversation,
   '/chat-info': _conversation,
   '/export-history': _conversation,

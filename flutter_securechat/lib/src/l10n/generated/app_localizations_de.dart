@@ -735,6 +735,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get weekdays_short => 'Mon,Tue,Wed,Thu,Fri,Sat,Sun';
 
   @override
+  String get schedule_days_label => 'Days';
+
+  @override
+  String get schedule_days_empty => 'Select days';
+
+  @override
   String get delivery_time => 'Delivery time';
 
   @override
@@ -1615,6 +1621,22 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get settings_open_source_licenses_desc =>
       'Review the software licenses included in this build.';
+
+  @override
+  String get settings_about => 'About';
+
+  @override
+  String get settings_about_desc => 'Version, security notes and licenses';
+
+  @override
+  String get about_security_title => 'Security';
+
+  @override
+  String get about_security_body =>
+      'Messages are end-to-end encrypted with the Signal Protocol. Message content never reaches the server. The local database is encrypted with SQLCipher.';
+
+  @override
+  String get about_version => 'Version';
 
   @override
   String get missed_call => 'Verpasster Anruf';

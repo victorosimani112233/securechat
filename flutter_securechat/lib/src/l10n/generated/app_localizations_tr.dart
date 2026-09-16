@@ -735,6 +735,12 @@ class AppLocalizationsTr extends AppLocalizations {
   String get weekdays_short => 'Pzt,Sal,Çar,Per,Cum,Cmt,Paz';
 
   @override
+  String get schedule_days_label => 'Günler';
+
+  @override
+  String get schedule_days_empty => 'Gün seçin';
+
+  @override
   String get delivery_time => 'Gönderim saati';
 
   @override
@@ -1614,6 +1620,22 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get settings_open_source_licenses_desc =>
       'Bu derlemeye dahil edilen yazılım lisanslarını inceleyin.';
+
+  @override
+  String get settings_about => 'Hakkında';
+
+  @override
+  String get settings_about_desc => 'Sürüm, güvenlik notları ve lisanslar';
+
+  @override
+  String get about_security_title => 'Güvenlik';
+
+  @override
+  String get about_security_body =>
+      'Mesajlar Signal Protokolü ile uçtan uca şifrelenir. Mesaj içeriği sunucuya hiçbir zaman ulaşmaz. Yerel veritabanı SQLCipher ile şifrelenir.';
+
+  @override
+  String get about_version => 'Sürüm';
 
   @override
   String get missed_call => 'Kaçırılan arama';

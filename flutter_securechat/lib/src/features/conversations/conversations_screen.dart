@@ -15,7 +15,7 @@ import '../../widgets/azure_empty_state.dart';
 
 enum ConversationFilter { none, unread, groups, favorites }
 
-enum _ConversationMenuAction { newChat, newGroup, bulk, scheduled }
+enum _ConversationMenuAction { newChat, newGroup, scheduled }
 
 class ConversationsScreen extends StatefulWidget {
   const ConversationsScreen({super.key, this.embedded = false});
@@ -117,11 +117,6 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                         _ConversationMenuAction.newGroup,
                         Icons.group_add_outlined,
                         context.l10n.conv_new_group,
-                      ),
-                      _menuItem(
-                        _ConversationMenuAction.bulk,
-                        Icons.forum_outlined,
-                        context.l10n.conv_bulk_message,
                       ),
                       _menuItem(
                         _ConversationMenuAction.scheduled,
@@ -689,8 +684,6 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       case _ConversationMenuAction.newChat:
       case _ConversationMenuAction.newGroup:
         Navigator.pushNamed(context, '/contacts');
-      case _ConversationMenuAction.bulk:
-        Navigator.pushNamed(context, '/bulk-message');
       case _ConversationMenuAction.scheduled:
         Navigator.pushNamed(context, '/scheduled-messages');
     }
