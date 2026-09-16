@@ -7,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../incoming/incoming_message_handler.dart';
 import '../media/call_models.dart';
 import '../services/session_store.dart';
+import '../settings/settings_service.dart';
 import '../services/async_operation_tracker.dart';
 
 class LocalMessageNotification {
@@ -19,6 +20,7 @@ class LocalMessageNotification {
     required this.count,
     required this.silent,
     required this.hideOnLockScreen,
+    this.sound,
   });
 
   final int id;
@@ -29,6 +31,12 @@ class LocalMessageNotification {
   final int count;
   final bool silent;
   final bool hideOnLockScreen;
+
+  /// Paketlenmis ses dosyasinin adi (uzantisiz), ya da null.
+  ///
+  /// null iki durumda gelir: bildirim sessiz, ya da kullanici cihazin
+  /// varsayilan sesini secmis.
+  final String? sound;
 }
 
 class NotificationDismissal {
@@ -88,6 +96,23 @@ class PluginLocalNotificationPresenter
   static const highChannelId = 'elcim_messages_v4';
   static const lowChannelId = 'elcim_messages_low_v1';
   static const groupKey = 'elcim_messages';
+
+  /// Her ses icin AYRI kanal.
+  ///
+  /// Android 8'den beri bir kanalin sesi olusturulduktan SONRA kodla
+  /// degistirilemiyor. Tek kanal kullanilsaydi ses degistirmek icin kanali
+  /// silip yeniden kurmak gerekirdi — ustelik ayni kimlikle degil, cunku
+  /// Android silinen kanalin ayarlarini hatirliyor ve eski sesle geri
+  /// getiriyor. Ses basina kalici bir kanal bu dansi tamamen gereksiz
+  /// kiliyor: kullanici sesi degistirdiginde yalnizca hedef kanal degisiyor.
+  ///
+  /// Yan faydasi: kullanici her sesi sistem ayarlarindan ayrica
+  /// ozellestirebiliyor ve o ayar kaliciligini koruyor.
+  static String _channelFor(LocalMessageNotification notification) {
+    if (notification.silent) return lowChannelId;
+    final sound = notification.sound;
+    return sound == null ? highChannelId : 'elcim_messages_$sound';
+  }
 
   final FlutterLocalNotificationsPlugin _plugin;
   final ServiceStrings _strings;
@@ -165,7 +190,7 @@ class PluginLocalNotificationPresenter
 
   @override
   Future<void> show(LocalMessageNotification notification) async {
-    final channelId = notification.silent ? lowChannelId : highChannelId;
+    final channelId = _channelFor(notification);
     final l10n = await _strings.load();
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
@@ -180,6 +205,9 @@ class PluginLocalNotificationPresenter
         importance: notification.silent ? Importance.low : Importance.high,
         priority: notification.silent ? Priority.low : Priority.high,
         playSound: !notification.silent,
+        sound: notification.silent || notification.sound == null
+            ? null
+            : RawResourceAndroidNotificationSound(notification.sound),
         enableVibration: !notification.silent,
         silent: notification.silent,
         groupKey: groupKey,
@@ -195,6 +223,10 @@ class PluginLocalNotificationPresenter
         presentList: true,
         presentBadge: true,
         presentSound: !notification.silent,
+        // iOS'ta ses dosya adiyla verilir; uzanti sart.
+        sound: notification.silent || notification.sound == null
+            ? null
+            : '${notification.sound}.wav',
         threadIdentifier: notification.conversationId,
         categoryIdentifier: 'securechat_message',
       ),
@@ -339,10 +371,13 @@ class MessageNotificationCoordinator {
     final total = _counts.values.fold<int>(0, (sum, value) => sum + value);
     final privacy = !_session.showNotificationContent;
     final conversationSilent = event.isMuted && !event.isMention;
+    final preference = NotificationSoundPreference.fromStorage(
+      _session.notificationSound,
+    );
     final silent =
         _isForeground ||
         conversationSilent ||
-        _session.notificationSound == 'silent';
+        preference == NotificationSoundPreference.silent;
     await _presenter.show(
       LocalMessageNotification(
         id: privacy ? privacyNotificationId : _stableId(event.conversationId),
@@ -357,6 +392,7 @@ class MessageNotificationCoordinator {
         count: privacy ? total : _counts[event.conversationId]!,
         silent: silent,
         hideOnLockScreen: privacy,
+        sound: preference.asset,
       ),
     );
   }

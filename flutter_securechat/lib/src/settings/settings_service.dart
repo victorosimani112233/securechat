@@ -13,7 +13,42 @@ enum AppThemePreference { system, light, dark }
 
 enum AppLanguagePreference { system, tr, en, de, ar }
 
-enum NotificationSoundPreference { defaultSound, silent }
+/// Bildirim sesi secenegi.
+///
+/// `asset` paketlenmis ses dosyasinin adi (uzantisiz). Ayni dosya iki
+/// platformda da kullaniliyor: iOS `ios/Runner/Sounds/<asset>.wav`,
+/// Android `res/raw/<asset>.wav`.
+///
+/// `silent` ve `system` disa bir dosya tasimaz: birincisi ses calmaz,
+/// ikincisi cihazin varsayilan bildirim sesini kullanir.
+enum NotificationSoundPreference {
+  silent(null),
+  system(null),
+  chime('elcim_chime'),
+  bell('elcim_bell'),
+  tap('elcim_tap'),
+  warm('elcim_warm'),
+  soft('elcim_soft'),
+  melody('elcim_melody'),
+  flow('elcim_flow'),
+  sparkle('elcim_sparkle'),
+  beep('elcim_beep'),
+  ding('elcim_ding');
+
+  const NotificationSoundPreference(this.asset);
+
+  /// Paketlenmis dosyanin adi; `silent` ve `system` icin null.
+  final String? asset;
+
+  /// Kalici saklamada kullanilan ad. Eski kayitlarda 'default' yaziyordu.
+  static NotificationSoundPreference fromStorage(String value) {
+    if (value == 'default') return system;
+    for (final option in values) {
+      if (option.name == value) return option;
+    }
+    return system;
+  }
+}
 
 class AppSettingsState {
   const AppSettingsState({
@@ -97,9 +132,9 @@ class SettingsService {
       _ => AppLanguagePreference.system,
     },
     showNotificationContent: _session.showNotificationContent,
-    notificationSound: _session.notificationSound == 'silent'
-        ? NotificationSoundPreference.silent
-        : NotificationSoundPreference.defaultSound,
+    notificationSound: NotificationSoundPreference.fromStorage(
+      _session.notificationSound,
+    ),
     useDoodleBackground: _session.useDoodleBackground,
     fullscreenMode: _session.fullscreenMode,
     scheduledMessagesEnabled: _session.scheduledMessagesEnabled,
@@ -138,9 +173,7 @@ class SettingsService {
   }
 
   Future<void> setNotificationSound(NotificationSoundPreference value) async {
-    _session.notificationSound = value == NotificationSoundPreference.silent
-        ? 'silent'
-        : 'default';
+    _session.notificationSound = value.name;
     await _persistAndEmit();
   }
 

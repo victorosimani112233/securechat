@@ -39,6 +39,7 @@ const _routes = <String, Object?>{
   '/backup': null,
   '/auto-download': null,
   '/storage-usage': null,
+  '/bulk-message': null,
   '/about': null,
   '/chat': _conversation,
   '/chat-info': _conversation,

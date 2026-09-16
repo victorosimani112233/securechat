@@ -161,9 +161,6 @@ void main() {
       'app/src/main/java/com/securechat/app/diagnostics/HybridLegacyTelemetry.kt',
       'media/src/main/java/com/securechat/media/BackgroundBlurProcessor.kt',
       'network/src/main/java/com/securechat/network/P2PMessageTransport.kt',
-      // Toplu mesaj EKRANI 2026-09-16'da urun karariyla kaldirildi. Servis
-      // ve testi duruyor; ozellik geri istenirse mantik hazir.
-      'app/src/main/java/com/securechat/app/ui/screen/BulkMessageScreen.kt',
     });
   });
 

@@ -76,8 +76,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Yeni Sohbet'), findsOneWidget);
     expect(find.text('Yeni Grup'), findsOneWidget);
-    // Toplu mesaj 2026-09-16'da urun karariyla menuden kaldirildi.
-    expect(find.text('Toplu Mesaj'), findsNothing);
+    expect(find.text('Toplu Mesaj'), findsOneWidget);
     expect(find.text('Planlı Mesajlar'), findsOneWidget);
   });
 

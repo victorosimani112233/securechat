@@ -14,6 +14,7 @@ import 'features/contacts/contacts_screen.dart';
 import 'features/export/export_history_screen.dart';
 import 'features/groups/group_info_screen.dart';
 import 'features/onboarding/launch_flow.dart';
+import 'features/bulk/bulk_message_screen.dart';
 import 'features/settings/about_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/auto_download_screen.dart';
@@ -155,6 +156,7 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
           '/export-history': (_) => const ExportHistoryScreen(),
           '/group-info': (_) => const GroupInfoScreen(),
           '/auto-download': (_) => const AutoDownloadScreen(),
+          '/bulk-message': (_) => const BulkMessageScreen(),
           '/storage-usage': (_) => const StorageUsageScreen(),
           '/about': (_) => const AboutScreen(),
           '/chat-info': (_) => const ChatInfoScreen(),
