@@ -35,10 +35,33 @@ else
   subject_alt="DNS:$host"
 fi
 
+# Var olan sertifika ayni host icinse DOKUNMA.
+#
+# Her kosumda yeniden uretmek pin'i degistiriyor. Uygulama pin'i derleme
+# aninda gomuyor; sertifika sonradan yenilenirse uygulamadaki pin eskiyor ve
+# baglanti "baglanti kurulamadi" diye sessizce dusuyor — sebebi hicbir yerde
+# gorunmuyor. Yeniden uretmek icin FORCE=1 verin.
+# `-addext` sozdizimi `IP:1.2.3.4`, ama `x509 -text` ciktisi
+# `IP Address:1.2.3.4` yaziyor. Ikisini birbirine cevirmeden yapilan
+# karsilastirma HER ZAMAN basarisiz oluyor ve sertifika sessizce yeniden
+# uretiliyordu — yani pin her kosumda degisiyordu.
+matches_host() {
+  local certificate="$tls_directory/$1.cert.pem"
+  [[ -f "$certificate" ]] || return 1
+  local printed="${subject_alt/IP:/IP Address:}"
+  openssl x509 -in "$certificate" -noout -text 2>/dev/null \
+    | grep -q "$printed"
+}
+
 generate() {
   local name="$1"
   local certificate="$tls_directory/$name.cert.pem"
   local key="$tls_directory/$name.key.pem"
+
+  if [[ "${FORCE:-0}" != "1" ]] && matches_host "$name"; then
+    echo "Var olan sertifika kullaniliyor: $name ($subject_alt)"
+    return
+  fi
 
   openssl req -x509 -newkey rsa:2048 -nodes \
     -keyout "$key" -out "$certificate" \
