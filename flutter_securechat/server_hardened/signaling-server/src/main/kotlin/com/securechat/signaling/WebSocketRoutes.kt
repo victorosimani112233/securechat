@@ -38,6 +38,7 @@ internal fun isPlaintextChatControlType(type: String?): Boolean =
     type in PLAINTEXT_CHAT_CONTROL_TYPES
 
 internal const val SERVICE_MESSAGE_ACK_TYPE = "message_ack"
+internal const val DELIVERY_TRANSPORT_ACK_TYPE = "delivery_transport_ack"
 
 internal fun isServerOnlyFrameType(type: String?): Boolean =
     type == SERVICE_MESSAGE_ACK_TYPE
@@ -417,9 +418,15 @@ private suspend fun handleMessage(
             logger.warn("[!] Timestamp skew asildi — server saatine esitlendi")
         }
 
+        val rawType = rawElement["type"]?.jsonPrimitive?.contentOrNull
         val element = kotlinx.serialization.json.buildJsonObject {
             rawElement.forEach { (k, v) ->
-                if (k != "senderId" && k != "timestamp") put(k, v)
+                // deliveryToken yalniz sunucunun uretebildigi queue capability'sidir.
+                // Teslim ACK'i disinda client'in ayni adli alani route'a tasinmaz.
+                if (k != "senderId" &&
+                    k != "timestamp" &&
+                    (k != "deliveryToken" || rawType == DELIVERY_TRANSPORT_ACK_TYPE)
+                ) put(k, v)
             }
             put("senderId", kotlinx.serialization.json.JsonPrimitive(senderId))
             put("timestamp", kotlinx.serialization.json.JsonPrimitive(nowMs))
@@ -434,6 +441,14 @@ private suspend fun handleMessage(
         // in-flight kaydini sahte ACK ile erken sildirebilir.
         if (isServerOnlyFrameType(type)) {
             logger.warn("[!] Server-only frame client tarafindan reddedildi")
+            return
+        }
+
+        if (type == DELIVERY_TRANSPORT_ACK_TYPE) {
+            val deliveryToken = element["deliveryToken"]?.jsonPrimitive?.contentOrNull
+            if (deliveryToken == null || !connectionManager.acknowledgeDelivery(senderId, deliveryToken)) {
+                AuditLog.log(eventType = "DELIVERY_ACK_REJECTED")
+            }
             return
         }
 
@@ -560,7 +575,7 @@ private suspend fun handleMessage(
             if (shouldCreateSfu) {
                 sfuScope.launch {
                     try {
-                        JanusOrchestrator.createVideoRoom(groupId, activeCall.participants.size + 5)
+                        JanusOrchestrator.createVideoRoom(groupId)
                         val roomInfo = JanusOrchestrator.getRoomInfo(groupId)
                         if (roomInfo != null) {
                             GroupCallSessionStore.updateSfuInfo(

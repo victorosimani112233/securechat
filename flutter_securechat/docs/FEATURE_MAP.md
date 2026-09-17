@@ -25,7 +25,7 @@
 | Local crypto | Hazir | AES-GCM + HKDF yalniz Keystore/Keychain ile cihaz-ici storage/session wrapping ve call-key icin kullanilir; production peer mesajinda local AES fallback yoktur. |
 | Signal Protocol / crypto state | Hazir | GPLv3 Signal V3 Double Ratchet, Curve25519 identity/prekey, TOFU, kalici protobuf session record, SenderKey dagitim/rotation ve Kotlin Java 2.8.1 ile iki yonlu direct/group wire capraz testleri tamam. |
 | Local storage | Hazir | Kotlin storage entity/DAO gruplari encrypted `SecureChatDatabase` ile kalicidir. Android APK upgrade'inde Room/SQLCipher v1-v22 DB, Keystore local identity ve tum Signal BLOB'lari atomik/idempotent native importer ile kayipsiz tasinir. |
-| Offline queue/recovery | Hazir | Kuyruk yalniz encrypted wire sinyali kabul eder, reconnect'te sirali flush eder; eski SENDING mesajlar timeout sonrasi FAILED olur. |
+| Offline queue/recovery | Hazir | Mesaj ciphertext'i gonderimden once encrypted local outbox'a yazilir ve E2EE receipt'e kadar korunur. Hardened server online/offline teslimi transport ACK'e kadar persistence-kapali Redis RAM'de kisa TTL ile tutar; retry idempotenttir, TTL yenilemez ve Signal sirasi korunur. FCM/APNs yalniz generic wake-up'tir. Ayrinti: `PRIVACY_FIRST_RELIABLE_DELIVERY.md`. |
 | Mesaj gonderim use case | Hazir | MSGID/reply/expiry/view-once/mention/poll prefix sirasi, tek encrypt, retry ve no-plaintext-fallback davranisi tasindi. |
 | Android screen protection | Native bridge hazir | `FLAG_SECURE` MainActivity icinde etkin. |
 | iOS privacy overlay | Native bridge hazir | Screenshot engelleme yerine app switcher mask + screenshot event uygulanir. |

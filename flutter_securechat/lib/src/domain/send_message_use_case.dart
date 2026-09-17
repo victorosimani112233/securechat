@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import '../chat/conversation_preview.dart';
@@ -6,6 +7,7 @@ import '../core/signal_message.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
 import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
+import '../network/network_resilience.dart';
 import '../services/crypto_service.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
@@ -42,6 +44,7 @@ class SendMessageUseCase {
     this.maxRetryCount = 3,
     this.retryDelay = const Duration(seconds: 2),
     Random? random,
+    OfflineMessageQueue? reliableQueue,
   }) : _database = database,
        _signaling = signaling,
        _session = session,
@@ -49,6 +52,7 @@ class SendMessageUseCase {
        _groupControls =
            groupControls ??
            PrivateGroupControlSender(crypto: crypto, signaling: signaling),
+       _reliableQueue = reliableQueue,
        _random = random ?? Random.secure();
 
   final SecureChatDatabase _database;
@@ -56,6 +60,7 @@ class SendMessageUseCase {
   final SessionStore _session;
   final CryptoService _crypto;
   final PrivateGroupControlSender _groupControls;
+  final OfflineMessageQueue? _reliableQueue;
   final Random _random;
   final int maxRetryCount;
   final Duration retryDelay;
@@ -140,6 +145,8 @@ class SendMessageUseCase {
           recipients: members,
           action: 'CREATE',
           timestamp: now,
+          sendSignal: (signal) =>
+              _sendEncryptedDependency(signal, messageId: messageId),
         );
         await _distributeSenderKey(
           crypto: _crypto,
@@ -147,6 +154,7 @@ class SendMessageUseCase {
           groupId: request.conversationId,
           members: members,
           timestamp: now,
+          messageId: messageId,
         );
       } else if (isGroup) {
         final members = _members(conversation?.groupMembers);
@@ -158,6 +166,8 @@ class SendMessageUseCase {
           recipients: members,
           action: 'CREATE',
           timestamp: now,
+          sendSignal: (signal) =>
+              _sendEncryptedDependency(signal, messageId: messageId),
         );
       }
       final wireEnvelope = isGroup && _crypto is SignalProtocolCryptoService
@@ -198,6 +208,7 @@ class SendMessageUseCase {
                 recipientId: recipientId,
                 plaintext: routePlaintext,
               ),
+              deliveryId: _newDeliveryId(),
             ),
           );
         }
@@ -209,11 +220,13 @@ class SendMessageUseCase {
             recipientId: request.conversationId,
             timestamp: now,
             envelope: wireEnvelope,
+            deliveryId: _newDeliveryId(),
           ),
         ];
       }
     } catch (_) {
-      await _database.messages.updateStatus(
+      await _database.pendingSignals.deleteForMessage(messageId);
+      await _database.messages.updateStatusIfSending(
         messageId,
         StorageMessageStatus.failed,
       );
@@ -223,10 +236,14 @@ class SendMessageUseCase {
     for (var attempt = 0; attempt <= maxRetryCount; attempt++) {
       var allSent = true;
       for (final signal in signals) {
-        if (!await _signaling.send(signal)) allSent = false;
+        final sent = await _sendEncryptedDependency(
+          signal as EncryptedSignalMessage,
+          messageId: messageId,
+        );
+        if (!sent) allSent = false;
       }
       if (allSent) {
-        await _database.messages.updateStatus(
+        await _database.messages.updateStatusIfSending(
           messageId,
           StorageMessageStatus.sent,
         );
@@ -238,7 +255,7 @@ class SendMessageUseCase {
       }
     }
 
-    await _database.messages.updateStatus(
+    await _database.messages.updateStatusIfSending(
       messageId,
       StorageMessageStatus.failed,
     );
@@ -251,6 +268,7 @@ class SendMessageUseCase {
     required String groupId,
     required List<String> members,
     required DateTime timestamp,
+    required String messageId,
   }) async {
     final distribution = await crypto.createSenderKeyDistribution(
       groupId: groupId,
@@ -261,18 +279,38 @@ class SendMessageUseCase {
         recipientId: member,
         plaintext: distribution,
       );
-      final sent = await _signaling.send(
+      final sent = await _sendEncryptedDependency(
         EncryptedSignalMessage(
           senderId: senderId,
           recipientId: member,
           timestamp: timestamp,
           envelope: encrypted,
         ),
+        messageId: messageId,
       );
       if (!sent) {
         throw StateError('SenderKey distribution failed for $member');
       }
     }
+  }
+
+  Future<bool> _sendEncryptedDependency(
+    EncryptedSignalMessage signal, {
+    required String messageId,
+  }) {
+    final identified = signal.deliveryId == null
+        ? EncryptedSignalMessage(
+            senderId: signal.senderId,
+            recipientId: signal.recipientId,
+            timestamp: signal.timestamp,
+            envelope: signal.envelope,
+            deliveryId: _newDeliveryId(),
+          )
+        : signal;
+    final reliableQueue = _reliableQueue;
+    return reliableQueue == null
+        ? _signaling.send(identified)
+        : reliableQueue.sendReliably(identified, messageId: messageId);
   }
 
   String _newMessageId(DateTime now) {
@@ -282,6 +320,10 @@ class SendMessageUseCase {
     ).join();
     return '${now.microsecondsSinceEpoch}-$randomPart';
   }
+
+  String _newDeliveryId() => base64UrlEncode(
+    List<int>.generate(32, (_) => _random.nextInt(256), growable: false),
+  ).replaceAll('=', '');
 }
 
 String _buildEnvelopeContent({

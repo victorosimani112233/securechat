@@ -9,6 +9,33 @@ basarisiz olan bir test yazildiginda, (3) fix sonrasi o test ve tam offline
 paket yesil oldugunda `DONE` olur. Urun karari veya dis altyapi gerektiren
 kalemler `EXTERNAL` isaretlenir ve gerekcesi yazilir.
 
+## 2026-09-17 — Gizlilik oncelikli guvenilir mesaj teslimi
+
+- `encrypted_message`, alici online olsa bile kalici cihaz-isleme ACK'i gelene
+  kadar persistence-kapali Redis RAM'de tutulur. Socket write ve FCM/APNs
+  kabul yaniti teslim sayilmaz.
+- Client 256-bit `deliveryId` uretir; server sender+recipient+ID HMAC'inden
+  opak `deliveryToken` turetir. Client token enjeksiyonu temizlenir ve ACK
+  authenticated alici hesabina baglanir.
+- Redis Lua adimi enqueue/idempotency/siralama/TTL'yi atomik uygular. Retry
+  mevcut kaydin TTL'ini yenilemez; ciphertext basina ayri `SETEX`, ayni
+  alicinin yeni trafiginin eski zarfi uzatmasini engeller. Hizli grup
+  kontrolu, SenderKey ve mesaj zarflari Signal ratchet sirasini korur.
+- Gonderen ciphertext'i socket'ten once encrypted local outbox'a yazar ve
+  yalniz E2EE `DELIVERED`/`READ` receipt ile siler. Alici processed-token
+  dedup kaydini receipt ag cagrısından once kalici yazar; reconnect replay'i
+  ratchet'i ikinci kez ilerletmez.
+- Server retention varsayilan 15 dakika, sert ust sinir 1 saattir; client
+  outbox ve dedup 30 gunle sinirlidir. PostgreSQL mailbox eklenmedi.
+- Dis Redis AES-GCM zarfi server anahtariyla acilabilir; ic Signal ciphertext
+  cihaz private key'leri olmadan acilamaz. Trafik metadatasi ve TOFU ilk-temas
+  siniri `PRIVACY_FIRST_RELIABLE_DELIVERY.md` icinde aciklanir.
+
+Kanit: 420/420 Flutter testi, tam `:signaling-server:test`, temiz
+`flutter analyze`, iOS readiness ve Codemagic privacy audit PASS. Redis
+entegrasyon testleri idempotency, TTL yenilememe, sira, yanlis-hesap ACK'i,
+hesap silme temizligi ve ACK oncesi reconnect replay'ini kapsar.
+
 ## P0 — release blocklayicilari
 
 | ID | Konu | Durum | Not |
@@ -573,11 +600,11 @@ yapilanlar:
   uca sifreliyse operator beyani aramaz, degilse arar. Yetenek wire'da
   opsiyonel `mediaE2ee` alanidir; eksikse false — eski istemci sessizce
   SFU'ya gecirilmez.
-- **Katilimci tavani.** SFU kullanilamiyorsa mesh tavani (VIDEO 6, VOICE 10),
-  kullanilabiliyorsa 32. Kontrol per-group lock altinda; iki es zamanli
-  katilim tavani birlikte asamaz. Tavan dolunca `GROUP_CALL_CAPACITY_REACHED`
-  ile reddedilir — mesh'te sessizce kullanilamaz hale gelen arama yerine
-  ongorulebilir ret.
+- **Katilimci tavani.** Arayan dahil mutlak tavan 8'dir. SFU kullanilamiyorsa
+  video mesh tavani 6, ses mesh tavani 8'dir. Kontrol per-group lock altinda;
+  iki es zamanli katilim tavani birlikte asamaz. Tavan dolunca
+  `GROUP_CALL_CAPACITY_REACHED` ile reddedilir — mesh'te sessizce
+  kullanilamaz hale gelen arama yerine ongorulebilir ret.
 - **Concurrency.** `ActiveCall.participants` immutable oldu; onceki
   `MutableSet` concurrent map icinde thread-safe degildi (P1-13'un cekirdegi).
 - **Room ID.** `groupId.hashCode()` yerine aktif odalarla cakismayan 62-bit

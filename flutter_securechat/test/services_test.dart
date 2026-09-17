@@ -50,6 +50,19 @@ void main() {
   test('signaling codec covers server and group call messages', () {
     final now = DateTime.fromMillisecondsSinceEpoch(1234);
     final messages = <SignalMessage>[
+      EncryptedSignalMessage(
+        senderId: 'me',
+        recipientId: 'peer',
+        timestamp: now,
+        envelope: 'signal-ciphertext',
+        deliveryId: List.filled(43, 'A').join(),
+        deliveryToken: List.filled(43, 'B').join(),
+      ),
+      DeliveryTransportAckSignal(
+        senderId: 'me',
+        timestamp: now,
+        deliveryToken: List.filled(43, 'B').join(),
+      ),
       AdminEncryptedLogSignal(
         senderId: 'me',
         timestamp: now,

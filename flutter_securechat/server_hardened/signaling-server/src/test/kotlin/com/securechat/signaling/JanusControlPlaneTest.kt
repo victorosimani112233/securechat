@@ -71,7 +71,7 @@ class JanusControlPlaneTest {
     fun `creating a room establishes a session and a videoroom handle`() = runBlocking {
         val group = groupId()
 
-        val roomId = JanusOrchestrator.createVideoRoom(group, maxParticipants = 8)
+        val roomId = JanusOrchestrator.createVideoRoom(group)
 
         assertTrue(roomId > 0)
         val kinds = janus.received.map { it["janus"]?.jsonPrimitive?.content }
@@ -100,7 +100,7 @@ class JanusControlPlaneTest {
     fun `room creation carries the admin key and hardened media settings`() = runBlocking {
         val group = groupId()
 
-        JanusOrchestrator.createVideoRoom(group, maxParticipants = 12)
+        JanusOrchestrator.createVideoRoom(group)
 
         val create = janus.received.first { request ->
             request["body"]?.jsonObject?.get("request")?.jsonPrimitive?.content == "create"
@@ -109,7 +109,7 @@ class JanusControlPlaneTest {
         assertNotNull(body["admin_key"])
         // Kayit acik olsaydi medya sunucu diskine yazilirdi.
         assertEquals("false", body["record"]!!.jsonPrimitive.content)
-        assertEquals("12", body["publishers"]!!.jsonPrimitive.content)
+        assertEquals("8", body["publishers"]!!.jsonPrimitive.content)
         JanusOrchestrator.destroyVideoRoom(group)
     }
 

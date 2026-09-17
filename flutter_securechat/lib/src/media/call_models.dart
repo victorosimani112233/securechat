@@ -1,5 +1,8 @@
 enum CallType { voice, video }
 
+/// Arayan dahil bir grup aramasinda bulunabilecek en fazla kisi sayisi.
+const int maxGroupCallParticipants = 8;
+
 enum CallDirection { incoming, outgoing }
 
 enum CallState {

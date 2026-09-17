@@ -265,7 +265,6 @@ object JanusOrchestrator {
      * Grup aramasi basladiginda cagrilir.
      *
      * @param groupId Grup kimlik numarasi
-     * @param maxParticipants Maksimum katilimci sayisi
      * @return Janus room ID
      */
     private const val ROOM_ID_ATTEMPTS = 16
@@ -285,7 +284,7 @@ object JanusOrchestrator {
         error("Janus room id could not be allocated without a collision")
     }
 
-    suspend fun createVideoRoom(groupId: String, maxParticipants: Int = 50): Long {
+    suspend fun createVideoRoom(groupId: String): Long {
         // Zaten varsa mevcut room'u don
         activeRooms[groupId]?.let { return it }
 
@@ -311,7 +310,7 @@ object JanusOrchestrator {
             putJsonObject("body") {
                 put("request", "create")
                 put("room", roomId)
-                put("publishers", maxParticipants)
+                put("publishers", SfuPolicy.MAX_PARTICIPANTS)
                 put("bitrate", 512000) // 512kbps max per publisher
                 put("fir_freq", 10)
                 put("videocodec", "vp8")

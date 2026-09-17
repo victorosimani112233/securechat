@@ -869,7 +869,7 @@
   "settings_about": "Hakkında",
   "settings_about_desc": "Sürüm, güvenlik notları ve lisanslar",
   "about_security_title": "Güvenlik",
-  "about_security_body": "Mesajlar Signal Protokolü ile uçtan uca şifrelenir. Mesaj içeriği sunucuya hiçbir zaman ulaşmaz. Yerel veritabanı SQLCipher ile şifrelenir.",
+  "about_security_body": "Mesajlar cihazdan çıkmadan önce Signal Protokolü ile uçtan uca şifrelenir ve ratchet her mesaj için yeni bir mesaj anahtarı üretir. Sunucu düz metni veya sohbet geçmişini saklamaz; teslim edilmemiş şifreli zarf yalnızca kısa süreli RAM kuyruğunda ACK ya da süre sonuna kadar tutulabilir. Yerel veritabanı SQLCipher ile şifrelenir.",
   "about_version": "Sürüm",
   "missed_call": "Kaçırılan arama",
   "missed_video_call": "Kaçırılan Görüntülü Arama",

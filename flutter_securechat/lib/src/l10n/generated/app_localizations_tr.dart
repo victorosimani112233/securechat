@@ -1702,7 +1702,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get about_security_body =>
-      'Mesajlar Signal Protokolü ile uçtan uca şifrelenir. Mesaj içeriği sunucuya hiçbir zaman ulaşmaz. Yerel veritabanı SQLCipher ile şifrelenir.';
+      'Mesajlar cihazdan çıkmadan önce Signal Protokolü ile uçtan uca şifrelenir ve ratchet her mesaj için yeni bir mesaj anahtarı üretir. Sunucu düz metni veya sohbet geçmişini saklamaz; teslim edilmemiş şifreli zarf yalnızca kısa süreli RAM kuyruğunda ACK ya da süre sonuna kadar tutulabilir. Yerel veritabanı SQLCipher ile şifrelenir.';
 
   @override
   String get about_version => 'Sürüm';

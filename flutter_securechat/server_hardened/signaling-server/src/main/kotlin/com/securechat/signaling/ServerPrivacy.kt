@@ -128,9 +128,35 @@ class PrivacyPrimitives(
     }
 
     fun queueKey(bucket: String, userId: String): String {
-        require(bucket == "message" || bucket == "file") { "Unknown queue bucket" }
+        require(bucket == "message" || bucket == "file" || bucket == "delivery") {
+            "Unknown queue bucket"
+        }
         return "offline_${bucket}_v2:${blindIndex("queue-$bucket", userId)}"
     }
+
+    fun queuePayloadKey(bucket: String, userId: String): String {
+        require(bucket == "delivery") { "Unknown queue payload bucket" }
+        return "offline_${bucket}_payload_v1:${blindIndex("queue-$bucket-payload", userId)}"
+    }
+
+    fun queueOrderKey(bucket: String, userId: String): String {
+        require(bucket == "delivery") { "Unknown queue order bucket" }
+        return "offline_${bucket}_order_v1:${blindIndex("queue-$bucket-order", userId)}"
+    }
+
+    fun queueItemKey(bucket: String, userId: String, deliveryToken: String): String {
+        require(bucket == "delivery") { "Unknown queue item bucket" }
+        return "offline_${bucket}_item_v1:" +
+            blindIndex("queue-$bucket-item", "$userId\u0000$deliveryToken")
+    }
+
+    /**
+     * Aliciya gosterilen teslim tokeni, gondericinin idempotency kimliginden
+     * turetilir. Boylece ayni retry ayni Redis kaydina duser; kotucul bir
+     * gonderici baska bir gondericinin tokenini secip kaydini ezemez.
+     */
+    fun deliveryToken(recipientId: String, senderId: String, deliveryId: String): String =
+        blindIndex("delivery-token", "$recipientId\u0000$senderId\u0000$deliveryId")
 
     fun registrationTokenUseKey(jti: String): String =
         "registration_token_used_v1:${blindIndex("registration-token", jti)}"
@@ -213,6 +239,14 @@ object ServerPrivacy {
     val config: PrivacyConfig get() = primitives.config
     fun blindIndex(namespace: String, value: String): String = primitives.blindIndex(namespace, value)
     fun queueKey(bucket: String, userId: String): String = primitives.queueKey(bucket, userId)
+    fun queuePayloadKey(bucket: String, userId: String): String =
+        primitives.queuePayloadKey(bucket, userId)
+    fun queueOrderKey(bucket: String, userId: String): String =
+        primitives.queueOrderKey(bucket, userId)
+    fun queueItemKey(bucket: String, userId: String, deliveryToken: String): String =
+        primitives.queueItemKey(bucket, userId, deliveryToken)
+    fun deliveryToken(recipientId: String, senderId: String, deliveryId: String): String =
+        primitives.deliveryToken(recipientId, senderId, deliveryId)
     fun registrationTokenUseKey(jti: String): String = primitives.registrationTokenUseKey(jti)
     fun activeCallKey(userA: String, userB: String): String = primitives.activeCallKey(userA, userB)
     fun activeCallIndexKey(userId: String): String = primitives.activeCallIndexKey(userId)

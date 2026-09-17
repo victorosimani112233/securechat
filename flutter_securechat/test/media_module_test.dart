@@ -286,6 +286,94 @@ void main() {
     },
   );
 
+  test('group call accepts exactly eight total participants', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.dispose);
+    final signaling = InMemorySignalingService();
+    await signaling.connect(
+      userId: 'me',
+      url: 'wss://test.invalid',
+      accessToken: 'token',
+    );
+    final manager = CallManager(
+      session: SessionStore(userId: 'me', accessToken: 'token'),
+      signaling: signaling,
+      media: _FakeMediaEngine(),
+      groupMedia: _FakeGroupMediaEngine(),
+      iceServers: const StaticIceServerProvider([]),
+      callLogs: fixture.database.callLogs,
+      preparePrivateGroupCall:
+          ({
+            required String groupId,
+            required String groupName,
+            required List<String> peerIds,
+          }) async => newOpaqueRoutingNonce(),
+      terminalVisibility: const Duration(minutes: 1),
+    );
+    addTearDown(manager.dispose);
+
+    expect(maxGroupCallParticipants, 8);
+    expect(
+      await manager.initiateGroupCall(
+        groupId: 'group-at-limit',
+        groupName: 'Ekip',
+        peerIds: [
+          'me',
+          ...List.generate(maxGroupCallParticipants - 1, (i) => 'peer-$i'),
+        ],
+        callType: CallType.video,
+      ),
+      isTrue,
+    );
+    expect(
+      signaling.sentMessages.whereType<GroupCallInviteSignal>(),
+      hasLength(maxGroupCallParticipants - 1),
+    );
+  });
+
+  test('group call rejects a ninth participant before signaling', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.dispose);
+    final signaling = InMemorySignalingService();
+    await signaling.connect(
+      userId: 'me',
+      url: 'wss://test.invalid',
+      accessToken: 'token',
+    );
+    final groupMedia = _FakeGroupMediaEngine();
+    final manager = CallManager(
+      session: SessionStore(userId: 'me', accessToken: 'token'),
+      signaling: signaling,
+      media: _FakeMediaEngine(),
+      groupMedia: groupMedia,
+      iceServers: const StaticIceServerProvider([]),
+      callLogs: fixture.database.callLogs,
+      preparePrivateGroupCall:
+          ({
+            required String groupId,
+            required String groupName,
+            required List<String> peerIds,
+          }) async => newOpaqueRoutingNonce(),
+      terminalVisibility: const Duration(minutes: 1),
+    );
+    addTearDown(manager.dispose);
+
+    expect(
+      await manager.initiateGroupCall(
+        groupId: 'group-over-limit',
+        groupName: 'Ekip',
+        peerIds: [
+          'me',
+          ...List.generate(maxGroupCallParticipants, (i) => 'peer-$i'),
+        ],
+        callType: CallType.video,
+      ),
+      isFalse,
+    );
+    expect(manager.currentSession, isNull);
+    expect(signaling.sentMessages.whereType<GroupCallInviteSignal>(), isEmpty);
+  });
+
   test('incoming group call buffers mesh offer until accepted', () async {
     final fixture = await _Fixture.open();
     addTearDown(fixture.dispose);

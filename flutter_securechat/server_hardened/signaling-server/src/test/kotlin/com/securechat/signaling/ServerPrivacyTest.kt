@@ -18,6 +18,7 @@ class ServerPrivacyTest {
     @Test
     fun `service delivery acknowledgement is a server-only frame`() {
         assertTrue(isServerOnlyFrameType("message_ack"))
+        assertFalse(isServerOnlyFrameType("delivery_transport_ack"))
         assertFalse(isServerOnlyFrameType("encrypted_message"))
         assertFalse(isServerOnlyFrameType(null))
     }
@@ -132,6 +133,20 @@ class ServerPrivacyTest {
         val key = primitives.queueKey("message", userId)
         assertFalse(key.contains(userId))
         assertEquals(key, primitives.queueKey("message", userId))
+        assertFalse(primitives.queuePayloadKey("delivery", userId).contains(userId))
+        assertFalse(primitives.queueOrderKey("delivery", userId).contains(userId))
+
+        val deliveryId = "A".repeat(43)
+        val deliveryToken = primitives.deliveryToken(userId, "sender-a", deliveryId)
+        assertFalse(primitives.queueItemKey("delivery", userId, deliveryToken).contains(userId))
+        assertFalse(primitives.queueItemKey("delivery", userId, deliveryToken).contains(deliveryToken))
+        assertEquals(deliveryToken, primitives.deliveryToken(userId, "sender-a", deliveryId))
+        assertNotEquals(deliveryToken, primitives.deliveryToken(userId, "sender-b", deliveryId))
+        assertNotEquals(
+            deliveryToken,
+            primitives.deliveryToken("123e4567-e89b-42d3-a456-426614174099", "sender-a", deliveryId),
+        )
+        assertFalse(deliveryToken.contains(deliveryId))
 
         val peerId = "123e4567-e89b-42d3-a456-426614174001"
         val callKey = primitives.activeCallKey(userId, peerId)

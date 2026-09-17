@@ -455,6 +455,7 @@ class AppContainer {
         signaling: signaling,
         session: session,
         crypto: crypto,
+        reliableQueue: offlineQueue,
       );
       final chatActivity = ChatActivityService(
         session: session,

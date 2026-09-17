@@ -9,6 +9,7 @@ import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlinx.serialization.json.Json
@@ -65,8 +66,19 @@ class FakeJanusServer(private val port: Int = 18188) {
     }
 
     fun stop() {
-        engine?.stop(500, 1_000)
+        val running = engine
         engine = null
+        try {
+            running?.stop(500, 1_000)
+        } catch (error: IOException) {
+            // Ktor lazily creates its reload watcher while stopping an already
+            // terminated Netty engine. Desktop CI can exhaust the per-user
+            // inotify instance quota even though every server assertion ran.
+            val message = error.message.orEmpty().lowercase()
+            if ("inotify" !in message && "too many open files" !in message) {
+                throw error
+            }
+        }
     }
 
     fun clear() {

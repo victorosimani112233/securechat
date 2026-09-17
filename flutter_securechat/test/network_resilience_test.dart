@@ -71,6 +71,81 @@ void main() {
     );
   });
 
+  test('reliable outbox survives socket send until an E2EE receipt', () async {
+    final fixture = await _openFixture();
+    addTearDown(fixture.close);
+    final signaling = InMemorySignalingService();
+    await signaling.connect(
+      userId: 'me',
+      url: 'ws://local',
+      accessToken: 'token',
+    );
+    final queue = OfflineMessageQueue(
+      database: fixture.database,
+      signaling: signaling,
+    );
+    addTearDown(queue.close);
+    final signal = EncryptedSignalMessage(
+      senderId: 'me',
+      recipientId: 'alice',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(100),
+      envelope: 'ciphertext-only',
+      deliveryId: List.filled(43, 'A').join(),
+    );
+
+    expect(await queue.sendReliably(signal, messageId: 'message-1'), isTrue);
+    expect(await queue.getPendingCount(), 1);
+    expect((await queue.flushQueue()).remaining, 1);
+
+    await queue.acknowledgeReceipt('message-1', 'alice');
+    expect(await queue.getPendingCount(), 0);
+  });
+
+  test(
+    'expired reliable outbox is bounded and marks undelivered message failed',
+    () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      await fixture.database.messages.insert(
+        const MessageEntity(
+          id: 'expired-message',
+          conversationId: 'alice',
+          senderId: 'me',
+          content: 'local plaintext',
+          contentType: StorageMessageContentType.text,
+          timestamp: 1,
+          status: StorageMessageStatus.sent,
+          isOutgoing: true,
+        ),
+      );
+      await fixture.database.pendingSignals.put(
+        PendingSignalEntity(
+          id: List.filled(43, 'E').join(),
+          encodedSignal: '{}',
+          createdAt: DateTime.now()
+              .subtract(const Duration(days: 31))
+              .millisecondsSinceEpoch,
+          messageId: 'expired-message',
+          recipientId: 'alice',
+          retainUntilReceipt: true,
+        ),
+      );
+      final queue = OfflineMessageQueue(
+        database: fixture.database,
+        signaling: InMemorySignalingService(),
+      );
+      addTearDown(queue.close);
+
+      final result = await queue.flushQueue();
+
+      expect(result.remaining, 0);
+      expect(
+        (await fixture.database.messages.getById('expired-message'))?.status,
+        StorageMessageStatus.failed,
+      );
+    },
+  );
+
   test('stuck sending messages are marked failed after timeout', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);

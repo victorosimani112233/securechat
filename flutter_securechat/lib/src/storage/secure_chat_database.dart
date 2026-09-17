@@ -514,6 +514,41 @@ class MessageDao {
           lastMessageStatus: status.name,
         );
       });
+  Future<void> updateStatusIfSending(String id, StorageMessageStatus status) =>
+      _db._write((s) {
+        final message = s.messages[id];
+        if (message == null || message.status != StorageMessageStatus.sending) {
+          return;
+        }
+        s.messages[id] = message.copyWith(status: status);
+        final conversation = s.conversations[message.conversationId];
+        if (conversation == null ||
+            !message.isOutgoing ||
+            conversation.lastMessageTimestamp != message.timestamp) {
+          return;
+        }
+        s.conversations[message.conversationId] = conversation.copyWith(
+          lastMessageStatus: status.name,
+        );
+      });
+  Future<void> markFailedIfUndelivered(String id) => _db._write((s) {
+    final message = s.messages[id];
+    if (message == null ||
+        (message.status != StorageMessageStatus.sending &&
+            message.status != StorageMessageStatus.sent)) {
+      return;
+    }
+    s.messages[id] = message.copyWith(status: StorageMessageStatus.failed);
+    final conversation = s.conversations[message.conversationId];
+    if (conversation == null ||
+        !message.isOutgoing ||
+        conversation.lastMessageTimestamp != message.timestamp) {
+      return;
+    }
+    s.conversations[message.conversationId] = conversation.copyWith(
+      lastMessageStatus: StorageMessageStatus.failed.name,
+    );
+  });
   Future<MessageEntity?> getById(String id) async => _db._snapshot.messages[id];
   Future<void> delete(String id) => _db._write((s) => s.messages.remove(id));
   Future<void> deleteByConversation(String conversationId) => _db._write(
@@ -1011,6 +1046,28 @@ class PendingSignalDao {
 
   Future<void> clear() =>
       _db._write((snapshot) => snapshot.pendingSignals.clear());
+  Future<void> deleteDelivered(String messageId, String recipientId) =>
+      _db._write(
+        (snapshot) => snapshot.pendingSignals.removeWhere(
+          (_, signal) =>
+              signal.retainUntilReceipt &&
+              signal.messageId == messageId &&
+              signal.recipientId == recipientId,
+        ),
+      );
+  Future<void> deleteForMessage(String messageId) => _db._write(
+    (snapshot) => snapshot.pendingSignals.removeWhere(
+      (_, signal) => signal.messageId == messageId,
+    ),
+  );
+  Future<void> incrementAttempts(String id) => _db._write((snapshot) {
+    final current = snapshot.pendingSignals[id];
+    if (current != null) {
+      snapshot.pendingSignals[id] = current.copyWith(
+        attempts: current.attempts + 1,
+      );
+    }
+  });
 
   Future<int> count() async => _db._snapshot.pendingSignals.length;
 }

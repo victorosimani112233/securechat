@@ -680,18 +680,27 @@ class PendingSignalEntity {
     required this.encodedSignal,
     required this.createdAt,
     this.attempts = 0,
+    this.messageId,
+    this.recipientId,
+    this.retainUntilReceipt = false,
   });
 
   final String id;
   final String encodedSignal;
   final int createdAt;
   final int attempts;
+  final String? messageId;
+  final String? recipientId;
+  final bool retainUntilReceipt;
 
   PendingSignalEntity copyWith({int? attempts}) => PendingSignalEntity(
     id: id,
     encodedSignal: encodedSignal,
     createdAt: createdAt,
     attempts: attempts ?? this.attempts,
+    messageId: messageId,
+    recipientId: recipientId,
+    retainUntilReceipt: retainUntilReceipt,
   );
 
   factory PendingSignalEntity.fromJson(Map<String, Object?> json) =>
@@ -700,6 +709,9 @@ class PendingSignalEntity {
         encodedSignal: json['encodedSignal'] as String? ?? '',
         createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
         attempts: (json['attempts'] as num?)?.toInt() ?? 0,
+        messageId: json['messageId'] as String?,
+        recipientId: json['recipientId'] as String?,
+        retainUntilReceipt: json['retainUntilReceipt'] as bool? ?? false,
       );
 
   Map<String, Object?> toJson() => {
@@ -707,6 +719,9 @@ class PendingSignalEntity {
     'encodedSignal': encodedSignal,
     'createdAt': createdAt,
     'attempts': attempts,
+    if (messageId != null) 'messageId': messageId,
+    if (recipientId != null) 'recipientId': recipientId,
+    'retainUntilReceipt': retainUntilReceipt,
   };
 }
 

@@ -224,7 +224,8 @@ class BackupService {
       for (final entry in cryptoState.entries)
         if (entry.key != 'local_registration_id' &&
             entry.key != 'local_identity_key_pair_v1' &&
-            !entry.key.startsWith('pending_sender_key_rotation:'))
+            !entry.key.startsWith('pending_sender_key_rotation:') &&
+            !entry.key.startsWith('processed-delivery:'))
           entry.key: entry.value,
     };
     return result;

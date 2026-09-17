@@ -42,6 +42,9 @@ class OfflineMessageQueue {
         _operations.run('offline-queue.flush', flushQueue());
       }
     });
+    // Startup cleanup enforces local retention even if the device is still
+    // offline. A concurrent connected-status flush coalesces via _activeFlush.
+    _operations.run('offline-queue.startup-flush', flushQueue());
   }
 
   Future<bool> sendOrQueue(SignalMessage encryptedSignal) async {
@@ -67,6 +70,42 @@ class OfflineMessageQueue {
     return false;
   }
 
+  /// Mesaj ciphertext'ini gondermeden once sifreli yerel outbox'a yazar.
+  /// Socket basarisindan sonra silmez; yalniz alicinin E2EE DELIVERED makbuzu
+  /// bu kaydi kaldirabilir.
+  Future<bool> sendReliably(
+    EncryptedSignalMessage encryptedSignal, {
+    required String messageId,
+  }) async {
+    final deliveryId = encryptedSignal.deliveryId;
+    if (deliveryId == null ||
+        !RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(deliveryId)) {
+      throw ArgumentError.value(
+        deliveryId,
+        'encryptedSignal.deliveryId',
+        'Reliable messages require a 256-bit delivery id',
+      );
+    }
+    await _database.pendingSignals.put(
+      PendingSignalEntity(
+        id: deliveryId,
+        encodedSignal: encryptedSignal.encode(),
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+        messageId: messageId,
+        recipientId: encryptedSignal.recipientId,
+        retainUntilReceipt: true,
+      ),
+    );
+    final sent = await _sendSafely('reliable-outbox.send', encryptedSignal);
+    if (!sent) await _database.pendingSignals.incrementAttempts(deliveryId);
+    // Yerel sifreli outbox'a atomik olarak kabul edilmesi mesaj kaybi
+    // olmadan kullanici akisinin devam etmesi icin yeterlidir.
+    return true;
+  }
+
+  Future<void> acknowledgeReceipt(String messageId, String recipientId) =>
+      _database.pendingSignals.deleteDelivered(messageId, recipientId);
+
   Future<int> getPendingCount() => _database.pendingSignals.count();
 
   Future<QueueFlushResult> flushQueue() {
@@ -80,15 +119,26 @@ class OfflineMessageQueue {
   Future<QueueFlushResult> _flush() async {
     var sent = 0;
     final snapshot = await _database.pendingSignals.getAll();
+    final retentionCutoff = DateTime.now()
+        .subtract(reliableOutboxRetention)
+        .millisecondsSinceEpoch;
     for (final pending in snapshot) {
+      if (pending.retainUntilReceipt && pending.createdAt < retentionCutoff) {
+        await _database.pendingSignals.delete(pending.id);
+        final messageId = pending.messageId;
+        if (messageId != null) {
+          await _database.messages.markFailedIfUndelivered(messageId);
+        }
+        continue;
+      }
       final signal = SignalMessage.decode(pending.encodedSignal);
       if (await _sendSafely('offline-queue.flush-send', signal)) {
-        await _database.pendingSignals.delete(pending.id);
+        if (!pending.retainUntilReceipt) {
+          await _database.pendingSignals.delete(pending.id);
+        }
         sent++;
       } else {
-        await _database.pendingSignals.put(
-          pending.copyWith(attempts: pending.attempts + 1),
-        );
+        await _database.pendingSignals.incrementAttempts(pending.id);
         break;
       }
     }
@@ -97,6 +147,8 @@ class OfflineMessageQueue {
       remaining: await _database.pendingSignals.count(),
     );
   }
+
+  static const reliableOutboxRetention = Duration(days: 30);
 
   Future<void> clearQueue() => _database.pendingSignals.clear();
 

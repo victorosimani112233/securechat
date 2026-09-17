@@ -448,7 +448,10 @@ class CallManager {
     final userId = _requireUserId();
     if (_hasLiveCall || groupMedia == null) return false;
     final recipients = peerIds.where((id) => id != userId).toSet().toList();
-    if (recipients.isEmpty) return false;
+    if (recipients.isEmpty ||
+        recipients.length + 1 > maxGroupCallParticipants) {
+      return false;
+    }
     _terminating = false;
     _isGroupCoordinator = true;
     _mediaKey = null;
@@ -965,10 +968,11 @@ class CallManager {
       isSpeakerOn: true,
       isGroupCall: true,
       groupId: localGroupId,
-      peerIds: {
-        signal.senderId,
-        ...signal.participants.where((id) => id != userId),
-      }.where((id) => id.isNotEmpty && id != userId).toList(),
+      peerIds:
+          {signal.senderId, ...signal.participants.where((id) => id != userId)}
+              .where((id) => id.isNotEmpty && id != userId)
+              .take(maxGroupCallParticipants - 1)
+              .toList(),
     );
     _setSession(session);
     final pending = _takePendingMediaKey(signal.callId, signal.senderId);
@@ -1016,6 +1020,7 @@ class CallManager {
       return;
     }
     if (!session.peerIds.contains(signal.joinedMemberId)) {
+      if (session.peerIds.length >= maxGroupCallParticipants - 1) return;
       _setSession(
         session.copyWith(peerIds: [...session.peerIds, signal.joinedMemberId]),
       );

@@ -20,6 +20,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -590,7 +591,7 @@ class EndToEndServerTest {
 
         // Uydurulmus bir UUID icin kalici offline kuyruk anahtari olusmamali.
         val queued = RedisManager.use { jedis ->
-            jedis.zcard(ServerPrivacy.queueKey("message", strangerId))
+            jedis.zcard(ServerPrivacy.queueKey("delivery", strangerId))
         } ?: 0L
         assertEquals(0L, queued)
         session.close()
@@ -631,8 +632,55 @@ class EndToEndServerTest {
 
         assertNotNull(delivered)
         assertTrue(delivered!!.contains(sender), delivered)
+        val deliveryToken = json.parseToJsonElement(delivered).jsonObject["deliveryToken"]
+            ?.jsonPrimitive?.content
+        assertNotNull(deliveryToken)
+        assertEquals(
+            1L,
+            RedisManager.use { jedis ->
+                jedis.zcard(ServerPrivacy.queueKey("delivery", receiver))
+            },
+            "socket send ACK yerine gecmemeli",
+        )
+
+        // ACK kaybolursa yeni socket ayni opak teslim tokeniyla ayni
+        // ciphertext'i tekrar almali; kayit socket send sonrasinda silinmez.
+        val retrySession = client.webSocketSession("/ws?userId=$receiver") {
+            header("Authorization", "Bearer $receiverToken")
+        }
+        val retried = withTimeoutOrNull(10_000) {
+            var found: String? = null
+            while (found == null) {
+                val frame = retrySession.incoming.receiveCatching().getOrNull() ?: break
+                val text = (frame as? Frame.Text)?.readText() ?: continue
+                if (text.contains(messageId)) found = text
+            }
+            found
+        }
+        assertNotNull(retried)
+        assertEquals(
+            deliveryToken,
+            json.parseToJsonElement(retried!!).jsonObject["deliveryToken"]
+                ?.jsonPrimitive?.content,
+        )
+        retrySession.send(
+            Frame.Text(
+                """{"type":"delivery_transport_ack","recipientId":"server","deliveryToken":"$deliveryToken"}""",
+            ),
+        )
+        val removed = withTimeoutOrNull(5_000) {
+            while (RedisManager.use { jedis ->
+                    jedis.zcard(ServerPrivacy.queueKey("delivery", receiver))
+                } != 0L
+            ) {
+                kotlinx.coroutines.delay(25)
+            }
+            true
+        } ?: false
+        assertTrue(removed, "recipient ACK kuyruk kaydini silmedi")
         senderSession.close()
         receiverSession.close()
+        retrySession.close()
     }
 
     @Test
@@ -655,8 +703,14 @@ class EndToEndServerTest {
         kotlinx.coroutines.delay(500)
 
         val stored = RedisManager.use { jedis ->
-            jedis.zrange(ServerPrivacy.queueKey("message", receiver), 0, -1)
-        } ?: emptySet()
+            val tokens = jedis.zrange(ServerPrivacy.queueKey("delivery", receiver), 0, -1)
+                ?: emptySet()
+            if (tokens.isEmpty()) emptyList() else jedis.mget(
+                *tokens.map {
+                    ServerPrivacy.queueItemKey("delivery", receiver, it)
+                }.toTypedArray()
+            ).filterNotNull()
+        } ?: emptyList()
         assertTrue(stored.isNotEmpty(), "mesaj kuyruga girmedi")
         // Kuyruk muhurludur: ne alici kimligi ne de mesaj govdesi duz durur.
         for (entry in stored) {

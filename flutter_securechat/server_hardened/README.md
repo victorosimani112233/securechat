@@ -80,10 +80,21 @@ izni olmayan managed Redis, no-disk garantisi kanitlanamadigi icin fail-closed
 reddedilir. Ayrica volume/snapshot/host-swap katmaninda Redis memory dump'i
 alinmadigi deployment politikasiyla dogrulanmalidir.
 
+`encrypted_message` zarflari socket'e yazildigi anda silinmez. Alici mesaji
+dogrulayip kalici cihaz deposuna yazdiktan sonra authenticated
+`delivery_transport_ack` yollar; ancak bu ACK kaydi siler. Ayni 256-bit
+`deliveryId` atomik olarak tek kayda duser ve retry TTL'i yenilemez. Sirali
+Redis skoru hizli Signal zarflarinin ratchet sirasini korur. Varsayilan sure
+15 dakika, sert ust sinir 1 saattir; PostgreSQL mailbox yoktur. Distan
+AES-GCM zarfi server tarafindan acilabilir, ic Signal ciphertext cihaz private
+anahtarlari olmadan acilamaz. Flutter davranis sozlesmesi:
+`../docs/PRIVACY_FIRST_RELIABLE_DELIVERY.md`.
+
 ## Kalici veri korumalari
 
 - Redis offline ve bot key'leri ham UUID tasimaz; degerler randomized AEAD
-  zarfindadir. Basarili socket gonderiminden sonra kayit silinir.
+  zarfindadir. Mesaj kaydi alici transport ACK'inden, legacy dosya/sinyal
+  kaydi basarili socket gonderiminden sonra silinir.
 - Push token satirlari blind user index + AAD-bagli `v4` AEAD kullanir. V14
   push ve bot session tablolarindaki raw-UUID compatibility kolonlarini
   donusum tamamlanmadan kaldirmayi reddeder, sonra fiziksel olarak siler.

@@ -32,6 +32,7 @@ sealed class SignalMessage {
       'sdp_answer' => SdpAnswerSignal.fromJson(data),
       'ice_candidate' => IceCandidateSignal.fromJson(data),
       'encrypted_message' => EncryptedSignalMessage.fromJson(data),
+      'delivery_transport_ack' => DeliveryTransportAckSignal.fromJson(data),
       'group_message_fanout' => GroupMessageFanoutSignal.fromJson(data),
       'file_transfer' => FileTransferSignal.fromJson(data),
       'group_notification' => GroupNotificationSignal.fromJson(data),
@@ -188,9 +189,13 @@ class EncryptedSignalMessage extends SignalMessage {
     required super.recipientId,
     required super.timestamp,
     required this.envelope,
+    this.deliveryId,
+    this.deliveryToken,
   });
 
   final String envelope;
+  final String? deliveryId;
+  final String? deliveryToken;
 
   @override
   String get type => 'encrypted_message';
@@ -201,11 +206,46 @@ class EncryptedSignalMessage extends SignalMessage {
       recipientId: json['recipientId'] as String? ?? '',
       timestamp: _dt(json['timestamp']),
       envelope: json['envelope'] as String? ?? '',
+      deliveryId: json['deliveryId'] as String?,
+      deliveryToken: json['deliveryToken'] as String?,
     );
   }
 
   @override
-  Map<String, Object?> toJson() => {..._base(this), 'envelope': envelope};
+  Map<String, Object?> toJson() => {
+    ..._base(this),
+    'envelope': envelope,
+    if (deliveryId != null) 'deliveryId': deliveryId,
+    if (deliveryToken != null) 'deliveryToken': deliveryToken,
+  };
+}
+
+class DeliveryTransportAckSignal extends SignalMessage {
+  const DeliveryTransportAckSignal({
+    required super.senderId,
+    super.recipientId = 'server',
+    required super.timestamp,
+    required this.deliveryToken,
+  });
+
+  final String deliveryToken;
+
+  @override
+  String get type => 'delivery_transport_ack';
+
+  factory DeliveryTransportAckSignal.fromJson(Map<String, Object?> json) =>
+      DeliveryTransportAckSignal(
+        senderId: json['senderId'] as String? ?? '',
+        recipientId: json['recipientId'] as String? ?? 'server',
+        timestamp: _dt(json['timestamp']),
+        deliveryToken: json['deliveryToken'] as String? ?? '',
+      );
+
+  @override
+  Map<String, Object?> toJson() => {
+    ..._base(this),
+    'deliveryToken': deliveryToken,
+  };
 }
 
 class GroupMessageFanoutSignal extends SignalMessage {

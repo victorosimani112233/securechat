@@ -3207,7 +3207,7 @@ abstract class AppLocalizations {
   /// No description provided for @about_security_body.
   ///
   /// In en, this message translates to:
-  /// **'Messages are end-to-end encrypted with the Signal Protocol. Message content never reaches the server. The local database is encrypted with SQLCipher.'**
+  /// **'Messages are end-to-end encrypted with the Signal Protocol before leaving the device, and the ratchet derives a new message key for every message. The server stores neither plaintext nor conversation history; an undelivered encrypted envelope may remain only in a short-lived RAM queue until acknowledgement or expiry. The local database is encrypted with SQLCipher.'**
   String get about_security_body;
 
   /// No description provided for @about_version.

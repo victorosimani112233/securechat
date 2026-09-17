@@ -12,11 +12,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 
 private val log = LoggerFactory.getLogger(ConnectionManager::class.java)
@@ -236,6 +242,27 @@ class ConnectionManager(
             log.debug("[X] Sentinel recipient drop")
             return
         }
+        val messageType = MessageTypes.extract(messageJson)
+        if (messageType == RELIABLE_MESSAGE_TYPE) {
+            val deliverable = queueReliableMessage(recipientId, messageJson) ?: return
+            Metrics.messagesQueued.increment()
+            val recipientSession = connections[recipientId]
+            if (recipientSession == null) {
+                log.info("[Q] Alici cevrimdisi, ACK kuyruguna eklendi")
+                notifyWakeUp(recipientId, messageType)
+                return
+            }
+            try {
+                recipientSession.send(Frame.Text(deliverable))
+                Metrics.messagesRouted.increment()
+                log.info("[>] ACK bekleyen mesaj iletildi")
+            } catch (e: Exception) {
+                log.warn("[!] ACK bekleyen mesaj gonderilemedi: ${e.javaClass.simpleName}")
+                notifyWakeUp(recipientId, messageType)
+            }
+            return
+        }
+
         val recipientSession = connections[recipientId]
         if (recipientSession != null) {
             try {
@@ -342,6 +369,7 @@ class ConnectionManager(
     }
 
     private val fcmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val deliveryRandom = SecureRandom()
 
     /**
      * HANGUP/REJECT/BUSY signal'i geldiginde recipient'in offline kuyrugundaki
@@ -469,6 +497,14 @@ class ConnectionManager(
         val messageType = MessageTypes.extract(messageJson)
         if (messageType in MessageTypes.TRANSIENT) return
 
+        if (messageType == RELIABLE_MESSAGE_TYPE) {
+            if (queueReliableMessage(recipientId, messageJson) != null) {
+                Metrics.messagesQueued.increment()
+                notifyWakeUp(recipientId, messageType)
+            }
+            return
+        }
+
         // GUVENLIK (H8 fix): file_transfer mesajlari AYRI bucket'a yonlendirilir.
         // Buyuk dosya chunk'lari ana mesaj queue'sunu doldurarak Redis OOM yaratamasin.
         if (messageType == MessageTypes.FILE_TRANSFER) {
@@ -478,6 +514,10 @@ class ConnectionManager(
         }
         Metrics.messagesQueued.increment()
 
+        notifyWakeUp(recipientId, messageType)
+    }
+
+    private fun notifyWakeUp(recipientId: String, messageType: String?) {
         if (fcmPushSender != null && messageType != null) {
             fcmScope.launch {
                 val ok = fcmPushSender.sendWakeUpPush(recipientId, messageType)
@@ -485,6 +525,133 @@ class ConnectionManager(
             }
         }
     }
+
+    /**
+     * Signal ciphertext'i alici ACK verene kadar RAM-only Redis'te tutar.
+     * Gondericinin rastgele deliveryId'si server HMAC'i ile sender+recipient'a
+     * baglanir; wire'da yalniz turetilmis, anlamsiz deliveryToken gorunur.
+     */
+    private fun queueReliableMessage(recipientId: String, messageJson: String): String? {
+        return try {
+            val original = Json.parseToJsonElement(messageJson).jsonObject
+            val senderId = original["senderId"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+                ?: LEGACY_SENDER_ID
+            val suppliedDeliveryId = original["deliveryId"]?.jsonPrimitive?.contentOrNull
+            val deliveryId = suppliedDeliveryId
+                ?.takeIf { DELIVERY_ID_REGEX.matches(it) }
+                ?: newDeliveryId()
+            val deliveryToken = ServerPrivacy.deliveryToken(recipientId, senderId, deliveryId)
+            var deliverable = buildJsonObject {
+                original.forEach { (key, value) ->
+                    if (key != "deliveryId" && key != "deliveryToken") put(key, value)
+                }
+                put("deliveryToken", deliveryToken)
+            }.toString()
+            val indexKey = ServerPrivacy.queueKey("delivery", recipientId)
+            val orderKey = ServerPrivacy.queueOrderKey("delivery", recipientId)
+            val itemKey = ServerPrivacy.queueItemKey("delivery", recipientId, deliveryToken)
+            val sealed = ServerPrivacy.sealQueue(recipientId, deliverable)
+            RedisManager.use { jedis ->
+                purgeExpiredReliable(jedis, recipientId, indexKey, orderKey, System.currentTimeMillis())
+                @Suppress("UNCHECKED_CAST")
+                val queued = jedis.eval(
+                    ENQUEUE_RELIABLE_SCRIPT,
+                    listOf(indexKey, itemKey, orderKey),
+                    listOf(
+                        deliveryToken,
+                        sealed,
+                        ServerPrivacy.config.offlineQueueTtlSeconds.toString(),
+                    ),
+                ) as? List<Any?> ?: error("Reliable queue script returned no result")
+                val stored = queued.getOrNull(1)?.toString()
+                    ?: error("Reliable queue script returned no payload")
+                // Duplicate retries receive the first server envelope. The Lua
+                // script returns before EXPIRE/ZADD, so retention is not renewed.
+                deliverable = ServerPrivacy.openQueue(recipientId, stored)
+                enforceReliableQueueLimits(jedis, recipientId, indexKey)
+            }
+            deliverable
+        } catch (e: Exception) {
+            // Kuyruga yazilamayan reliable frame sokete de yollanmaz. Aksi halde
+            // socket send basarili gorunup process cokunce sessiz mesaj kaybi olur.
+            log.warn("[!] Redis reliable delivery queue hatasi: ${e.javaClass.simpleName}")
+            null
+        }
+    }
+
+    fun acknowledgeDelivery(recipientId: String, deliveryToken: String): Boolean {
+        if (!DELIVERY_ID_REGEX.matches(deliveryToken)) return false
+        return try {
+            val indexKey = ServerPrivacy.queueKey("delivery", recipientId)
+            val orderKey = ServerPrivacy.queueOrderKey("delivery", recipientId)
+            val itemKey = ServerPrivacy.queueItemKey("delivery", recipientId, deliveryToken)
+            RedisManager.use { jedis ->
+                val transaction = jedis.multi()
+                val removedPayload = transaction.del(itemKey)
+                val removedIndex = transaction.zrem(indexKey, deliveryToken)
+                transaction.exec()
+                val removed = (removedPayload.get() ?: 0L) > 0L || (removedIndex.get() ?: 0L) > 0L
+                if (jedis.zcard(indexKey) == 0L) jedis.del(indexKey, orderKey)
+                removed
+            }
+        } catch (e: Exception) {
+            log.warn("[!] Delivery ACK Redis hatasi: ${e.javaClass.simpleName}")
+            false
+        }
+    }
+
+    private fun purgeExpiredReliable(
+        jedis: redis.clients.jedis.Jedis,
+        recipientId: String,
+        indexKey: String,
+        orderKey: String,
+        nowMs: Long,
+    ) {
+        val cutoff = nowMs - ServerPrivacy.config.offlineQueueTtlSeconds * 1000L
+        val expired = jedis.zrangeByScore(indexKey, "-inf", cutoff.toDouble().toString()) ?: emptySet()
+        if (expired.isEmpty()) return
+        val itemKeys = expired.map {
+            ServerPrivacy.queueItemKey("delivery", recipientId, it)
+        }.toTypedArray()
+        if (itemKeys.isNotEmpty()) jedis.del(*itemKeys)
+        jedis.zrem(indexKey, *expired.toTypedArray())
+        if (jedis.zcard(indexKey) == 0L) jedis.del(indexKey, orderKey)
+    }
+
+    private fun enforceReliableQueueLimits(
+        jedis: redis.clients.jedis.Jedis,
+        recipientId: String,
+        indexKey: String,
+    ) {
+        val ordered = jedis.zrange(indexKey, 0, -1)?.toMutableList() ?: return
+        if (ordered.isEmpty()) return
+        val itemKeys = ordered.map {
+            ServerPrivacy.queueItemKey("delivery", recipientId, it)
+        }
+        val payloads = jedis.mget(*itemKeys.toTypedArray())
+        var totalBytes = payloads.sumOf { it?.length?.toLong() ?: 0L }
+        var removeCount = (ordered.size - OFFLINE_QUEUE_MAX_MESSAGES.toInt()).coerceAtLeast(0)
+        for (index in 0 until removeCount) {
+            totalBytes -= payloads[index]?.length?.toLong() ?: 0L
+        }
+        var cursor = removeCount
+        while (totalBytes > OFFLINE_QUEUE_MAX_BYTES && cursor < ordered.size) {
+            totalBytes -= payloads[cursor]?.length?.toLong() ?: 0L
+            cursor++
+        }
+        removeCount = cursor
+        if (removeCount <= 0) return
+        val evicted = ordered.take(removeCount)
+        jedis.del(*evicted.map {
+            ServerPrivacy.queueItemKey("delivery", recipientId, it)
+        }.toTypedArray())
+        jedis.zrem(indexKey, *evicted.toTypedArray())
+    }
+
+    private fun newDeliveryId(): String = ByteArray(32)
+        .also(deliveryRandom::nextBytes)
+        .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
 
     /**
      * Offline mesaji Redis Sorted Set'e ekler.
@@ -561,6 +728,27 @@ class ConnectionManager(
 
     companion object {
         private const val ACTIVE_CALL_TTL_SECONDS = 300L
+        private const val RELIABLE_MESSAGE_TYPE = "encrypted_message"
+        private const val LEGACY_SENDER_ID = "legacy"
+        private val DELIVERY_ID_REGEX = Regex("^[A-Za-z0-9_-]{43}$")
+        private val ENQUEUE_RELIABLE_SCRIPT = """
+            local existing = redis.call('GET', KEYS[2])
+            if existing then
+              return {0, existing}
+            end
+            local server_time = redis.call('TIME')
+            local score = tonumber(server_time[1]) * 1000 + tonumber(server_time[2]) / 1000
+            local previous = tonumber(redis.call('GET', KEYS[3]) or '0')
+            if score <= previous then
+              score = previous + 0.001
+            end
+            local score_text = string.format('%.3f', score)
+            redis.call('SET', KEYS[3], score_text, 'EX', ARGV[3])
+            redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+            redis.call('ZADD', KEYS[1], score_text, ARGV[1])
+            redis.call('EXPIRE', KEYS[1], ARGV[3])
+            return {1, ARGV[2]}
+        """.trimIndent()
         /** Offline queue per-user mesaj sayisi limiti. */
         private const val OFFLINE_QUEUE_MAX_MESSAGES = 1000L
         /** Offline mesaj queue per-user toplam byte limiti (50 MB). Redis OOM korumasi. */
@@ -578,6 +766,7 @@ class ConnectionManager(
      */
     private suspend fun deliverOfflineMessages(userId: String, session: WebSocketSession) {
         try {
+            deliverReliableMessages(userId, session)
             val queues = listOf(
                 ServerPrivacy.queueKey("message", userId),
                 ServerPrivacy.queueKey("file", userId)
@@ -632,6 +821,44 @@ class ConnectionManager(
         }
     }
 
+    /** Reliable ciphertext kalici yerel isleme ACK'i gelene kadar silinmez. */
+    private suspend fun deliverReliableMessages(userId: String, session: WebSocketSession) {
+        val indexKey = ServerPrivacy.queueKey("delivery", userId)
+        val orderKey = ServerPrivacy.queueOrderKey("delivery", userId)
+        val stored = RedisManager.use { jedis ->
+            purgeExpiredReliable(jedis, userId, indexKey, orderKey, System.currentTimeMillis())
+            val tokens = jedis.zrange(indexKey, 0, -1)?.toList() ?: emptyList()
+            val payloads = if (tokens.isEmpty()) emptyList() else jedis.mget(
+                *tokens.map { ServerPrivacy.queueItemKey("delivery", userId, it) }.toTypedArray()
+            )
+            tokens to payloads
+        }
+        var delivered = 0
+        for ((index, token) in stored.first.withIndex()) {
+            val sealed = stored.second.getOrNull(index)
+            if (sealed == null) {
+                RedisManager.use { jedis -> jedis.zrem(indexKey, token) }
+                continue
+            }
+            val message = try {
+                ServerPrivacy.openQueue(userId, sealed)
+            } catch (_: Exception) {
+                RedisManager.use { jedis ->
+                    jedis.del(ServerPrivacy.queueItemKey("delivery", userId, token))
+                    jedis.zrem(indexKey, token)
+                }
+                continue
+            }
+            try {
+                session.send(Frame.Text(message))
+                delivered++
+            } catch (_: Exception) {
+                return
+            }
+        }
+        if (delivered > 0) log.info("[D] $delivered ACK bekleyen ciphertext yeniden iletildi")
+    }
+
     /** Account deletion boundary: socket, presence, call and all queue copies. */
     /**
      * Hesap silmede kullanilan gecici-durum temizligi uc bagimsiz adima
@@ -657,9 +884,19 @@ class ConnectionManager(
 
     fun purgeQueuedEnvelopes(userId: String) {
         RedisManager.use { jedis ->
+            val deliveryIndex = ServerPrivacy.queueKey("delivery", userId)
+            val deliveryTokens = jedis.zrange(deliveryIndex, 0, -1) ?: emptySet()
+            val itemKeys = deliveryTokens.map {
+                ServerPrivacy.queueItemKey("delivery", userId, it)
+            }.toTypedArray()
+            if (itemKeys.isNotEmpty()) jedis.del(*itemKeys)
             jedis.del(
                 ServerPrivacy.queueKey("message", userId),
                 ServerPrivacy.queueKey("file", userId),
+                deliveryIndex,
+                // One-time cleanup for the pre-item-TTL reliable queue shape.
+                ServerPrivacy.queuePayloadKey("delivery", userId),
+                ServerPrivacy.queueOrderKey("delivery", userId),
                 // One-time cutover cleanup for deployments upgrading from v1.
                 "offline_queue:$userId",
                 "offline_file:$userId"

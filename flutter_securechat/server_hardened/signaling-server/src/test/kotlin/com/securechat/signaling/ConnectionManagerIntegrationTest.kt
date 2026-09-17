@@ -49,6 +49,17 @@ class ConnectionManagerIntegrationTest {
     private fun queueSize(bucket: String, userId: String): Long =
         RedisManager.use { jedis -> jedis.zcard(ServerPrivacy.queueKey(bucket, userId)) } ?: 0L
 
+    private fun reliablePayloads(userId: String): List<String> =
+        RedisManager.use { jedis ->
+            val tokens = jedis.zrange(ServerPrivacy.queueKey("delivery", userId), 0, -1)
+                ?: emptySet()
+            if (tokens.isEmpty()) emptyList() else jedis.mget(
+                *tokens.map {
+                    ServerPrivacy.queueItemKey("delivery", userId, it)
+                }.toTypedArray()
+            ).filterNotNull()
+        }
+
     private fun envelope(marker: String, size: Int = 64) =
         """{"type":"encrypted_message","messageId":"$marker","ciphertext":"${"A".repeat(size)}"}"""
 
@@ -60,7 +71,7 @@ class ConnectionManagerIntegrationTest {
 
         manager.routeMessage(user, envelope("m-1"))
 
-        assertEquals(1L, queueSize("message", user))
+        assertEquals(1L, queueSize("delivery", user))
     }
 
     @Test
@@ -70,9 +81,7 @@ class ConnectionManagerIntegrationTest {
 
         manager.routeMessage(user, envelope(marker))
 
-        val stored = RedisManager.use { jedis ->
-            jedis.zrange(ServerPrivacy.queueKey("message", user), 0, -1)
-        } ?: emptySet()
+        val stored = reliablePayloads(user)
         assertTrue(stored.isNotEmpty())
         // Sunucu depolama katmani mesaji ayrica sarar; ne alici kimligi ne
         // de govde duz durur.
@@ -90,7 +99,7 @@ class ConnectionManagerIntegrationTest {
 
         // Sinirsiz kuyruk tek bir cevrimdisi hesabin Redis'i doldurmasina
         // izin verirdi.
-        assertTrue(queueSize("message", user) <= 1_000L, "kuyruk boyutu: ${queueSize("message", user)}")
+        assertTrue(queueSize("delivery", user) <= 1_000L, "kuyruk boyutu: ${queueSize("delivery", user)}")
     }
 
     @Test
@@ -99,11 +108,36 @@ class ConnectionManagerIntegrationTest {
         manager.routeMessage(user, envelope("ttl"))
 
         val ttl = RedisManager.use { jedis ->
-            jedis.ttl(ServerPrivacy.queueKey("message", user))
+            jedis.ttl(ServerPrivacy.queueKey("delivery", user))
         } ?: -1L
 
         assertTrue(ttl > 0, "TTL yok")
         assertTrue(ttl <= ServerPrivacy.config.offlineQueueTtlSeconds, "TTL: $ttl")
+    }
+
+    @Test
+    fun `a newer delivery never extends an older ciphertext ttl`() = runBlocking {
+        val recipient = UUID.randomUUID().toString()
+        manager.routeMessage(recipient, envelope("first"))
+        val indexKey = ServerPrivacy.queueKey("delivery", recipient)
+        val firstToken = RedisManager.use { jedis ->
+            jedis.zrange(indexKey, 0, 0).single()
+        }
+        val firstItemKey = ServerPrivacy.queueItemKey("delivery", recipient, firstToken)
+        val initialTtl = RedisManager.use { jedis -> jedis.ttl(firstItemKey) }
+
+        Thread.sleep(1_100)
+        manager.routeMessage(recipient, envelope("second"))
+
+        val remainingTtl = RedisManager.use { jedis -> jedis.ttl(firstItemKey) }
+        val secondToken = RedisManager.use { jedis ->
+            jedis.zrange(indexKey, -1, -1).single()
+        }
+        val secondTtl = RedisManager.use { jedis ->
+            jedis.ttl(ServerPrivacy.queueItemKey("delivery", recipient, secondToken))
+        }
+        assertTrue(remainingTtl < initialTtl, "ilk ciphertext TTL'i yenilendi")
+        assertTrue(secondTtl > remainingTtl, "yeni ciphertext bagimsiz TTL almadi")
     }
 
     @Test
@@ -117,6 +151,7 @@ class ConnectionManagerIntegrationTest {
 
         assertEquals(1L, queueSize("file", user))
         assertEquals(0L, queueSize("message", user))
+        assertEquals(0L, queueSize("delivery", user))
         val ttl = RedisManager.use { jedis -> jedis.ttl(ServerPrivacy.queueKey("file", user)) } ?: -1L
         // Dosya parcalari cevrimdisi bir kullanicida birikmemelidir; TTL
         // mesaj kuyrugundan kisadir.
@@ -130,8 +165,8 @@ class ConnectionManagerIntegrationTest {
 
         manager.routeMessage(first, envelope("only-first"))
 
-        assertEquals(1L, queueSize("message", first))
-        assertEquals(0L, queueSize("message", second))
+        assertEquals(1L, queueSize("delivery", first))
+        assertEquals(0L, queueSize("delivery", second))
     }
 
     @Test
@@ -140,6 +175,7 @@ class ConnectionManagerIntegrationTest {
             manager.routeMessage(sentinel, envelope("sentinel"))
 
             assertEquals(0L, queueSize("message", sentinel), sentinel)
+            assertEquals(0L, queueSize("delivery", sentinel), sentinel)
         }
     }
 
@@ -230,6 +266,7 @@ class ConnectionManagerIntegrationTest {
             """{"type":"sdp_offer","senderId":"$caller","messageId":"o-1","sdp":"AAAA"}""",
         )
         assertEquals(1L, queueSize("message", recipient))
+        assertEquals(0L, queueSize("delivery", recipient))
 
         // Arayan vazgectiginde bekleyen teklif teslim edilmemeli.
         manager.purgePendingCallSignals(recipient, caller)
@@ -253,7 +290,8 @@ class ConnectionManagerIntegrationTest {
 
         manager.purgePendingCallSignals(recipient, caller)
 
-        assertEquals(1L, queueSize("message", recipient))
+        assertEquals(0L, queueSize("message", recipient))
+        assertEquals(1L, queueSize("delivery", recipient))
     }
 
     @Test
@@ -275,6 +313,7 @@ class ConnectionManagerIntegrationTest {
         // bu davranis sinyalleri kalici kuyruga yaziliyordu.
         assertEquals(0L, queueSize("message", user))
         assertEquals(0L, queueSize("file", user))
+        assertEquals(0L, queueSize("delivery", user))
     }
 
     @Test
@@ -286,5 +325,95 @@ class ConnectionManagerIntegrationTest {
         // Tur okunamiyorsa mesaj dusurulmez; teslim kaybi gizlilikten daha
         // kotu bir sonuctur.
         assertEquals(1L, queueSize("message", user))
+    }
+
+    @Test
+    fun `same sender delivery id is idempotent and recipient ack removes it`() = runBlocking {
+        val recipient = UUID.randomUUID().toString()
+        val sender = UUID.randomUUID().toString()
+        val deliveryId = "A".repeat(43)
+        val frame = """{"type":"encrypted_message","senderId":"$sender","recipientId":"$recipient","deliveryId":"$deliveryId","envelope":"E2EE:v1:SIGNAL:1:AAAA"}"""
+
+        manager.routeMessage(recipient, frame)
+        val indexKey = ServerPrivacy.queueKey("delivery", recipient)
+        val firstScore = RedisManager.use { jedis ->
+            jedis.zscore(indexKey, jedis.zrange(indexKey, 0, 0).single())
+        }
+        val firstTtl = RedisManager.use { jedis -> jedis.ttl(indexKey) }
+        Thread.sleep(1_100)
+        manager.routeMessage(recipient, frame)
+
+        assertEquals(1L, queueSize("delivery", recipient))
+        val token = RedisManager.use { jedis ->
+            jedis.zrange(indexKey, 0, 0).single()
+        }
+        assertEquals(firstScore, RedisManager.use { jedis -> jedis.zscore(indexKey, token) })
+        val retriedTtl = RedisManager.use { jedis -> jedis.ttl(indexKey) }
+        assertTrue(retriedTtl < firstTtl, "retry TTL'i yeniledi: $firstTtl -> $retriedTtl")
+        assertTrue(manager.acknowledgeDelivery(recipient, token))
+        assertEquals(0L, queueSize("delivery", recipient))
+        assertTrue(reliablePayloads(recipient).isEmpty())
+    }
+
+    @Test
+    fun `an ack from another account cannot remove a queued delivery`() = runBlocking {
+        val recipient = UUID.randomUUID().toString()
+        val attacker = UUID.randomUUID().toString()
+        manager.routeMessage(recipient, envelope("ack-owner"))
+        val token = RedisManager.use { jedis ->
+            jedis.zrange(ServerPrivacy.queueKey("delivery", recipient), 0, 0).single()
+        }
+
+        assertFalse(manager.acknowledgeDelivery(attacker, token))
+        assertEquals(1L, queueSize("delivery", recipient))
+    }
+
+    @Test
+    fun `rapid reliable frames preserve signal protocol order`() = runBlocking {
+        val recipient = UUID.randomUUID().toString()
+        val sender = UUID.randomUUID().toString()
+        val expected = listOf("control", "sender-key", "message")
+
+        expected.forEachIndexed { index, marker ->
+            manager.routeMessage(
+                recipient,
+                """{"type":"encrypted_message","senderId":"$sender","recipientId":"$recipient","deliveryId":"${('A'.code + index).toChar().toString().repeat(43)}","messageId":"$marker","envelope":"cipher-$marker"}""",
+            )
+        }
+
+        val actual = RedisManager.use { jedis ->
+            val indexKey = ServerPrivacy.queueKey("delivery", recipient)
+            jedis.zrange(indexKey, 0, -1).map { token ->
+                val sealed = jedis.get(
+                    ServerPrivacy.queueItemKey("delivery", recipient, token),
+                )
+                val opened = ServerPrivacy.openQueue(recipient, sealed)
+                Regex("\\\"messageId\\\":\\\"([^\\\"]+)\\\"")
+                    .find(opened)?.groupValues?.get(1)
+            }
+        }
+
+        assertEquals(expected, actual)
+    }
+
+    @Test
+    fun `account queue purge removes every reliable delivery key`() = runBlocking {
+        val recipient = UUID.randomUUID().toString()
+        manager.routeMessage(recipient, envelope("delete-account"))
+        val token = RedisManager.use { jedis ->
+            jedis.zrange(ServerPrivacy.queueKey("delivery", recipient), 0, 0).single()
+        }
+
+        manager.purgeQueuedEnvelopes(recipient)
+
+        val remaining = RedisManager.use { jedis ->
+            listOf(
+                ServerPrivacy.queueKey("delivery", recipient),
+                ServerPrivacy.queuePayloadKey("delivery", recipient),
+                ServerPrivacy.queueOrderKey("delivery", recipient),
+                ServerPrivacy.queueItemKey("delivery", recipient, token),
+            ).count(jedis::exists)
+        }
+        assertEquals(0, remaining)
     }
 }

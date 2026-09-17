@@ -58,6 +58,35 @@ class IncomingMessageEvent {
 typedef CallMediaKeyReceiver =
     Future<void> Function({required String senderId, required String payload});
 
+class _EncryptedProcessingResult {
+  const _EncryptedProcessingResult({
+    required this.processed,
+    this.messageId,
+    this.deliveryReceiptRequired = false,
+  });
+
+  const _EncryptedProcessingResult.rejected()
+    : processed = false,
+      messageId = null,
+      deliveryReceiptRequired = false;
+
+  final bool processed;
+  final String? messageId;
+  final bool deliveryReceiptRequired;
+}
+
+class _ProcessedDelivery {
+  const _ProcessedDelivery({
+    required this.senderId,
+    required this.expiresAt,
+    this.messageId,
+  });
+
+  final String senderId;
+  final String? messageId;
+  final int expiresAt;
+}
+
 class IncomingMessageHandler {
   IncomingMessageHandler({
     required SignalingService signaling,
@@ -93,6 +122,7 @@ class IncomingMessageHandler {
   final _presence = <String, PresenceInfo>{};
   final _typingTimers = <String, Timer>{};
   final _seenMessageIds = <String>{};
+  var _processedDeliveriesSincePrune = 0;
   StreamSubscription<SignalMessage>? _subscription;
   Future<void> _handleTail = Future<void>.value();
   Future<void>? _closeTask;
@@ -113,6 +143,10 @@ class IncomingMessageHandler {
 
   void start() {
     if (_closed) throw StateError('Incoming message handler is closed');
+    _operations.run(
+      'incoming-message.prune-delivery-dedup',
+      _pruneProcessedDeliveries(),
+    );
     _subscription ??= _signaling.incoming.listen(
       (signal) {
         final operation = _handleTail.then((_) => _handle(signal));
@@ -177,7 +211,7 @@ class IncomingMessageHandler {
   }) async {
     switch (signal) {
       case EncryptedSignalMessage():
-        await _encrypted(signal);
+        await _encryptedWithTransportAck(signal);
       case DeliveryReceiptSignal() when privateChatControl:
         await _receipt(signal);
       case MessageDeleteSignal()
@@ -208,6 +242,154 @@ class IncomingMessageHandler {
         break;
     }
   }
+
+  Future<void> _encryptedWithTransportAck(EncryptedSignalMessage signal) async {
+    final token = signal.deliveryToken;
+    if (token == null) {
+      final result = await _encrypted(signal);
+      if (result.processed &&
+          result.deliveryReceiptRequired &&
+          result.messageId != null) {
+        await _sendDeliveredReceipt(signal.senderId, result.messageId!);
+      }
+      return;
+    }
+    if (!_deliveryTokenPattern.hasMatch(token)) return;
+
+    final previous = await _processedDelivery(token);
+    if (previous != null) {
+      if (previous.senderId != signal.senderId) return;
+      final receiptSent = previous.messageId == null
+          ? true
+          : await _sendDeliveredReceipt(signal.senderId, previous.messageId!);
+      if (receiptSent) await _sendTransportAck(token);
+      return;
+    }
+
+    final result = await _encrypted(signal);
+    if (!result.processed) return;
+    await _rememberProcessedDelivery(
+      token: token,
+      senderId: signal.senderId,
+      messageId: result.messageId,
+    );
+    final receiptSent =
+        !result.deliveryReceiptRequired ||
+        result.messageId == null ||
+        await _sendDeliveredReceipt(signal.senderId, result.messageId!);
+    if (receiptSent) await _sendTransportAck(token);
+  }
+
+  Future<bool> _sendTransportAck(String token) async {
+    final localUserId = _session.userId;
+    if (localUserId == null) return false;
+    return _signaling.send(
+      DeliveryTransportAckSignal(
+        senderId: localUserId,
+        timestamp: DateTime.now(),
+        deliveryToken: token,
+      ),
+    );
+  }
+
+  Future<bool> _sendDeliveredReceipt(
+    String recipientId,
+    String messageId,
+  ) async {
+    final localUserId = _session.userId;
+    if (localUserId == null) return false;
+    return sendPrivateChatControl(
+      crypto: _crypto,
+      signaling: _signaling,
+      control: DeliveryReceiptSignal(
+        senderId: localUserId,
+        recipientId: recipientId,
+        timestamp: DateTime.now(),
+        messageId: messageId,
+        status: 'DELIVERED',
+      ),
+    );
+  }
+
+  Future<_ProcessedDelivery?> _processedDelivery(String token) async {
+    final key = '$_processedDeliveryPrefix$token';
+    final encoded = await _database.cryptoState.get(key);
+    if (encoded == null) return null;
+    try {
+      final json = (jsonDecode(encoded) as Map).cast<String, Object?>();
+      final expiresAt = (json['expiresAt'] as num?)?.toInt() ?? 0;
+      if (expiresAt <= DateTime.now().millisecondsSinceEpoch) {
+        await _database.cryptoState.delete(key);
+        return null;
+      }
+      final senderId = json['senderId'] as String?;
+      if (senderId == null || senderId.isEmpty) return null;
+      return _ProcessedDelivery(
+        senderId: senderId,
+        messageId: json['messageId'] as String?,
+        expiresAt: expiresAt,
+      );
+    } catch (_) {
+      await _database.cryptoState.delete(key);
+      return null;
+    }
+  }
+
+  Future<void> _rememberProcessedDelivery({
+    required String token,
+    required String senderId,
+    required String? messageId,
+  }) async {
+    final expiresAt = DateTime.now()
+        .add(_processedDeliveryRetention)
+        .millisecondsSinceEpoch;
+    await _database.cryptoState.put(
+      '$_processedDeliveryPrefix$token',
+      jsonEncode({
+        'senderId': senderId,
+        if (messageId != null) 'messageId': messageId,
+        'expiresAt': expiresAt,
+      }),
+    );
+    _processedDeliveriesSincePrune++;
+    if (_processedDeliveriesSincePrune >= 128) {
+      _processedDeliveriesSincePrune = 0;
+      await _pruneProcessedDeliveries();
+    }
+  }
+
+  Future<void> _pruneProcessedDeliveries() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final entries = await _database.cryptoState.getByPrefix(
+      _processedDeliveryPrefix,
+    );
+    final retained = <MapEntry<String, int>>[];
+    for (final entry in entries.entries) {
+      try {
+        final json = (jsonDecode(entry.value) as Map).cast<String, Object?>();
+        final expiresAt = (json['expiresAt'] as num?)?.toInt() ?? 0;
+        if (expiresAt <= now) {
+          await _database.cryptoState.delete(entry.key);
+        } else {
+          retained.add(MapEntry(entry.key, expiresAt));
+        }
+      } catch (_) {
+        await _database.cryptoState.delete(entry.key);
+      }
+    }
+    if (retained.length <= _maxProcessedDeliveries) return;
+    retained.sort((a, b) => a.value.compareTo(b.value));
+    for (final entry in retained.take(
+      retained.length - _maxProcessedDeliveries,
+    )) {
+      await _database.cryptoState.delete(entry.key);
+    }
+  }
+
+  static const _processedDeliveryPrefix = 'processed-delivery:';
+  static const _processedDeliveryRetention = Duration(days: 30);
+  static const _maxProcessedDeliveries = 50000;
+  static final _deliveryTokenPattern = RegExp(r'^[A-Za-z0-9_-]{43}$');
 
   /// Cozulemeyen bir zarfin ardindan calisir.
   ///
@@ -285,7 +467,9 @@ class IncomingMessageHandler {
         : peerTimestamp.millisecondsSinceEpoch;
   }
 
-  Future<void> _encrypted(EncryptedSignalMessage signal) async {
+  Future<_EncryptedProcessingResult> _encrypted(
+    EncryptedSignalMessage signal,
+  ) async {
     String plaintext;
     String conversationId = signal.senderId;
     var isGroup = false;
@@ -294,7 +478,7 @@ class IncomingMessageHandler {
           signal.envelope.startsWith('GROUPSK:v1:') ||
           signal.envelope.startsWith('GROUPSK:v2:')) {
         final groupId = await _localGroupId(signal.envelope);
-        if (groupId == null) return;
+        if (groupId == null) return const _EncryptedProcessingResult.rejected();
         conversationId = groupId;
         isGroup = true;
         plaintext = await _crypto.decryptGroup(
@@ -319,7 +503,7 @@ class IncomingMessageHandler {
               !group.isGroup ||
               !members.contains(signal.senderId) ||
               !members.contains(_session.userId)) {
-            return;
+            return const _EncryptedProcessingResult.rejected();
           }
           conversationId = route.groupId;
           isGroup = true;
@@ -341,23 +525,26 @@ class IncomingMessageHandler {
         stackTrace,
         conversationId: conversationId,
       );
-      return;
+      return const _EncryptedProcessingResult.rejected();
     }
     // Cagri medya anahtari mesaj degildir: sohbete yazilmaz, dogrudan cagri
     // yoneticisine gider. Yalniz bize gonderilmis ve authenticated bir
     // zarftan cikmis olabilir.
     if (plaintext.startsWith('${CallMediaKey.prefix}:')) {
       final localUserId = _session.userId;
-      if (localUserId == null || localUserId != signal.recipientId) return;
-      await _applyCallMediaKey?.call(
-        senderId: signal.senderId,
-        payload: plaintext,
-      );
-      return;
+      if (localUserId == null || localUserId != signal.recipientId) {
+        return const _EncryptedProcessingResult.rejected();
+      }
+      final receiver = _applyCallMediaKey;
+      if (receiver == null) return const _EncryptedProcessingResult.rejected();
+      await receiver(senderId: signal.senderId, payload: plaintext);
+      return const _EncryptedProcessingResult(processed: true);
     }
     if (isPrivateGroupControl(plaintext)) {
       final localUserId = _session.userId;
-      if (localUserId == null || localUserId != signal.recipientId) return;
+      if (localUserId == null || localUserId != signal.recipientId) {
+        return const _EncryptedProcessingResult.rejected();
+      }
       try {
         final control = await decodePrivateGroupControl(
           plaintext: plaintext,
@@ -366,13 +553,14 @@ class IncomingMessageHandler {
         );
         if (control.action == privateGroupCallPreparationAction) {
           await _preparePrivateGroupCall(control);
-          return;
+          return const _EncryptedProcessingResult(processed: true);
         }
         await _groupNotification(control);
       } catch (_) {
         // Malformed, mis-bound or unauthenticated control data is fail-closed.
+        return const _EncryptedProcessingResult.rejected();
       }
-      return;
+      return const _EncryptedProcessingResult(processed: true);
     }
     if (isPrivateChatControl(plaintext)) {
       final localUserId = _session.userId;
@@ -380,7 +568,7 @@ class IncomingMessageHandler {
           localUserId == null ||
           localUserId != signal.recipientId ||
           signal.senderId == localUserId) {
-        return;
+        return const _EncryptedProcessingResult.rejected();
       }
       try {
         final control = decodePrivateChatControl(
@@ -391,23 +579,31 @@ class IncomingMessageHandler {
         await _handle(control, privateChatControl: true);
       } catch (_) {
         // Kimlige baglanamayan veya bozuk kontrol verisi fail-closed yutulur.
+        return const _EncryptedProcessingResult.rejected();
       }
-      return;
+      return const _EncryptedProcessingResult(processed: true);
     }
     if (plaintext.startsWith('SKDM:')) {
       await _acceptSenderKey(signal.senderId, plaintext);
-      return;
+      return const _EncryptedProcessingResult(processed: true);
     }
     final parsed = parseMessageEnvelope(plaintext);
     if (parsed.pollVote != null) {
       await _applyPollVote(parsed.pollVote!, signal.senderId, conversationId);
-      return;
+      return const _EncryptedProcessingResult(processed: true);
     }
     final messageId =
         parsed.messageId ??
         '${signal.timestamp.microsecondsSinceEpoch}-${signal.senderId.hashCode.abs()}';
-    if (!_seenMessageIds.add(messageId)) return;
-    if (await _database.messages.getById(messageId) != null) return;
+    if (!_seenMessageIds.add(messageId) ||
+        await _database.messages.getById(messageId) != null) {
+      return _EncryptedProcessingResult(
+        processed: true,
+        messageId: parsed.messageId == null ? null : messageId,
+        deliveryReceiptRequired:
+            parsed.messageId != null && signal.deliveryToken != null,
+      );
+    }
     final identity = isGroup
         ? null
         : await _identityResolver?.resolve(signal.senderId);
@@ -476,20 +672,11 @@ class IncomingMessageHandler {
         customSound: storedConversation?.customNotificationUri,
       ),
     );
-    final localUserId = _session.userId;
-    if (localUserId != null && parsed.messageId != null) {
-      await sendPrivateChatControl(
-        crypto: _crypto,
-        signaling: _signaling,
-        control: DeliveryReceiptSignal(
-          senderId: localUserId,
-          recipientId: signal.senderId,
-          timestamp: DateTime.now(),
-          messageId: messageId,
-          status: 'DELIVERED',
-        ),
-      );
-    }
+    return _EncryptedProcessingResult(
+      processed: true,
+      messageId: parsed.messageId == null ? null : messageId,
+      deliveryReceiptRequired: parsed.messageId != null,
+    );
   }
 
   Future<void> _receipt(DeliveryReceiptSignal signal) async {
@@ -504,8 +691,12 @@ class IncomingMessageHandler {
       'DELIVERED' => StorageMessageStatus.delivered,
       _ => null,
     };
-    if (next == null || _statusRank(next) <= _statusRank(current.status))
-      return;
+    if (next == null) return;
+    await _database.pendingSignals.deleteDelivered(
+      signal.messageId,
+      signal.senderId,
+    );
+    if (_statusRank(next) <= _statusRank(current.status)) return;
     await _database.messages.updateStatus(signal.messageId, next);
   }
 
