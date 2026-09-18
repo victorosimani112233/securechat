@@ -61,17 +61,19 @@ class OtpAtomicityIntegrationTest {
 
     @Test
     fun `parallel correct submissions mint a single success`() {
-        val address = email()
-        val otp = OtpService.generateOtp(address)
         val attempts = 8
 
         val pool = Executors.newFixedThreadPool(attempts)
         try {
-            val successes = pool.invokeAll(
-                (0 until attempts).map { Callable { OtpService.verifyOtp(address, otp) } },
-            ).count { it.get() }
-            // Atomik olmayan uygulamada bu sayi 1'den buyuk olabiliyordu.
-            assertEquals(1, successes)
+            repeat(20) {
+                val address = email()
+                val otp = OtpService.generateOtp(address)
+                val successes = pool.invokeAll(
+                    (0 until attempts).map { Callable { OtpService.verifyOtp(address, otp) } },
+                ).count { it.get() }
+                // Split claim/consume hem sifir hem birden cok basari uretebilir.
+                assertEquals(1, successes)
+            }
         } finally {
             pool.shutdown()
             pool.awaitTermination(30, TimeUnit.SECONDS)

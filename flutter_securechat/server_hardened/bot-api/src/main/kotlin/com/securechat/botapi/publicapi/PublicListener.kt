@@ -1,6 +1,7 @@
 package com.securechat.botapi.publicapi
 
 import com.securechat.botapi.BotApiConfig
+import com.securechat.botapi.send.SendPipeline
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
@@ -27,13 +28,24 @@ object PublicListener {
     /** Container ici loopback portu; dis erisim yalniz Unix socket ile. */
     const val DEFAULT_TCP_PORT = 8091
 
+    /**
+     * Public yuzun tam yapilandirmasi.
+     *
+     * Ayri bir fonksiyon olmasi, uctan uca testin ayni pluginleri ve ayni
+     * whitelist katmanini kullanmasini saglar; kopyalanmis bir kurulum test
+     * edilen seyin production olmadigi anlamina gelirdi.
+     */
+    fun Application.publicApiModule(pipeline: SendPipeline? = null) {
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true; isLenient = false })
+        }
+        PathWhitelistInterceptor.install(this)
+        routing { sendRoute(pipeline) }
+    }
+
     fun start(port: Int = DEFAULT_TCP_PORT): NettyApplicationEngine {
         val server = embeddedServer(Netty, host = "127.0.0.1", port = port) {
-            install(ContentNegotiation) {
-                json(Json { ignoreUnknownKeys = true; isLenient = false })
-            }
-            PathWhitelistInterceptor.install(this)
-            routing { sendRoute() }
+            publicApiModule()
         }.start(wait = false)
         log.info("[PublicListener] http://127.0.0.1:{}/v1/send (sadece POST)", port)
         log.info("[PublicListener] dis yuz: Unix socket {}", BotApiConfig.publicSocketPath)

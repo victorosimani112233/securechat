@@ -7,6 +7,9 @@ import org.whispersystems.libsignal.state.SignedPreKeyRecord
 import org.whispersystems.libsignal.util.KeyHelper
 import java.security.MessageDigest
 import java.sql.Connection
+import java.sql.Timestamp
+import java.time.Duration
+import java.time.Instant
 import java.util.Base64
 import java.util.UUID
 
@@ -34,16 +37,24 @@ private val log = LoggerFactory.getLogger("BotIdentityBootstrap")
 object BotIdentityBootstrap {
 
     private const val ONE_TIME_PREKEY_POOL = 100
-    private const val SIGNED_PREKEY_ID = 1
+    private const val FIRST_SIGNED_PREKEY_ID = 1
+    private const val MAX_SIGNED_PREKEY_ID = 0xFFFFFF
+    private val SIGNED_PREKEY_ROTATION_AGE: Duration = Duration.ofDays(7)
+    private val SIGNED_PREKEY_RETENTION_AGE: Duration = Duration.ofDays(30)
     private const val SERVICE_TOKEN_PREFIX = "service:"
 
     private val fingerprintEncoder: Base64.Encoder = Base64.getUrlEncoder().withoutPadding()
 
-    fun ensureRegistered(publisher: BotBundlePublisher = HttpBundlePublisher) {
+    @Synchronized
+    fun ensureRegistered(
+        publisher: BotBundlePublisher = HttpBundlePublisher,
+        now: Instant = Instant.now(),
+    ) {
         val account = ensureAccount()
         val store = PgSignalProtocolStore()
-        val signedPreKey = ensureSignedPreKey(store, account.identityKeyPair)
+        val signedPreKey = selectSignedPreKey(account, store, now)
         reconcilePublishedBundle(account, store, signedPreKey, publisher)
+        pruneExpiredSignedPreKeys(signedPreKey.id, now)
         BotIdentity.set(account.botUserId, account.registrationId)
         log.info("[Bootstrap] Bot identity hazir ve yayinlanmis durumda")
     }
@@ -116,7 +127,11 @@ object BotIdentityBootstrap {
                     statement.executeUpdate()
                 }
 
-                val wrapped = KeyEncryptor.wrap(identityKeyPair.privateKey.serialize())
+                val wrapped = KeyEncryptor.wrapBound(
+                    identityKeyPair.privateKey.serialize(),
+                    KeyEncryptor.PURPOSE_IDENTITY_PRIVATE,
+                    "1",
+                )
                 conn.prepareStatement(
                     """INSERT INTO bot_identity(id, bot_user_id, registration_id,
                            identity_public_key, identity_private_key_enc,
@@ -149,17 +164,71 @@ object BotIdentityBootstrap {
     // 2) Local prekey durumu
     // =====================================================================
 
-    private fun ensureSignedPreKey(
+    private data class StoredSignedPreKey(val keyId: Int, val createdAt: Instant)
+
+    private fun selectSignedPreKey(
+        account: BotAccount,
+        store: PgSignalProtocolStore,
+        now: Instant,
+    ): SignedPreKeyRecord {
+        val latest = latestStoredSignedPreKey()
+        if (latest == null) {
+            return createSignedPreKey(store, account.identityKeyPair, FIRST_SIGNED_PREKEY_ID)
+        }
+        val latestRecord = store.loadSignedPreKey(latest.keyId)
+        if (!isSignedPreKeyPublished(account, latestRecord)) {
+            return latestRecord
+        }
+        if (now.isBefore(latest.createdAt.plus(SIGNED_PREKEY_ROTATION_AGE))) {
+            return latestRecord
+        }
+        check(latest.keyId < MAX_SIGNED_PREKEY_ID) {
+            "Bot signed pre-key ID space exhausted"
+        }
+        return createSignedPreKey(store, account.identityKeyPair, latest.keyId + 1)
+    }
+
+    private fun createSignedPreKey(
         store: PgSignalProtocolStore,
         identityKeyPair: IdentityKeyPair,
+        keyId: Int,
     ): SignedPreKeyRecord {
-        if (store.containsSignedPreKey(SIGNED_PREKEY_ID)) {
-            return store.loadSignedPreKey(SIGNED_PREKEY_ID)
-        }
-        val record = KeyHelper.generateSignedPreKey(identityKeyPair, SIGNED_PREKEY_ID)
-        store.storeSignedPreKey(SIGNED_PREKEY_ID, record)
-        log.info("[Bootstrap] Signed prekey uretildi")
+        val record = KeyHelper.generateSignedPreKey(identityKeyPair, keyId)
+        store.storeSignedPreKey(keyId, record)
+        log.info("[Bootstrap] Signed prekey uretildi; keyId={}", keyId)
         return record
+    }
+
+    private fun latestStoredSignedPreKey(): StoredSignedPreKey? =
+        BotDatabase.getConnection().use { connection ->
+            connection.prepareStatement(
+                """SELECT key_id, created_at FROM bot_signed_prekey
+                   ORDER BY key_id DESC LIMIT 1""",
+            ).use { statement ->
+                statement.executeQuery().use { rows ->
+                    if (!rows.next()) null else StoredSignedPreKey(
+                        rows.getInt("key_id"),
+                        rows.getTimestamp("created_at").toInstant(),
+                    )
+                }
+            }
+        }
+
+    private fun pruneExpiredSignedPreKeys(activeKeyId: Int, now: Instant) {
+        val cutoff = now.minus(SIGNED_PREKEY_RETENTION_AGE)
+        BotDatabase.getConnection().use { connection ->
+            val removed = connection.prepareStatement(
+                """DELETE FROM bot_signed_prekey
+                   WHERE key_id <> ? AND created_at < ?""",
+            ).use { statement ->
+                statement.setInt(1, activeKeyId)
+                statement.setTimestamp(2, Timestamp.from(cutoff))
+                statement.executeUpdate()
+            }
+            if (removed > 0) {
+                log.info("[Bootstrap] {} eski signed prekey silindi", removed)
+            }
+        }
     }
 
     /**

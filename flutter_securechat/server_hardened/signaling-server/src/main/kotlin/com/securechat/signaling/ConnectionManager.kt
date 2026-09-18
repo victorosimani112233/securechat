@@ -12,11 +12,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 
 private val log = LoggerFactory.getLogger(ConnectionManager::class.java)
@@ -45,31 +51,65 @@ class ConnectionManager(
     /** Bir kullanicinin izleyebilecegi en fazla hedef sayisi. */
     private val MAX_PRESENCE_SUBSCRIPTIONS = 512
 
-    suspend fun addConnection(userId: String, session: WebSocketSession) {
-        // Connection limit kontrolu
-        if (connections.size >= MAX_CONNECTIONS) {
-            session.close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Sunucu kapasitesi doldu"))
-            log.warn("[!] Baglanti reddedildi — limit asildi (${connections.size}/$MAX_CONNECTIONS)")
-            return
-        }
+    /**
+     * @return baglanti kabul edildiyse true.
+     *
+     * Kapasite kontrolu kilit **icinde** yapilir; disarida yapildiginda iki
+     * es zamanli baglanti ayni "yer var" okumasini paylasip limiti birlikte
+     * asabiliyordu. Ayni kullanicinin onceki oturumu varsa kapatilir.
+     */
+    suspend fun addConnection(userId: String, session: WebSocketSession): Boolean {
         // Shutdown sirasinda yeni baglanti kabul etme
         if (isShuttingDown.get()) {
             session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Sunucu kapatiliyor"))
-            return
+            return false
         }
-        mutex.withLock {
-            connections[userId]?.close(CloseReason(CloseReason.Codes.NORMAL, "Yeni baglanti"))
-            connections[userId] = session
-            log.info("[+] Kullanici baglandi (toplam: ${connections.size})")
+        val previous = mutex.withLock {
+            if (!connections.containsKey(userId) && connections.size >= MAX_CONNECTIONS) {
+                null to false
+            } else {
+                val existing = connections.put(userId, session)
+                log.info("[+] Kullanici baglandi (toplam: ${connections.size})")
+                existing to true
+            }
         }
+        if (!previous.second) {
+            session.close(
+                CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Sunucu kapasitesi doldu"),
+            )
+            log.warn("[!] Baglanti reddedildi — limit asildi")
+            return false
+        }
+        previous.first?.close(CloseReason(CloseReason.Codes.NORMAL, "Yeni baglanti"))
         Metrics.wsConnections.increment()
         // Redis'ten offline mesajlari ilet
         deliverOfflineMessages(userId, session)
+        return true
     }
 
-    suspend fun removeConnection(userId: String) {
+    /**
+     * Baglanti kapanisinda cagrilir.
+     *
+     * @param session kapanan oturum. Ayni kullanici yeniden baglandiginda
+     *   eski soketin `finally` blogu bu metodu cagirir; kosulsuz `remove`
+     *   o anda map'te duran **yeni** soketi silerdi ve kullanici bagliyken
+     *   cevrimdisi gorunurdu. Compare-and-remove bunu engeller.
+     */
+    suspend fun removeConnection(userId: String, session: WebSocketSession? = null) {
+        val removed = mutex.withLock {
+            if (session == null) {
+                connections.remove(userId) != null
+            } else {
+                connections.remove(userId, session)
+            }
+        }
+        if (!removed) {
+            // Yerini yeni bir baglanti almis; presence ve call temizligi
+            // yapilmaz, aksi halde canli oturum bozulurdu.
+            log.info("[-] Eski baglanti kapandi, yeni baglanti korunuyor")
+            return
+        }
         mutex.withLock {
-            connections.remove(userId)
             log.info("[-] Kullanici ayrildi (toplam: ${connections.size})")
         }
         foregroundUsers.remove(userId)
@@ -116,7 +156,8 @@ class ConnectionManager(
         log.info("[S-] Presence aboneligi kaldirildi")
     }
 
-    private fun subscriptionCount(subscriberId: String): Int =
+    /** Bir abonenin izledigi hedef sayisi. Testler temizligi buradan gorur. */
+    internal fun subscriptionCount(subscriberId: String): Int =
         presenceSubscribers.values.count { it.contains(subscriberId) }
 
     suspend fun handlePresenceUpdate(userId: String, isOnline: Boolean, hideLastSeen: Boolean = false) {
@@ -146,12 +187,12 @@ class ConnectionManager(
         val isOnline = foregroundUsers.contains(targetUserId)
         if (hideLastSeenUsers.contains(targetUserId)) {
             val json = buildPresenceJson(targetUserId, requesterId, isOnline = isOnline, lastSeen = 0, hideLastSeen = true)
-            try { session.send(Frame.Text(json)) } catch (_: Exception) { }
+            try { session.send(Frame.Text(json)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
             return
         }
         val lastSeen = if (isOnline) System.currentTimeMillis() else (lastSeenMap[targetUserId] ?: 0)
         val json = buildPresenceJson(targetUserId, requesterId, isOnline, lastSeen)
-        try { session.send(Frame.Text(json)) } catch (_: Exception) { }
+        try { session.send(Frame.Text(json)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
     }
 
     private suspend fun notifyPresenceChange(userId: String, isOnline: Boolean, lastSeen: Long, hideLastSeen: Boolean = false) {
@@ -160,13 +201,21 @@ class ConnectionManager(
         val json = buildPresenceJson(userId, "subscriber", isOnline, lastSeen, hideLastSeen)
         for (subscriberId in subscribers) {
             val session = connections[subscriberId] ?: continue
-            try { session.send(Frame.Text(json)) } catch (_: Exception) { }
+            try { session.send(Frame.Text(json)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
         }
     }
 
     private fun buildPresenceJson(senderId: String, recipientId: String, isOnline: Boolean, lastSeen: Long, hideLastSeen: Boolean = false): String {
         val now = System.currentTimeMillis()
-        return """{"type":"presence_update","senderId":"$senderId","recipientId":"$recipientId","timestamp":$now,"isOnline":$isOnline,"lastSeen":$lastSeen,"hideLastSeen":$hideLastSeen}"""
+        return buildJsonObject {
+            put("type", "presence_update")
+            put("senderId", senderId)
+            put("recipientId", recipientId)
+            put("timestamp", now)
+            put("isOnline", isOnline)
+            put("lastSeen", lastSeen)
+            put("hideLastSeen", hideLastSeen)
+        }.toString()
     }
 
     private fun cleanupSubscriptions(userId: String) {
@@ -193,6 +242,27 @@ class ConnectionManager(
             log.debug("[X] Sentinel recipient drop")
             return
         }
+        val messageType = MessageTypes.extract(messageJson)
+        if (messageType == RELIABLE_MESSAGE_TYPE) {
+            val deliverable = queueReliableMessage(recipientId, messageJson) ?: return
+            Metrics.messagesQueued.increment()
+            val recipientSession = connections[recipientId]
+            if (recipientSession == null) {
+                log.info("[Q] Alici cevrimdisi, ACK kuyruguna eklendi")
+                notifyWakeUp(recipientId, messageType)
+                return
+            }
+            try {
+                recipientSession.send(Frame.Text(deliverable))
+                Metrics.messagesRouted.increment()
+                log.info("[>] ACK bekleyen mesaj iletildi")
+            } catch (e: Exception) {
+                log.warn("[!] ACK bekleyen mesaj gonderilemedi: ${e.javaClass.simpleName}")
+                notifyWakeUp(recipientId, messageType)
+            }
+            return
+        }
+
         val recipientSession = connections[recipientId]
         if (recipientSession != null) {
             try {
@@ -209,6 +279,48 @@ class ConnectionManager(
         }
     }
 
+    /**
+     * Anonim capability endpoint'inden gelen zarfi alicinin kuyruguna koyar.
+     *
+     * Sunucu ciphertext'i **acmaz ve bicimini dogrulamaz**: Sealed Sender
+     * zarfini yalniz alicinin cihazi cozebilir, dolayisiyla burada yapilacak
+     * her "dogrulama" ya anlamsiz ya da E2EE sinirini delen bir denemedir.
+     * Uygulanan tek kisit boyut ve kodlama sinirlaridir. Bozuk bir zarf
+     * alicida reddedilir.
+     *
+     * Bu metoda ve kuyruk degerine hicbir gonderen hesap kimligi girmez.
+     */
+    suspend fun routeSealedMessage(
+        recipientId: String,
+        sealedCiphertext: String,
+        deliveryId: String,
+    ): Boolean {
+        if (!DELIVERY_ID_REGEX.matches(deliveryId)) return false
+        val messageJson = buildJsonObject {
+            put("type", RELIABLE_MESSAGE_TYPE)
+            put("senderId", SEALED_SENDER_ID)
+            put("recipientId", recipientId)
+            put("timestamp", System.currentTimeMillis())
+            put("envelope", "SEALED:v1:$sealedCiphertext")
+            put("deliveryId", deliveryId)
+        }.toString()
+        val deliverable = queueReliableMessage(recipientId, messageJson) ?: return false
+        Metrics.messagesQueued.increment()
+        val recipientSession = connections[recipientId]
+        if (recipientSession == null) {
+            notifyWakeUp(recipientId, RELIABLE_MESSAGE_TYPE)
+            return true
+        }
+        return try {
+            recipientSession.send(Frame.Text(deliverable))
+            Metrics.messagesRouted.increment()
+            true
+        } catch (_: Exception) {
+            notifyWakeUp(recipientId, RELIABLE_MESSAGE_TYPE)
+            true
+        }
+    }
+
     fun isOnline(userId: String): Boolean = connections.containsKey(userId)
     fun getOnlineCount(): Int = connections.size
     fun connections(): Map<String, WebSocketSession> = connections
@@ -216,7 +328,7 @@ class ConnectionManager(
     suspend fun broadcastMessage(senderId: String, messageJson: String) {
         connections.forEach { (userId, session) ->
             if (userId != senderId) {
-                try { session.send(Frame.Text(messageJson)) } catch (_: Exception) { }
+                try { session.send(Frame.Text(messageJson)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
             }
         }
     }
@@ -299,6 +411,7 @@ class ConnectionManager(
     }
 
     private val fcmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val deliveryRandom = SecureRandom()
 
     /**
      * HANGUP/REJECT/BUSY signal'i geldiginde recipient'in offline kuyrugundaki
@@ -384,7 +497,7 @@ class ConnectionManager(
     fun purgePendingCallSignals(recipientId: String, callerSenderId: String) {
         try {
             val key = ServerPrivacy.queueKey("message", recipientId)
-            val callTypes = setOf("sdp_offer", "ice_candidate", "call_control")
+            val callTypes = MessageTypes.PENDING_CALL
             val senderRegex = """"senderId"\s*:\s*"([^"]+)"""".toRegex()
             var purged = 0
             RedisManager.use { jedis ->
@@ -396,7 +509,7 @@ class ConnectionManager(
                         jedis.zrem(key, stored)
                         continue
                     }
-                    val msgType = fcmPushSender?.extractMessageType(msg) ?: continue
+                    val msgType = MessageTypes.extract(msg) ?: continue
                     if (msgType !in callTypes) continue
                     val sid = senderRegex.find(msg)?.groupValues?.get(1)
                     if (sid == callerSenderId) {
@@ -419,19 +532,34 @@ class ConnectionManager(
         // queueAndNotify'a girebilir; burayi da kapatiyoruz.
         if (recipientId in sentinelRecipients) return
 
-        val messageType = fcmPushSender?.extractMessageType(messageJson)
-        val transientTypes = setOf("typing_indicator", "presence_update", "presence_subscribe", "presence_unsubscribe", "audio_data", "video_data")
-        if (messageType in transientTypes) return
+        // Siniflandirma push tasiyicisindan bagimsizdir. Onceden tur yalniz
+        // `fcmPushSender` uzerinden okunuyordu; push yapilandirilmamissa tur
+        // null kaliyor, gecici sinyaller kuyruga yaziliyor ve dosya
+        // parcalari mesaj kovasina dusuyordu.
+        val messageType = MessageTypes.extract(messageJson)
+        if (messageType in MessageTypes.TRANSIENT) return
+
+        if (messageType == RELIABLE_MESSAGE_TYPE) {
+            if (queueReliableMessage(recipientId, messageJson) != null) {
+                Metrics.messagesQueued.increment()
+                notifyWakeUp(recipientId, messageType)
+            }
+            return
+        }
 
         // GUVENLIK (H8 fix): file_transfer mesajlari AYRI bucket'a yonlendirilir.
         // Buyuk dosya chunk'lari ana mesaj queue'sunu doldurarak Redis OOM yaratamasin.
-        if (messageType == "file_transfer") {
+        if (messageType == MessageTypes.FILE_TRANSFER) {
             queueOfflineFileTransfer(recipientId, messageJson)
         } else {
             queueOfflineMessage(recipientId, messageJson)
         }
         Metrics.messagesQueued.increment()
 
+        notifyWakeUp(recipientId, messageType)
+    }
+
+    private fun notifyWakeUp(recipientId: String, messageType: String?) {
         if (fcmPushSender != null && messageType != null) {
             fcmScope.launch {
                 val ok = fcmPushSender.sendWakeUpPush(recipientId, messageType)
@@ -439,6 +567,126 @@ class ConnectionManager(
             }
         }
     }
+
+    /**
+     * Signal ciphertext'i alici ACK verene kadar RAM-only Redis'te tutar.
+     * Gondericinin rastgele deliveryId'si server HMAC'i ile sender+recipient'a
+     * baglanir; wire'da yalniz turetilmis, anlamsiz deliveryToken gorunur.
+     */
+    private fun queueReliableMessage(recipientId: String, messageJson: String): String? {
+        return try {
+            val original = Json.parseToJsonElement(messageJson).jsonObject
+            val senderId = original["senderId"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+                ?: LEGACY_SENDER_ID
+            val suppliedDeliveryId = original["deliveryId"]?.jsonPrimitive?.contentOrNull
+            val deliveryId = suppliedDeliveryId
+                ?.takeIf { DELIVERY_ID_REGEX.matches(it) }
+                ?: newDeliveryId()
+            val deliveryToken = ServerPrivacy.deliveryToken(recipientId, senderId, deliveryId)
+            var deliverable = buildJsonObject {
+                original.forEach { (key, value) ->
+                    if (key != "deliveryId" && key != "deliveryToken") put(key, value)
+                }
+                put("deliveryToken", deliveryToken)
+            }.toString()
+            val indexKey = ServerPrivacy.queueKey("delivery", recipientId)
+            val orderKey = ServerPrivacy.queueOrderKey("delivery", recipientId)
+            val metaKey = ServerPrivacy.queueMetaKey("delivery", recipientId)
+            val itemKey = ServerPrivacy.queueItemKey("delivery", recipientId, deliveryToken)
+            val sealed = ServerPrivacy.sealQueue(recipientId, deliverable)
+            val ttlSeconds = ServerPrivacy.config.offlineQueueTtlSeconds
+            val cutoff = System.currentTimeMillis() - ttlSeconds * 1000L
+            val accepted = RedisManager.use { jedis ->
+                @Suppress("UNCHECKED_CAST")
+                val queued = jedis.eval(
+                    ENQUEUE_RELIABLE_SCRIPT,
+                    listOf(indexKey, itemKey, orderKey, metaKey),
+                    listOf(
+                        deliveryToken,
+                        sealed,
+                        ttlSeconds.toString(),
+                        cutoff.toString(),
+                        OFFLINE_QUEUE_MAX_MESSAGES.toString(),
+                        OFFLINE_QUEUE_MAX_BYTES.toString(),
+                    ),
+                ) as? List<Any?> ?: error("Reliable queue script returned no result")
+                val status = (queued.getOrNull(0) as? Long) ?: -1L
+                if (status < 0L) {
+                    // Kuyruk dolu: bekleyen ciphertext korunur, gonderen yeniden dener.
+                    Metrics.messagesQueueRejected.increment()
+                    log.warn("[!] Teslim kuyrugu dolu — yeni ciphertext reddedildi")
+                    null
+                } else {
+                    val stored = queued.getOrNull(1)?.toString()
+                        ?: error("Reliable queue script returned no payload")
+                    // Duplicate retries receive the first server envelope. The Lua
+                    // script returns before EXPIRE/ZADD, so retention is not renewed.
+                    ServerPrivacy.openQueue(recipientId, stored)
+                }
+            }
+            deliverable = accepted ?: return null
+            deliverable
+        } catch (e: Exception) {
+            // Kuyruga yazilamayan reliable frame sokete de yollanmaz. Aksi halde
+            // socket send basarili gorunup process cokunce sessiz mesaj kaybi olur.
+            log.warn("[!] Redis reliable delivery queue hatasi: ${e.javaClass.simpleName}")
+            null
+        }
+    }
+
+    fun acknowledgeDelivery(recipientId: String, deliveryToken: String): Boolean {
+        if (!DELIVERY_ID_REGEX.matches(deliveryToken)) return false
+        return try {
+            val indexKey = ServerPrivacy.queueKey("delivery", recipientId)
+            val orderKey = ServerPrivacy.queueOrderKey("delivery", recipientId)
+            val metaKey = ServerPrivacy.queueMetaKey("delivery", recipientId)
+            val itemKey = ServerPrivacy.queueItemKey("delivery", recipientId, deliveryToken)
+            RedisManager.use { jedis ->
+                val removed = jedis.eval(
+                    ACK_RELIABLE_SCRIPT,
+                    listOf(indexKey, itemKey, orderKey, metaKey),
+                    listOf(deliveryToken),
+                ) as? Long
+                if (removed == 1L) {
+                    Metrics.messagesAcknowledged.increment()
+                    true
+                } else {
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            log.warn("[!] Delivery ACK Redis hatasi: ${e.javaClass.simpleName}")
+            false
+        }
+    }
+
+    /**
+     * Suresi dolmus teslim kayitlarini Redis icinde temizler.
+     *
+     * Eski surum index'i ve butun payload'lari uygulamaya cekiyordu; bu
+     * surum yalniz bir Lua cagrisi yapar ve ciphertext hic ag uzerinden
+     * gecmez.
+     */
+    private fun purgeExpiredReliable(
+        jedis: redis.clients.jedis.Jedis,
+        recipientId: String,
+        indexKey: String,
+        orderKey: String,
+        nowMs: Long,
+    ) {
+        val metaKey = ServerPrivacy.queueMetaKey("delivery", recipientId)
+        val cutoff = nowMs - ServerPrivacy.config.offlineQueueTtlSeconds * 1000L
+        jedis.eval(
+            PURGE_RELIABLE_SCRIPT,
+            listOf(indexKey, orderKey, metaKey),
+            listOf(cutoff.toString()),
+        )
+    }
+
+    private fun newDeliveryId(): String = ByteArray(32)
+        .also(deliveryRandom::nextBytes)
+        .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
 
     /**
      * Offline mesaji Redis Sorted Set'e ekler.
@@ -493,28 +741,197 @@ class ConnectionManager(
      * Queue limit enforcement: hem mesaj sayisi (1000) hem toplam byte cap.
      * Sirayla en eski mesajlari siler ta ki her iki sinir altina dusene kadar.
      */
+    /**
+     * Gecici sinyal ve dosya kuyruklarinin sinirlarini Redis icinde uygular.
+     *
+     * Bu kovalarda payload dogrudan ZSET member'idir. Onceki uygulama
+     * `ZRANGE key 0 -1` ile butun kuyrugu uygulamaya cekip byte topluyor ve
+     * sinir asildikca bunu elli kez tekrarliyordu: dolu bir kuyrukta tek bir
+     * mesaj, on MB'larca veriyi ag uzerinden tasiyip ayni miktarda JVM copu
+     * uretebiliyordu. Hesap dogrulamali bir yol olsa da bu, tek bir istemcinin
+     * tetikleyebilecegi bir yukseltme carpanidir.
+     *
+     * Script ayni kararlari tek turda ve Redis'in kendi bellegi uzerinde
+     * verir; ciphertext soketten hic gecmez.
+     *
+     * Teslim kuyrugundan farkli olarak burada tasmada **en eski** kayit
+     * silinir: bunlar cagri sinyali ve dosya parcasi gibi kisa omurlu
+     * cercevelerdir, eskimis bir SDP teklifini saklamanin degeri yoktur.
+     * Kalici mesaj ciphertext'i icin bunun tersi gecerlidir ve orada yeni
+     * mesaj reddedilir.
+     */
     private fun enforceQueueLimits(jedis: redis.clients.jedis.Jedis, key: String, maxBytes: Long) {
-        // Once mesaj sayisi sinirini uygula
-        val size = jedis.zcard(key)
-        if (size > OFFLINE_QUEUE_MAX_MESSAGES) {
-            jedis.zremrangeByRank(key, 0, size - OFFLINE_QUEUE_MAX_MESSAGES - 1)
-        }
-
-        // Toplam byte sinirini uygula (en eski mesajlari siler)
-        var iterations = 0
-        while (iterations < 50) {  // defansif: en fazla 50 mesaj sil tek seferde
-            val all = jedis.zrange(key, 0, -1) ?: break
-            val totalBytes = all.sumOf { it.length.toLong() }
-            if (totalBytes <= maxBytes) break
-            // En eski %10'unu sil (toplu silme — tek tek silmek pahali)
-            val toRemove = (all.size / 10).coerceAtLeast(1)
-            jedis.zremrangeByRank(key, 0, (toRemove - 1).toLong())
-            iterations++
-        }
+        jedis.eval(
+            TRIM_TRANSIENT_QUEUE_SCRIPT,
+            listOf(key),
+            listOf(OFFLINE_QUEUE_MAX_MESSAGES.toString(), maxBytes.toString()),
+        )
     }
 
     companion object {
         private const val ACTIVE_CALL_TTL_SECONDS = 300L
+        private const val RELIABLE_MESSAGE_TYPE = "encrypted_message"
+        private const val LEGACY_SENDER_ID = "legacy"
+        private const val SEALED_SENDER_ID = "sealed"
+        private val DELIVERY_ID_REGEX = Regex("^[A-Za-z0-9_-]{43}$")
+        /**
+         * Suresi dolmus kayitlari silen ortak Lua parcasi.
+         *
+         * Item key'ler kullanici+token HMAC'idir, Lua icinde turetilemez; bu
+         * yuzden boyut defterinde `"<byte>:<itemKey>"` olarak saklanir. Silme
+         * boylece payload'a hic dokunmadan Redis icinde tamamlanir.
+         *
+         * KEYS[1]=index (ZSET), KEYS[4]=meta (HASH), ARGV[4]=expiry cutoff score
+         */
+        private const val PURGE_EXPIRED_FRAGMENT = """
+            local expired = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[4])
+            for i = 1, #expired do
+              local meta = redis.call('HGET', KEYS[4], expired[i])
+              if meta then
+                local separator = string.find(meta, ':')
+                if separator then
+                  redis.call('DEL', string.sub(meta, separator + 1))
+                end
+                redis.call('HDEL', KEYS[4], expired[i])
+              end
+              redis.call('ZREM', KEYS[1], expired[i])
+            end
+        """
+
+        /**
+         * Teslim kuyruguna tek turda, sinirli ve fail-closed yazim.
+         *
+         * Onceki akista sinir kontrolu Kotlin tarafinda `ZRANGE` + `MGET` ile
+         * yapiliyor ve dolu bir kuyrukta her mesaj icin 50 MB'a kadar payload
+         * Redis'ten cekiliyordu; ustelik tasma halinde **en eski mesajlar**
+         * siliniyordu. Anonim relay kimlik dogrulamasi istemedigi icin bu,
+         * capability'yi bilen herkesin alicinin bekleyen mesajlarini
+         * temizletebilmesi demekti.
+         *
+         * Simdi sinir Redis icinde tam sayi defterinden hesaplanir ve kuyruk
+         * doluysa **yeni mesaj reddedilir**: gonderen 503 alir ve yeniden
+         * dener, alicinin bekleyen ciphertext'i asla feda edilmez.
+         *
+         * KEYS: 1=index(ZSET) 2=item(STRING) 3=order(STRING) 4=meta(HASH)
+         * ARGV: 1=deliveryToken 2=payload 3=ttlSeconds 4=expiryCutoff
+         *       5=maxMessages 6=maxBytes
+         * Doner: {1, payload} yazildi | {0, payload} zaten vardi | {-1, ''} dolu
+         */
+        private val ENQUEUE_RELIABLE_SCRIPT = ("""
+            local existing = redis.call('GET', KEYS[2])
+            if existing then
+              return {0, existing}
+            end
+        """ + PURGE_EXPIRED_FRAGMENT + """
+            if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[5]) then
+              return {-1, ''}
+            end
+            local total = 0
+            local sizes = redis.call('HVALS', KEYS[4])
+            for i = 1, #sizes do
+              local separator = string.find(sizes[i], ':')
+              if separator then
+                total = total + tonumber(string.sub(sizes[i], 1, separator - 1))
+              end
+            end
+            local incoming = string.len(ARGV[2])
+            if total + incoming > tonumber(ARGV[6]) then
+              return {-1, ''}
+            end
+            local server_time = redis.call('TIME')
+            local score = tonumber(server_time[1]) * 1000 + tonumber(server_time[2]) / 1000
+            local previous = tonumber(redis.call('GET', KEYS[3]) or '0')
+            if score <= previous then
+              score = previous + 0.001
+            end
+            local score_text = string.format('%.3f', score)
+            redis.call('SET', KEYS[3], score_text, 'EX', ARGV[3])
+            redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+            redis.call('ZADD', KEYS[1], score_text, ARGV[1])
+            redis.call('HSET', KEYS[4], ARGV[1], incoming .. ':' .. KEYS[2])
+            redis.call('EXPIRE', KEYS[1], ARGV[3])
+            redis.call('EXPIRE', KEYS[4], ARGV[3])
+            return {1, ARGV[2]}
+        """).trimIndent()
+
+        /**
+         * Teslim onayi: ciphertext Redis'ten tek atomik adimda silinir.
+         *
+         * Alici mesaji kalici yerel deposuna yazip ACK gonderdigi anda
+         * sunucudaki sifreli kopya yok olur; index, payload ve boyut defteri
+         * ayni adimda temizlenir, aralarinda yarim kalmis bir durum olusmaz.
+         */
+        private val ACK_RELIABLE_SCRIPT = """
+            local removed = redis.call('DEL', KEYS[2])
+            local unindexed = redis.call('ZREM', KEYS[1], ARGV[1])
+            redis.call('HDEL', KEYS[4], ARGV[1])
+            if redis.call('ZCARD', KEYS[1]) == 0 then
+              redis.call('DEL', KEYS[1], KEYS[3], KEYS[4])
+            end
+            if removed > 0 or unindexed > 0 then
+              return 1
+            end
+            return 0
+        """.trimIndent()
+
+        /**
+         * Teslimden once suresi dolmus kayitlari temizler.
+         *
+         * KEYS: 1=index(ZSET) 2=order(STRING) 3=meta(HASH), ARGV: 1=cutoff
+         */
+        private val PURGE_RELIABLE_SCRIPT = """
+            local expired = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+            for i = 1, #expired do
+              local meta = redis.call('HGET', KEYS[3], expired[i])
+              if meta then
+                local separator = string.find(meta, ':')
+                if separator then
+                  redis.call('DEL', string.sub(meta, separator + 1))
+                end
+                redis.call('HDEL', KEYS[3], expired[i])
+              end
+              redis.call('ZREM', KEYS[1], expired[i])
+            end
+            if redis.call('ZCARD', KEYS[1]) == 0 then
+              redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+            end
+            return 1
+        """.trimIndent()
+        /**
+         * Gecici kuyruk budama: once sayi, sonra toplam byte siniri.
+         *
+         * KEYS[1]=kuyruk (ZSET, member = payload)
+         * ARGV: 1=maxMessages 2=maxBytes
+         */
+        private val TRIM_TRANSIENT_QUEUE_SCRIPT = """
+            local max_messages = tonumber(ARGV[1])
+            local max_bytes = tonumber(ARGV[2])
+            local size = redis.call('ZCARD', KEYS[1])
+            if size > max_messages then
+              redis.call('ZREMRANGEBYRANK', KEYS[1], 0, size - max_messages - 1)
+            end
+            local members = redis.call('ZRANGE', KEYS[1], 0, -1)
+            local total = 0
+            for i = 1, #members do
+              total = total + string.len(members[i])
+            end
+            if total <= max_bytes then
+              return 0
+            end
+            local removed = 0
+            for i = 1, #members do
+              total = total - string.len(members[i])
+              removed = removed + 1
+              if total <= max_bytes then
+                break
+              end
+            end
+            if removed > 0 then
+              redis.call('ZREMRANGEBYRANK', KEYS[1], 0, removed - 1)
+            end
+            return removed
+        """.trimIndent()
+
         /** Offline queue per-user mesaj sayisi limiti. */
         private const val OFFLINE_QUEUE_MAX_MESSAGES = 1000L
         /** Offline mesaj queue per-user toplam byte limiti (50 MB). Redis OOM korumasi. */
@@ -532,6 +949,7 @@ class ConnectionManager(
      */
     private suspend fun deliverOfflineMessages(userId: String, session: WebSocketSession) {
         try {
+            deliverReliableMessages(userId, session)
             val queues = listOf(
                 ServerPrivacy.queueKey("message", userId),
                 ServerPrivacy.queueKey("file", userId)
@@ -553,7 +971,9 @@ class ConnectionManager(
                         droppedInvalid++
                         continue
                     }
-                    val msgType = fcmPushSender?.extractMessageType(message)
+                    // Bayat SDP teklifi filtresi push tasiyicisina bagli
+                    // olmamali; push kapaliyken eski teklifler teslim edilirdi.
+                    val msgType = MessageTypes.extract(message)
                     if (msgType == "sdp_offer") {
                         val ts = extractTimestamp(message)
                         if (ts != null && (now - ts) > sdpOfferMaxAgeMs) {
@@ -584,6 +1004,44 @@ class ConnectionManager(
         }
     }
 
+    /** Reliable ciphertext kalici yerel isleme ACK'i gelene kadar silinmez. */
+    private suspend fun deliverReliableMessages(userId: String, session: WebSocketSession) {
+        val indexKey = ServerPrivacy.queueKey("delivery", userId)
+        val orderKey = ServerPrivacy.queueOrderKey("delivery", userId)
+        val stored = RedisManager.use { jedis ->
+            purgeExpiredReliable(jedis, userId, indexKey, orderKey, System.currentTimeMillis())
+            val tokens = jedis.zrange(indexKey, 0, -1)?.toList() ?: emptyList()
+            val payloads = if (tokens.isEmpty()) emptyList() else jedis.mget(
+                *tokens.map { ServerPrivacy.queueItemKey("delivery", userId, it) }.toTypedArray()
+            )
+            tokens to payloads
+        }
+        var delivered = 0
+        for ((index, token) in stored.first.withIndex()) {
+            val sealed = stored.second.getOrNull(index)
+            if (sealed == null) {
+                RedisManager.use { jedis -> jedis.zrem(indexKey, token) }
+                continue
+            }
+            val message = try {
+                ServerPrivacy.openQueue(userId, sealed)
+            } catch (_: Exception) {
+                RedisManager.use { jedis ->
+                    jedis.del(ServerPrivacy.queueItemKey("delivery", userId, token))
+                    jedis.zrem(indexKey, token)
+                }
+                continue
+            }
+            try {
+                session.send(Frame.Text(message))
+                delivered++
+            } catch (_: Exception) {
+                return
+            }
+        }
+        if (delivered > 0) log.info("[D] $delivered ACK bekleyen ciphertext yeniden iletildi")
+    }
+
     /** Account deletion boundary: socket, presence, call and all queue copies. */
     /**
      * Hesap silmede kullanilan gecici-durum temizligi uc bagimsiz adima
@@ -609,9 +1067,20 @@ class ConnectionManager(
 
     fun purgeQueuedEnvelopes(userId: String) {
         RedisManager.use { jedis ->
+            val deliveryIndex = ServerPrivacy.queueKey("delivery", userId)
+            val deliveryTokens = jedis.zrange(deliveryIndex, 0, -1) ?: emptySet()
+            val itemKeys = deliveryTokens.map {
+                ServerPrivacy.queueItemKey("delivery", userId, it)
+            }.toTypedArray()
+            if (itemKeys.isNotEmpty()) jedis.del(*itemKeys)
             jedis.del(
                 ServerPrivacy.queueKey("message", userId),
                 ServerPrivacy.queueKey("file", userId),
+                deliveryIndex,
+                ServerPrivacy.queueMetaKey("delivery", userId),
+                // One-time cleanup for the pre-item-TTL reliable queue shape.
+                ServerPrivacy.queuePayloadKey("delivery", userId),
+                ServerPrivacy.queueOrderKey("delivery", userId),
                 // One-time cutover cleanup for deployments upgrading from v1.
                 "offline_queue:$userId",
                 "offline_file:$userId"
@@ -642,13 +1111,17 @@ class ConnectionManager(
      * Client bu mesaji alinca 5sn sonra reconnect dener.
      */
     suspend fun broadcastServerShutdown() {
-        val shutdownMsg = """{"type":"server_shutdown","timestamp":${System.currentTimeMillis()},"message":"Sunucu yeniden baslatiliyor"}"""
+        val shutdownMsg = buildJsonObject {
+            put("type", "server_shutdown")
+            put("timestamp", System.currentTimeMillis())
+            put("message", "Sunucu yeniden baslatiliyor")
+        }.toString()
         var count = 0
         connections.forEach { (_, session) ->
             try {
                 session.send(Frame.Text(shutdownMsg))
                 count++
-            } catch (_: Exception) { }
+            } catch (_: Exception) { /* best-effort: kapali soket yut */ }
         }
         log.info("[SHUTDOWN] $count client'a SERVER_SHUTDOWN mesaji gonderildi")
     }
@@ -660,7 +1133,7 @@ class ConnectionManager(
         connections.forEach { (_, session) ->
             try {
                 session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Sunucu kapatiliyor"))
-            } catch (_: Exception) { }
+            } catch (_: Exception) { /* best-effort: kapali soket yut */ }
         }
         log.info("[SHUTDOWN] ${connections.size} baglanti kapatildi")
         connections.clear()

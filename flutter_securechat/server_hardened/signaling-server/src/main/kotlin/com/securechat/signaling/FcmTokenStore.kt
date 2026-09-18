@@ -14,8 +14,8 @@ private val log = LoggerFactory.getLogger("FcmTokenStore")
  *
  * Kalici satirlar ham kullanici UUID'si tasimaz. UUID, ayri privacy key ile
  * uretilmis deterministic bir blind index'e donusturulur; token da bu indekse
- * AAD ile baglidir. V14 sonrasi tablo ham UUID kolonu tasimaz ve yalniz v4
- * envelope kabul eder. Bozuk satirlar hicbir zaman cache'e alinmaz.
+ * AAD ile baglidir. V14 sonrasi tablo ham UUID kolonu tasimaz. v4 kayitlar
+ * ilk basarili okumada key-id tasiyan v5'e cevrilir; bozuk satirlar silinir.
  */
 class FcmTokenStore internal constructor(
     private val cipher: FcmTokenCipher = FcmTokenCipher.fromEnvironment(),
@@ -139,11 +139,8 @@ class FcmTokenStore internal constructor(
                         continue
                     }
 
-                    val plaintext = if (
-                        row.token.length <= MAX_STORED_TOKEN_CHARS &&
-                        row.token.startsWith(V4_PREFIX)
-                    ) {
-                        cipher.openV4(row.userIndex, row.token)
+                    val plaintext = if (row.token.length <= MAX_STORED_TOKEN_CHARS) {
+                        cipher.open(row.userIndex, row.token)
                     } else {
                         null
                     }
@@ -151,6 +148,9 @@ class FcmTokenStore internal constructor(
                         deleteRow(connection, row.id)
                         erased++
                         continue
+                    }
+                    if (cipher.needsMigration(row.token)) {
+                        migrateEnvelope(connection, row, cipher.seal(row.userIndex, plaintext))
                     }
                     loaded[row.userIndex] = CachedToken(plaintext, row.updatedAtMillis)
                 }
@@ -200,6 +200,17 @@ class FcmTokenStore internal constructor(
         }
     }
 
+    private fun migrateEnvelope(connection: Connection, row: StoredRow, replacement: String) {
+        connection.prepareStatement(
+            "UPDATE fcm_tokens SET token = ? WHERE id = ? AND token = ?",
+        ).use { statement ->
+            statement.setString(1, replacement)
+            statement.setLong(2, row.id)
+            statement.setString(3, row.token)
+            statement.executeUpdate()
+        }
+    }
+
     private fun indexFor(normalizedUserId: String): String =
         userIndexProvider(normalizedUserId).also {
             require(isValidBlindIndex(it)) { "Invalid push-token blind index" }
@@ -212,7 +223,6 @@ class FcmTokenStore internal constructor(
     }
 
     companion object {
-        private const val V4_PREFIX = "v4:"
         private const val MAX_STORED_TOKEN_CHARS = 8_192
         private const val MILLIS_PER_DAY = 86_400_000L
 

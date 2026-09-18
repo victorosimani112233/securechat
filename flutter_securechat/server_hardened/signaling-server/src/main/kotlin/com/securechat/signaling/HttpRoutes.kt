@@ -34,11 +34,20 @@ private const val SMALL_BODY_LIMIT = 8 * 1024
  */
 private const val PREKEY_BODY_LIMIT = 64 * 1024
 
+/** PQ Kyber public keys make a 100-key v2 upload roughly 220 KiB. */
+private const val MODERN_PREKEY_BODY_LIMIT = 512 * 1024
+
+/** Sealed Sender ciphertext plus bounded JSON/Base64 overhead. */
+private const val SEALED_SENDER_BODY_LIMIT = 384 * 1024
+
 /** Tek yuklemede kabul edilen en fazla one-time prekey sayisi. */
-private const val MAX_ONE_TIME_PREKEYS = 200
+internal const val MAX_ONE_TIME_PREKEYS = 200
 
 /** Curve25519 public key 33, imza 64 byte; ust sinir bunun uzerinde tutuldu. */
-private const val MAX_KEY_MATERIAL_BYTES = 128
+internal const val MAX_KEY_MATERIAL_BYTES = 128
+
+/** Hesap basina saklanabilecek tuketilmemis one-time prekey ust siniri. */
+internal const val MAX_STORED_ONE_TIME_PREKEYS = 1_000
 
 /** Server baslangic zamani — uptime hesabi icin */
 private val serverStartTime = System.currentTimeMillis()
@@ -61,6 +70,26 @@ data class DirectoryEvaluateResponse(val keyId: String, val evaluated: List<Stri
 @Serializable
 data class DirectorySnapshotEntryResponse(val label: String, val sealedUserId: String)
 
+/**
+ * Karisik tipli `mapOf(...)` yanitlari calisma zamaninda serialize edilemez:
+ * `Map<String, Any>` icin serializer yoktur ve endpoint 500 dondururdu.
+ * Tipli yanitlar bunu derleme zamaninda imkansiz kilar.
+ */
+@Serializable
+data class LatestVersionResponse(
+    val versionCode: Int,
+    val versionName: String,
+    val downloadUrl: String,
+    val mandatory: Boolean,
+)
+
+@Serializable
+data class SfuRoomResponse(
+    val roomId: Long,
+    val janusWsUrl: String,
+    val status: String,
+)
+
 @Serializable
 data class DirectorySnapshotResponse(
     val keyId: String,
@@ -68,12 +97,11 @@ data class DirectorySnapshotResponse(
 )
 
 @Serializable
-data class OwnDirectoryUpdateRequest(val phoneHash: String)
+data class OwnDirectoryUpdateRequest(val directoryToken: String)
 
 @Serializable
 data class RegisterRequest(
     val userId: String,
-    val phoneHash: String,
     /** OTP dogrulama sonrasi alinan kisa omurlu registration token. */
     val registrationToken: String? = null
 )
@@ -124,7 +152,24 @@ data class PreKeyEntry(val keyId: Int, val publicKey: String) // publicKey base6
  * Onceki akista one-time prekey sayisi ve anahtar boyutlari sinirsizdi;
  * tek bir istek binlerce satir veya cok buyuk alanlar yazdirabiliyordu.
  */
-private fun PreKeyUploadRequest.hasSaneKeyMaterial(): Boolean {
+/**
+ * Refresh yolundaki one-time prekey listesinin alan bazinda gecerliligi.
+ *
+ * `/prekeys/refresh` daha once `hasSaneKeyMaterial()`'i atliyordu: keyId
+ * araligi, anahtar boyutu, sayi tavani ve tekrar kontrolu yoktu; bir hesap
+ * her istekte farkli keyId'lerle sinirsiz satir ekleyebiliyordu.
+ */
+internal fun List<PreKeyEntry>.hasSaneOneTimeKeys(): Boolean {
+    if (size > MAX_ONE_TIME_PREKEYS) return false
+    if (distinctBy { it.keyId }.size != size) return false
+    return all { entry ->
+        entry.keyId in 0..0xFFFFFF &&
+            (runCatching { java.util.Base64.getDecoder().decode(entry.publicKey).size }
+                .getOrDefault(0)) in 1..MAX_KEY_MATERIAL_BYTES
+    }
+}
+
+internal fun PreKeyUploadRequest.hasSaneKeyMaterial(): Boolean {
     fun decoded(value: String): Int? = try {
         java.util.Base64.getDecoder().decode(value).size
     } catch (_: Exception) {
@@ -156,6 +201,111 @@ data class PreKeyBundleResponse(
     val signedPreKeySignature: String,
     val oneTimePreKey: PreKeyEntry? = null
 )
+
+@Serializable
+data class ModernOneTimePreKeyEntry(
+    val keyId: Int,
+    val publicKey: String,
+    val kyberPublicKey: String,
+    val kyberSignature: String,
+)
+
+@Serializable
+data class ModernKyberPreKeyEntry(
+    val keyId: Int,
+    val publicKey: String,
+    val signature: String,
+    val lastResort: Boolean = true,
+)
+
+@Serializable
+data class ModernPreKeyUploadRequest(
+    val protocolVersion: Int,
+    val identityPublicKey: String,
+    val registrationId: Int,
+    val signedPreKeyId: Int,
+    val signedPreKey: String,
+    val signedPreKeySignature: String,
+    val oneTimePreKeys: List<ModernOneTimePreKeyEntry>,
+    val lastResortKyberPreKey: ModernKyberPreKeyEntry,
+)
+
+@Serializable
+data class ModernPreKeyBundleResponse(
+    val protocolVersion: Int,
+    val userId: String,
+    val identityPublicKey: String,
+    val registrationId: Int,
+    val signedPreKeyId: Int,
+    val signedPreKey: String,
+    val signedPreKeySignature: String,
+    val oneTimePreKey: PreKeyEntry? = null,
+    val kyberPreKey: ModernKyberPreKeyEntry,
+)
+
+@Serializable
+data class ModernPreKeyStatusResponse(val initialized: Boolean, val remaining: Int)
+
+@Serializable
+data class ModernPreKeyUploadResponse(val status: String, val remaining: Int)
+
+@Serializable
+data class AnonymousMailboxRegistrationRequest(
+    val protocolVersion: Int,
+    val mailboxId: String,
+    val writeKey: String,
+    val generation: Int,
+)
+
+@Serializable
+data class SealedSenderRelayRequest(
+    val protocolVersion: Int,
+    val mailboxId: String,
+    val deliveryId: String,
+    val ciphertext: String,
+)
+
+@Serializable
+data class SealedSenderCertificateResponse(
+    val protocolVersion: Int,
+    val certificate: String,
+    val expiresAt: Long,
+    val serverKeyId: Int,
+)
+
+internal fun List<ModernOneTimePreKeyEntry>.hasSaneModernOneTimeKeys(): Boolean {
+    if (size > MAX_ONE_TIME_PREKEYS || distinctBy { it.keyId }.size != size) return false
+    return all { entry ->
+        entry.keyId in 0 until ModernPreKeyManagerCompat.lastResortKeyId &&
+            decodedSize(entry.publicKey) in 16..128 &&
+            decodedSize(entry.kyberPublicKey) in 512..4096 &&
+            decodedSize(entry.kyberSignature) in 32..128
+    }
+}
+
+internal fun ModernPreKeyUploadRequest.hasSaneKeyMaterial(): Boolean =
+    protocolVersion == 2 &&
+        registrationId in 1..16_380 &&
+        signedPreKeyId in 0..0xFFFFFF &&
+        decodedSize(identityPublicKey) in 16..128 &&
+        decodedSize(signedPreKey) in 16..128 &&
+        decodedSize(signedPreKeySignature) in 32..128 &&
+        oneTimePreKeys.hasSaneModernOneTimeKeys() &&
+        lastResortKyberPreKey.keyId == ModernPreKeyManagerCompat.lastResortKeyId &&
+        lastResortKyberPreKey.lastResort &&
+        decodedSize(lastResortKyberPreKey.publicKey) in 512..4096 &&
+        decodedSize(lastResortKyberPreKey.signature) in 32..128
+
+private fun decodedSize(value: String): Int = try {
+    java.util.Base64.getDecoder().decode(value).size
+} catch (_: IllegalArgumentException) {
+    0
+}
+
+/** Wire constants duplicated across languages and guarded by contract tests. */
+private object ModernPreKeyManagerCompat {
+    const val lastResortKeyId = 0xFFFFFF
+}
 
 @Serializable
 data class StatusResponse(
@@ -195,7 +345,8 @@ data class HealthResponse(
 fun Application.configureRoutes(
     connectionManager: ConnectionManager,
     userRegistry: UserRegistry,
-    fcmTokenStore: FcmTokenStore? = null
+    fcmTokenStore: FcmTokenStore? = null,
+    fcmPushSender: FcmPushSender? = null,
 ) {
     routing {
         intercept(ApplicationCallPipeline.Plugins) {
@@ -228,14 +379,26 @@ fun Application.configureRoutes(
             )
         }
 
-        // Health check — kritik bagimliliklar (DB + Redis); Janus ve FCM opsiyonel
+        // Liveness: process ayakta mi. Bagimlilik ayrintisi tasimaz; anonim
+        // bir istemciye stack'in ic yapisini vermek gerekmez.
         get("/health") {
+            call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+        }
+
+        // Readiness: operator'a ozel ayrintili durum.
+        get("/ready") {
+            if (!MetricsAccess.isAuthorized(call.request.headers["Authorization"])) {
+                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "unauthorized"))
+                return@get
+            }
             val dbOk = Database.isHealthy()
             val redisOk = RedisManager.isHealthy()
             val privacyOk = PrivacyRetentionWorker.isHealthy()
             val criticalOk = dbOk && redisOk && privacyOk
             val janusEnabled = !System.getenv("JANUS_WS_URL").isNullOrBlank()
-            val fcmEnabled = !System.getenv("FIREBASE_SERVICE_ACCOUNT_PATH").isNullOrBlank()
+            // Env path'inin varligi push'in calistigini kanitlamaz; gercek
+            // baslatma sonucu raporlanir.
+            val fcmEnabled = fcmPushSender?.isOperational == true
             call.respond(
                 if (criticalOk) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable,
                 HealthResponse(
@@ -272,12 +435,12 @@ fun Application.configureRoutes(
             val versionName = System.getenv("LATEST_APK_VERSION_NAME") ?: ""
             val downloadUrl = System.getenv("LATEST_APK_DOWNLOAD_URL") ?: ""
             call.respond(
-                mapOf(
-                    "versionCode" to (versionCode ?: 0),
-                    "versionName" to versionName,
-                    "downloadUrl" to downloadUrl,
-                    "mandatory" to (System.getenv("LATEST_APK_MANDATORY") == "true")
-                )
+                LatestVersionResponse(
+                    versionCode = versionCode ?: 0,
+                    versionName = versionName,
+                    downloadUrl = downloadUrl,
+                    mandatory = System.getenv("LATEST_APK_MANDATORY") == "true",
+                ),
             )
         }
 
@@ -306,6 +469,17 @@ fun Application.configureRoutes(
                 call.respond(
                     HttpStatusCode.TooManyRequests,
                     mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()),
+                )
+                return@post
+            }
+            // Redis sliding window kalicisizdir (RDB kapali); restart sonrasi
+            // sifirlanan bir kota enumeration'a karsi tekrar denenebilir bir
+            // engeldir. Kalici gunluk kota bunun icin ayrica kontrol edilir.
+            if (!DirectoryQuota.tryConsume(authedUserId, PrivateDirectoryOprf.AUTHENTICATED_BATCH_SIZE)) {
+                call.response.header("Retry-After", "3600")
+                call.respond(
+                    HttpStatusCode.TooManyRequests,
+                    mapOf("error" to "directory_quota_exhausted", "retryAfter" to "3600"),
                 )
                 return@post
             }
@@ -339,19 +513,14 @@ fun Application.configureRoutes(
                 )
                 return@get
             }
-            val entries = userRegistry.privateDirectorySnapshot().map { user ->
-                val sealed = PrivateDirectory.oprf.sealUserId(
-                    user.directoryToken,
-                    user.userId,
-                )
-                DirectorySnapshotEntryResponse(sealed.label, sealed.sealedUserId)
+            val entries = DirectorySnapshotCache.entries(userRegistry).map { entry ->
+                DirectorySnapshotEntryResponse(entry.label, entry.sealedUserId)
             }
             call.respond(DirectorySnapshotResponse(PrivateDirectory.oprf.keyId, entries))
         }
 
-        // Upgrade path for an already authenticated device. Only the account's
-        // own declared phone hash is transiently processed; it is never logged,
-        // cached or persisted and cannot expose the device address book.
+        // The client sends only a finalized blind-OPRF token. A deterministic
+        // phone hash must never cross this API boundary.
         post("/api/v1/users/directory-token") {
             val authedUserId = requireAuth(call) ?: return@post
             if (!RateLimiter.allow("directory_self_update", authedUserId)) {
@@ -362,12 +531,14 @@ fun Application.configureRoutes(
                 DIRECTORY_SELF_UPDATE_BODY_LIMIT,
             ) ?: return@post
             val updated = try {
-                userRegistry.updateOwnDirectoryToken(authedUserId, request.phoneHash)
+                userRegistry.updateOwnDirectoryToken(authedUserId, request.directoryToken)
             } catch (_: IllegalArgumentException) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_phone_hash"))
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_directory_token"))
                 return@post
             }
-            call.respond(mapOf("status" to "ok", "keyId" to updated.directoryKeyId))
+            // Deger nullable olmamali: `Map<String, String?>` yaniti tip guvenli
+            // degil ve yanit sozlesmesini belirsiz birakir.
+            call.respond(mapOf("status" to "ok", "keyId" to updated.directoryKeyId.orEmpty()))
         }
 
         // ========================================================
@@ -463,7 +634,10 @@ fun Application.configureRoutes(
                 call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
                 return@post
             }
-            val request = call.receiveBounded<RegisterRequest>(SMALL_BODY_LIMIT) ?: return@post
+            val request = call.receiveBounded<RegisterRequest>(
+                SMALL_BODY_LIMIT,
+                ignoreUnknownKeys = false,
+            ) ?: return@post
 
             // OTP registration token is mandatory and single-use in every
             // environment. Test behavior belongs in test source sets, not a
@@ -486,7 +660,7 @@ fun Application.configureRoutes(
                 // Grant tuketimi ile hesap kaydi tek transaction'dadir: kayit
                 // geri alinirsa grant yanmaz, kayit basarili olursa grant
                 // kalici olarak tukenmis sayilir.
-                val candidate = userRegistry.prepareRegistration(request.userId, request.phoneHash)
+                val candidate = userRegistry.prepareRegistration(request.userId)
                 RegistrationGrants.claimAccount(grant, candidate, userRegistry)
                     ?: run {
                         AuditLog.log(eventType = "REGISTER_GRANT_REPLAY", ipAddress = ip)
@@ -581,6 +755,13 @@ fun Application.configureRoutes(
         // (token rotation: eski refresh token blacklist'e alinir)
         post("/api/v1/auth/refresh") {
             val ip = call.clientAddress()
+            if (!RateLimiter.allow("auth_refresh", ip)) {
+                val retry = RateLimiter.retryAfter("auth_refresh", ip)
+                AuditLog.log(eventType = "RATE_LIMIT_HIT", metadata = mapOf("endpoint" to "auth_refresh"), ipAddress = ip)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
+                return@post
+            }
             val body = call.receiveBounded<RefreshTokenRequest>(SMALL_BODY_LIMIT) ?: return@post
             val claims = AuthService.refreshClaims(body.refreshToken)
             if (claims == null) {
@@ -640,6 +821,12 @@ fun Application.configureRoutes(
                 call,
                 serviceScope = ServiceAssertion.Scope.PREKEY_UPLOAD,
             ) ?: return@post
+            if (!RateLimiter.allow("prekey_write", authedUserId)) {
+                val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
+                return@post
+            }
             val req = call.receiveBounded<PreKeyUploadRequest>(PREKEY_BODY_LIMIT) ?: return@post
             val decoder = java.util.Base64.getDecoder()
             // Alan bazinda sinirlar: govde limiti tek basina yetmez, cunku
@@ -647,6 +834,15 @@ fun Application.configureRoutes(
             if (!req.hasSaneKeyMaterial()) {
                 AuditLog.log(eventType = "PREKEY_UPLOAD_REJECTED", ipAddress = call.clientAddress())
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_prekey_material"))
+                return@post
+            }
+            // Hesap basina depolama tavani: identity ayni kalirken gelen
+            // one-time prekey'ler mevcut havuza eklenir; sinirsizken tek hesap
+            // tabloyu sinirsiz buyutebiliyordu.
+            if (PreKeyStore.unconsumedCount(authedUserId) + req.oneTimePreKeys.size >
+                MAX_STORED_ONE_TIME_PREKEYS
+            ) {
+                call.respond(HttpStatusCode.Conflict, mapOf("error" to "prekey_pool_full"))
                 return@post
             }
             try {
@@ -674,9 +870,35 @@ fun Application.configureRoutes(
         }
 
         // One-time prekey havuzunu yenile (rotation)
+        get("/api/v1/prekeys/status") {
+            val authedUserId = requireAuth(call) ?: return@get
+            call.respond(
+                mapOf("remaining" to PreKeyStore.unconsumedCount(authedUserId)),
+            )
+        }
+
+        // One-time prekey havuzunu yenile (rotation)
         post("/api/v1/prekeys/refresh") {
             val authedUserId = requireAuth(call) ?: return@post
+            if (!RateLimiter.allow("prekey_write", authedUserId)) {
+                val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
+                return@post
+            }
             val keys = call.receiveBounded<List<PreKeyEntry>>(PREKEY_BODY_LIMIT) ?: return@post
+            // Upload ile ayni alan kontrolleri; refresh bunlari atliyordu.
+            if (!keys.hasSaneOneTimeKeys()) {
+                AuditLog.log(eventType = "PREKEY_UPLOAD_REJECTED", ipAddress = call.clientAddress())
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_prekey_material"))
+                return@post
+            }
+            if (PreKeyStore.unconsumedCount(authedUserId) + keys.size >
+                MAX_STORED_ONE_TIME_PREKEYS
+            ) {
+                call.respond(HttpStatusCode.Conflict, mapOf("error" to "prekey_pool_full"))
+                return@post
+            }
             val decoder = java.util.Base64.getDecoder()
             try {
                 PreKeyStore.addOneTimePreKeys(
@@ -691,11 +913,27 @@ fun Application.configureRoutes(
         }
 
         // Diger client baska bir kullanicinin prekey bundle'ini ister
+        // Klasik X3DH bundle'i. V2 (PQXDH + Sealed Sender) yayina girdikten
+        // sonra bu yol yalniz henuz PQXDH konusmayan bot servis hesaplari
+        // icindir. Kullanici token'i ile acik birakilmasi, bir istemcinin
+        // peer'ini post-quantum olmayan ve sealed sender tasimayan oturuma
+        // dusurmesine izin verirdi: V2'deki downgrade korumasini uygulama
+        // katmaninda etkisiz kilan sessiz bir yan yol. Servis assertion'i
+        // ayri bir anahtarla imzalanir ve kullanici token'i yerine gecemez.
         get("/api/v1/users/{userId}/prekeys") {
-            requirePrincipal(
+            val fetcherId = requireServicePrincipal(
                 call,
                 serviceScope = ServiceAssertion.Scope.PREKEY_FETCH,
             ) ?: return@get
+            // Her fetch hedefin bir one-time prekey'ini tuketir; cagiran
+            // basina sinir, bilinen bir UUID'nin havuzunun bosaltilmasini
+            // yavaslatir (whitebox bulgu).
+            if (!RateLimiter.allow("prekey_fetch", fetcherId)) {
+                val retry = RateLimiter.retryAfter("prekey_fetch", fetcherId)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
+                return@get
+            }
             val targetUserId = call.parameters["userId"] ?: run {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "userId gerekli"))
                 return@get
@@ -719,22 +957,339 @@ fun Application.configureRoutes(
             ))
         }
 
+        // Rust libsignal PQXDH bundle. V1 remains live during migration.
+        post("/api/v2/prekeys/upload") {
+            val authedUserId = requirePrincipal(
+                call,
+                serviceScope = ServiceAssertion.Scope.PREKEY_UPLOAD,
+            ) ?: return@post
+            if (!RateLimiter.allow("prekey_write", authedUserId)) {
+                val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
+                return@post
+            }
+            val request = call.receiveBounded<ModernPreKeyUploadRequest>(
+                MODERN_PREKEY_BODY_LIMIT,
+            ) ?: return@post
+            if (!request.hasSaneKeyMaterial()) {
+                AuditLog.log(eventType = "PREKEY_UPLOAD_REJECTED", ipAddress = call.clientAddress())
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_modern_prekey_material"))
+                return@post
+            }
+            val decoder = java.util.Base64.getDecoder()
+            try {
+                ModernPreKeyStore.uploadBundle(
+                    userId = authedUserId,
+                    identityPublicKey = decoder.decode(request.identityPublicKey),
+                    registrationId = request.registrationId,
+                    signedPreKey = ModernPreKeyStore.SignedPreKey(
+                        request.signedPreKeyId,
+                        decoder.decode(request.signedPreKey),
+                        decoder.decode(request.signedPreKeySignature),
+                    ),
+                    oneTimePreKeys = request.oneTimePreKeys.map { key ->
+                        ModernPreKeyStore.OneTimePreKeyPair(
+                            key.keyId,
+                            decoder.decode(key.publicKey),
+                            decoder.decode(key.kyberPublicKey),
+                            decoder.decode(key.kyberSignature),
+                        )
+                    },
+                    lastResortKyberPreKey = ModernPreKeyStore.KyberPreKey(
+                        request.lastResortKyberPreKey.keyId,
+                        decoder.decode(request.lastResortKyberPreKey.publicKey),
+                        decoder.decode(request.lastResortKyberPreKey.signature),
+                        true,
+                    ),
+                )
+                call.respond(
+                    HttpStatusCode.OK,
+                    ModernPreKeyUploadResponse(
+                        status = "ok",
+                        remaining = ModernPreKeyStore.unconsumedCount(authedUserId),
+                    ),
+                )
+            } catch (error: Exception) {
+                logger.warn("[ModernPreKey] Upload failed: {}", error.javaClass.simpleName)
+                call.respond(HttpStatusCode.Conflict, mapOf("error" to "modern_prekey_upload_failed"))
+            }
+        }
+
+        get("/api/v2/prekeys/status") {
+            val authedUserId = requireAuth(call) ?: return@get
+            call.respond(
+                ModernPreKeyStatusResponse(
+                    initialized = ModernPreKeyStore.hasBundle(authedUserId),
+                    remaining = ModernPreKeyStore.unconsumedCount(authedUserId),
+                ),
+            )
+        }
+
+        post("/api/v2/prekeys/refresh") {
+            val authedUserId = requireAuth(call) ?: return@post
+            if (!RateLimiter.allow("prekey_write", authedUserId)) {
+                val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
+                return@post
+            }
+            val keys = call.receiveBounded<List<ModernOneTimePreKeyEntry>>(
+                MODERN_PREKEY_BODY_LIMIT,
+            ) ?: return@post
+            if (!keys.hasSaneModernOneTimeKeys()) {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_modern_prekey_material"))
+                return@post
+            }
+            val decoder = java.util.Base64.getDecoder()
+            try {
+                ModernPreKeyStore.addOneTimePreKeys(
+                    authedUserId,
+                    keys.map { key ->
+                        ModernPreKeyStore.OneTimePreKeyPair(
+                            key.keyId,
+                            decoder.decode(key.publicKey),
+                            decoder.decode(key.kyberPublicKey),
+                            decoder.decode(key.kyberSignature),
+                        )
+                    },
+                )
+                call.respond(
+                    mapOf("remaining" to ModernPreKeyStore.unconsumedCount(authedUserId)),
+                )
+            } catch (_: Exception) {
+                call.respond(HttpStatusCode.Conflict, mapOf("error" to "modern_prekey_refresh_failed"))
+            }
+        }
+
+        get("/api/v2/users/{userId}/prekeys") {
+            val fetcherId = requirePrincipal(
+                call,
+                serviceScope = ServiceAssertion.Scope.PREKEY_FETCH,
+            ) ?: return@get
+            if (!RateLimiter.allow("prekey_fetch", fetcherId)) {
+                val retry = RateLimiter.retryAfter("prekey_fetch", fetcherId)
+                call.response.header("Retry-After", retry.toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
+                return@get
+            }
+            val targetUserId = call.parameters["userId"] ?: run {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "user_id_required"))
+                return@get
+            }
+            val bundle = ModernPreKeyStore.fetchBundle(targetUserId)
+            if (bundle == null) {
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "modern_bundle_not_found"))
+                return@get
+            }
+            val encoder = java.util.Base64.getEncoder()
+            call.respond(
+                ModernPreKeyBundleResponse(
+                    protocolVersion = 2,
+                    userId = targetUserId,
+                    identityPublicKey = encoder.encodeToString(bundle.identityKey.publicKey),
+                    registrationId = bundle.identityKey.registrationId,
+                    signedPreKeyId = bundle.signedPreKey.keyId,
+                    signedPreKey = encoder.encodeToString(bundle.signedPreKey.publicKey),
+                    signedPreKeySignature = encoder.encodeToString(bundle.signedPreKey.signature),
+                    oneTimePreKey = bundle.oneTimePreKey?.let { key ->
+                        PreKeyEntry(key.keyId, encoder.encodeToString(key.ecPublicKey))
+                    },
+                    kyberPreKey = ModernKyberPreKeyEntry(
+                        keyId = bundle.kyberPreKey.keyId,
+                        publicKey = encoder.encodeToString(bundle.kyberPreKey.publicKey),
+                        signature = encoder.encodeToString(bundle.kyberPreKey.signature),
+                        lastResort = bundle.kyberPreKey.lastResort,
+                    ),
+                ),
+            )
+        }
+
+        get("/api/v2/users/{userId}/prekeys/capability") {
+            val fetcherId = requirePrincipal(
+                call,
+                serviceScope = ServiceAssertion.Scope.PREKEY_FETCH,
+            ) ?: return@get
+            if (!RateLimiter.allow("prekey_capability", fetcherId)) {
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
+                return@get
+            }
+            val targetUserId = call.parameters["userId"] ?: run {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "user_id_required"))
+                return@get
+            }
+            if (ModernPreKeyStore.hasBundle(targetUserId)) {
+                call.respond(HttpStatusCode.NoContent)
+            } else {
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "modern_bundle_not_found"))
+            }
+        }
+
+        post("/api/v2/sealed-sender/mailbox") {
+            val authedUserId = requireAuth(call) ?: return@post
+            if (!RateLimiter.allow("sealed_mailbox_write", authedUserId)) {
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
+                return@post
+            }
+            val request = call.receiveBounded<AnonymousMailboxRegistrationRequest>(
+                SMALL_BODY_LIMIT,
+                ignoreUnknownKeys = false,
+            ) ?: return@post
+            try {
+                AnonymousMailboxStore.register(
+                    authedUserId,
+                    AnonymousMailboxStore.Registration(
+                        mailboxId = request.mailboxId,
+                        writeKey = request.writeKey,
+                        protocolVersion = request.protocolVersion,
+                        generation = request.generation,
+                    ),
+                )
+                call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+            } catch (error: IllegalArgumentException) {
+                // Bicimsel hata istemcinin duzeltebilecegi bir seydir; eskimis
+                // veya emekli bir capability ise sunucu durumuyla catismadir.
+                // Ikisi ayni kodla donunce istemci yeniden kayit mi yoksa
+                // rotasyon mu gerektigini ayirt edemiyordu.
+                val conflict = error.message?.let {
+                    it.startsWith("Stale mailbox") ||
+                        it.startsWith("Conflicting mailbox") ||
+                        it.startsWith("Retired mailbox")
+                } == true
+                if (conflict) {
+                    call.respond(HttpStatusCode.Conflict, mapOf("error" to "mailbox_generation_conflict"))
+                } else {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_mailbox"))
+                }
+            } catch (error: Exception) {
+                logger.warn("[SealedSender] Mailbox registration failed: {}", error.javaClass.simpleName)
+                call.respond(HttpStatusCode.Conflict, mapOf("error" to "mailbox_registration_failed"))
+            }
+        }
+
+        get("/api/v2/users/{userId}/sealed-sender/capability") {
+            val fetcherId = requireAuth(call) ?: return@get
+            if (!RateLimiter.allow("prekey_capability", fetcherId)) {
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
+                return@get
+            }
+            val targetUserId = call.parameters["userId"] ?: run {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "user_id_required"))
+                return@get
+            }
+            if (AnonymousMailboxStore.hasMailbox(targetUserId) &&
+                ModernPreKeyStore.hasBundle(targetUserId)
+            ) {
+                call.respond(HttpStatusCode.NoContent)
+            } else {
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "sealed_sender_unavailable"))
+            }
+        }
+
+        get("/api/v2/sealed-sender/certificate") {
+            val authedUserId = requireAuth(call) ?: return@get
+            if (!RateLimiter.allow("sealed_certificate", authedUserId)) {
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
+                return@get
+            }
+            val identity = ModernPreKeyStore.identityFor(authedUserId)
+            if (identity == null || !AnonymousMailboxStore.hasMailbox(authedUserId)) {
+                call.respond(HttpStatusCode.Conflict, mapOf("error" to "sealed_sender_not_initialized"))
+                return@get
+            }
+            try {
+                val issued = SealedSenderCertificateIssuer.issue(
+                    senderId = authedUserId,
+                    senderIdentityPublicKey = identity.publicKey,
+                )
+                call.respond(
+                    SealedSenderCertificateResponse(
+                        protocolVersion = 1,
+                        certificate = java.util.Base64.getEncoder()
+                            .encodeToString(issued.certificate),
+                        expiresAt = issued.expiresAt,
+                        serverKeyId = issued.serverKeyId,
+                    ),
+                )
+            } catch (error: Exception) {
+                logger.warn("[SealedSender] Certificate issuance failed: {}", error.javaClass.simpleName)
+                call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "certificate_unavailable"))
+            }
+        }
+
+        // Deliberately unauthenticated: the random write capability authorizes
+        // one destination without revealing a sender account credential.
+        post("/api/v2/sealed-sender/messages") {
+            val ip = call.clientAddress()
+            val request = call.receiveBounded<SealedSenderRelayRequest>(
+                SEALED_SENDER_BODY_LIMIT,
+                ignoreUnknownKeys = false,
+            ) ?: return@post
+            val writeKey = call.request.headers["Authorization"]
+                ?.removePrefix("Bearer ")
+                ?.trim()
+                .orEmpty()
+            val fieldsValid = request.protocolVersion == 1 &&
+                request.mailboxId.matches(Regex("^[A-Za-z0-9_-]{43}$")) &&
+                request.deliveryId.matches(Regex("^[A-Za-z0-9_-]{43}$")) &&
+                decodedSize(request.ciphertext) in 32..(256 * 1024)
+            if (!fieldsValid) {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_relay_request"))
+                return@post
+            }
+            if (!RateLimiter.allow("sealed_relay_ip", ip) ||
+                !RateLimiter.allow("sealed_relay_mailbox", request.mailboxId)
+            ) {
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "relay_unavailable"))
+                return@post
+            }
+            val recipientId = AnonymousMailboxStore.authorize(request.mailboxId, writeKey)
+            if (recipientId == null) {
+                // Missing mailbox and wrong key intentionally share one result.
+                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "relay_unauthorized"))
+                return@post
+            }
+            // Kuyruk doluysa bekleyen ciphertext korunur ve yeni mesaj
+            // reddedilir; gonderen geri cekilip yeniden dener.
+            if (!connectionManager.routeSealedMessage(
+                    recipientId = recipientId,
+                    sealedCiphertext = request.ciphertext,
+                    deliveryId = request.deliveryId,
+                )
+            ) {
+                call.response.header("Retry-After", "30")
+                call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "relay_unavailable"))
+                return@post
+            }
+            call.respond(HttpStatusCode.Accepted, mapOf("status" to "queued"))
+        }
+
         // --- SFU Room Bilgisi — AUTH GEREKLI ---
         get("/api/v1/sfu/room/{groupId}") {
-            requireAuth(call) ?: return@get
+            val authedUserId = requireAuth(call) ?: return@get
             val groupId = call.parameters["groupId"] ?: run {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "groupId gerekli"))
+                return@get
+            }
+            // Kimlik dogrulamasi tek basina yetki degildir: yalniz aktif
+            // cagrinin katilimcisi oda bilgisini alabilir.
+            val activeCall = GroupCallSessionStore.get(groupId)
+            if (activeCall == null || authedUserId !in activeCall.participants) {
+                AuditLog.log(eventType = "SFU_ROOM_UNAUTHORIZED", ipAddress = call.clientAddress())
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Aktif SFU room bulunamadi"))
                 return@get
             }
             val info = JanusOrchestrator.getRoomInfo(groupId)
             if (info == null) {
                 call.respond(HttpStatusCode.NotFound, mapOf("error" to "Aktif SFU room bulunamadi"))
             } else {
-                call.respond(mapOf(
-                    "roomId" to info.roomId,
-                    "janusWsUrl" to info.janusWsUrl,
-                    "status" to "active"
-                ))
+                call.respond(
+                    SfuRoomResponse(
+                        roomId = info.roomId,
+                        janusWsUrl = info.janusWsUrl,
+                        status = "active",
+                    ),
+                )
             }
         }
 
@@ -790,6 +1345,7 @@ fun Application.configureRoutes(
  */
 private suspend inline fun <reified T> ApplicationCall.receiveBounded(
     maximumBytes: Int,
+    ignoreUnknownKeys: Boolean = true,
 ): T? {
     val declaredLength = request.contentLength()
     if (declaredLength != null && declaredLength > maximumBytes) {
@@ -802,7 +1358,8 @@ private suspend inline fun <reified T> ApplicationCall.receiveBounded(
         return null
     }
     return try {
-        Json { ignoreUnknownKeys = true }.decodeFromString<T>(bytes.toString(Charsets.UTF_8))
+        Json { this.ignoreUnknownKeys = ignoreUnknownKeys }
+            .decodeFromString<T>(bytes.toString(Charsets.UTF_8))
     } catch (_: Exception) {
         respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_json"))
         null
@@ -844,6 +1401,35 @@ private suspend fun requireAuth(call: io.ktor.server.application.ApplicationCall
  * Servis assertion'i baska hicbir route'ta gecerli degildir: `serviceScope`
  * null oldugunda tek kabul edilen credential normal kullanici token'idir.
  */
+/**
+ * Yalniz servis assertion'i kabul eder; kullanici access token'i reddedilir.
+ *
+ * Kullanici tarafina kapatilmis ama servisler icin acik kalmasi gereken
+ * yollarda kullanilir.
+ */
+private suspend fun requireServicePrincipal(
+    call: io.ktor.server.application.ApplicationCall,
+    serviceScope: ServiceAssertion.Scope,
+): String? {
+    val token = call.request.headers["Authorization"]?.removePrefix("Bearer ")?.trim()
+    if (token.isNullOrBlank()) {
+        call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authorization header gerekli"))
+        return null
+    }
+    ServiceAccounts.authenticate(token, serviceScope)?.let { return it }
+    // Gelistirme profilinde ve acikca istenmisse eski istemci de paketini
+    // alabilir; aksi halde V2'ye gecmemis bir istemci hic oturum kuramaz.
+    if (DeploymentProfile.allowsLegacyPreKeyFetch()) {
+        AuthService.verifyToken(token)?.let {
+            AuditLog.log(eventType = "LEGACY_PREKEY_FETCH_ALLOWED")
+            return it
+        }
+    }
+    AuditLog.log(eventType = "LEGACY_PREKEY_DOWNGRADE_REJECTED")
+    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "legacy_bundle_unavailable"))
+    return null
+}
+
 private suspend fun requirePrincipal(
     call: io.ktor.server.application.ApplicationCall,
     serviceScope: ServiceAssertion.Scope?,

@@ -1,10 +1,12 @@
 package com.securechat.botapi.send
 
 import com.securechat.botapi.audit.BotAuditLog
+import com.securechat.botapi.auth.AuthenticatedClient
 import com.securechat.botapi.auth.ClientKeyCache
 import com.securechat.botapi.auth.EdDsaJwtVerifier
 import com.securechat.botapi.delivery.SignalingWsClient
 import com.securechat.botapi.health.BotMetrics
+import com.securechat.botapi.http.BoundedBody
 import com.securechat.botapi.signal.BotIdentity
 import com.securechat.botapi.signal.BotServiceTokenMinter
 import com.securechat.botapi.signal.PgSignalProtocolStore
@@ -43,10 +45,16 @@ private val log = LoggerFactory.getLogger("SendPipeline")
  *
  * Hata yollarinda PENDING release edilir ki script ayni key ile retry edebilsin.
  */
-class SendPipeline {
+class SendPipeline(
+    /**
+     * kid -> client cozumlemesi. Uretimde cache'lenmis DB kaydidir; disaridan
+     * verilebilmesi guard zincirinin veritabani olmadan da surulmesini saglar.
+     */
+    clientLookup: (String) -> AuthenticatedClient? = { kid -> ClientKeyCache.get(kid) },
+) {
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val verifier = EdDsaJwtVerifier { kid -> ClientKeyCache.get(kid) }
+    private val verifier = EdDsaJwtVerifier(clientLookup)
     private val store = PgSignalProtocolStore()
     private val encryptor = SignalEncryptor(store)
     private val bundleFetcher = PreKeyBundleFetcher {
@@ -57,8 +65,9 @@ class SendPipeline {
     }
 
     suspend fun handle(call: ApplicationCall) {
-        // 1) Body bytes
-        val bodyBytes = call.receiveChannel().toByteArray()
+        // 1) Body bytes — tavanli. Sinirsiz okuma tek bir istegin process'i
+        // bellek baskisina sokmasina izin veriyordu.
+        val bodyBytes = BoundedBody.read(call, BoundedBody.SEND_LIMIT_BYTES) ?: return
 
         // 2) JWT verify
         val bearer = call.request.header("Authorization")?.removePrefix("Bearer ")?.trim()
@@ -156,11 +165,17 @@ class SendPipeline {
             BotAuditLog.log("BOT_API_RATE_LIMIT_HIT",
                 metadata = mapOf("kid" to authed.kid, "layer" to (rl.reason ?: "unknown")))
             call.response.header("Retry-After", rl.retryAfterSeconds.toString())
-            call.respond(HttpStatusCode.TooManyRequests, mapOf(
-                "error" to "rate_limit",
-                "layer" to (rl.reason ?: "unknown"),
-                "retry_after_seconds" to rl.retryAfterSeconds
-            ))
+            // Karisik tipli map serialize edilemez: bu yanit calisma
+            // zamaninda 500'e donusuyor ve istemci Retry-After'i hic
+            // goremiyordu.
+            call.respond(
+                HttpStatusCode.TooManyRequests,
+                mapOf(
+                    "error" to "rate_limit",
+                    "layer" to (rl.reason ?: "unknown"),
+                    "retry_after_seconds" to rl.retryAfterSeconds.toString(),
+                ),
+            )
             return
         }
 
@@ -185,14 +200,20 @@ class SendPipeline {
                 payload.recipientRef,
                 payload.recipientUserIds,
                 plaintext,
-                payload.messageType ?: "text"
+                payload.messageType ?: "text",
+                clientId = authed.clientId,
+                idemKey = idemKey,
             )
             if (!sent) {
+                // Rezervasyon birakilir ki ayni anahtarla retry yapilabilsin;
+                // hangi alicilara ulasildigi `FanoutProgress` icinde kalir, bu
+                // yuzden retry duplicate gondermez.
                 IdempotencyStore.release(authed.clientId, idemKey)
                 BotMetrics.sendFailed.increment()
                 call.respond(HttpStatusCode.BadGateway, mapOf("error" to "delivery_failed"))
                 return
             }
+            FanoutProgress.clear(authed.clientId, idemKey)
 
             // 9) Cache result + 202
             val responseJson = json.encodeToString(SendResponse(messageId = messageId, status = "queued"))
@@ -221,7 +242,9 @@ class SendPipeline {
         recipientRef: String,
         recipientUserIds: List<String>,
         plaintext: ByteArray,
-        messageType: String
+        messageType: String,
+        clientId: String,
+        idemKey: String,
     ): Boolean {
         return when {
             recipientRef.startsWith("user:") -> {
@@ -245,13 +268,19 @@ class SendPipeline {
                 }
                 var allOk = true
                 for (member in members) {
+                    // Onceki denemede ulasilmis uyeye tekrar gonderilmez.
+                    if (FanoutProgress.isDelivered(clientId, idemKey, member)) continue
                     val ok = try {
                         encryptAndSend(member, plaintext, messageType)
                     } catch (e: Exception) {
                         log.warn("[Send] Grup uye gonderim hatasi: {}", e.javaClass.simpleName)
                         false
                     }
-                    if (!ok) allOk = false
+                    if (ok) {
+                        FanoutProgress.markDelivered(clientId, idemKey, member)
+                    } else {
+                        allOk = false
+                    }
                 }
                 allOk
             }

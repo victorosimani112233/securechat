@@ -181,7 +181,7 @@ object SignalingWsClient {
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             log.warn("[WSClient] WS kapanmak uzere: code={}", code)
             connected = false
-            try { webSocket.close(code, reason) } catch (_: Exception) {}
+            try { webSocket.close(code, reason) } catch (_: Exception) { /* zaten kapaniyor */ }
         }
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             log.warn("[WSClient] WS kapali: code={}", code)

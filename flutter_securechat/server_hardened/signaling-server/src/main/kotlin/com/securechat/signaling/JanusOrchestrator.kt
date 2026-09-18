@@ -66,6 +66,19 @@ object JanusOrchestrator {
     private val pendingRequests = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
 
     /**
+     * Tek reconnect sahibi.
+     *
+     * Onceki kodda `onClose` ve `onError` ayri ayri reconnect baslatiyor,
+     * catch blogu da ozyinelemeli olarak yeniden deniyordu; tek bir kopmada
+     * birden fazla baglanti dongusu ureyebiliyordu.
+     */
+    private val reconnecting = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Keepalive olmadan Janus oturumu kendiliginden zaman asimina ugrar. */
+    private var keepAliveJob: kotlinx.coroutines.Job? = null
+    private val keepAliveIntervalMillis = 30_000L
+
+    /**
      * Janus Gateway'e WebSocket baglantisi kurar.
      * Sunucu baslatildiginda cagrilir.
      */
@@ -104,27 +117,73 @@ object JanusOrchestrator {
                 override fun onClose(webSocket: WebSocket, statusCode: Int, reason: String): CompletionStage<*>? {
                     connected = false
                     log.info("[Janus] WebSocket kapandi; status={}", statusCode)
-                    // Yeniden baglan
-                    scope.launch {
-                        delay(5000)
-                        connectToJanus()
-                    }
+                    scheduleReconnect()
                     return null
                 }
 
                 override fun onError(webSocket: WebSocket, error: Throwable) {
                     connected = false
                     log.warn("[!] Janus WebSocket hatasi: ${error.javaClass.simpleName}")
-                    scope.launch {
-                        delay(5000)
-                        connectToJanus()
-                    }
+                    scheduleReconnect()
                 }
             }).join()
+            startKeepAlive()
         } catch (e: Exception) {
             log.warn("[!] Janus baglanti hatasi: ${e.javaClass.simpleName}")
-            delay(5000)
-            connectToJanus()
+            scheduleReconnect()
+        }
+    }
+
+    /**
+     * Kopan baglantiyi tek bir dongude yeniden kurar ve bekleyen istekleri
+     * serbest birakir. Aksi halde `sendAndWait` cagrilari timeout'a kadar
+     * asili kalirdi.
+     */
+    private fun scheduleReconnect() {
+        failPendingRequests()
+        if (!reconnecting.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                delay(5000)
+                connectToJanus()
+            } finally {
+                reconnecting.set(false)
+            }
+        }
+    }
+
+    /** Bekleyen istek sayisi — sizinti kontrolu icin gorunur. */
+    internal fun pendingRequestCount(): Int = pendingRequests.size
+
+    internal fun failPendingRequests() {
+        val pending = pendingRequests.keys.toList()
+        for (transaction in pending) {
+            pendingRequests.remove(transaction)?.completeExceptionally(
+                IllegalStateException("Janus connection lost"),
+            )
+        }
+        if (pending.isNotEmpty()) {
+            log.warn("[Janus] {} bekleyen istek baglanti kopmasiyla dusuruldu", pending.size)
+        }
+    }
+
+    /** Janus oturumlari keepalive gelmezse kendiliginden kapanir. */
+    private fun startKeepAlive() {
+        keepAliveJob?.cancel()
+        keepAliveJob = scope.launch {
+            while (true) {
+                delay(keepAliveIntervalMillis)
+                if (!connected) continue
+                for (sessionId in sessions.values.toList()) {
+                    val message = buildJsonObject {
+                        put("janus", "keepalive")
+                        put("session_id", sessionId)
+                        put("transaction", nextTransaction())
+                        put("apisecret", janusApiSecret)
+                    }
+                    runCatching { ws?.sendText(message.toString(), true) }
+                }
+            }
         }
     }
 
@@ -146,17 +205,21 @@ object JanusOrchestrator {
     /**
      * Janus'a mesaj gonderir ve yanit bekler.
      */
-    private suspend fun sendAndWait(message: JsonObject, timeoutMs: Long = 10_000): JsonObject {
+    internal suspend fun sendAndWait(message: JsonObject, timeoutMs: Long = 10_000): JsonObject {
         val transaction = message["transaction"]?.jsonPrimitive?.contentOrNull
             ?: throw IllegalArgumentException("transaction alani gerekli")
 
         val deferred = CompletableDeferred<JsonObject>()
         pendingRequests[transaction] = deferred
-
-        val text = message.toString()
-        ws?.sendText(text, true) ?: throw IllegalStateException("Janus WS bagli degil")
-
-        return withTimeout(timeoutMs) { deferred.await() }
+        try {
+            val text = message.toString()
+            ws?.sendText(text, true) ?: throw IllegalStateException("Janus WS bagli degil")
+            return withTimeout(timeoutMs) { deferred.await() }
+        } finally {
+            // Timeout veya gonderim hatasinda kayit birakilirsa harita yalniz
+            // buyur ve hicbir zaman temizlenmezdi.
+            pendingRequests.remove(transaction)
+        }
     }
 
     private fun nextTransaction(): String = "txn_${transactionCounter.incrementAndGet()}"
@@ -202,13 +265,18 @@ object JanusOrchestrator {
      * Grup aramasi basladiginda cagrilir.
      *
      * @param groupId Grup kimlik numarasi
-     * @param maxParticipants Maksimum katilimci sayisi
      * @return Janus room ID
      */
     private const val ROOM_ID_ATTEMPTS = 16
     private val roomIdRandom = java.security.SecureRandom()
 
-    private fun nextRoomId(): Long {
+    /**
+     * Oda kimligi tahmin edilemez olmalidir.
+     *
+     * Artan bir sayac, baska bir grubun odasina katilma girisimini onemsiz
+     * hale getirirdi; kimlik 62 bit rastgeledir ve carpisma kontrol edilir.
+     */
+    internal fun nextRoomId(): Long {
         repeat(ROOM_ID_ATTEMPTS) {
             val candidate = roomIdRandom.nextLong() and 0x3FFF_FFFF_FFFF_FFFFL
             if (candidate != 0L && !activeRooms.containsValue(candidate)) return candidate
@@ -216,7 +284,7 @@ object JanusOrchestrator {
         error("Janus room id could not be allocated without a collision")
     }
 
-    suspend fun createVideoRoom(groupId: String, maxParticipants: Int = 50): Long {
+    suspend fun createVideoRoom(groupId: String): Long {
         // Zaten varsa mevcut room'u don
         activeRooms[groupId]?.let { return it }
 
@@ -242,7 +310,7 @@ object JanusOrchestrator {
             putJsonObject("body") {
                 put("request", "create")
                 put("room", roomId)
-                put("publishers", maxParticipants)
+                put("publishers", SfuPolicy.MAX_PARTICIPANTS)
                 put("bitrate", 512000) // 512kbps max per publisher
                 put("fir_freq", 10)
                 put("videocodec", "vp8")
@@ -300,7 +368,7 @@ object JanusOrchestrator {
                 put("apisecret", janusApiSecret)
             }
             sendAndWait(destroySession, 5000)
-        } catch (_: Exception) { }
+        } catch (_: Exception) { /* best-effort teardown */ }
     }
 
     /**

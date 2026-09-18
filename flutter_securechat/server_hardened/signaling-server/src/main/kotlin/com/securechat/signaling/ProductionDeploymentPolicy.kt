@@ -8,6 +8,15 @@ import java.nio.file.Path
  */
 object ProductionDeploymentPolicy {
     fun validate(environment: Map<String, String> = System.getenv()) {
+        DeploymentProfile.requireConsistent(environment)
+        if (DeploymentProfile.isDevelopment(environment)) {
+            // Gelistirme profilinde yalniz **altyapi** kapilari atlanir.
+            // Kriptografik garantiler bu sinifin disinda, ServerPrivacy,
+            // PurposeSeparatedSecrets, AuthService ve RedisEphemeralPolicy
+            // tarafindan uygulanir ve her profilde calisir.
+            requireDevelopmentStillProtectsMessages(environment)
+            return
+        }
         require(environment["PRIVACY_PRODUCTION_MODE"]?.equals("true", ignoreCase = true) == true) {
             "PRIVACY_PRODUCTION_MODE=true is required"
         }
@@ -31,9 +40,71 @@ object ProductionDeploymentPolicy {
             }
         }
 
+        requireOfflineSealedSenderTrustRoot(environment)
+
+        requireTlsRelay(environment)
+
         val firebasePath = environment["FIREBASE_SERVICE_ACCOUNT_PATH"]
         require(!firebasePath.isNullOrBlank() && Path.of(firebasePath).isAbsolute) {
             "Firebase service-account path must be absolute"
+        }
+    }
+
+    /**
+     * Gelistirme profilinde bile vazgecilmeyen sinirlar.
+     *
+     * Gevsetilen sey uretim altyapisidir, mesaj gizliligi degil. Duz metin
+     * kuyruk, sunucunun ciphertext yerine okunabilir zarf saklamasi demektir
+     * ve bu, profilden bagimsiz olarak urunun temel iddiasini bozar. Bir
+     * gelistiricinin "sadece yerelde" diye acip sonra unutmasi da bu yuzden
+     * engellenir.
+     */
+    internal fun requireDevelopmentStillProtectsMessages(environment: Map<String, String>) {
+        require(environment["ALLOW_LEGACY_PLAINTEXT_QUEUE"]?.equals("true", ignoreCase = true) != true) {
+            "Legacy plaintext queues stay forbidden in the development profile"
+        }
+    }
+
+    /**
+     * Sealed Sender trust root'u production'da cevrimdisi kalmalidir.
+     *
+     * Trust root public key'i istemci binary'sine pinlenir; ozel anahtari ele
+     * geciren biri istedigi hesap adina gecerli sender certificate uretebilir
+     * ve bu ancak yeni bir uygulama surumuyle geri alinabilir. Relay'in
+     * calismak icin ozel anahtara ihtiyaci yoktur: cevrimdisi imzalanmis
+     * sertifika yeterlidir. Anahtarin ortamda bulunmasi, yanlislikla
+     * kopyalanmis olmasi ihtimaline karsi baslangicta reddedilir.
+     */
+    internal fun requireOfflineSealedSenderTrustRoot(environment: Map<String, String>) {
+        require(!environment["SEALED_SENDER_SERVER_CERTIFICATE"].isNullOrBlank()) {
+            "Production requires an offline-issued SEALED_SENDER_SERVER_CERTIFICATE"
+        }
+        require(!environment["SEALED_SENDER_TRUST_ROOT_PUBLIC_KEY"].isNullOrBlank()) {
+            "SEALED_SENDER_TRUST_ROOT_PUBLIC_KEY is required to validate the server certificate"
+        }
+        require(environment["SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY"].isNullOrBlank()) {
+            "The Sealed Sender trust-root private key must not be present on the relay"
+        }
+    }
+
+    /**
+     * TURN relay'i production'da TLS zorunludur.
+     *
+     * Duz `turn:` uzerinde kimlik ve relay adresi yol uzerindeki gozlemciye
+     * aciktir; medya SRTP ile sifreli olsa bile kimin ne zaman aradigi
+     * gorunur. Ayrica gomulu bir host fallback'i olmadigi icin TURN_HOST
+     * burada zorunlu kilinir.
+     */
+    internal fun requireTlsRelay(environment: Map<String, String>) {
+        require(!environment["TURN_HOST"].isNullOrBlank()) {
+            "TURN_HOST is required in production"
+        }
+        require(environment["TURN_ALLOW_PLAINTEXT"]?.equals("true", ignoreCase = true) != true) {
+            "Plaintext TURN is forbidden in production"
+        }
+        val tlsPort = environment["TURN_TLS_PORT"]?.trim()
+        if (!tlsPort.isNullOrBlank()) {
+            require(tlsPort.toIntOrNull() in 1..65_535) { "TURN_TLS_PORT is out of range" }
         }
     }
 

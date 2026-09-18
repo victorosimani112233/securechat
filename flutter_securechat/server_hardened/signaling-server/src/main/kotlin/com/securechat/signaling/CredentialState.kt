@@ -1,6 +1,7 @@
 package com.securechat.signaling
 
 import com.securechat.signaling.db.Database
+import com.securechat.signaling.db.RedisManager
 import java.security.SecureRandom
 import org.slf4j.LoggerFactory
 
@@ -40,26 +41,126 @@ object CredentialState {
 
     private class CachedSnapshot(val snapshot: Snapshot?, val loadedAtMs: Long)
 
+    /**
+     * Onbellek ust siniri.
+     *
+     * Girdiler yalniz ustlerine yazildiginda yenilenirdi; bir kez baglanip
+     * bir daha donmeyen her hesap kalici bir satir birakiyordu. Sinir asilinca
+     * suresi dolmus girdiler toplanir, yine de yer yoksa onbellek bosaltilir:
+     * en kotu durumda bir tur DB okumasi olur, dogruluk degismez.
+     */
+    private const val MAX_CACHED_ACCOUNTS = 50_000
+
     private val cache = java.util.concurrent.ConcurrentHashMap<String, CachedSnapshot>()
 
     class Snapshot(val credentialEpoch: String, val refreshGeneration: String)
+
+    /**
+     * Diger signaling instance'larina credential iptalini duyuran kanal.
+     *
+     * Epoch onbellegi process-yereldir ve CACHE_TTL_MS kadar tutulur; yatay
+     * olceklenmis bir dagitimda logout/silme yapan instance kendi kopyasini
+     * dusurur ama digerleri iptal edilmis bir access token'i TTL boyunca
+     * kabul etmeye devam ederdi (whitebox bulgu). Yayin bu pencereyi ag
+     * yayilim gecikmesine indirir.
+     */
+    private const val INVALIDATE_CHANNEL = "signaling:credential_invalidate"
 
     /** Rotasyon veya hesap silme sonrasi cached kopyayi dusurur. */
     fun forget(userId: String) {
         cache.remove(userId)
     }
 
+    /** Yerel kopyayi dusurur ve butun instance'lara iptali yayar. */
+    fun invalidateEverywhere(userId: String) {
+        forget(userId)
+        broadcastInvalidate(userId)
+    }
+
+    /**
+     * Iptali diger instance'lara yayar. Yayin basarisiz olsa bile guvenlik
+     * bozulmaz: en kotu ihtimalle diger instance'lar eski TTL davranisina
+     * (<=10s) doner; bu yuzden hata yutulur, credential bypass'a cevrilmez.
+     */
+    fun broadcastInvalidate(userId: String) {
+        try {
+            RedisManager.use { it.publish(INVALIDATE_CHANNEL, userId) }
+        } catch (error: Exception) {
+            log.warn("[Auth] Credential invalidation yayini basarisiz: {}", error.javaClass.simpleName)
+        }
+    }
+
+    @Volatile
+    private var subscriberThread: Thread? = null
+
+    @Volatile
+    private var subscribedLatch: java.util.concurrent.CountDownLatch? = null
+
+    /**
+     * Iptal kanalini dinleyen kalici abone. Her mesajda ilgili hesabin
+     * yerel epoch kopyasi dusurulur; sonraki kontrol DB'den taze epoch'u
+     * okur ve iptal edilmis token reddedilir.
+     */
+    @Synchronized
+    fun startInvalidationSubscriber() {
+        if (subscriberThread != null) return
+        val latch = java.util.concurrent.CountDownLatch(1)
+        subscribedLatch = latch
+        val pubSub = object : redis.clients.jedis.JedisPubSub() {
+            override fun onMessage(channel: String, message: String) {
+                forget(message)
+            }
+
+            override fun onSubscribe(channel: String, subscribedChannels: Int) {
+                latch.countDown()
+            }
+        }
+        val thread = Thread {
+            while (!Thread.currentThread().isInterrupted) {
+                try {
+                    RedisManager.subscribe(pubSub, INVALIDATE_CHANNEL)
+                } catch (error: Exception) {
+                    log.warn("[Auth] Invalidation abonesi koptu, yeniden baglanilacak: {}",
+                        error.javaClass.simpleName)
+                    try {
+                        Thread.sleep(1_000)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
+                }
+            }
+        }
+        thread.isDaemon = true
+        thread.name = "credential-invalidation-subscriber"
+        thread.start()
+        subscriberThread = thread
+        log.info("[Auth] Credential invalidation abonesi baslatildi")
+    }
+
     internal fun clearCache() {
         cache.clear()
     }
+
+    /** Yalniz test: bir hesabin RAM kopyasi var mi. */
+    internal fun isCached(userId: String): Boolean = cache.containsKey(userId)
+
+    /** Yalniz test: abone kanala baglanana kadar bekler. */
+    internal fun awaitSubscriberReady(timeoutMillis: Long): Boolean =
+        subscribedLatch?.await(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS) ?: false
 
     fun cachedSnapshot(userId: String): Snapshot? {
         val now = System.currentTimeMillis()
         val cached = cache[userId]
         if (cached != null && now - cached.loadedAtMs < CACHE_TTL_MS) return cached.snapshot
         val loaded = snapshot(userId)
+        if (cache.size >= MAX_CACHED_ACCOUNTS) evictStaleEntries(now)
         cache[userId] = CachedSnapshot(loaded, now)
         return loaded
+    }
+
+    private fun evictStaleEntries(nowMs: Long) {
+        cache.entries.removeIf { (_, cached) -> nowMs - cached.loadedAtMs >= CACHE_TTL_MS }
+        if (cache.size >= MAX_CACHED_ACCOUNTS) cache.clear()
     }
 
     fun snapshot(userId: String): Snapshot? =
@@ -96,7 +197,7 @@ object CredentialState {
                 statement.setString(3, userId)
                 statement.executeQuery().use { rows ->
                     if (rows.next()) rows.getString("credential_epoch") else null
-                }.also { forget(userId) }
+                }.also { invalidateEverywhere(userId) }
             }
         }
     }

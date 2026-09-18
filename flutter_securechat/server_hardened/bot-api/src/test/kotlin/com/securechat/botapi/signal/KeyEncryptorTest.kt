@@ -48,6 +48,53 @@ class KeyEncryptorTest {
     }
 
     @Test
+    fun `bound envelope rejects another purpose or row binding`() {
+        val wrapped = KeyEncryptor.wrapBound(
+            "private-key".toByteArray(),
+            KeyEncryptor.PURPOSE_ONE_TIME_PREKEY_PRIVATE,
+            "41",
+        )
+
+        assertThat(KeyEncryptor.isBoundCiphertext(wrapped.ciphertext)).isTrue()
+        assertThat(
+            runCatching {
+                KeyEncryptor.unwrapBound(
+                    wrapped.ciphertext,
+                    wrapped.nonce,
+                    KeyEncryptor.PURPOSE_ONE_TIME_PREKEY_PRIVATE,
+                    "42",
+                )
+            }.isFailure,
+        ).isTrue()
+        assertThat(
+            runCatching {
+                KeyEncryptor.unwrapBound(
+                    wrapped.ciphertext,
+                    wrapped.nonce,
+                    KeyEncryptor.PURPOSE_SIGNED_PREKEY_PRIVATE,
+                    "41",
+                )
+            }.isFailure,
+        ).isTrue()
+    }
+
+    @Test
+    fun `legacy envelope is decrypt-only and requests migration`() {
+        val plaintext = "legacy-private-key".toByteArray()
+        val legacy = KeyEncryptor.wrap(plaintext)
+
+        val opened = KeyEncryptor.unwrapBound(
+            legacy.ciphertext,
+            legacy.nonce,
+            KeyEncryptor.PURPOSE_IDENTITY_PRIVATE,
+            "1",
+        )
+
+        assertThat(opened.plaintext).isEqualTo(plaintext)
+        assertThat(opened.needsMigration).isTrue()
+    }
+
+    @Test
     fun `session record envelope hides bytes and binds recipient device`() {
         val recipientIndex = "opaque-recipient-index"
         val plaintext = "private double ratchet session bytes".toByteArray()

@@ -104,6 +104,8 @@ object PrivacyRetentionWorker {
                 }
                 // Replay penceresi kapanmis registration grant isaretleri.
                 RegistrationGrants.purgeExpired(connection)
+                // Gecmis gun kovalarindaki rehber kotasi satirlari.
+                DirectoryQuota.purgeExpired(connection)
                 val pushTokens = connection.prepareStatement(
                     "DELETE FROM fcm_tokens WHERE registered_on < CURRENT_DATE - ?",
                 ).use { statement ->
@@ -121,11 +123,17 @@ object PrivacyRetentionWorker {
                     statement.setInt(2, config.apiClientRetentionDays)
                     statement.executeUpdate()
                 }
+                // Emeklilik penceresi kapanan mailbox tombstone'lari. Satir
+                // hesapla iliskili degildir, yine de suresiz tutulmasi
+                // gereksiz bir kalici izdir.
+                val retiredMailboxes = connection.prepareStatement(
+                    "DELETE FROM sealed_sender_retired_mailboxes WHERE retired_until <= NOW()",
+                ).use { statement -> statement.executeUpdate() }
                 connection.commit()
                 val pushCutoff = System.currentTimeMillis() -
                     config.pushTokenRetentionDays * 86_400_000L
                 tokenStore?.purgeExpiredMemory(pushCutoff)
-                RetentionResult(botPreKeys, pushTokens, apiClients)
+                RetentionResult(botPreKeys, pushTokens, apiClients, retiredMailboxes)
             } catch (error: Exception) {
                 connection.rollback()
                 throw error
@@ -135,10 +143,12 @@ object PrivacyRetentionWorker {
         }.also { result ->
             if (result.total > 0) {
                 retentionLog.info(
-                    "[Privacy] Retention cleanup: consumed_prekeys={}, push_tokens={}, api_clients={}",
+                    "[Privacy] Retention cleanup: consumed_prekeys={}, push_tokens={}, " +
+                        "api_clients={}, retired_mailboxes={}",
                     result.consumedPreKeyRows,
                     result.pushTokenRows,
                     result.apiClientRows,
+                    result.retiredMailboxRows,
                 )
             }
         }
@@ -161,6 +171,8 @@ data class RetentionResult(
     val consumedPreKeyRows: Int,
     val pushTokenRows: Int,
     val apiClientRows: Int,
+    val retiredMailboxRows: Int = 0,
 ) {
-    val total: Int get() = consumedPreKeyRows + pushTokenRows + apiClientRows
+    val total: Int
+        get() = consumedPreKeyRows + pushTokenRows + apiClientRows + retiredMailboxRows
 }

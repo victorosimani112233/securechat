@@ -2,6 +2,7 @@ package com.securechat.botapi.signal
 
 import com.securechat.botapi.db.BotDatabase
 import com.securechat.botapi.delivery.BotQueuePrivacy
+import java.sql.Connection
 import org.slf4j.LoggerFactory
 import org.whispersystems.libsignal.IdentityKey
 import org.whispersystems.libsignal.IdentityKeyPair
@@ -34,6 +35,13 @@ private val log = LoggerFactory.getLogger("PgSignalProtocolStore")
  */
 class PgSignalProtocolStore : SignalProtocolStore {
 
+    private data class PrivateKeyRow(
+        val publicKey: ByteArray,
+        val ciphertext: ByteArray,
+        val nonce: ByteArray,
+        val signature: ByteArray? = null,
+    )
+
     private fun recipientIndex(userId: String): String =
         BotQueuePrivacy.blindIndex("signal-peer", userId)
 
@@ -43,27 +51,33 @@ class PgSignalProtocolStore : SignalProtocolStore {
 
     override fun getIdentityKeyPair(): IdentityKeyPair {
         BotDatabase.getConnection().use { conn ->
-            conn.prepareStatement(
+            val row = conn.prepareStatement(
                 """SELECT identity_public_key, identity_private_key_enc, identity_private_key_nonce
                    FROM bot_identity WHERE id = 1"""
             ).use { stmt ->
                 stmt.executeQuery().use { rs ->
                     check(rs.next()) { "bot_identity (id=1) yok — bootstrap calistirilmamis" }
-                    val publicKeyBytes = rs.getBytes("identity_public_key")  // 33 byte DJB-typed
-                    val privateKeyBytes = KeyEncryptor.unwrap(
-                        rs.getBytes("identity_private_key_enc"),
-                        rs.getBytes("identity_private_key_nonce")
+                    PrivateKeyRow(
+                        publicKey = rs.getBytes("identity_public_key"),
+                        ciphertext = rs.getBytes("identity_private_key_enc"),
+                        nonce = rs.getBytes("identity_private_key_nonce"),
                     )
-                    // IdentityKeyPair(serialized) protobuf bekliyor; biz raw bytes tuttuk.
-                    // Public + private'i iki-arg constructor ile dogrudan birlesir.
-                    val identityKey = org.whispersystems.libsignal.IdentityKey(
-                        org.whispersystems.libsignal.ecc.Curve.decodePoint(publicKeyBytes, 0)
-                    )
-                    val privateKey = org.whispersystems.libsignal.ecc.Curve
-                        .decodePrivatePoint(privateKeyBytes)
-                    return IdentityKeyPair(identityKey, privateKey)
                 }
             }
+            val privateKeyBytes = openPrivateKey(
+                row = row,
+                purpose = KeyEncryptor.PURPOSE_IDENTITY_PRIVATE,
+                binding = "1",
+                migrate = { wrapped -> migrateIdentity(conn, row, wrapped) },
+            )
+            // IdentityKeyPair(serialized) protobuf bekliyor; biz raw bytes tuttuk.
+            // Public + private'i iki-arg constructor ile dogrudan birlesir.
+            val identityKey = org.whispersystems.libsignal.IdentityKey(
+                org.whispersystems.libsignal.ecc.Curve.decodePoint(row.publicKey, 0)
+            )
+            val privateKey = org.whispersystems.libsignal.ecc.Curve
+                .decodePrivatePoint(privateKeyBytes)
+            return IdentityKeyPair(identityKey, privateKey)
         }
     }
 
@@ -143,7 +157,7 @@ class PgSignalProtocolStore : SignalProtocolStore {
 
     override fun loadPreKey(preKeyId: Int): PreKeyRecord {
         BotDatabase.getConnection().use { conn ->
-            conn.prepareStatement(
+            val row = conn.prepareStatement(
                 """SELECT public_key, private_key_enc, private_key_nonce
                    FROM bot_one_time_prekey
                    WHERE key_id = ? AND consumed_at IS NULL"""
@@ -151,18 +165,31 @@ class PgSignalProtocolStore : SignalProtocolStore {
                 stmt.setInt(1, preKeyId)
                 stmt.executeQuery().use { rs ->
                     if (!rs.next()) throw InvalidKeyIdException("PreKey bulunamadi: $preKeyId")
-                    val pub = rs.getBytes("public_key")
-                    val priv = KeyEncryptor.unwrap(rs.getBytes("private_key_enc"), rs.getBytes("private_key_nonce"))
-                    return buildPreKeyRecord(preKeyId, pub, priv)
+                    PrivateKeyRow(
+                        publicKey = rs.getBytes("public_key"),
+                        ciphertext = rs.getBytes("private_key_enc"),
+                        nonce = rs.getBytes("private_key_nonce"),
+                    )
                 }
             }
+            val privateKey = openPrivateKey(
+                row = row,
+                purpose = KeyEncryptor.PURPOSE_ONE_TIME_PREKEY_PRIVATE,
+                binding = preKeyId.toString(),
+                migrate = { wrapped -> migrateOneTimePreKey(conn, preKeyId, row, wrapped) },
+            )
+            return buildPreKeyRecord(preKeyId, row.publicKey, privateKey)
         }
     }
 
     override fun storePreKey(preKeyId: Int, record: PreKeyRecord) {
         val pub = record.keyPair.publicKey.serialize()
         val priv = record.keyPair.privateKey.serialize()
-        val wrapped = KeyEncryptor.wrap(priv)
+        val wrapped = KeyEncryptor.wrapBound(
+            priv,
+            KeyEncryptor.PURPOSE_ONE_TIME_PREKEY_PRIVATE,
+            preKeyId.toString(),
+        )
         BotDatabase.getConnection().use { conn ->
             conn.prepareStatement(
                 """INSERT INTO bot_one_time_prekey(key_id, public_key, private_key_enc, private_key_nonce)
@@ -220,24 +247,38 @@ class PgSignalProtocolStore : SignalProtocolStore {
 
     override fun loadSignedPreKey(signedPreKeyId: Int): SignedPreKeyRecord {
         BotDatabase.getConnection().use { conn ->
-            conn.prepareStatement(
+            val row = conn.prepareStatement(
                 """SELECT public_key, private_key_enc, private_key_nonce, signature
                    FROM bot_signed_prekey WHERE key_id = ?"""
             ).use { stmt ->
                 stmt.setInt(1, signedPreKeyId)
                 stmt.executeQuery().use { rs ->
                     if (!rs.next()) throw InvalidKeyIdException("SignedPreKey bulunamadi: $signedPreKeyId")
-                    val pub = rs.getBytes("public_key")
-                    val priv = KeyEncryptor.unwrap(rs.getBytes("private_key_enc"), rs.getBytes("private_key_nonce"))
-                    val sig = rs.getBytes("signature")
-                    return buildSignedPreKeyRecord(signedPreKeyId, pub, priv, sig)
+                    PrivateKeyRow(
+                        publicKey = rs.getBytes("public_key"),
+                        ciphertext = rs.getBytes("private_key_enc"),
+                        nonce = rs.getBytes("private_key_nonce"),
+                        signature = rs.getBytes("signature"),
+                    )
                 }
             }
+            val privateKey = openPrivateKey(
+                row = row,
+                purpose = KeyEncryptor.PURPOSE_SIGNED_PREKEY_PRIVATE,
+                binding = signedPreKeyId.toString(),
+                migrate = { wrapped -> migrateSignedPreKey(conn, signedPreKeyId, row, wrapped) },
+            )
+            return buildSignedPreKeyRecord(
+                signedPreKeyId,
+                row.publicKey,
+                privateKey,
+                checkNotNull(row.signature),
+            )
         }
     }
 
     override fun loadSignedPreKeys(): List<SignedPreKeyRecord> {
-        val out = mutableListOf<SignedPreKeyRecord>()
+        val rows = mutableListOf<Pair<Int, PrivateKeyRow>>()
         BotDatabase.getConnection().use { conn ->
             conn.prepareStatement(
                 "SELECT key_id, public_key, private_key_enc, private_key_nonce, signature FROM bot_signed_prekey"
@@ -245,21 +286,35 @@ class PgSignalProtocolStore : SignalProtocolStore {
                 stmt.executeQuery().use { rs ->
                     while (rs.next()) {
                         val id = rs.getInt("key_id")
-                        val pub = rs.getBytes("public_key")
-                        val priv = KeyEncryptor.unwrap(rs.getBytes("private_key_enc"), rs.getBytes("private_key_nonce"))
-                        val sig = rs.getBytes("signature")
-                        out += buildSignedPreKeyRecord(id, pub, priv, sig)
+                        rows += id to PrivateKeyRow(
+                            publicKey = rs.getBytes("public_key"),
+                            ciphertext = rs.getBytes("private_key_enc"),
+                            nonce = rs.getBytes("private_key_nonce"),
+                            signature = rs.getBytes("signature"),
+                        )
                     }
                 }
             }
+            return rows.map { (id, row) ->
+                val privateKey = openPrivateKey(
+                    row = row,
+                    purpose = KeyEncryptor.PURPOSE_SIGNED_PREKEY_PRIVATE,
+                    binding = id.toString(),
+                    migrate = { wrapped -> migrateSignedPreKey(conn, id, row, wrapped) },
+                )
+                buildSignedPreKeyRecord(id, row.publicKey, privateKey, checkNotNull(row.signature))
+            }
         }
-        return out
     }
 
     override fun storeSignedPreKey(signedPreKeyId: Int, record: SignedPreKeyRecord) {
         val pub = record.keyPair.publicKey.serialize()
         val priv = record.keyPair.privateKey.serialize()
-        val wrapped = KeyEncryptor.wrap(priv)
+        val wrapped = KeyEncryptor.wrapBound(
+            priv,
+            KeyEncryptor.PURPOSE_SIGNED_PREKEY_PRIVATE,
+            signedPreKeyId.toString(),
+        )
         BotDatabase.getConnection().use { conn ->
             conn.prepareStatement(
                 """INSERT INTO bot_signed_prekey(key_id, public_key, private_key_enc, private_key_nonce, signature)
@@ -306,6 +361,86 @@ class PgSignalProtocolStore : SignalProtocolStore {
         val keyPair = org.whispersystems.libsignal.ecc.ECKeyPair(publicKey, privateKey)
         // Timestamp 0 — sadece persistance icin kullaniyoruz, rotation ayri yonetilir
         return SignedPreKeyRecord(keyId, 0L, keyPair, sig)
+    }
+
+    private fun openPrivateKey(
+        row: PrivateKeyRow,
+        purpose: String,
+        binding: String,
+        migrate: (KeyEncryptor.WrappedKey) -> Unit,
+    ): ByteArray {
+        val opened = KeyEncryptor.unwrapBound(
+            row.ciphertext,
+            row.nonce,
+            purpose,
+            binding,
+        )
+        if (opened.needsMigration) {
+            migrate(KeyEncryptor.wrapBound(opened.plaintext, purpose, binding))
+            log.info("[Store] Legacy private key envelope AAD-bound formata gecirildi")
+        }
+        return opened.plaintext
+    }
+
+    private fun migrateIdentity(
+        conn: Connection,
+        old: PrivateKeyRow,
+        replacement: KeyEncryptor.WrappedKey,
+    ) {
+        conn.prepareStatement(
+            """UPDATE bot_identity
+               SET identity_private_key_enc = ?, identity_private_key_nonce = ?
+               WHERE id = 1
+                 AND identity_private_key_enc = ?
+                 AND identity_private_key_nonce = ?""",
+        ).use { statement ->
+            statement.setBytes(1, replacement.ciphertext)
+            statement.setBytes(2, replacement.nonce)
+            statement.setBytes(3, old.ciphertext)
+            statement.setBytes(4, old.nonce)
+            statement.executeUpdate()
+        }
+    }
+
+    private fun migrateOneTimePreKey(
+        conn: Connection,
+        keyId: Int,
+        old: PrivateKeyRow,
+        replacement: KeyEncryptor.WrappedKey,
+    ) {
+        conn.prepareStatement(
+            """UPDATE bot_one_time_prekey
+               SET private_key_enc = ?, private_key_nonce = ?
+               WHERE key_id = ? AND consumed_at IS NULL
+                 AND private_key_enc = ? AND private_key_nonce = ?""",
+        ).use { statement ->
+            statement.setBytes(1, replacement.ciphertext)
+            statement.setBytes(2, replacement.nonce)
+            statement.setInt(3, keyId)
+            statement.setBytes(4, old.ciphertext)
+            statement.setBytes(5, old.nonce)
+            statement.executeUpdate()
+        }
+    }
+
+    private fun migrateSignedPreKey(
+        conn: Connection,
+        keyId: Int,
+        old: PrivateKeyRow,
+        replacement: KeyEncryptor.WrappedKey,
+    ) {
+        conn.prepareStatement(
+            """UPDATE bot_signed_prekey
+               SET private_key_enc = ?, private_key_nonce = ?
+               WHERE key_id = ? AND private_key_enc = ? AND private_key_nonce = ?""",
+        ).use { statement ->
+            statement.setBytes(1, replacement.ciphertext)
+            statement.setBytes(2, replacement.nonce)
+            statement.setInt(3, keyId)
+            statement.setBytes(4, old.ciphertext)
+            statement.setBytes(5, old.nonce)
+            statement.executeUpdate()
+        }
     }
 
     // =========================================================================

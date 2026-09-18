@@ -6,8 +6,12 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.nio.charset.StandardCharsets
 import java.util.Base64
 import com.securechat.signaling.db.RedisEphemeralPolicy
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class ServerPrivacyTest {
     private val environment = mapOf(
@@ -18,6 +22,7 @@ class ServerPrivacyTest {
     @Test
     fun `service delivery acknowledgement is a server-only frame`() {
         assertTrue(isServerOnlyFrameType("message_ack"))
+        assertFalse(isServerOnlyFrameType("delivery_transport_ack"))
         assertFalse(isServerOnlyFrameType("encrypted_message"))
         assertFalse(isServerOnlyFrameType(null))
     }
@@ -70,6 +75,27 @@ class ServerPrivacyTest {
     }
 
     @Test
+    fun `redis must not silently evict live keys`() {
+        // `allkeys-*` altinda bellek baskisinda TTL'i dolmamis key'ler atilir.
+        // Bunun iki sessiz sonucu vardir: teslim edilmemis ciphertext kaybolur
+        // ve rate limit pencereleri sifirlanir. Ikincisi saldirganin
+        // kuyruklari doldurarak tetikleyebilecegi bir bypass'tir.
+        for (policy in listOf("allkeys-lru", "allkeys-lfu", "allkeys-random")) {
+            assertThrows(IllegalArgumentException::class.java) {
+                RedisEphemeralPolicy.requireMemoryOnly(
+                    mapOf("appendonly" to "no", "save" to "", "maxmemory-policy" to policy),
+                )
+            }
+        }
+        // TTL'e saygi duyan ve yazmayi reddeden politikalar kabul edilir.
+        for (policy in listOf("noeviction", "volatile-ttl", "volatile-lru")) {
+            RedisEphemeralPolicy.requireMemoryOnly(
+                mapOf("appendonly" to "no", "save" to "", "maxmemory-policy" to policy),
+            )
+        }
+    }
+
+    @Test
     fun `security audit keeps only identity free process counters`() {
         val before = AuditLog.count("WS_AUTH_INVALID")
         AuditLog.log(
@@ -90,6 +116,7 @@ class ServerPrivacyTest {
         assertTrue(isPlaintextChatControlType("message_reaction"))
         assertTrue(isPlaintextChatControlType("typing_indicator"))
         assertTrue(isPlaintextChatControlType("disappearing_timer"))
+        assertTrue(isPlaintextChatControlType("session_reset_request"))
         assertFalse(isPlaintextChatControlType("encrypted_message"))
         assertFalse(isPlaintextChatControlType(null))
     }
@@ -113,7 +140,7 @@ class ServerPrivacyTest {
         val first = primitives.sealQueue("recipient-a", plaintext)
         val second = primitives.sealQueue("recipient-a", plaintext)
 
-        assertTrue(first.startsWith("OQ1:"))
+        assertTrue(first.startsWith("OQ2:"))
         assertNotEquals(first, second)
         assertFalse(first.contains("encrypted_message"))
         assertEquals(plaintext, primitives.openQueue("recipient-a", first))
@@ -122,6 +149,39 @@ class ServerPrivacyTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             primitives.openQueue("recipient-a", plaintext)
+        }
+
+        val parts = first.split(':', limit = 3)
+        val unknownKey = "OQ2:${"A".repeat(parts[1].length)}:${parts[2]}"
+        assertThrows(IllegalArgumentException::class.java) {
+            primitives.openQueue("recipient-a", unknownKey)
+        }
+    }
+
+    @Test
+    fun `offline queue reads v1 during migration and enforces nonce budget`() {
+        val config = PrivacyConfig.fromEnvironment(environment)
+        val primitives = PrivacyPrimitives(config, nonceBudget = 2)
+        val plaintext = "legacy-ciphertext-envelope"
+        val nonce = ByteArray(12) { (it + 9).toByte() }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            Cipher.ENCRYPT_MODE,
+            SecretKeySpec(config.offlineQueueEncryptionKey, "AES"),
+            GCMParameterSpec(128, nonce),
+        )
+        cipher.updateAAD(
+            "securechat-offline-queue-v1\u0000recipient-a"
+                .toByteArray(StandardCharsets.UTF_8),
+        )
+        val legacy = "OQ1:" + Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(nonce + cipher.doFinal(plaintext.toByteArray()))
+
+        assertEquals(plaintext, primitives.openQueue("recipient-a", legacy))
+        primitives.sealQueue("recipient-a", "one")
+        primitives.sealQueue("recipient-a", "two")
+        assertThrows(IllegalStateException::class.java) {
+            primitives.sealQueue("recipient-a", "three")
         }
     }
 
@@ -132,6 +192,20 @@ class ServerPrivacyTest {
         val key = primitives.queueKey("message", userId)
         assertFalse(key.contains(userId))
         assertEquals(key, primitives.queueKey("message", userId))
+        assertFalse(primitives.queuePayloadKey("delivery", userId).contains(userId))
+        assertFalse(primitives.queueOrderKey("delivery", userId).contains(userId))
+
+        val deliveryId = "A".repeat(43)
+        val deliveryToken = primitives.deliveryToken(userId, "sender-a", deliveryId)
+        assertFalse(primitives.queueItemKey("delivery", userId, deliveryToken).contains(userId))
+        assertFalse(primitives.queueItemKey("delivery", userId, deliveryToken).contains(deliveryToken))
+        assertEquals(deliveryToken, primitives.deliveryToken(userId, "sender-a", deliveryId))
+        assertNotEquals(deliveryToken, primitives.deliveryToken(userId, "sender-b", deliveryId))
+        assertNotEquals(
+            deliveryToken,
+            primitives.deliveryToken("123e4567-e89b-42d3-a456-426614174099", "sender-a", deliveryId),
+        )
+        assertFalse(deliveryToken.contains(deliveryId))
 
         val peerId = "123e4567-e89b-42d3-a456-426614174001"
         val callKey = primitives.activeCallKey(userId, peerId)

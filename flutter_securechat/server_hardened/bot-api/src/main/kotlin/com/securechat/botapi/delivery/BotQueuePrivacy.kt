@@ -1,7 +1,9 @@
 package com.securechat.botapi.delivery
 
 import com.securechat.botapi.BotApiConfig
+import com.securechat.botapi.GcmNonceSequence
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import javax.crypto.Cipher
@@ -13,8 +15,11 @@ class BotQueuePrimitives(
     private val indexKey: ByteArray,
     private val encryptionKey: ByteArray,
     private val allowLegacyPlaintext: Boolean = false,
-    private val random: SecureRandom = SecureRandom()
+    random: SecureRandom = SecureRandom(),
+    nonceBudget: Long = 1L shl 32,
 ) {
+    private val nonces = GcmNonceSequence(random, nonceBudget)
+    private val keyId = keyId(encryptionKey)
     init {
         require(indexKey.size == 32 && encryptionKey.size == 32)
         require(!indexKey.contentEquals(encryptionKey))
@@ -35,27 +40,34 @@ class BotQueuePrimitives(
     }
 
     fun seal(botUserId: String, plaintext: String): String {
-        return encrypt("BQ1:", aad(botUserId), plaintext)
+        return encrypt("BQ2:", queueAadV2(botUserId), plaintext)
     }
 
     fun open(botUserId: String, envelope: String): String {
-        if (!envelope.startsWith("BQ1:")) {
-            if (allowLegacyPlaintext) return envelope
-            throw IllegalArgumentException("Legacy plaintext bot queue entry rejected")
+        return when {
+            envelope.startsWith("BQ2:") ->
+                decryptVersioned("BQ2:", queueAadV2(botUserId), envelope)
+            envelope.startsWith("BQ1:") -> decryptLegacy("BQ1:", queueAadV1(botUserId), envelope)
+            allowLegacyPlaintext -> envelope
+            else -> throw IllegalArgumentException("Legacy plaintext bot queue entry rejected")
         }
-        return decrypt("BQ1:", aad(botUserId), envelope)
     }
 
     fun sealPrivate(purpose: String, binding: String, plaintext: String): String =
-        encrypt("BP1:", privateAad(purpose, binding), plaintext)
+        encrypt("BP2:", privateAadV2(purpose, binding), plaintext)
 
     fun openPrivate(purpose: String, binding: String, envelope: String): String {
-        require(envelope.startsWith("BP1:")) { "Legacy private bot value rejected" }
-        return decrypt("BP1:", privateAad(purpose, binding), envelope)
+        return when {
+            envelope.startsWith("BP2:") ->
+                decryptVersioned("BP2:", privateAadV2(purpose, binding), envelope)
+            envelope.startsWith("BP1:") ->
+                decryptLegacy("BP1:", privateAadV1(purpose, binding), envelope)
+            else -> throw IllegalArgumentException("Legacy private bot value rejected")
+        }
     }
 
     private fun encrypt(prefix: String, aad: ByteArray, plaintext: String): String {
-        val nonce = ByteArray(12).also(random::nextBytes)
+        val nonce = nonces.next()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(
             Cipher.ENCRYPT_MODE,
@@ -64,13 +76,26 @@ class BotQueuePrimitives(
         )
         cipher.updateAAD(aad)
         val encrypted = cipher.doFinal(plaintext.toByteArray(StandardCharsets.UTF_8))
-        return prefix + Base64.getUrlEncoder().withoutPadding().encodeToString(nonce + encrypted)
+        return "$prefix$keyId:" +
+            Base64.getUrlEncoder().withoutPadding().encodeToString(nonce + encrypted)
     }
 
     fun redact(message: String): String = redactMessage(message)
 
-    private fun decrypt(prefix: String, aad: ByteArray, envelope: String): String {
-        val payload = Base64.getUrlDecoder().decode(envelope.removePrefix(prefix))
+    private fun decryptVersioned(prefix: String, aad: ByteArray, envelope: String): String {
+        val separator = envelope.indexOf(':', startIndex = prefix.length)
+        require(separator > prefix.length) { "Bot envelope key id is missing" }
+        require(envelope.substring(prefix.length, separator) == keyId) {
+            "Unknown bot queue encryption key"
+        }
+        return decryptPayload(aad, envelope.substring(separator + 1))
+    }
+
+    private fun decryptLegacy(prefix: String, aad: ByteArray, envelope: String): String =
+        decryptPayload(aad, envelope.removePrefix(prefix))
+
+    private fun decryptPayload(aad: ByteArray, encoded: String): String {
+        val payload = Base64.getUrlDecoder().decode(encoded)
         require(payload.size >= 28) { "Bot private envelope is too short" }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(
@@ -82,13 +107,32 @@ class BotQueuePrimitives(
         return String(cipher.doFinal(payload.copyOfRange(12, payload.size)), StandardCharsets.UTF_8)
     }
 
-    private fun aad(botUserId: String): ByteArray =
+    private fun queueAadV1(botUserId: String): ByteArray =
         "securechat-bot-outbound-v1\u0000$botUserId".toByteArray(StandardCharsets.UTF_8)
 
-    private fun privateAad(purpose: String, binding: String): ByteArray {
+    private fun queueAadV2(botUserId: String): ByteArray =
+        "securechat-bot-outbound-v2\u0000$keyId\u0000$botUserId"
+            .toByteArray(StandardCharsets.UTF_8)
+
+    private fun privateAadV1(purpose: String, binding: String): ByteArray {
         require(purpose.matches(Regex("[a-z0-9_-]{1,32}"))) { "Invalid bot private purpose" }
         return "securechat-bot-private-v1\u0000$purpose\u0000$binding"
             .toByteArray(StandardCharsets.UTF_8)
+    }
+
+    private fun privateAadV2(purpose: String, binding: String): ByteArray {
+        require(purpose.matches(Regex("[a-z0-9_-]{1,32}"))) { "Invalid bot private purpose" }
+        return "securechat-bot-private-v2\u0000$keyId\u0000$purpose\u0000$binding"
+            .toByteArray(StandardCharsets.UTF_8)
+    }
+
+    private fun keyId(key: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update("securechat-bot-queue-key-id-v1".toByteArray(StandardCharsets.US_ASCII))
+        digest.update(0.toByte())
+        digest.update(key)
+        return Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(digest.digest().copyOfRange(0, 9))
     }
 
     companion object {
@@ -108,12 +152,50 @@ class BotQueuePrimitives(
 }
 
 object BotQueuePrivacy {
-    val primitives: BotQueuePrimitives by lazy {
-        BotQueuePrimitives(
-            indexKey = BotApiConfig.privacyIndexKey,
-            encryptionKey = BotApiConfig.botQueueEncryptionKey,
-            allowLegacyPlaintext = BotApiConfig.allowLegacyPlaintextQueue
-        )
+
+    private val lock = Any()
+
+    @Volatile
+    private var cached: BotQueuePrimitives? = null
+
+    @Volatile
+    private var cachedFingerprint: Int = 0
+
+    /**
+     * Anahtar materyaline bagli onbellek.
+     *
+     * Onceki `by lazy` ilk kullanimda sabitleniyordu: yapilandirma sonradan
+     * degistirilirse (rotasyon, yeniden baslatma olmadan yeniden yukleme)
+     * eski anahtar sessizce kullanilmaya devam ederdi — blind index'ler ve
+     * muhurler o noktadan sonra tutarsiz olurdu. Anahtarin kimligi
+     * degistiginde primitifler yeniden kurulur.
+     */
+    val primitives: BotQueuePrimitives
+        get() {
+            val fingerprint = fingerprint()
+            val current = cached
+            if (current != null && cachedFingerprint == fingerprint) return current
+            synchronized(lock) {
+                val existing = cached
+                if (existing != null && cachedFingerprint == fingerprint) return existing
+                val built = BotQueuePrimitives(
+                    indexKey = BotApiConfig.privacyIndexKey,
+                    encryptionKey = BotApiConfig.botQueueEncryptionKey,
+                    allowLegacyPlaintext = BotApiConfig.allowLegacyPlaintextQueue,
+                )
+                cached = built
+                cachedFingerprint = fingerprint
+                return built
+            }
+        }
+
+    /** Anahtar materyalinin kimligi; ham anahtar hicbir yerde tutulmaz. */
+    private fun fingerprint(): Int {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        digest.update(BotApiConfig.privacyIndexKey)
+        digest.update(BotApiConfig.botQueueEncryptionKey)
+        digest.update(if (BotApiConfig.allowLegacyPlaintextQueue) 1 else 0)
+        return digest.digest().fold(0) { acc, byte -> acc * 31 + byte }
     }
 
     fun key(botUserId: String): String = primitives.key(botUserId)

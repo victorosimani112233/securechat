@@ -1,3 +1,8 @@
+import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermissions
+import java.security.KeyPairGenerator
+import java.util.Base64
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
@@ -44,6 +49,9 @@ dependencies {
     implementation(libs.logback)
     implementation(libs.serialization.json)
 
+    // Official Signal certificate wire implementation for Sealed Sender.
+    implementation(libs.libsignal.client)
+
     // Firebase Admin SDK — sunucu tarafindan FCM push gondermek icin
     implementation("com.google.firebase:firebase-admin:9.2.0")
 
@@ -68,9 +76,15 @@ dependencies {
     implementation("io.micrometer:micrometer-core:1.12.4")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    // Linearizability testi (JVM ici concurrent yapilar).
+    testImplementation("org.jetbrains.kotlinx:lincheck:2.34")
     testImplementation("org.junit.jupiter:junit-jupiter-engine:5.10.2")
     testImplementation(libs.testcontainers.postgres)
     testImplementation(libs.testcontainers.junit)
+    // Uctan uca HTTP/WebSocket senaryolari icin gercek Ktor motoru.
+    testImplementation(libs.ktor.server.test.host)
+    testImplementation(libs.ktor.client.websockets)
+    testImplementation(libs.ktor.client.content.negotiation)
 }
 
 // Artefaktin hangi commit'ten ciktigini image icine gomer. Deger build
@@ -112,8 +126,80 @@ sourceSets.main {
     resources.srcDir(generateBuildInfo)
 }
 
+/**
+ * Test-only directory OPRF anahtari.
+ *
+ * Uctan uca testler gercek `PrivateDirectory.oprf` global'ini kullanir; o da
+ * anahtari `SecretSource` uzerinden okur. Anahtar build dizinine yazilir ve
+ * owner-only yapilir, boylece production'daki dosya tabanli secret yolu da
+ * ayni testlerde calisir. Repoda hicbir anahtar materyali durmaz.
+ */
+val testDirectoryOprfKey = layout.buildDirectory.file("test-secrets/directory-oprf.pkcs8.b64")
+
+val generateTestDirectoryOprfKey by tasks.registering {
+    outputs.file(testDirectoryOprfKey)
+    doLast {
+        val target = testDirectoryOprfKey.get().asFile
+        target.parentFile.mkdirs()
+        Files.setPosixFilePermissions(
+            target.parentFile.toPath(),
+            PosixFilePermissions.fromString("rwx------"),
+        )
+        if (!target.exists() || target.length() == 0L) {
+            val generator = KeyPairGenerator.getInstance("RSA")
+            generator.initialize(3072)
+            target.writeText(
+                Base64.getEncoder()
+                    .encodeToString(generator.generateKeyPair().private.encoded),
+            )
+        }
+        Files.setPosixFilePermissions(
+            target.toPath(),
+            PosixFilePermissions.fromString("rw-------"),
+        )
+    }
+}
+
+/**
+ * Yerel guvenlik testi hedefi. `signalingModule`'u gercek PostgreSQL/Redis
+ * ile gercek bir portta ayaga kaldirir; yalniz laboratuvar taramasi icin.
+ * Uretim `main()`'inin sikilastirilmis kapisini (PKCS11/verify-full) atlar
+ * cunku o kapi bir laboratuvarda saglanamaz.
+ */
+val runDummyServer by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Yerel signaling sunucusunu tarama icin ayaga kaldirir"
+    dependsOn(generateTestDirectoryOprfKey, "testClasses")
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.securechat.signaling.DummyServerLauncher")
+    systemProperty(
+        "serverMigrationDir",
+        rootProject.file("signaling-server/src/main/resources/db/migration").absolutePath,
+    )
+    environment("JWT_SECRET", "dummy-lab-signing-secret-not-for-any-deployment")
+    environment("PRIVACY_INDEX_KEY", "PeN+mhUNrGTskTKEAc8g3/2luUhvhE6vy1l4257smsQ=")
+    environment("OFFLINE_QUEUE_ENCRYPTION_KEY", "IIYFEByJTRH/+XqO6PZAFrSHWX5+TiM869Sj+Qx7OvY=")
+    environment("FCM_TOKEN_ENCRYPTION_KEY", "/S+tBmY1nyurGJL5fluwJqUbzB+BPc4cWY/efLAPxuw=")
+    // Testler gelistirme profilinde kosar: cevrimdisi imzalanmis bir Sealed
+    // Sender sertifikasi uretmek yerine process icinde uretilmesine izin
+    // verilir. Kriptografik kapilar bu profilde de aynen calisir.
+    environment("SECURECHAT_PROFILE", "development")
+    environment("SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY", "FaT7FztZJFeV2XBCOua92iOGPCIj9Y4UxBwjAuB8eeY=")
+    environment("SEALED_SENDER_SERVER_PRIVATE_KEY", "QVMkIVDGd2LvS1mMhd4sFGurRHkQClX1DgaCIvpIncc=")
+    environment("METRICS_BEARER_TOKEN", "dummy-lab-metrics-bearer-token-32-characters")
+    environment("TURN_SECRET", "dummy-lab-turn-shared-secret-with-32-bytes")
+    environment("TURN_HOST", "turn.lab.invalid")
+    environment(
+        "DIRECTORY_OPRF_PRIVATE_KEY_FILE",
+        testDirectoryOprfKey.get().asFile.absolutePath,
+    )
+    environment("DUMMY_BIND_HOST", System.getenv("DUMMY_BIND_HOST") ?: "0.0.0.0")
+    environment("DUMMY_BIND_PORT", System.getenv("DUMMY_BIND_PORT") ?: "8080")
+}
+
 tasks.test {
     useJUnitPlatform()
+    dependsOn(generateTestDirectoryOprfKey)
     systemProperty(
         "serverMigrationDir",
         rootProject.file("signaling-server/src/main/resources/db/migration").absolutePath
@@ -124,4 +210,49 @@ tasks.test {
     environment("PRIVACY_INDEX_KEY", "PeN+mhUNrGTskTKEAc8g3/2luUhvhE6vy1l4257smsQ=")
     environment("OFFLINE_QUEUE_ENCRYPTION_KEY", "IIYFEByJTRH/+XqO6PZAFrSHWX5+TiM869Sj+Qx7OvY=")
     environment("FCM_TOKEN_ENCRYPTION_KEY", "/S+tBmY1nyurGJL5fluwJqUbzB+BPc4cWY/efLAPxuw=")
+    // Testler gelistirme profilinde kosar: cevrimdisi imzalanmis bir Sealed
+    // Sender sertifikasi uretmek yerine process icinde uretilmesine izin
+    // verilir. Kriptografik kapilar bu profilde de aynen calisir.
+    environment("SECURECHAT_PROFILE", "development")
+    environment("SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY", "FaT7FztZJFeV2XBCOua92iOGPCIj9Y4UxBwjAuB8eeY=")
+    environment("SEALED_SENDER_SERVER_PRIVATE_KEY", "QVMkIVDGd2LvS1mMhd4sFGurRHkQClX1DgaCIvpIncc=")
+    environment("JANUS_API_SECRET", "test-only-janus-api-secret-material-32-bytes")
+    environment("JANUS_ADMIN_SECRET", "test-only-janus-admin-secret-material-32-bytes")
+    // Sahte Janus sunucusu bu adreste ayaga kalkar; SFU kontrol duzlemi
+    // gercek bir WebSocket uzerinden surulur.
+    environment("JANUS_WS_URL", "ws://127.0.0.1:18188/janus")
+    environment("JANUS_PUBLIC_WS_URL", "wss://janus.test.invalid/janus")
+    environment("METRICS_BEARER_TOKEN", "test-only-metrics-bearer-token-32-characters")
+    environment("TURN_SECRET", "test-only-turn-shared-secret-with-32-bytes")
+    environment("TURN_HOST", "turn.test.invalid")
+    environment(
+        "DIRECTORY_OPRF_PRIVATE_KEY_FILE",
+        testDirectoryOprfKey.get().asFile.absolutePath,
+    )
+}
+
+/**
+ * Release'e giren ucuncu parti bilesenler.
+ *
+ * SBOM dogrulama manifestinden uretilir, fakat manifest test bagimliliklarini
+ * da tasir. Calisan artefakti anlatan bir belge icin runtime classpath'in
+ * kendisi listelenir; SCA kapisi boylece yalniz gercekten dagitilan
+ * bilesenlere bakar.
+ */
+val writeRuntimeArtifacts by tasks.registering {
+    val output = layout.buildDirectory.file("runtime-artifacts.txt")
+    val runtime = configurations.named("runtimeClasspath")
+    outputs.file(output)
+    doLast {
+        val coordinates = runtime.get().incoming.resolutionResult.allComponents
+            .mapNotNull { component ->
+                (component.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier)
+                    ?.let { "${it.group}:${it.module}:${it.version}" }
+            }
+            .distinct()
+            .sorted()
+        val target = output.get().asFile
+        target.parentFile.mkdirs()
+        target.writeText(coordinates.joinToString("\n") + "\n")
+    }
 }

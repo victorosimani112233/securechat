@@ -1,8 +1,11 @@
 package com.securechat.signaling
 
 import com.securechat.signaling.db.Database
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("UserRegistry")
@@ -21,25 +24,33 @@ class DirectoryIdentityAlreadyRegisteredException : IllegalStateException(
  * Account registry backed by private-directory OPRF tokens.
  *
  * Legacy rows contain a server-HMAC blind index in `directory_token` and a
- * null key id. They are converted atomically when that account next registers
- * or refreshes its own directory identity. Address-book discovery never sends
+ * null key id. They are converted atomically when the authenticated account
+ * refreshes its own directory identity. Address-book discovery never sends
  * raw/reusable phone hashes and never writes a social graph to this registry.
  */
 class UserRegistry(
     private val directory: PrivateDirectoryOprf = PrivateDirectory.oprf,
-    private val legacyIndex: (String) -> String = {
-        ServerPrivacy.blindIndex("phone-discovery", it)
-    },
+    private val random: SecureRandom = SecureRandom(),
 ) {
     private val cacheByDirectoryToken = ConcurrentHashMap<String, RegisteredUser>()
     private val cacheByUserId = ConcurrentHashMap<String, RegisteredUser>()
+
+    /**
+     * Uyelik degistikce artan sayac.
+     *
+     * Snapshot her istekte bastan muhurlenmeye gerek duymaz; onbellek bu
+     * sayac degismedigi surece gecerlidir. Sayac opaque'tir, disari verilmez.
+     */
+    private val membershipVersion = AtomicLong(0)
+
+    fun membershipVersion(): Long = membershipVersion.get()
 
     init {
         loadFromDb()
     }
 
-    fun registerUserByHash(userId: String, phoneHash: String): RegisteredUser {
-        val candidate = prepareRegistration(userId, phoneHash)
+    fun registerUser(userId: String): RegisteredUser {
+        val candidate = prepareRegistration(userId)
         if (!insertUser(candidate, transaction = null)) {
             throw DirectoryIdentityAlreadyRegisteredException()
         }
@@ -52,31 +63,19 @@ class UserRegistry(
      * yazmaz. Yazma adimi cagirana birakildigi icin kayit, registration
      * grant'in tuketilmesiyle ayni transaction icinde yapilabilir.
      */
-    fun prepareRegistration(userId: String, phoneHash: String): RegisteredUser {
+    fun prepareRegistration(userId: String): RegisteredUser {
         require(runCatching { UUID.fromString(userId).toString() == userId.lowercase() }.getOrDefault(false)) {
             "Invalid registration user id"
         }
-        val token = directory.tokenForPhoneHash(phoneHash)
-        val current = cacheByDirectoryToken[token]
-        if (current != null && current.directoryKeyId == directory.keyId) {
-            // A verified e-mail is not proof of control over this phone
-            // identity. Returning the existing UUID/JWT here would turn
-            // registration into an account-takeover endpoint.
-            throw DirectoryIdentityAlreadyRegisteredException()
-        }
-
-        val oldIndex = legacyIndex(phoneHash)
-        val legacy = cacheByDirectoryToken[oldIndex]
-        if (legacy != null && legacy.directoryKeyId == null) {
-            // Legacy identities may be migrated only by an already
-            // authenticated account through updateOwnDirectoryToken().
-            throw DirectoryIdentityAlreadyRegisteredException()
-        }
-
         return RegisteredUser(
             userId = userId,
-            directoryToken = token,
-            directoryKeyId = directory.keyId,
+            // Registration proves control of an e-mail address, not a phone
+            // number. A random non-discoverable placeholder prevents the
+            // registration endpoint from receiving a deterministic phone
+            // hash. The authenticated client replaces it with its finalized
+            // OPRF token after registration.
+            directoryToken = pendingDirectoryToken(),
+            directoryKeyId = null,
         )
     }
 
@@ -89,11 +88,11 @@ class UserRegistry(
     fun insertRegistration(connection: java.sql.Connection, user: RegisteredUser): Boolean =
         insertUser(user, connection)
 
-    /** Re-indexes only the authenticated account's own declared phone hash. */
-    fun updateOwnDirectoryToken(userId: String, phoneHash: String): RegisteredUser {
+    /** Re-indexes only the authenticated account with a finalized OPRF token. */
+    fun updateOwnDirectoryToken(userId: String, directoryToken: String): RegisteredUser {
         val current = cacheByUserId[userId] ?: findByUserId(userId)
             ?: error("Authenticated directory account does not exist")
-        val token = directory.tokenForPhoneHash(phoneHash)
+        val token = directory.validateToken(directoryToken)
         if (current.directoryToken == token && current.directoryKeyId == directory.keyId) {
             return current
         }
@@ -102,6 +101,11 @@ class UserRegistry(
             "Directory token is already assigned to another account"
         }
         return replaceDirectoryToken(current, token, directory.keyId)
+    }
+
+    private fun pendingDirectoryToken(): String {
+        val value = ByteArray(PENDING_TOKEN_BYTES).also(random::nextBytes)
+        return PENDING_TOKEN_PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(value)
     }
 
     fun privateDirectorySnapshot(): List<RegisteredUser> =
@@ -114,6 +118,7 @@ class UserRegistry(
     fun removeUser(userId: String) {
         val removed = cacheByUserId.remove(userId) ?: return
         cacheByDirectoryToken.remove(removed.directoryToken, removed)
+        membershipVersion.incrementAndGet()
     }
 
     fun getUserCount(): Int = cacheByUserId.size
@@ -141,6 +146,11 @@ class UserRegistry(
         } else {
             Database.getConnection().use(insert)
         }
+    }
+
+    private companion object {
+        const val PENDING_TOKEN_PREFIX = "pending:"
+        const val PENDING_TOKEN_BYTES = 24
     }
 
     private fun replaceDirectoryToken(
@@ -224,5 +234,6 @@ class UserRegistry(
     private fun cache(user: RegisteredUser) {
         cacheByDirectoryToken[user.directoryToken] = user
         cacheByUserId[user.userId] = user
+        membershipVersion.incrementAndGet()
     }
 }
