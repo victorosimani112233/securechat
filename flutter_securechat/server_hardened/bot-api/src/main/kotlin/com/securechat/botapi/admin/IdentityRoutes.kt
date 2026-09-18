@@ -8,6 +8,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import com.securechat.botapi.http.BoundedBody
+import kotlinx.serialization.json.Json
 
 private val log = LoggerFactory.getLogger("IdentityRoutes")
 
@@ -45,7 +47,7 @@ fun Route.identityRoutes() {
 
     post("/admin/identity/approve-rotation") {
         val body = try {
-            call.receive<ApproveRotationRequest>()
+            decodeBounded<ApproveRotationRequest>(call)
         } catch (_: Exception) {
             call.respond(HttpStatusCode.BadRequest, mapOf("error" to "recipientUserId gerekli"))
             return@post
@@ -59,4 +61,17 @@ fun Route.identityRoutes() {
         log.warn("[Admin] BOT_IDENTITY_ROTATION_APPROVED cleared={}", cleared)
         call.respond(mapOf("cleared" to cleared.toString()))
     }
+}
+
+/**
+ * Tavanli admin govde okumasi.
+ *
+ * `call.receive<T>()` govdeyi sinirsiz okur. Admin yuzu yalniz Unix
+ * socket'ten erisilse de sinirsiz okuma bir tavan olmadan birakilmamalidir.
+ */
+private suspend inline fun <reified T> decodeBounded(call: ApplicationCall): T {
+    val bytes = BoundedBody.read(call, BoundedBody.CONTROL_LIMIT_BYTES)
+        ?: throw IllegalArgumentException("body_too_large")
+    return Json { ignoreUnknownKeys = true }
+        .decodeFromString<T>(bytes.toString(Charsets.UTF_8))
 }

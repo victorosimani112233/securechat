@@ -61,7 +61,8 @@ class GroupCallCapacityTest {
     fun `voice calls carry a higher ceiling than video`() {
         assertTrue(SfuPolicy.meshCapacity("VOICE") > SfuPolicy.meshCapacity("VIDEO"))
         assertEquals(6, SfuPolicy.meshCapacity("VIDEO"))
-        assertEquals(10, SfuPolicy.meshCapacity("VOICE"))
+        assertEquals(8, SfuPolicy.meshCapacity("VOICE"))
+        assertEquals(8, SfuPolicy.MAX_PARTICIPANTS)
     }
 
     @Test

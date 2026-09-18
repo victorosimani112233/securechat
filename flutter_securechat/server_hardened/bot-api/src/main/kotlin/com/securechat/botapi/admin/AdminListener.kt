@@ -30,26 +30,37 @@ object AdminListener {
 
     const val DEFAULT_TCP_PORT = 8092
 
+    /**
+     * Admin yuzunun tam yapilandirmasi.
+     *
+     * Ayri bir fonksiyon olmasi, uctan uca testin ayni token kapisini ve ayni
+     * route agacini kullanmasini saglar; kopyalanmis bir kurulumda token
+     * kapisi test edilmemis olurdu.
+     */
+    fun Application.adminModule() {
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true })
+        }
+        // Admin token gate — tum endpoint'lere uygulanir
+        intercept(ApplicationCallPipeline.Plugins) {
+            if (!validateAdminToken(call.request.header("X-Admin-Token"))) {
+                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "X-Admin-Token gecersiz"))
+                finish()
+            }
+        }
+        routing {
+            clientCrudRoutes()
+            emergencyRoutes()
+            identityRoutes()
+            get("/admin/ping") {
+                call.respondText("""{"admin":"ok"}""", ContentType.Application.Json)
+            }
+        }
+    }
+
     fun start(port: Int = DEFAULT_TCP_PORT): NettyApplicationEngine {
         val server = embeddedServer(Netty, host = "127.0.0.1", port = port) {
-            install(ContentNegotiation) {
-                json(Json { ignoreUnknownKeys = true })
-            }
-            // Admin token gate — tum endpoint'lere uygulanir
-            intercept(ApplicationCallPipeline.Plugins) {
-                if (!validateAdminToken(call.request.header("X-Admin-Token"))) {
-                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "X-Admin-Token gecersiz"))
-                    finish()
-                }
-            }
-            routing {
-                clientCrudRoutes()
-                emergencyRoutes()
-                identityRoutes()
-                get("/admin/ping") {
-                    call.respondText("""{"admin":"ok"}""", ContentType.Application.Json)
-                }
-            }
+            adminModule()
         }.start(wait = false)
         log.info("[AdminListener] http://127.0.0.1:{}/admin/* (X-Admin-Token zorunlu)", port)
         log.info("[AdminListener] dis yuz: Unix socket {}", BotApiConfig.adminSocketPath)

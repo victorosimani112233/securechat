@@ -1,6 +1,7 @@
 package com.securechat.signaling
 
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import javax.crypto.Cipher
@@ -78,7 +79,7 @@ data class PrivacyConfig(
                 error("$name must be valid Base64")
             }
             require(decoded.size == 32) { "$name must decode to exactly 32 bytes" }
-            return decoded
+            return SecretPolicy.requireStrongKey(name, decoded)
         }
 
         private fun boundedLong(
@@ -109,8 +110,14 @@ data class PrivacyConfig(
 
 class PrivacyPrimitives(
     val config: PrivacyConfig,
-    private val random: SecureRandom = SecureRandom()
+    random: SecureRandom = SecureRandom(),
+    nonceBudget: Long = 1L shl 32,
 ) {
+    private val queueNonces = GcmNonceSequence(random, nonceBudget)
+    private val queueKeyId = keyId(
+        "securechat-offline-queue-key-id-v1",
+        config.offlineQueueEncryptionKey,
+    )
     fun blindIndex(namespace: String, value: String): String {
         require(namespace.matches(Regex("[a-z0-9_-]{1,32}"))) { "Invalid blind-index namespace" }
         return Base64.getUrlEncoder().withoutPadding().encodeToString(hmac(namespace, value))
@@ -128,9 +135,49 @@ class PrivacyPrimitives(
     }
 
     fun queueKey(bucket: String, userId: String): String {
-        require(bucket == "message" || bucket == "file") { "Unknown queue bucket" }
+        require(bucket == "message" || bucket == "file" || bucket == "delivery") {
+            "Unknown queue bucket"
+        }
         return "offline_${bucket}_v2:${blindIndex("queue-$bucket", userId)}"
     }
+
+    fun queuePayloadKey(bucket: String, userId: String): String {
+        require(bucket == "delivery") { "Unknown queue payload bucket" }
+        return "offline_${bucket}_payload_v1:${blindIndex("queue-$bucket-payload", userId)}"
+    }
+
+    fun queueOrderKey(bucket: String, userId: String): String {
+        require(bucket == "delivery") { "Unknown queue order bucket" }
+        return "offline_${bucket}_order_v1:${blindIndex("queue-$bucket-order", userId)}"
+    }
+
+    fun queueItemKey(bucket: String, userId: String, deliveryToken: String): String {
+        require(bucket == "delivery") { "Unknown queue item bucket" }
+        return "offline_${bucket}_item_v1:" +
+            blindIndex("queue-$bucket-item", "$userId\u0000$deliveryToken")
+    }
+
+    /**
+     * Teslim kuyrugunun boyut defteri: `deliveryToken -> "<byte>:<itemKey>"`.
+     *
+     * Kuyruk sinirlari onceden her yazimda butun payload'lar Redis'ten
+     * cekilerek hesaplaniyordu; dolu bir kuyrukta bu, mesaj basina on MB'larca
+     * gereksiz transfer demekti. Defter yalniz tam sayi boyutu ve zaten
+     * turetilmis item key'i tasir, boylece sinir kontrolu ve suresi dolan
+     * kayitlarin silinmesi Redis icinde, payload'a dokunmadan yapilabilir.
+     */
+    fun queueMetaKey(bucket: String, userId: String): String {
+        require(bucket == "delivery") { "Unknown queue meta bucket" }
+        return "offline_${bucket}_meta_v1:" + blindIndex("queue-$bucket-meta", userId)
+    }
+
+    /**
+     * Aliciya gosterilen teslim tokeni, gondericinin idempotency kimliginden
+     * turetilir. Boylece ayni retry ayni Redis kaydina duser; kotucul bir
+     * gonderici baska bir gondericinin tokenini secip kaydini ezemez.
+     */
+    fun deliveryToken(recipientId: String, senderId: String, deliveryId: String): String =
+        blindIndex("delivery-token", "$recipientId\u0000$senderId\u0000$deliveryId")
 
     fun registrationTokenUseKey(jti: String): String =
         "registration_token_used_v1:${blindIndex("registration-token", jti)}"
@@ -146,25 +193,38 @@ class PrivacyPrimitives(
     fun logToken(value: String): String = blindIndex("log", value).take(16)
 
     fun sealQueue(recipientId: String, plaintext: String): String {
-        val nonce = ByteArray(12).also(random::nextBytes)
+        val nonce = queueNonces.next()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(
             Cipher.ENCRYPT_MODE,
             SecretKeySpec(config.offlineQueueEncryptionKey, "AES"),
             GCMParameterSpec(128, nonce)
         )
-        cipher.updateAAD(queueAad(recipientId))
+        cipher.updateAAD(queueAadV2(recipientId))
         val ciphertext = cipher.doFinal(plaintext.toByteArray(StandardCharsets.UTF_8))
-        return "OQ1:" + Base64.getUrlEncoder().withoutPadding().encodeToString(nonce + ciphertext)
+        return "OQ2:$queueKeyId:" +
+            Base64.getUrlEncoder().withoutPadding().encodeToString(nonce + ciphertext)
     }
 
     fun openQueue(recipientId: String, envelope: String): String {
-        if (!envelope.startsWith("OQ1:")) {
-            if (config.allowLegacyPlaintextQueue) return envelope
-            throw IllegalArgumentException("Legacy plaintext offline queue entry rejected")
+        val (encoded, aad) = when {
+            envelope.startsWith("OQ2:") -> {
+                val separator = envelope.indexOf(':', startIndex = 4)
+                require(separator > 4) { "Invalid offline queue envelope" }
+                require(envelope.substring(4, separator) == queueKeyId) {
+                    "Unknown offline queue encryption key"
+                }
+                envelope.substring(separator + 1) to queueAadV2(recipientId)
+            }
+            envelope.startsWith("OQ1:") ->
+                envelope.removePrefix("OQ1:") to queueAadV1(recipientId)
+            else -> {
+                if (config.allowLegacyPlaintextQueue) return envelope
+                throw IllegalArgumentException("Legacy plaintext offline queue entry rejected")
+            }
         }
         val payload = try {
-            Base64.getUrlDecoder().decode(envelope.removePrefix("OQ1:"))
+            Base64.getUrlDecoder().decode(encoded)
         } catch (_: IllegalArgumentException) {
             throw IllegalArgumentException("Invalid offline queue envelope")
         }
@@ -177,8 +237,24 @@ class PrivacyPrimitives(
             SecretKeySpec(config.offlineQueueEncryptionKey, "AES"),
             GCMParameterSpec(128, nonce)
         )
-        cipher.updateAAD(queueAad(recipientId))
+        cipher.updateAAD(aad)
         return String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
+    }
+
+    private fun queueAadV1(recipientId: String): ByteArray =
+        "securechat-offline-queue-v1\u0000$recipientId".toByteArray(StandardCharsets.UTF_8)
+
+    private fun queueAadV2(recipientId: String): ByteArray =
+        "securechat-offline-queue-v2\u0000$queueKeyId\u0000$recipientId"
+            .toByteArray(StandardCharsets.UTF_8)
+
+    private fun keyId(domain: String, key: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(domain.toByteArray(StandardCharsets.US_ASCII))
+        digest.update(0.toByte())
+        digest.update(key)
+        return Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(digest.digest().copyOfRange(0, 9))
     }
 
     fun redactLogMessage(message: String): String {
@@ -191,9 +267,6 @@ class PrivacyPrimitives(
         redacted = JWT.replace(redacted, "<jwt:redacted>")
         return redacted
     }
-
-    private fun queueAad(recipientId: String): ByteArray =
-        "securechat-offline-queue-v1\u0000$recipientId".toByteArray(StandardCharsets.UTF_8)
 
     companion object {
         private val EMAIL = Regex("(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}")
@@ -213,6 +286,16 @@ object ServerPrivacy {
     val config: PrivacyConfig get() = primitives.config
     fun blindIndex(namespace: String, value: String): String = primitives.blindIndex(namespace, value)
     fun queueKey(bucket: String, userId: String): String = primitives.queueKey(bucket, userId)
+    fun queuePayloadKey(bucket: String, userId: String): String =
+        primitives.queuePayloadKey(bucket, userId)
+    fun queueOrderKey(bucket: String, userId: String): String =
+        primitives.queueOrderKey(bucket, userId)
+    fun queueItemKey(bucket: String, userId: String, deliveryToken: String): String =
+        primitives.queueItemKey(bucket, userId, deliveryToken)
+    fun queueMetaKey(bucket: String, userId: String): String =
+        primitives.queueMetaKey(bucket, userId)
+    fun deliveryToken(recipientId: String, senderId: String, deliveryId: String): String =
+        primitives.deliveryToken(recipientId, senderId, deliveryId)
     fun registrationTokenUseKey(jti: String): String = primitives.registrationTokenUseKey(jti)
     fun activeCallKey(userA: String, userB: String): String = primitives.activeCallKey(userA, userB)
     fun activeCallIndexKey(userId: String): String = primitives.activeCallIndexKey(userId)

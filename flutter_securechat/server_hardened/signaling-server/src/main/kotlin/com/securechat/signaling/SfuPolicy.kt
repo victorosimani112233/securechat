@@ -12,24 +12,23 @@ private val log = LoggerFactory.getLogger("SfuPolicy")
  * uygulama-katmani medya sifrelemesi (SFrame veya FrameCryptor) olmadan
  * Janus host/process'i ses ve goruntu icin guven sinirinin **icindedir**.
  *
- * Kaynak agacinda boyle bir katman yoktur. Bu yuzden SFU varsayilan olarak
- * kapalidir ve production'da acilmasi operatorun bu sinirI acikca kabul
- * etmesini gerektirir. Kapaliyken grup aramalari mesh modda kalir;
- * kullaniciya sessizce zayif bir garanti verilmez.
+ * Flutter istemcisi FrameCryptor ile uygulama-katmani medya sifrelemesi
+ * kullanabilir. SFU varsayilan olarak yine kapalidir; frame sifrelemesi
+ * butun katilimcilarda etkin degilse production'da acilmasi operatorun bu
+ * siniri acikca kabul etmesini gerektirir. Kapaliyken grup aramalari mesh
+ * modda kalir; kullaniciya sessizce zayif bir garanti verilmez.
  */
 object SfuPolicy {
 
     /** Kabulun anlamini gizlemeyen, kopyalanmasi bilincli olan deger. */
     const val REQUIRED_ACKNOWLEDGEMENT = "sfu-media-not-end-to-end-encrypted"
 
-    /**
-     * Protokol tavani. Mesh'te her cihaz N-1 encode ve N-1 upload yapar;
-     * SFU'da tek encode/upload yeter. Tavan bu yuzden moda baglidir.
-     */
-    const val MAX_PARTICIPANTS = 32
+    /** Tum grup aramalari icin, arayan dahil, asilamayan protokol tavani. */
+    const val MAX_PARTICIPANTS = 8
 
     /** Mesh'in pratik tavani; SFU esiginin ustunde arama kullanilamaz hale gelir. */
-    fun meshCapacity(callType: String): Int = if (callType.equals("VIDEO", true)) 6 else 10
+    fun meshCapacity(callType: String): Int =
+        if (callType.equals("VIDEO", true)) 6 else MAX_PARTICIPANTS
 
     fun sfuThreshold(callType: String): Int = meshCapacity(callType)
 

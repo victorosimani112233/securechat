@@ -64,14 +64,15 @@ object BotApiConfig {
      * Env'i parse et, zorunlu degerleri dogrula, fail-fast.
      * @throws IllegalStateException eksik veya gecersiz secret durumunda
      */
-    fun load() {
+    fun load(environment: Map<String, String> = System.getenv()) {
+        env = environment
         databaseUrl = req("DATABASE_URL", "jdbc:postgresql://postgres:5432/securechat")
         databaseUser = req("DATABASE_USER", "securechat")
         databasePassword = reqSecret("DATABASE_PASSWORD")
 
         redisHost = req("REDIS_HOST", "redis")
         redisPort = opt("REDIS_PORT", "6379").toInt()
-        redisPassword = SecretSource.optional("REDIS_PASSWORD")
+        redisPassword = SecretSource.optional("REDIS_PASSWORD", env)
 
         // BOT_SERVICE_PRIVATE_KEY — base64 PKCS#8 Ed25519. Signaling'in
         // JWT_SECRET'i bot process'ine hic girmez.
@@ -107,13 +108,13 @@ object BotApiConfig {
             ?.also { require(it in 60L..3_600L) { "BOT_IDEMPOTENCY_TTL_SECONDS 60..3600 olmali" } }
             ?: error("BOT_IDEMPOTENCY_TTL_SECONDS integer olmali")
         allowLegacyPlaintextQueue =
-            System.getenv("ALLOW_LEGACY_PLAINTEXT_QUEUE")?.equals("true", ignoreCase = true) == true
+            env["ALLOW_LEGACY_PLAINTEXT_QUEUE"]?.equals("true", ignoreCase = true) == true
 
         botAdminToken = reqSecret("BOT_ADMIN_TOKEN").also {
-            require(it.length >= 32) { "BOT_ADMIN_TOKEN en az 32 karakter olmali" }
+            requireStrongToken("BOT_ADMIN_TOKEN", it)
         }
         metricsBearerToken = reqSecret("BOT_METRICS_BEARER_TOKEN").also {
-            require(it.length >= 32) { "BOT_METRICS_BEARER_TOKEN en az 32 karakter olmali" }
+            requireStrongToken("BOT_METRICS_BEARER_TOKEN", it)
         }.toByteArray(Charsets.UTF_8)
         requirePurposeSeparatedSecrets()
 
@@ -124,7 +125,7 @@ object BotApiConfig {
         adminSocketPath = req("BOT_ADMIN_SOCKET", "/run/bot/bot-admin.sock")
         healthPort = opt("BOT_HEALTH_PORT", "8090").toInt()
 
-        val requestedLogLevel = System.getenv("LOG_LEVEL")?.trim()?.uppercase()
+        val requestedLogLevel = env["LOG_LEVEL"]?.trim()?.uppercase()
         require(requestedLogLevel == null || requestedLogLevel in setOf("ERROR", "OFF")) {
             "Hardened bot-api LOG_LEVEL yalniz ERROR veya OFF olabilir"
         }
@@ -133,14 +134,21 @@ object BotApiConfig {
         log.info("[Config] Bot-api konfigurasyonu yuklendi")
     }
 
+    /**
+     * Okunan ortam. Disaridan verilebilmesi, fail-closed dogrulama
+     * kurallarinin (amac ayrimi, TTL sinirlari, token uzunluklari) gercek
+     * process ortami olmadan surulebilmesini saglar.
+     */
+    private var env: Map<String, String> = emptyMap()
+
     private fun req(name: String, default: String): String =
-        System.getenv(name)?.takeIf { it.isNotBlank() } ?: default
+        env[name]?.takeIf { it.isNotBlank() } ?: default
 
     private fun opt(name: String, default: String): String =
-        System.getenv(name)?.takeIf { it.isNotBlank() } ?: default
+        env[name]?.takeIf { it.isNotBlank() } ?: default
 
     /** Zorunlu secret — read-only NAME_FILE veya legacy NAME girdisi. */
-    private fun reqSecret(name: String): String = SecretSource.required(name)
+    private fun reqSecret(name: String): String = SecretSource.required(name, env)
 
     /** Purpose-separation kontrolu icin ham anahtar materyali. */
     private lateinit var serviceSigningKeyMaterial: ByteArray
@@ -166,7 +174,18 @@ object BotApiConfig {
         require(decoded.size == 32) {
             "$name decode sonrasi tam 32 byte olmali (${decoded.size} byte bulundu)"
         }
+        require(decoded.toSet().size >= 8) {
+            "$name yetersiz byte cesitliligine sahip"
+        }
         return decoded
+    }
+
+    private fun requireStrongToken(name: String, value: String) {
+        require(value.toByteArray(Charsets.UTF_8).size >= 32) {
+            "$name en az 32 byte olmali"
+        }
+        require(value.toSet().size >= 8) { "$name yetersiz karakter cesitliligine sahip" }
+        require('\u0000' !in value) { "$name NUL byte iceremez" }
     }
 
     private fun requirePurposeSeparatedSecrets() {

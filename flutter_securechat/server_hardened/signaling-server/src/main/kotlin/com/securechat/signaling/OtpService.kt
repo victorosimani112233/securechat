@@ -90,36 +90,41 @@ object OtpService {
      * 5 yanlis deneme sonrasi OTP silinir.
      */
     /**
-     * Deneme hakkini atomik olarak tuketir ve saklanan hash'i doner.
+     * Karsilastirma, deneme sayaci ve basarili tuketim tek Redis adimidir.
      *
-     * ARGV: maxAttempts. Donus: {"1", hash} veya {"-1", ""}.
+     * Dogrulama iki Lua scriptine bolunurse paralel dogru istekler claim
+     * yaptiktan sonra baska bir istek deneme tavaninda kaydi silebilir ve tum
+     * dogru istekleri gecersiz kilabilir. Redis'in seri script yurutmesi bu
+     * state machine icin kesin bir sira tanimlar.
+     *
+     * ARGV: providedHash, maxAttempts. Donus: 1=basarili, 0=yanlis, -1=yok/blok.
      */
-    private val CLAIM_ATTEMPT_SCRIPT = """
+    private val VERIFY_OTP_SCRIPT = """
         local stored = redis.call('HGET', KEYS[1], 'hash')
         if not stored then
-          return {'-1', ''}
+          return -1
         end
         local attempts = tonumber(redis.call('HGET', KEYS[1], 'attempts') or '0')
-        if attempts >= tonumber(ARGV[1]) then
+        if attempts >= tonumber(ARGV[2]) then
           redis.call('DEL', KEYS[1])
-          return {'-1', ''}
+          return -1
         end
-        redis.call('HINCRBY', KEYS[1], 'attempts', 1)
-        return {'1', stored}
-    """.trimIndent()
-
-    /**
-     * Yalniz beklenen hash halen duruyorsa OTP'yi tuketir.
-     *
-     * Ayni OTP ile paralel iki dogru deneme gelirse ikisi de hash'i okur,
-     * fakat yalniz biri bu adimda silmeyi kazanir; digeri 0 alir. Boylece tek
-     * OTP'den iki grant uretilemez.
-     */
-    private val CONSUME_OTP_SCRIPT = """
-        local stored = redis.call('HGET', KEYS[1], 'hash')
-        if stored and stored == ARGV[1] then
+        local equal = 1
+        if string.len(stored) ~= string.len(ARGV[1]) then
+          equal = 0
+        end
+        for index = 1, 64 do
+          if string.byte(stored, index) ~= string.byte(ARGV[1], index) then
+            equal = 0
+          end
+        end
+        if equal == 1 then
           redis.call('DEL', KEYS[1])
           return 1
+        end
+        attempts = redis.call('HINCRBY', KEYS[1], 'attempts', 1)
+        if attempts >= tonumber(ARGV[2]) then
+          redis.call('DEL', KEYS[1])
         end
         return 0
     """.trimIndent()
@@ -130,45 +135,33 @@ object OtpService {
      * Onceki akis `HGETALL -> karsilastir -> DEL/HINCRBY` seklinde atomik
      * degildi: paralel iki dogru deneme ikisi de basarili sayilip iki grant
      * uretebiliyor, paralel yanlis denemeler ise deneme tavanini asabiliyordu.
-     * Karsilastirma yine sabit zamanli olarak uygulama tarafinda yapilir;
-     * durum gecisleri Redis'te atomiktir.
+     * Saklanan ve sunulan degerler ayni uzunlukta, secret-key HMAC blind
+     * indexleridir. Karsilastirma Redis state gecisiyle ayni atomik scripttedir.
      */
     fun verifyOtp(email: String, providedOtp: String): Boolean {
         if (!providedOtp.matches(Regex("[0-9]{6}"))) return false
         val key = otpKey(email)
+        val providedHash = hashOtp(providedOtp, email)
         return try {
             RedisManager.use { jedis ->
-                @Suppress("UNCHECKED_CAST")
-                val claim = jedis.eval(
-                    CLAIM_ATTEMPT_SCRIPT,
+                val result = jedis.eval(
+                    VERIFY_OTP_SCRIPT,
                     listOf(key),
-                    listOf(MAX_ATTEMPTS.toString()),
-                ) as? List<Any?> ?: return@use false
-                val status = claim.getOrNull(0)?.toString()
-                if (status != "1") {
-                    log.warn("[OTP] Deneme reddedildi — kayit yok veya tavan asildi")
-                    return@use false
-                }
-                val storedHash = claim.getOrNull(1)?.toString().orEmpty()
-                if (storedHash.isEmpty()) return@use false
-
-                val providedHash = hashOtp(providedOtp, email)
-                if (!constantTimeEquals(storedHash, providedHash)) {
-                    log.warn("[OTP] Yanlis kod")
-                    return@use false
-                }
-                val consumed = jedis.eval(
-                    CONSUME_OTP_SCRIPT,
-                    listOf(key),
-                    listOf(storedHash),
+                    listOf(providedHash, MAX_ATTEMPTS.toString()),
                 ) as? Long
-                if (consumed == 1L) {
-                    log.info("[OTP] Dogrulandi")
-                    true
-                } else {
-                    // Paralel bir istek ayni OTP'yi zaten tuketti.
-                    log.warn("[OTP] Tuketilmis OTP yeniden sunuldu")
-                    false
+                when (result) {
+                    1L -> {
+                        log.info("[OTP] Dogrulandi")
+                        true
+                    }
+                    0L -> {
+                        log.warn("[OTP] Yanlis kod")
+                        false
+                    }
+                    else -> {
+                        log.warn("[OTP] Deneme reddedildi — kayit yok veya tavan asildi")
+                        false
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -194,10 +187,4 @@ object OtpService {
     private fun otpKey(email: String): String =
         "otp_v2:${ServerPrivacy.blindIndex("otp-address", email.trim().lowercase())}"
 
-    private fun constantTimeEquals(a: String, b: String): Boolean {
-        if (a.length != b.length) return false
-        var result = 0
-        for (i in a.indices) result = result or (a[i].code xor b[i].code)
-        return result == 0
-    }
 }

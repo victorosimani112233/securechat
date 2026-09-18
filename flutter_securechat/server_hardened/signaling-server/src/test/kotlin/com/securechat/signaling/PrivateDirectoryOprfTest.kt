@@ -3,12 +3,17 @@ package com.securechat.signaling
 import java.math.BigInteger
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.interfaces.RSAPrivateCrtKey
 import java.util.Base64
 import javax.crypto.AEADBadTagException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -82,6 +87,33 @@ class PrivateDirectoryOprfTest {
         val secondToken = unblind(evaluatedSecond, second.inverse)
         assertEquals(directory.tokenForPhoneHash(phoneHash), firstToken)
         assertEquals(firstToken, secondToken)
+    }
+
+    @Test
+    fun `fixed cross-language KAT matches independent Python RSA math`() {
+        val path = listOf(
+            Path.of("tools", "crypto-audit", "vectors", "oprf_cross_language_kat.json"),
+            Path.of("..", "tools", "crypto-audit", "vectors", "oprf_cross_language_kat.json"),
+        ).first(Files::isRegularFile)
+        val bytes = Files.readAllBytes(path)
+        assertEquals(
+            "60a70404b766535c81f421c8528026ebd6a464168cdf0a7939b28a79ef7cdac9",
+            sha256(bytes).joinToString("") { "%02x".format(it) },
+        )
+        val vector = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
+        fun value(name: String): String = vector.getValue(name).jsonPrimitive.content
+
+        val kat = PrivateDirectoryOprf.fromEnvironment(
+            mapOf("DIRECTORY_OPRF_PRIVATE_KEY" to value("privateKeyPkcs8")),
+        )
+        val config = kat.publicConfig()
+        assertEquals(value("keyId"), config.keyId)
+        assertEquals(value("modulus"), config.modulus)
+        assertEquals(value("exponent"), config.exponent)
+        assertEquals(value("token"), kat.tokenForPhoneHash(value("phoneHash")))
+
+        val evaluated = kat.evaluateBatch(List(256) { value("blinded") }).first()
+        assertEquals(value("evaluated"), evaluated)
     }
 
     @Test

@@ -194,7 +194,7 @@ object OutboundQueue {
                     log.warn("[OutboundQueue] Duplicate in-flight messageId atildi")
                     return@repeat
                 }
-                else -> throw IllegalStateException("In-flight checkout kaydi kayboldu")
+                else -> error("In-flight checkout kaydi kayboldu")
             }
         }
         return null

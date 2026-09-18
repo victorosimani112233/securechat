@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class BotQueuePrivacyTest {
@@ -19,6 +20,7 @@ class BotQueuePrivacyTest {
         val first = primitives.seal(botId, plaintext)
         val second = primitives.seal(botId, plaintext)
 
+        assertTrue(first.startsWith("BQ2:"))
         assertFalse(primitives.key(botId).contains(botId))
         assertFalse(first.contains("peer-secret"))
         assertNotEquals(first, second)
@@ -37,6 +39,7 @@ class BotQueuePrivacyTest {
         val index = primitives.blindIndex("idempotency", binding)
         val sealed = primitives.sealPrivate("idempotency", binding, response)
 
+        assertTrue(sealed.startsWith("BP2:"))
         assertFalse(index.contains(clientId))
         assertFalse(index.contains(idempotencyKey))
         assertFalse(sealed.contains("private-message-id"))
@@ -46,6 +49,21 @@ class BotQueuePrivacyTest {
         }
         assertThrows(Exception::class.java) {
             primitives.openPrivate("different-purpose", binding, sealed)
+        }
+    }
+
+    @Test
+    fun `queue invocation budget fails closed`() {
+        val bounded = BotQueuePrimitives(
+            indexKey = ByteArray(32) { (it + 3).toByte() },
+            encryptionKey = ByteArray(32) { (it + 93).toByte() },
+            nonceBudget = 2,
+        )
+        bounded.seal("bot", "one")
+        bounded.sealPrivate("idempotency", "binding", "two")
+
+        assertThrows(IllegalStateException::class.java) {
+            bounded.seal("bot", "three")
         }
     }
 }

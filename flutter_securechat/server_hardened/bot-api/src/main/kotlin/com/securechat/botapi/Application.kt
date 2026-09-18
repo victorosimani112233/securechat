@@ -9,6 +9,7 @@ import com.securechat.botapi.health.HealthListener
 import com.securechat.botapi.publicapi.PublicListener
 import com.securechat.botapi.listener.UnixSocketBridge
 import com.securechat.botapi.signal.BotIdentityBootstrap
+import com.securechat.botapi.signal.BotPreKeyMaintenance
 import com.securechat.botapi.signal.BotSessionPrivacyMigration
 import org.slf4j.LoggerFactory
 
@@ -48,6 +49,7 @@ fun main() {
     // 4. Bot identity hazirla + WS clienti baslat. API credential'lari her
     // requestte DB'den revoke/expiry kontrollu okunur; positive cache yoktur.
     BotIdentityBootstrap.ensureRegistered()
+    BotPreKeyMaintenance.start()
     SignalingWsClient.start()
 
     // 5. 3 listener
@@ -79,6 +81,7 @@ fun main() {
             .onFailure { log.warn("[Shutdown] admin listener: {}", it.javaClass.simpleName) }
         runCatching { healthServer.stop(1_000, 5_000) }
             .onFailure { log.warn("[Shutdown] health listener: {}", it.javaClass.simpleName) }
+        runCatching { BotPreKeyMaintenance.stop() }
         runCatching { SignalingWsClient.stop() }
         runCatching { BotRedisManager.close() }
         runCatching { BotDatabase.close() }

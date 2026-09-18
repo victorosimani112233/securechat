@@ -199,6 +199,9 @@ class AccountDeletionIntegrationTest {
     }
 
     private companion object {
-        const val LAST_MIGRATION = 18
+        val LAST_MIGRATION: Int = java.io.File(System.getProperty("serverMigrationDir"))
+            .listFiles { file -> file.name.startsWith("V") && file.name.endsWith(".sql") }
+            ?.maxOf { it.name.removePrefix("V").substringBefore("__").toInt() }
+            ?: error("Migration dizini okunamadi")
     }
 }

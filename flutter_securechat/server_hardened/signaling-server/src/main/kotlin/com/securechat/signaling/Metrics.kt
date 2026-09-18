@@ -47,6 +47,30 @@ object Metrics {
         .description("Offline kuyruga eklenen mesaj sayisi")
         .register(registry)
 
+    /**
+     * Alici ACK gonderdigi an Redis'ten silinen ciphertext sayisi.
+     *
+     * `messagesQueued` ile farki, sunucuda kac sifreli kopyanin hala
+     * bekledigini gosterir; kalici bir birikme ACK akisinda bir sorun oldugu
+     * anlamina gelir.
+     */
+    val messagesAcknowledged: Counter = Counter.builder("securechat_messages_delivery_total")
+        .description("Alici ACK'i sonrasi Redis'ten silinen ciphertext sayisi")
+        .tag("result", "acknowledged")
+        .register(registry)
+
+    /**
+     * Alicinin kuyrugu dolu oldugu icin reddedilen mesaj sayisi.
+     *
+     * Bekleyen mesajlari silmek yerine yeni mesaji reddettigimiz icin bu
+     * sayacin artmasi, ya gercek bir yogunluk ya da bir kuyruk doldurma
+     * girisimi demektir.
+     */
+    val messagesQueueRejected: Counter = Counter.builder("securechat_messages_delivery_total")
+        .description("Kuyruk sinirlari nedeniyle reddedilen mesaj sayisi")
+        .tag("result", "queue_full")
+        .register(registry)
+
     val groupFanouts: Counter = Counter.builder("securechat_group_fanouts_total")
         .description("Grup mesaj fanout sayisi")
         .register(registry)
@@ -84,6 +108,27 @@ object Metrics {
         .register(registry)
 
     /** Aktif WebSocket connection sayisini gostergesi (gauge) — ConnectionManager set eder. */
+    /**
+     * Kimlik icermeyen guvenlik olayi sayaclarini metrics yuzeyine baglar.
+     *
+     * Sayac degerleri yalniz olay turu -> toplam sayidir; kullanici, IP veya
+     * zaman damgasi tasimaz. Metrics yuzeyi zaten bearer korumalidir.
+     */
+    fun registerAuditCounters() {
+        io.micrometer.core.instrument.Gauge
+            .builder("securechat_security_events_total") { AuditLog.snapshot().values.sum() }
+            .description("Kimliksiz guvenlik olayi sayaci toplami")
+            .register(registry)
+    }
+
+    /** Belirli bir olay turunun anlik degeri. */
+    fun registerAuditCounter(eventType: String) {
+        io.micrometer.core.instrument.Gauge
+            .builder("securechat_security_event") { AuditLog.count(eventType).toDouble() }
+            .tag("event", eventType)
+            .register(registry)
+    }
+
     fun registerOnlineUsersGauge(supplier: () -> Int) {
         io.micrometer.core.instrument.Gauge.builder("securechat_online_users", supplier) { it().toDouble() }
             .description("Anlik aktif WebSocket baglantisi")

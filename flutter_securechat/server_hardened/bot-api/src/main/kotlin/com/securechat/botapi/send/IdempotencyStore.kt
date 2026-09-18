@@ -49,7 +49,20 @@ object IdempotencyStore {
             if (result == "OK") {
                 CheckResult.Fresh
             } else {
-                val existing = jedis.get(k) ?: return@use CheckResult.Fresh
+                // NX basarisiz oldu ama okuma bos donduyse kayit tam o anda
+                // silinmis demektir. `Fresh` donmek rezervasyon almadan
+                // gonderime izin verirdi; yeniden NX denenir.
+                val existing = jedis.get(k) ?: return@use if (
+                    jedis.set(
+                        k,
+                        "PENDING",
+                        SetParams.setParams().nx().ex(BotApiConfig.idempotencyTtlSeconds),
+                    ) == "OK"
+                ) {
+                    CheckResult.Fresh
+                } else {
+                    CheckResult.Pending
+                }
                 if (existing == "PENDING") {
                     CheckResult.Pending
                 } else {

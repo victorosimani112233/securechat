@@ -38,6 +38,7 @@ object ServiceAssertion {
     const val PREFIX = "sc1"
     const val MAX_LIFETIME_SECONDS = 120L
     private const val CLOCK_SKEW_SECONDS = 30L
+    const val REPLAY_TTL_SECONDS = MAX_LIFETIME_SECONDS + CLOCK_SKEW_SECONDS
 
     /** Servis hesabinin erisebilecegi dar yetki kumesi. */
     enum class Scope(val wire: String) {
@@ -52,7 +53,7 @@ object ServiceAssertion {
     }
 
     sealed interface Result {
-        data class Accepted(val subject: String, val scope: Scope) : Result
+        data class Accepted(val subject: String, val scope: Scope, val jti: String) : Result
         data object Rejected : Result
     }
 
@@ -92,6 +93,7 @@ object ServiceAssertion {
         } catch (_: IllegalArgumentException) {
             return Result.Rejected
         }
+        if (signatureBytes.size != ED25519_SIGNATURE_BYTES) return Result.Rejected
 
         val signatureValid = try {
             Signature.getInstance("Ed25519").run {
@@ -112,7 +114,8 @@ object ServiceAssertion {
 
         val subject = payload["sub"]?.jsonPrimitive?.contentOrNullSafe() ?: return Result.Rejected
         if (!uuidPattern.matches(subject)) return Result.Rejected
-        if (payload["jti"]?.jsonPrimitive?.contentOrNullSafe().isNullOrBlank()) return Result.Rejected
+        val jti = payload["jti"]?.jsonPrimitive?.contentOrNullSafe() ?: return Result.Rejected
+        if (!uuidPattern.matches(jti)) return Result.Rejected
 
         val scope = Scope.fromWire(payload["scp"]?.jsonPrimitive?.contentOrNullSafe())
             ?: return Result.Rejected
@@ -125,9 +128,11 @@ object ServiceAssertion {
         if (nowSeconds >= expiresAt) return Result.Rejected
         if (issuedAt > nowSeconds + CLOCK_SKEW_SECONDS) return Result.Rejected
 
-        return Result.Accepted(subject.lowercase(), scope)
+        return Result.Accepted(subject.lowercase(), scope, jti.lowercase())
     }
 
     private fun kotlinx.serialization.json.JsonPrimitive.contentOrNullSafe(): String? =
         if (isString) content else null
+
+    private const val ED25519_SIGNATURE_BYTES = 64
 }

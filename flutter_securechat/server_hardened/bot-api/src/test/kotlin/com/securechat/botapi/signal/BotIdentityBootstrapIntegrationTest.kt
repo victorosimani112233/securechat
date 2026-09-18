@@ -17,6 +17,7 @@ import org.testcontainers.containers.PostgreSQLContainer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.DriverManager
+import java.time.Instant
 
 /**
  * Bot bootstrap'inin final V1-V18 semasi uzerinde calistigini ve yarim kalan
@@ -44,6 +45,8 @@ class BotIdentityBootstrapIntegrationTest {
     private class FakePublisher : BotBundlePublisher {
         var publishCount = 0
         var publishedOneTimeIds = emptyList<Int>()
+        var publishedSignedPreKeyId = 0
+        var publishedSignedPreKey = ByteArray(0)
         var failNext = false
 
         override fun publish(bundle: PublishedBundle) {
@@ -53,6 +56,8 @@ class BotIdentityBootstrapIntegrationTest {
             }
             publishCount++
             publishedOneTimeIds = bundle.oneTimePreKeys.map { it.keyId }
+            publishedSignedPreKeyId = bundle.signedPreKeyId
+            publishedSignedPreKey = bundle.signedPreKey.copyOf()
             BotDatabase.getConnection().use { conn ->
                 conn.autoCommit = false
                 try {
@@ -232,10 +237,99 @@ class BotIdentityBootstrapIntegrationTest {
         assertThat(BotIdentity.isReady()).isTrue()
     }
 
+    @Test
+    @Order(6)
+    fun `legacy private key envelopes migrate lazily to row-bound AEAD`() {
+        val store = PgSignalProtocolStore()
+        val identity = store.identityKeyPair
+        val preKeyId = unconsumedLocalIds().first()
+        val preKey = store.loadPreKey(preKeyId)
+        val signedPreKeyId = queryInt("SELECT MIN(key_id) FROM bot_signed_prekey")
+        val signedPreKey = store.loadSignedPreKey(signedPreKeyId)
+
+        writeLegacyIdentity(identity.privateKey.serialize())
+        writeLegacyPreKey(preKeyId, preKey.keyPair.privateKey.serialize())
+        writeLegacySignedPreKey(signedPreKeyId, signedPreKey.keyPair.privateKey.serialize())
+
+        assertThat(isBound("bot_identity", "identity_private_key_enc", "id = 1")).isFalse()
+        assertThat(isBound("bot_one_time_prekey", "private_key_enc", "key_id = $preKeyId")).isFalse()
+        assertThat(isBound("bot_signed_prekey", "private_key_enc", "key_id = $signedPreKeyId")).isFalse()
+
+        store.identityKeyPair
+        store.loadPreKey(preKeyId)
+        store.loadSignedPreKey(signedPreKeyId)
+
+        assertThat(isBound("bot_identity", "identity_private_key_enc", "id = 1")).isTrue()
+        assertThat(isBound("bot_one_time_prekey", "private_key_enc", "key_id = $preKeyId")).isTrue()
+        assertThat(isBound("bot_signed_prekey", "private_key_enc", "key_id = $signedPreKeyId")).isTrue()
+    }
+
+    @Test
+    @Order(7)
+    fun `signed prekey rotation retries exact material and retains the old key`() {
+        val oldId = publisher.publishedSignedPreKeyId
+        execute("UPDATE bot_signed_prekey SET created_at = NOW() - INTERVAL '8 days' WHERE key_id = $oldId")
+        publisher.failNext = true
+        val rotationTime = Instant.now()
+
+        assertThrows<IllegalStateException> {
+            BotIdentityBootstrap.ensureRegistered(publisher, rotationTime)
+        }
+
+        val pendingId = maxKeyId("bot_signed_prekey")
+        val pendingPublic = signedPreKeyPublic(pendingId)
+        assertThat(pendingId).isEqualTo(oldId + 1)
+        assertThat(countRows("bot_signed_prekey")).isEqualTo(2)
+        assertThat(serverSignedPreKeyId()).isEqualTo(oldId)
+
+        BotIdentityBootstrap.ensureRegistered(publisher, rotationTime.plusSeconds(60))
+
+        assertThat(publisher.publishedSignedPreKeyId).isEqualTo(pendingId)
+        assertThat(publisher.publishedSignedPreKey).isEqualTo(pendingPublic)
+        assertThat(serverSignedPreKeyId()).isEqualTo(pendingId)
+        assertThat(countRows("bot_signed_prekey")).isEqualTo(2)
+    }
+
+    @Test
+    @Order(8)
+    fun `signed prekeys older than the delayed message window are removed`() {
+        val activeId = publisher.publishedSignedPreKeyId
+        execute(
+            "UPDATE bot_signed_prekey SET created_at = NOW() - INTERVAL '31 days' " +
+                "WHERE key_id <> $activeId",
+        )
+
+        BotIdentityBootstrap.ensureRegistered(publisher)
+
+        assertThat(countRows("bot_signed_prekey")).isEqualTo(1)
+        assertThat(maxKeyId("bot_signed_prekey")).isEqualTo(activeId)
+    }
+
     private fun countRows(table: String): Int = queryInt("SELECT COUNT(*) FROM $table")
 
     private fun maxKeyId(table: String): Int =
         queryInt("SELECT COALESCE(MAX(key_id), 0) FROM $table")
+
+    private fun serverSignedPreKeyId(): Int = queryInt("SELECT key_id FROM signed_prekeys")
+
+    private fun signedPreKeyPublic(keyId: Int): ByteArray =
+        BotDatabase.getConnection().use { connection ->
+            connection.prepareStatement(
+                "SELECT public_key FROM bot_signed_prekey WHERE key_id = ?",
+            ).use { statement ->
+                statement.setInt(1, keyId)
+                statement.executeQuery().use { rows ->
+                    check(rows.next())
+                    rows.getBytes(1)
+                }
+            }
+        }
+
+    private fun execute(sql: String) {
+        BotDatabase.getConnection().use { connection ->
+            connection.createStatement().use { statement -> statement.executeUpdate(sql) }
+        }
+    }
 
     private fun queryInt(sql: String): Int =
         BotDatabase.getConnection().use { conn ->
@@ -270,6 +364,60 @@ class BotIdentityBootstrapIntegrationTest {
         }
     }
 
+    private fun writeLegacyIdentity(plaintext: ByteArray) {
+        val legacy = KeyEncryptor.wrap(plaintext)
+        BotDatabase.getConnection().use { connection ->
+            connection.prepareStatement(
+                "UPDATE bot_identity SET identity_private_key_enc = ?, " +
+                    "identity_private_key_nonce = ? WHERE id = 1",
+            ).use { statement ->
+                statement.setBytes(1, legacy.ciphertext)
+                statement.setBytes(2, legacy.nonce)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    private fun writeLegacyPreKey(keyId: Int, plaintext: ByteArray) {
+        val legacy = KeyEncryptor.wrap(plaintext)
+        BotDatabase.getConnection().use { connection ->
+            connection.prepareStatement(
+                "UPDATE bot_one_time_prekey SET private_key_enc = ?, " +
+                    "private_key_nonce = ? WHERE key_id = ?",
+            ).use { statement ->
+                statement.setBytes(1, legacy.ciphertext)
+                statement.setBytes(2, legacy.nonce)
+                statement.setInt(3, keyId)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    private fun writeLegacySignedPreKey(keyId: Int, plaintext: ByteArray) {
+        val legacy = KeyEncryptor.wrap(plaintext)
+        BotDatabase.getConnection().use { connection ->
+            connection.prepareStatement(
+                "UPDATE bot_signed_prekey SET private_key_enc = ?, " +
+                    "private_key_nonce = ? WHERE key_id = ?",
+            ).use { statement ->
+                statement.setBytes(1, legacy.ciphertext)
+                statement.setBytes(2, legacy.nonce)
+                statement.setInt(3, keyId)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    private fun isBound(table: String, column: String, where: String): Boolean =
+        BotDatabase.getConnection().use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT $column FROM $table WHERE $where").use { rows ->
+                    rows.next()
+                    KeyEncryptor.isBoundCiphertext(rows.getBytes(1))
+                }
+            }
+        }
+
     private fun unconsumedLocalIds(): List<Int> =
         BotDatabase.getConnection().use { conn ->
             conn.createStatement().use { statement ->
@@ -293,7 +441,10 @@ class BotIdentityBootstrapIntegrationTest {
         }
 
     private companion object {
-        const val LAST_MIGRATION = 18
+        val LAST_MIGRATION: Int = java.io.File(System.getProperty("serverMigrationDir"))
+            .listFiles { file -> file.name.startsWith("V") && file.name.endsWith(".sql") }
+            ?.maxOf { it.name.removePrefix("V").substringBefore("__").toInt() }
+            ?: error("Migration dizini okunamadi")
         const val ONE_TIME_POOL = 100
     }
 }

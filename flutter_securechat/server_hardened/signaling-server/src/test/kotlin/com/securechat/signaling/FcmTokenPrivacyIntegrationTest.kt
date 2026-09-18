@@ -116,7 +116,7 @@ class FcmTokenPrivacyIntegrationTest {
             ).use { statement ->
                 val index = indexFor(stagedUser)
                 statement.setString(1, index)
-                statement.setString(2, cipher.seal(index, stagedToken))
+                statement.setString(2, cipher.sealLegacyV4(index, stagedToken))
                 statement.setString(3, stagedUser.toString())
                 assertEquals(1, statement.executeUpdate())
             }
@@ -163,7 +163,7 @@ class FcmTokenPrivacyIntegrationTest {
                         val index = rows.getString("user_index")
                         val encrypted = rows.getString("token")
                         assertEquals(43, index.length)
-                        assertTrue(encrypted.startsWith("v4:"))
+                        assertTrue(encrypted.startsWith("v5:"))
                         assertFalse(encrypted.contains("fcm_registration_token"))
                         assertFalse(index.contains(privateUser.toString()))
                         assertFalse(index.contains(stagedUser.toString()))
@@ -190,7 +190,7 @@ class FcmTokenPrivacyIntegrationTest {
                 statement.setString(1, indexFor(newUser))
                 statement.executeQuery().use { rows ->
                     assertTrue(rows.next())
-                    assertTrue(rows.getString("token").startsWith("v4:"))
+                    assertTrue(rows.getString("token").startsWith("v5:"))
                     assertFalse(rows.getString("token").contains(newToken))
                 }
             }
@@ -217,8 +217,8 @@ class FcmTokenPrivacyIntegrationTest {
         val firstIndex = indexFor(privateUser)
         val secondIndex = indexFor(stagedUser)
         val envelope = cipher.seal(firstIndex, privateToken)
-        assertEquals(privateToken, cipher.openV4(firstIndex, envelope))
-        assertNull(cipher.openV4(secondIndex, envelope))
+        assertEquals(privateToken, cipher.open(firstIndex, envelope))
+        assertNull(cipher.open(secondIndex, envelope))
 
         store.purgeExpiredMemory(now + 1)
         assertNull(store.getToken(privateUser.toString()))
@@ -251,7 +251,7 @@ class FcmTokenPrivacyIntegrationTest {
                VALUES (NULL, ?, ?, ?)""",
         ).use { statement ->
             statement.setString(1, index)
-            statement.setString(2, cipher.seal(index, token))
+            statement.setString(2, cipher.sealLegacyV4(index, token))
             statement.setTimestamp(3, updatedAt)
             statement.executeUpdate()
         }

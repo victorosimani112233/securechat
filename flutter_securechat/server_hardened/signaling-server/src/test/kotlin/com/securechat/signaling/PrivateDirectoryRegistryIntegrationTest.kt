@@ -46,7 +46,7 @@ class PrivateDirectoryRegistryIntegrationTest {
         DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use {
             connection ->
             val migrationDir = Path.of(System.getProperty("serverMigrationDir"))
-            for (version in 1..18) {
+            for (version in 1..LAST_MIGRATION) {
                 val migration = Files.list(migrationDir).use { paths ->
                     paths.filter { it.fileName.toString().startsWith("V${version}__") }
                         .findFirst()
@@ -71,7 +71,7 @@ class PrivateDirectoryRegistryIntegrationTest {
             generator.generateKeyPair().private as RSAPrivateCrtKey,
         )
         Database.init(postgres.jdbcUrl, postgres.username, postgres.password)
-        registry = UserRegistry(directory, legacyIndex)
+        registry = UserRegistry(directory)
     }
 
     @AfterAll
@@ -82,7 +82,10 @@ class PrivateDirectoryRegistryIntegrationTest {
 
     @Test
     fun `authenticated legacy owner migration leaves only current OPRF token`() {
-        val migrated = registry.updateOwnDirectoryToken(legacyUserId, legacyHash)
+        val migrated = registry.updateOwnDirectoryToken(
+            legacyUserId,
+            directory.tokenForPhoneHash(legacyHash),
+        )
 
         assertEquals(directory.keyId, migrated.directoryKeyId)
         assertEquals(directory.tokenForPhoneHash(legacyHash), migrated.directoryToken)
@@ -104,22 +107,25 @@ class PrivateDirectoryRegistryIntegrationTest {
     }
 
     @Test
-    fun `registration never returns an existing phone identity`() {
+    fun `an authenticated account cannot claim another account directory token`() {
         val userId = UUID.randomUUID().toString()
         val attackerId = UUID.randomUUID().toString()
         val phoneHash = sha256Hex("+905552222222")
 
-        val created = registry.registerUserByHash(userId, phoneHash)
+        val token = directory.tokenForPhoneHash(phoneHash)
+        val created = registry.registerUser(userId)
+        registry.updateOwnDirectoryToken(userId, token)
+        registry.registerUser(attackerId)
 
         assertEquals(userId, created.userId)
-        assertThrows(DirectoryIdentityAlreadyRegisteredException::class.java) {
-            registry.registerUserByHash(attackerId, phoneHash)
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.updateOwnDirectoryToken(attackerId, token)
         }
         Database.getConnection().use { connection ->
             connection.prepareStatement(
                 "SELECT COUNT(*) FROM users WHERE directory_token = ?",
             ).use { statement ->
-                statement.setString(1, directory.tokenForPhoneHash(phoneHash))
+                statement.setString(1, token)
                 statement.executeQuery().use { rows ->
                     assertTrue(rows.next())
                     assertEquals(1, rows.getInt(1))
@@ -129,7 +135,7 @@ class PrivateDirectoryRegistryIntegrationTest {
     }
 
     @Test
-    fun `v14 final schema structurally forbids legacy social and identity links`() {
+    fun `v22 final schema structurally forbids legacy social and identity links`() {
         Database.getConnection().use { connection ->
             val tables = connection.prepareStatement(
                 """SELECT table_name FROM information_schema.tables
@@ -155,9 +161,29 @@ class PrivateDirectoryRegistryIntegrationTest {
                     "bot_control",
                     "bot_peer_identity",
                     "registration_grant_use",
+                    "directory_quota",
+                    "modern_prekey_bundles",
+                    "modern_one_time_prekeys",
+                    "modern_last_resort_kyber_prekeys",
+                    "sealed_sender_mailboxes",
+                    // Emekli mailbox tombstone'u: yalniz HMAC indeksi ve sona
+                    // erme zamani; hesap bagi tasimadigi icin sosyal grafik
+                    // yuzeyi olusturmaz.
+                    "sealed_sender_retired_mailboxes",
                 ),
                 tables,
             )
+            // Tombstone hicbir kosulda bir hesaba geri baglanmamalidir.
+            val retiredColumns = connection.prepareStatement(
+                """SELECT column_name FROM information_schema.columns
+                   WHERE table_schema = 'public'
+                     AND table_name = 'sealed_sender_retired_mailboxes'""",
+            ).use { statement ->
+                statement.executeQuery().use { rows ->
+                    buildSet { while (rows.next()) add(rows.getString(1)) }
+                }
+            }
+            assertEquals(setOf("mailbox_index", "retired_until"), retiredColumns)
             assertEquals(
                 setOf(
                     "user_id",
@@ -177,6 +203,10 @@ class PrivateDirectoryRegistryIntegrationTest {
             assertEquals(
                 setOf("recipient_index", "device_id", "session_record"),
                 columns(connection, "bot_signal_session"),
+            )
+            assertEquals(
+                setOf("user_id", "mailbox_index", "write_key_index", "protocol_version", "generation"),
+                columns(connection, "sealed_sender_mailboxes"),
             )
             assertEquals(
                 setOf("user_id", "key_id", "public_key", "signature"),
@@ -255,6 +285,39 @@ class PrivateDirectoryRegistryIntegrationTest {
                 setOf("grant_index", "expires_at"),
                 columns(connection, "registration_grant_use"),
             )
+            // Rehber kotasi: blind index, gun kovasi ve sayac. Ham hesap
+            // kimligi ya da istek zaman cizelgesi tutulmaz.
+            assertEquals(
+                setOf("account_index", "day_bucket", "used", "updated_at"),
+                columns(connection, "directory_quota"),
+            )
+            // Modern libsignal tablolarinda yalniz public PQXDH materyali
+            // bulunur; private key, ciphertext veya tuketim zaman cizelgesi yoktur.
+            assertEquals(
+                setOf(
+                    "user_id",
+                    "identity_public_key",
+                    "registration_id",
+                    "signed_prekey_id",
+                    "signed_prekey_public",
+                    "signed_prekey_signature",
+                ),
+                columns(connection, "modern_prekey_bundles"),
+            )
+            assertEquals(
+                setOf(
+                    "user_id",
+                    "key_id",
+                    "ec_public_key",
+                    "kyber_public_key",
+                    "kyber_signature",
+                ),
+                columns(connection, "modern_one_time_prekeys"),
+            )
+            assertEquals(
+                setOf("user_id", "key_id", "public_key", "signature"),
+                columns(connection, "modern_last_resort_kyber_prekeys"),
+            )
             assertTrue("group_members" !in tables)
             assertTrue("audit_log" !in tables)
         }
@@ -319,4 +382,17 @@ class PrivateDirectoryRegistryIntegrationTest {
         java.security.MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+
+    companion object {
+        /**
+         * Migration sayisi kaynagindan okunur.
+         *
+         * Sabit bir sayi, yeni bir migration eklendiginde testleri sessizce
+         * eski semaya karsi calistirirdi.
+         */
+        val LAST_MIGRATION: Int = java.io.File(System.getProperty("serverMigrationDir"))
+            .listFiles { file -> file.name.startsWith("V") && file.name.endsWith(".sql") }
+            ?.maxOf { it.name.removePrefix("V").substringBefore("__").toInt() }
+            ?: error("Migration dizini okunamadi")
+    }
 }

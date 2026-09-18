@@ -25,7 +25,15 @@ object RedisManager {
             maxTotal = 50
             maxIdle = 20
             minIdle = 5
-            testOnBorrow = true
+            // `testOnBorrow` her odunc almada fazladan bir PING turu ekler.
+            // Rate limit, kuyruk ve ACK yollari istek basina birden fazla
+            // odunc aldigi icin bu, sicak yolda kati bir ek gecikmedir.
+            // Bosta bekleyen baglantilar arka planda dogrulanir; kopmus bir
+            // baglanti zaten cagri sirasinda yakalanir ve havuzdan dusurulur.
+            testOnBorrow = false
+            testWhileIdle = true
+            setMinEvictableIdleTime(java.time.Duration.ofSeconds(60))
+            setTimeBetweenEvictionRuns(java.time.Duration.ofSeconds(30))
             testOnReturn = true
         }
         pool = if (password.isNullOrBlank()) {
@@ -38,6 +46,17 @@ object RedisManager {
 
     fun <T> use(block: (Jedis) -> T): T {
         return pool.resource.use { jedis -> block(jedis) }
+    }
+
+    /**
+     * Uzun omurlu abone; cagiran thread'i bloklar.
+     *
+     * Ayri, adanmis bir baglanti kullanir (subscribe komutunun baglantiyi
+     * process omru boyunca mesgul etmesi normaldir). Havuz `maxTotal=50`
+     * oldugu icin tek bir kalici abone kaynagi sorun degildir.
+     */
+    fun subscribe(pubSub: redis.clients.jedis.JedisPubSub, channel: String) {
+        pool.resource.use { jedis -> jedis.subscribe(pubSub, channel) }
     }
 
     fun isHealthy(): Boolean {
@@ -53,10 +72,10 @@ object RedisManager {
         val configuration = use { jedis ->
             // Lack of CONFIG permission is intentionally fatal: production
             // cannot claim a no-disk guarantee it cannot verify.
-            jedis.configGet("appendonly", "save")
+            jedis.configGet("appendonly", "save", "maxmemory-policy")
         }
         RedisEphemeralPolicy.requireMemoryOnly(configuration)
-        log.info("[Redis] RDB/AOF kapali; transient state RAM-only")
+        log.info("[Redis] RDB/AOF kapali, sessiz tahliye yok; transient state RAM-only")
     }
 
     fun close() {
