@@ -1,0 +1,22 @@
+# Bilinen zafiyetli bagimliliklar (SCA kapisi, P2-13).
+#
+# Bicim:  group:name:version  <not>
+#         version "*" tum surumleri kapsar.
+#
+# Bu dosya release kapisidir: burada eslesen bir bagimlilik varsa
+# `build_privacy_images.sh` image uretmeden durur.
+#
+# GUNCELLEME SORUMLULUGU (operator):
+#   Ag erisimi olan bir makinede SCA beslemesinden (OSV, GitHub Advisory,
+#   NVD) yeni kayitlar cekilip buraya eklenir. Betik kasten offline
+#   calisir; deploy anindaki bir ag cagrisi hem tekrar uretilebilirligi
+#   hem de deploy makinesinin egress kisitini bozardi.
+#
+# Ornek kayit bicimi (aktif degil, referans icin yorumda):
+#   com.example:vulnerable-lib:1.2.3  CVE-0000-0000 uzaktan kod calistirma
+#
+# Kapatilmis surumler — bu koordinatlar bir daha kullanilmamalidir.
+ch.qos.logback:logback-classic:1.2.0  CVE-2021-42550 JNDI (surum yukseltildi)
+ch.qos.logback:logback-core:1.2.0  CVE-2021-42550 JNDI (surum yukseltildi)
+org.apache.logging.log4j:log4j-core:*  Log4Shell sinifi; bu proje logback kullanir
+com.fasterxml.jackson.core:jackson-databind:2.9.10  CVE-2020-36518 derin nesne DoS

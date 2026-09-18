@@ -1,0 +1,113 @@
+# Elcim — send-only mail stack.
+#
+# Iki servis:
+#   opendkim : giden mailleri imzalar (milter, yalniz ic ag)
+#   postfix  : 587/tcp submission dinler, uzak MX'e 25/tcp ile teslim eder
+#
+# Host'a HICBIR PORT publish edilmez. Uygulama sunucusu postfix'e
+# ${APP_NETWORK} uzerinden `${MAIL_HOSTNAME}` takma adiyla ulasir.
+#
+# Calistirma:
+#   docker compose --env-file .env.mail -f compose.mail.yml up -d --build
+name: elcim-mail
+
+x-hardening: &hardening
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  ulimits:
+    core:
+      soft: 0
+      hard: 0
+  pids_limit: 256
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  opendkim:
+    <<: *hardening
+    build:
+      context: ./opendkim
+    hostname: opendkim
+    environment:
+      MAIL_DOMAIN: ${MAIL_DOMAIN:?MAIL_DOMAIN zorunlu}
+      DKIM_SELECTOR: ${DKIM_SELECTOR:-mail}
+    volumes:
+      # DKIM private key kalici. Silinirse DNS'teki public key ile
+      # eslesme kopar ve tum mailler DKIM'den duser.
+      - dkim-keys:/var/lib/opendkim/keys
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    mem_limit: ${MAIL_MEMORY_LIMIT:-128m}
+    cpus: ${MAIL_CPU_LIMIT:-0.25}
+    networks:
+      mail-internal:
+        aliases: [opendkim]
+
+  postfix:
+    <<: *hardening
+    build:
+      context: ./postfix
+    hostname: ${MAIL_HOSTNAME:?MAIL_HOSTNAME zorunlu (PTR ile ayni FQDN)}
+    depends_on:
+      - opendkim
+    environment:
+      MAIL_DOMAIN: ${MAIL_DOMAIN:?MAIL_DOMAIN zorunlu}
+      MAIL_HOSTNAME: ${MAIL_HOSTNAME:?MAIL_HOSTNAME zorunlu}
+      SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME zorunlu}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      DKIM_MILTER: opendkim:8891
+      MAIL_RATE_LIMIT: ${MAIL_RATE_LIMIT:-100}
+      TLS_SOURCE_DIR: /certs-src
+      # Opsiyonel smarthost: giden 25/tcp engelliyse doldur.
+      # Bos birakilirsa dogrudan teslimat yapilir.
+      MAIL_RELAYHOST: ${MAIL_RELAYHOST:-}
+      RELAY_USERNAME: ${RELAY_USERNAME:-}
+      RELAY_PASSWORD_FILE: /run/secrets/relay_password
+    secrets:
+      - smtp_password
+      - relay_password
+    volumes:
+      # certbot'un urettigi live dizini. Yenilenme sonrasi container
+      # yeniden baslatilmali (scripts/issue-cert.sh deploy hook kurar).
+      - ${MAIL_TLS_DIR:?MAIL_TLS_DIR zorunlu (certbot live dizini)}:/certs-src:ro
+      - postfix-spool:/var/spool/postfix
+      - postfix-data:/var/lib/postfix
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID, KILL]
+    mem_limit: ${MAIL_MEMORY_LIMIT:-256m}
+    cpus: ${MAIL_CPU_LIMIT:-0.5}
+    networks:
+      mail-internal:
+      # Uygulama stack'inin agina takma adla katiliyoruz; boylece
+      # signaling-server SMTP_HOST=mail.<domain> ile baglanabilir ve
+      # STARTTLS sertifika hostname dogrulamasi gecer.
+      app-egress:
+        aliases:
+          - ${MAIL_HOSTNAME}
+
+secrets:
+  smtp_password:
+    file: ${SMTP_PASSWORD_FILE:?SMTP_PASSWORD_FILE zorunlu (0600 bir dosya yolu)}
+  # Smarthost kullanilmiyorsa bos dosya baglanir; entrypoint dokunmaz.
+  relay_password:
+    file: ${RELAY_PASSWORD_FILE:-/dev/null}
+
+volumes:
+  dkim-keys:
+  postfix-spool:
+  postfix-data:
+
+networks:
+  # postfix <-> opendkim. Disari cikisi yoktur.
+  mail-internal:
+    internal: true
+  # Uygulama stack'i tarafindan olusturulmus mevcut ag.
+  # Postfix'in internete (uzak MX, 25/tcp) cikisi bu ag uzerindendir.
+  app-egress:
+    external: true
+    name: ${APP_NETWORK:-securechat-hardened_securechat-egress}

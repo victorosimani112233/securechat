@@ -16,6 +16,10 @@ bagimsiz uretilmelidir:
 - `PRIVACY_INDEX_KEY`: HMAC blind index ve pseudonym anahtari.
 - `OFFLINE_QUEUE_ENCRYPTION_KEY`: Redis offline envelope AES-256-GCM anahtari.
 - `FCM_TOKEN_ENCRYPTION_KEY`: push token `v4` AES-256-GCM anahtari.
+- `SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY`: istemcide public kismi pinlenen,
+  sender-certificate kok imza anahtari.
+- `SEALED_SENDER_SERVER_PRIVATE_KEY`: kisa omurlu sender certificate imzalayan
+  ara sunucu anahtari; trust-root ile ayni olamaz.
 - `BOT_MASTER_KEY`: bot identity/session private state anahtari.
 - `BOT_QUEUE_ENCRYPTION_KEY`: bot queue/idempotency zarf anahtari.
 
@@ -45,6 +49,18 @@ etmeden raw RSA private operation'i provider icinde calistirir ve provider,
 alias veya certificate yoksa PKCS#8'e geri dusmeden startup'i durdurur. PKCS#8
 backend'inde host+DB'nin birlikte ele gecirilmesi telefon sozluk saldirisini
 yeniden mumkun kilar; bu backend production release icin kabul edilmez.
+
+Sealed Sender anahtarlarini ve mobil build'e verilecek public trust root'u
+uretin (cikti dizini yeni/bos ve repository disinda olmali):
+
+```bash
+dart tool/generate_sealed_sender_keys.dart /srv/securechat/secrets
+```
+
+Uretilen iki private dosya yalniz signaling container'ina read-only secret
+olarak baglanir. Komutun yazdigi `SECURECHAT_SEALED_SENDER_TRUST_ROOT` degeri
+Android/iOS release `--dart-define` girdisidir; private anahtar mobil bundle'a
+konmaz.
 
 Izole gelistirme anahtari ornegi (uretilen PEM/DER veya Base64 degeri repoya
 eklenmez):
@@ -80,10 +96,23 @@ izni olmayan managed Redis, no-disk garantisi kanitlanamadigi icin fail-closed
 reddedilir. Ayrica volume/snapshot/host-swap katmaninda Redis memory dump'i
 alinmadigi deployment politikasiyla dogrulanmalidir.
 
+`encrypted_message` zarflari socket'e yazildigi anda silinmez. Alici mesaji
+dogrulayip kalici cihaz deposuna yazdiktan sonra authenticated
+`delivery_transport_ack` yollar; ancak bu ACK kaydi siler. Ayni 256-bit
+`deliveryId` atomik olarak tek kayda duser ve retry TTL'i yenilemez. Sirali
+Redis skoru hizli Signal zarflarinin ratchet sirasini korur. Varsayilan sure
+15 dakika, sert ust sinir 1 saattir; PostgreSQL mesaj kuyrugu yoktur. V21'deki
+anonim teslim tablosu yalniz kullanici bagini, generation'i ve ham degerleri
+geri vermeyen amac-ayrimli mailbox/write-key HMAC indekslerini tutar. Distan
+AES-GCM zarfi server tarafindan acilabilir, ic Signal ciphertext cihaz private
+anahtarlari olmadan acilamaz. Flutter davranis sozlesmesi:
+`../docs/PRIVACY_FIRST_RELIABLE_DELIVERY.md`.
+
 ## Kalici veri korumalari
 
 - Redis offline ve bot key'leri ham UUID tasimaz; degerler randomized AEAD
-  zarfindadir. Basarili socket gonderiminden sonra kayit silinir.
+  zarfindadir. Mesaj kaydi alici transport ACK'inden, legacy dosya/sinyal
+  kaydi basarili socket gonderiminden sonra silinir.
 - Push token satirlari blind user index + AAD-bagli `v4` AEAD kullanir. V14
   push ve bot session tablolarindaki raw-UUID compatibility kolonlarini
   donusum tamamlanmadan kaldirmayi reddeder, sonra fiziksel olarak siler.
@@ -129,7 +158,7 @@ Yalniz `deploy/deploy_privacy_stack.sh --check-only` kapisi kullanilir;
    `COUNT(*)` ile `fcm_tokens.user_id IS NOT NULL`, non-v4 push zarf ve
    `bot_signal_session.recipient_user_id IS NOT NULL` sonucunun sifir oldugunu
    dogrula. Fresh kurulumda bu staging adimi gerekmez.
-4. Signaling server'i tek instance ile baslat. Flyway V1-V14'u uygular; V4 bot
+4. Signaling server'i tek instance ile baslat. Flyway V1-V21'i uygular; V4 bot
    state, V5 push, V6 telefon, V7 gecis-donemi private grup dizini, V8 metadata
    minimizasyonu, V9 kalici grup grafiginin ve V10 behavioral audit tablosunun
    tamamen silinmesi ve V11 user-prekey kullanim zaman cizelgesinin
@@ -137,7 +166,9 @@ Yalniz `deploy/deploy_privacy_stack.sh --check-only` kapisi kullanilir;
    legacy telefon blind index'inin private-directory OPRF token semasina
    gecisidir. V14 push ve bot session tablolarindaki nullable raw-UUID legacy
    kolonlarini fiziksel olarak kaldirir; eski satir bulursa veri silmeden
-   migration'i durdurur.
+   migration'i durdurur. V15-V19 credential/bot/directory state ve kotalarini
+   dayanikli hale getirir; V20 official Rust libsignal public PQXDH bundle'ini,
+   V21 ham capability saklamayan Sealed Sender mailbox indeksini ekler.
 5. PostgreSQL+Redis health check gecmeden listener acilmaz.
 6. Migration tamamlandiktan sonra signaling instance'larini olcekle.
 7. Bot API'yi en son baslat; private session/client dogrulamasi
@@ -157,11 +188,11 @@ env \
 ```
 
 Test paketi unit testlere ek olarak gercek `postgres:16` Testcontainers ile
-V1-V14 migration, legacy iliski varken V14 fail-closed davranisi, final exact
+V1-V21 migration, legacy iliski varken V14 fail-closed davranisi, final exact
 schema, push-token AAD ve gun-bucket retention, kalici grup/audit/prekey
 timeline silinmesi ve hesap silme sinirlarini sorgular.
 
-Guncel sonuc signaling+bot toplam 64/64 test, sifir failure/error/skip'tir.
+Guncel sonuc 1.179 signaling + 190 bot testi, sifir failure/error/skip'tir.
 Kalici log appender'i, runtime log seviye acma, direct secret env, guvensiz DB
 TLS, secret amac tekrari ve production policy bypass'i statik/Kotlin
 kapilarinda reddedilir.

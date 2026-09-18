@@ -28,6 +28,31 @@ require_digest JRE_IMAGE "$JRE_IMAGE"
   { echo "SOURCE_COMMIT must be a full 40-hex commit id" >&2; exit 2; }
 SOURCE_BUILT_AT="${SOURCE_BUILT_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
+# Testler calistirilmadan image uretilemez. Onceki betik dogrudan
+# fatJar/installDist cagiriyordu; yesil olmayan bir agactan release image
+# cikabiliyordu.
+(cd "$server_root" && ./gradlew \
+  :signaling-server:test :bot-api:test \
+  --offline --no-daemon --rerun-tasks)
+
+# SBOM + SCA kapisi. Manifest zaten release'e giren her artefaktin
+# sha256'sini tasir; surum kaydinda hangi ucuncu parti baytlarin calistigi
+# bu belgeyle kanitlanir. Bilinen zafiyetli bir bagimlilik varsa image
+# uretilmez.
+sbom_path="$server_root/build/sbom-$SOURCE_COMMIT.json"
+# Belge yalniz dagitilan bilesenleri anlatir: dogrulama manifesti test
+# bagimliliklarini da tasir, test-only bir CVE release'i durdurmamalidir.
+(cd "$server_root" && ./gradlew \
+  :signaling-server:writeRuntimeArtifacts :bot-api:writeRuntimeArtifacts \
+  --offline --no-daemon)
+"${PYTHON_BIN:-python3}" "$deploy_dir/sbom.py" \
+  --metadata "$server_root/gradle/verification-metadata.xml" \
+  --advisories "$deploy_dir/known_vulnerable.txt" \
+  --runtime "$server_root/signaling-server/build/runtime-artifacts.txt" \
+  --runtime "$server_root/bot-api/build/runtime-artifacts.txt" \
+  --commit "$SOURCE_COMMIT" \
+  --output "$sbom_path"
+
 (cd "$server_root" && ./gradlew \
   :signaling-server:fatJar :bot-api:installDist \
   -PsourceCommit="$SOURCE_COMMIT" -PsourceBuiltAt="$SOURCE_BUILT_AT" \
@@ -45,5 +70,6 @@ docker build \
   --tag "$BOT_API_IMAGE_TAG" \
   "$server_root"
 
+echo "SBOM: $sbom_path — surum kaydiyla birlikte saklayin."
 echo "Images built locally. Push them to the private registry and deploy only"
 echo "their registry image@sha256 digests; mutable tags are not release inputs."

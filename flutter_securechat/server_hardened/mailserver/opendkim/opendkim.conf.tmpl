@@ -1,0 +1,24 @@
+# OpenDKIM — yalniz imzalama modu (Mode s). Dogrulama yapilmaz;
+# bu host gelen mail kabul etmez.
+Syslog                  no
+LogWhy                  yes
+Background              no
+UMask                   007
+
+Mode                    s
+Canonicalization        relaxed/simple
+MinimumKeyBits          2048
+SubDomains              no
+
+Domain                  ${MAIL_DOMAIN}
+Selector                ${DKIM_SELECTOR}
+KeyFile                 /var/lib/opendkim/keys/${MAIL_DOMAIN}/${DKIM_SELECTOR}.private
+
+# From basligini "oversign" et: saldirgan ikinci bir From ekleyerek
+# imzayi gecerli birakamaz.
+OversignHeaders         From
+
+# Postfix milter baglantisi (docker ic agi).
+Socket                  inet:8891@0.0.0.0
+PidFile                 /run/opendkim/opendkim.pid
+UserID                  opendkim
