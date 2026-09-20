@@ -19,6 +19,7 @@ import '../crypto/pre_key_manager.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
 import '../domain/send_message_use_case.dart';
 import '../incoming/incoming_message_handler.dart';
+import '../l10n/service_strings.dart';
 import '../network/network_resilience.dart';
 import '../network/tls_pinning.dart';
 import '../notifications/message_notification_service.dart';
@@ -126,11 +127,15 @@ class SecureChatBackgroundRuntime {
       final contactIdentityResolver = ContactIdentityResolver(
         database: database,
       );
+      final serviceStrings = ServiceStrings(
+        languageCode: () async => session.languagePreference,
+      );
       final incomingMessages = IncomingMessageHandler(
         signaling: signaling,
         crypto: crypto,
         database: database,
         session: session,
+        strings: serviceStrings,
         identityResolver: contactIdentityResolver,
         onAsyncFailure: (operation, error, stackTrace) async {
           _logBackgroundFailure('BG-INCOMING', operation, error, stackTrace);

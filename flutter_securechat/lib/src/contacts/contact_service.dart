@@ -185,17 +185,17 @@ class ContactService {
     return contact;
   }
 
-  Future<void> ensureConversation(ContactEntity contact) async {
+  Future<ConversationEntity> ensureConversation(ContactEntity contact) async {
     final existing = await _database.conversations.getByPeerId(contact.id);
-    if (existing != null) return;
-    await _database.conversations.insert(
-      ConversationEntity(
-        id: contact.id,
-        peerId: contact.id,
-        peerName: contact.displayName,
-        peerPhone: contact.phoneNumber,
-      ),
+    if (existing != null) return existing;
+    final conversation = ConversationEntity(
+      id: contact.id,
+      peerId: contact.id,
+      peerName: contact.displayName,
+      peerPhone: contact.phoneNumber,
     );
+    await _database.conversations.insert(conversation);
+    return conversation;
   }
 
   Future<List<RegisteredUserMatch>> _discover(

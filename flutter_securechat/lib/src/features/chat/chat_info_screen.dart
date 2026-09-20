@@ -11,8 +11,17 @@ import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/chat_lock_dialog.dart';
 
 enum _InfoTab { main, search, starred, media, documents }
+
+class ChatInfoResult {
+  const ChatInfoResult.focusMessage(this.messageId) : lockEnabled = false;
+  const ChatInfoResult.lockEnabled() : messageId = null, lockEnabled = true;
+
+  final String? messageId;
+  final bool lockEnabled;
+}
 
 class ChatInfoScreen extends StatefulWidget {
   const ChatInfoScreen({super.key});
@@ -23,6 +32,7 @@ class ChatInfoScreen extends StatefulWidget {
 class _ChatInfoScreenState extends State<ChatInfoScreen> {
   var _tab = _InfoTab.main;
   var _query = '';
+  var _changingLock = false;
 
   @override
   Widget build(BuildContext context) {
@@ -160,8 +170,11 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
       SwitchListTile(
         secondary: const Icon(Icons.lock_outline),
         title: Text(context.l10n.chat_lock),
+        subtitle: Text(context.l10n.chat_lock_desc),
         value: c.isLocked,
-        onChanged: (value) => service.setLocked(c.id, value),
+        onChanged: _changingLock
+            ? null
+            : (value) => _setLocked(service, c, value),
       ),
       // Sohbete ozel ses. Susturulmus bir sohbette anlamsiz oldugu icin
       // satir orada gizleniyor: susturma daha guclu bir karar ve ikisini
@@ -217,38 +230,42 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     onTap: onTap,
   );
 
-  Widget _messageList(Stream<List<MessageEntity>> stream) =>
-      StreamBuilder<List<MessageEntity>>(
-        stream: stream,
-        builder: (context, snapshot) {
-          final messages = snapshot.data ?? const [];
-          if (messages.isEmpty)
-            return Center(child: Text(context.l10n.no_records));
-          return ListView.builder(
-            itemCount: messages.length,
-            itemBuilder: (_, index) {
-              final message = messages[index];
-              return ListTile(
-                leading: Icon(switch (message.contentType) {
-                  StorageMessageContentType.image => Icons.image_outlined,
-                  StorageMessageContentType.file => Icons.description_outlined,
-                  _ => Icons.chat_bubble_outline,
-                }),
-                title: Text(
-                  message.content,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  DateTime.fromMillisecondsSinceEpoch(
-                    message.timestamp,
-                  ).toLocal().toString(),
-                ),
-              );
-            },
+  Widget _messageList(
+    Stream<List<MessageEntity>> stream,
+  ) => StreamBuilder<List<MessageEntity>>(
+    stream: stream,
+    builder: (context, snapshot) {
+      final messages = snapshot.data ?? const [];
+      if (messages.isEmpty) return Center(child: Text(context.l10n.no_records));
+      return ListView.builder(
+        itemCount: messages.length,
+        itemBuilder: (_, index) {
+          final message = messages[index];
+          return ListTile(
+            key: ValueKey('chat-info-message-${message.id}'),
+            leading: Icon(switch (message.contentType) {
+              StorageMessageContentType.image => Icons.image_outlined,
+              StorageMessageContentType.file => Icons.description_outlined,
+              _ => Icons.chat_bubble_outline,
+            }),
+            title: Text(
+              message.content,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              DateTime.fromMillisecondsSinceEpoch(
+                message.timestamp,
+              ).toLocal().toString(),
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () =>
+                Navigator.pop(context, ChatInfoResult.focusMessage(message.id)),
           );
         },
       );
+    },
+  );
 
   Future<void> _noteDialog(
     ChatInfoService service,
@@ -261,23 +278,87 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
       builder: (context) => TextControllerScope(
         initialText: c.contactNote ?? '',
         builder: (context, controller) => AlertDialog(
-        title: Text(context.l10n.add_contact_note),
-        content: TextField(controller: controller, maxLines: 5),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(context.l10n.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: Text(context.l10n.save),
-          ),
-        ],
+          title: Text(context.l10n.add_contact_note),
+          content: TextField(controller: controller, maxLines: 5),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(context.l10n.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: Text(context.l10n.save),
+            ),
+          ],
         ),
       ),
     );
     if (note != null) await service.updateNote(c.id, note);
   }
+
+  Future<void> _setLocked(
+    ChatInfoService service,
+    ConversationEntity conversation,
+    bool locked,
+  ) async {
+    final runtime = AppContainerScope.of(context).chatAccessRuntime;
+    final credentials = runtime.credentials;
+    if (credentials == null) {
+      await service.setLocked(conversation.id, locked);
+      return;
+    }
+    setState(() => _changingLock = true);
+    try {
+      if (locked) {
+        final password = await showCreateChatPasswordDialog(context);
+        if (password == null) return;
+        await credentials.setPassword(conversation.id, password);
+        try {
+          await service.setLocked(conversation.id, true);
+        } catch (_) {
+          await credentials.clear(conversation.id);
+          rethrow;
+        }
+        if (mounted) {
+          Navigator.pop(context, const ChatInfoResult.lockEnabled());
+        }
+        return;
+      }
+
+      final hasPassword = await credentials.hasCredential(conversation.id);
+      final authorized = hasPassword
+          ? await showVerifyChatPasswordDialog(
+              context,
+              chatName: conversation.peerName,
+              verify: (password) =>
+                  credentials.verifyPassword(conversation.id, password),
+            )
+          : await runtime.service.authorize(_asConversation(conversation));
+      if (!authorized) return;
+      await service.setLocked(conversation.id, false);
+      await credentials.clear(conversation.id);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.chat_lock_update_failed)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _changingLock = false);
+    }
+  }
+
+  static Conversation _asConversation(ConversationEntity entity) =>
+      Conversation(
+        id: entity.id,
+        peerId: entity.peerId,
+        peerName: entity.peerName,
+        peerPhone: entity.peerPhone,
+        isGroup: entity.isGroup,
+        isLocked: entity.isLocked,
+        groupMembers: entity.groupMembers?.split(',') ?? const [],
+        groupAdmins: entity.groupAdmins?.split(',') ?? const [],
+      );
 
   Future<void> _timerDialog(
     ChatInfoService service,

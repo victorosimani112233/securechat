@@ -303,7 +303,17 @@
   "group_announcement_desc": "Use the group as an announcement channel",
   "mute": "Mute",
   "chat_lock": "Chat lock",
-  "chat_lock_desc": "Access with device authentication",
+  "chat_lock_desc": "Access with a chat password",
+  "chat_lock_create_title": "Set chat password",
+  "chat_lock_create_body": "This password will be required whenever this chat is opened on this device.",
+  "chat_lock_unlock_title": "Unlock chat",
+  "chat_lock_unlock_body": "Enter the password for {chatName}.",
+  "@chat_lock_unlock_body": {
+    "placeholders": {"chatName": {"type": "String"}}
+  },
+  "chat_lock_unlock_action": "Unlock",
+  "chat_lock_wrong_password": "Incorrect password.",
+  "chat_lock_update_failed": "Chat lock could not be updated.",
   "export_history": "Export history",
   "make_admin": "Make admin",
   "no_contacts_to_add": "No saved contacts can be added.",
@@ -516,6 +526,22 @@
   "starred_messages": "Starred Messages",
   "media": "Media",
   "disappearing_messages": "Disappearing messages",
+  "disappearing_timer_enabled_by_you": "You set disappearing messages to {duration}.",
+  "@disappearing_timer_enabled_by_you": {
+    "placeholders": {"duration": {"type": "String"}}
+  },
+  "disappearing_timer_disabled_by_you": "You turned off disappearing messages.",
+  "disappearing_timer_enabled_by_peer": "{sender} set disappearing messages to {duration}.",
+  "@disappearing_timer_enabled_by_peer": {
+    "placeholders": {
+      "sender": {"type": "String"},
+      "duration": {"type": "String"}
+    }
+  },
+  "disappearing_timer_disabled_by_peer": "{sender} turned off disappearing messages.",
+  "@disappearing_timer_disabled_by_peer": {
+    "placeholders": {"sender": {"type": "String"}}
+  },
   "contact_note": "Contact note",
   "tap_to_add_note": "Tap to add a note",
   "no_records": "No records found",

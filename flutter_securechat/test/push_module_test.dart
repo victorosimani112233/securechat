@@ -48,6 +48,7 @@ void main() {
         ),
         session: session,
         signaling: signaling,
+        pushHintKeys: const _FakePushHintKeyProvider('device-hint-key'),
       );
       addTearDown(coordinator.close);
 
@@ -56,7 +57,11 @@ void main() {
       expect(session.pushToken, 'token-1');
       expect(requests.single.path, '/api/v1/fcm/register');
       expect(requests.single.authorization, 'Bearer access');
-      expect(requests.single.body, {'userId': 'me', 'fcmToken': 'token-1'});
+      expect(requests.single.body, {
+        'userId': 'me',
+        'fcmToken': 'token-1',
+        'pushHintKey': 'device-hint-key',
+      });
 
       expect(await coordinator.requestPermissionAndRegister(), isTrue);
       expect(transport.permissionRequested, isTrue);
@@ -75,6 +80,14 @@ void main() {
       expect(requests.last.path, '/api/v1/fcm/unregister');
     },
   );
+}
+
+class _FakePushHintKeyProvider implements PushHintKeyProvider {
+  const _FakePushHintKeyProvider(this.value);
+  final String? value;
+
+  @override
+  Future<String?> getOrCreateKey() async => value;
 }
 
 class _FakePushTransport implements PushTransport {

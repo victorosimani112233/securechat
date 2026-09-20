@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 
 import '../chat/conversation_preview.dart';
+import '../chat/disappearing_timer_notice.dart';
 import '../chat/message_interaction_service.dart';
 import '../chat/poll_service.dart';
 import '../chat/private_chat_control.dart';
@@ -12,6 +13,7 @@ import '../core/signal_message.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
 import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
+import '../l10n/service_strings.dart';
 import '../media/call_media_key.dart';
 import '../services/crypto_service.dart';
 import '../services/async_operation_tracker.dart';
@@ -94,6 +96,7 @@ class IncomingMessageHandler {
     required SecureChatDatabase database,
     required SessionStore session,
     ContactIdentityResolver? identityResolver,
+    ServiceStrings? strings,
     CallMediaKeyReceiver? applyCallMediaKey,
     AsyncOperationFailureHandler? onAsyncFailure,
     Future<void> Function(String conversationId)? onUndecryptableMessage,
@@ -101,6 +104,7 @@ class IncomingMessageHandler {
        _crypto = crypto,
        _database = database,
        _session = session,
+       _strings = strings ?? ServiceStrings.fixed('tr'),
        _identityResolver = identityResolver,
        _applyCallMediaKey = applyCallMediaKey,
        _onUndecryptableMessage = onUndecryptableMessage,
@@ -110,6 +114,7 @@ class IncomingMessageHandler {
   final CryptoService _crypto;
   final SecureChatDatabase _database;
   final SessionStore _session;
+  final ServiceStrings _strings;
   final ContactIdentityResolver? _identityResolver;
   final CallMediaKeyReceiver? _applyCallMediaKey;
   final Future<void> Function(String conversationId)? _onUndecryptableMessage;
@@ -805,6 +810,41 @@ class IncomingMessageHandler {
       conversationId,
       signal.durationMs,
     );
+    final timestamp = _boundedTimestamp(signal.timestamp);
+    final l10n = await _strings.load();
+    final content = remoteDisappearingTimerNotice(
+      l10n,
+      sender: await _memberName(signal.senderId),
+      durationMs: signal.durationMs,
+    );
+    final rawId =
+        '$conversationId:${signal.senderId}:${signal.durationMs}:'
+        '${signal.timestamp.microsecondsSinceEpoch}';
+    final messageId = base64UrlEncode(
+      (await Sha256().hash(utf8.encode('disappearing-timer:$rawId'))).bytes,
+    );
+    if (await _database.messages.getById(messageId) == null) {
+      await _database.messages.insert(
+        MessageEntity(
+          id: messageId,
+          conversationId: conversationId,
+          senderId: 'SYSTEM',
+          content: content,
+          contentType: StorageMessageContentType.system,
+          timestamp: timestamp,
+          status: StorageMessageStatus.delivered,
+          isOutgoing: false,
+        ),
+      );
+      await _database.conversations.updateLastMessageById(
+        conversationId,
+        content,
+        timestamp,
+        type: StorageMessageContentType.system,
+        outgoing: false,
+        status: StorageMessageStatus.delivered,
+      );
+    }
     if (signal.durationMs > 0) {
       final now = DateTime.now().millisecondsSinceEpoch;
       await _database.messages.applyRetroactiveExpiry(

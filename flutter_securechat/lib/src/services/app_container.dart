@@ -65,6 +65,7 @@ import '../push/push_service.dart';
 import '../settings/settings_service.dart';
 import '../settings/account_data_service.dart';
 import '../security/chat_access_service.dart';
+import '../security/chat_lock_credential_service.dart';
 import '../storage/secure_chat_database.dart';
 import '../storage/legacy_room_importer.dart';
 import '../storage/storage_management_service.dart';
@@ -434,6 +435,7 @@ class AppContainer {
         crypto: crypto,
         database: database,
         session: session,
+        strings: serviceStrings,
         identityResolver: contactIdentityResolver,
         // Cozulemeyen mesaj sessizce dusmez: sohbete gorunur bir iz birakir.
         onUndecryptableMessage: (conversationId) async {
@@ -842,6 +844,8 @@ class AppContainer {
             session: session,
             signaling: signaling,
             crypto: crypto,
+            strings: serviceStrings,
+            timerUpdateSender: timerUpdates.sendOrQueue,
           ),
           polls: pollService,
           interactions: MessageInteractionService(
@@ -909,9 +913,12 @@ class AppContainer {
                 ),
               )
             : null,
-        chatAccessRuntime: const AppChatAccessRuntime(
-          service: ChatAccessService(
+        chatAccessRuntime: AppChatAccessRuntime(
+          service: const ChatAccessService(
             authenticator: NativeDeviceOwnerAuthenticator(),
+          ),
+          credentials: ChatLockCredentialService(
+            store: DatabaseChatLockCredentialStore(database.cryptoState),
           ),
         ),
         callReadinessRuntime: const AppCallReadinessRuntime(
@@ -998,8 +1005,12 @@ class AppBackgroundRuntime {
   final SignalingService signaling;
   final PreKeyMaintenanceService preKeyMaintenance;
 
+  Future<int> expireMessages([DateTime? at]) => messages.deleteExpiredMessages(
+    (at ?? DateTime.now()).millisecondsSinceEpoch,
+  );
+
   Future<void> runForegroundMaintenance() async {
-    await messages.deleteExpiredMessages(DateTime.now().millisecondsSinceEpoch);
+    await expireMessages();
     await stuckMessageRecovery.recoverStuckMessages();
     await preKeyMaintenance.replenishIfNeeded();
     if (signaling.currentStatus.isConnected) await timerUpdates.flush();
@@ -1095,8 +1106,9 @@ class AppDebugRuntime {
 }
 
 class AppChatAccessRuntime {
-  const AppChatAccessRuntime({required this.service});
+  const AppChatAccessRuntime({required this.service, this.credentials});
   final ChatAccessService service;
+  final ChatLockCredentialService? credentials;
 }
 
 class AppCallReadinessRuntime {

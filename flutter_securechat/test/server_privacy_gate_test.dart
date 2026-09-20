@@ -414,9 +414,21 @@ void main() {
       'com/securechat/signaling/FcmPushSender.kt',
     );
     expect(fcm, contains('.putData("type", "securechat_wake_v2")'));
+    expect(fcm, contains('.putData('));
+    expect(fcm, contains('"k",'));
+    expect(fcm, contains('pushHintCipher.seal'));
     expect(fcm, isNot(contains('.putData("senderId"')));
     expect(fcm, isNot(contains('.putData("messageType"')));
     expect(fcm, isNot(contains('.putData("sentAt"')));
+
+    final hintCipher = source(
+      'server_hardened/signaling-server/src/main/kotlin/'
+      'com/securechat/signaling/PushHintCipher.kt',
+    );
+    expect(hintCipher, contains('AES/GCM/NoPadding'));
+    expect(hintCipher, contains('securechat-push-hint:v1'));
+    expect(hintCipher, contains('const val WIRE_LENGTH = 42'));
+    expect(hintCipher, contains('random::nextBytes'));
   });
 
   test('push tokens use opaque indexes and key-id-bound v5 AEAD', () {
@@ -440,7 +452,11 @@ void main() {
     expect(store, contains('registered_on = CURRENT_DATE'));
     expect(store, isNot(contains('updated_at')));
     expect(store, contains('requireValidToken(token)'));
-    expect(store, contains('cipher.seal(userIndex, token)'));
+    expect(
+      store,
+      contains('cipher.seal(userIndex, encodeRegistration(registration))'),
+    );
+    expect(store, contains('pushHintKey: ByteArray?'));
     expect(store, contains('cipher.open(row.userIndex, row.token)'));
     expect(store, contains('cipher.needsMigration(row.token)'));
     expect(store, isNot(contains('tokens[userId]')));

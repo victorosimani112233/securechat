@@ -438,6 +438,49 @@ void main() {
     });
   });
 
+  test('incoming disappearing timer is visible to the recipient', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: 'alice',
+        peerId: 'alice',
+        peerName: 'Alice',
+        peerPhone: '',
+      ),
+    );
+    final changedAt = DateTime.now();
+    fixture.signaling.addIncoming(
+      await encryptTestPrivateChatControl(
+        crypto: fixture.crypto,
+        control: DisappearingTimerSignal(
+          senderId: 'alice',
+          recipientId: 'me',
+          timestamp: changedAt,
+          durationMs: const Duration(hours: 1).inMilliseconds,
+          conversationId: 'alice',
+        ),
+      ),
+    );
+    await fixture.handler.waitForIdle();
+
+    final conversation = (await fixture.database.conversations.getById(
+      'alice',
+    ))!;
+    expect(
+      conversation.disappearingDuration,
+      const Duration(hours: 1).inMilliseconds,
+    );
+    final messages = await fixture.database.messages.getMessagesImmediate(
+      'alice',
+    );
+    expect(messages, hasLength(1));
+    expect(messages.single.contentType, StorageMessageContentType.system);
+    expect(messages.single.content, contains('alice'));
+    expect(messages.single.content, contains('1 saat'));
+    expect(conversation.lastMessage, messages.single.content);
+  });
+
   test('authenticated author may edit only their own message', () async {
     final fixture = await _Fixture.open();
     addTearDown(fixture.close);

@@ -2,6 +2,8 @@ package com.securechat.signaling
 
 import com.securechat.signaling.db.Database
 import java.sql.Connection
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import org.slf4j.LoggerFactory
@@ -25,7 +27,15 @@ class FcmTokenStore internal constructor(
     },
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
-    private data class CachedToken(val value: String, val updatedAtMillis: Long)
+    private data class DeviceRegistration(
+        val token: String,
+        val pushHintKey: ByteArray?,
+    )
+
+    private data class CachedToken(
+        val registration: DeviceRegistration,
+        val updatedAtMillis: Long,
+    )
 
     private data class StoredRow(
         val id: Long,
@@ -43,12 +53,14 @@ class FcmTokenStore internal constructor(
         loadPrivateRowsFromDb()
     }
 
-    fun registerToken(userId: String, token: String) {
+    fun registerToken(userId: String, token: String, pushHintKey: String? = null) {
         requireValidToken(token)
+        val decodedHintKey = pushHintKey?.let(::decodePushHintKey)
         val normalizedUserId = normalizeUserId(userId)
         val userIndex = indexFor(normalizedUserId)
-        upsertToDb(userIndex, token)
-        tokens[userIndex] = CachedToken(token, nowMillis())
+        val registration = DeviceRegistration(token, decodedHintKey)
+        upsertToDb(userIndex, registration)
+        tokens[userIndex] = CachedToken(registration, nowMillis())
         log.info("[FCM] Token kaydedildi")
     }
 
@@ -67,7 +79,17 @@ class FcmTokenStore internal constructor(
             tokens.remove(userIndex, cached)
             return null
         }
-        return cached.value
+        return cached.registration.token
+    }
+
+    fun getPushHintKey(userId: String): ByteArray? {
+        val userIndex = indexFor(normalizeUserId(userId))
+        val cached = tokens[userIndex] ?: return null
+        if (cached.updatedAtMillis < retentionCutoff()) {
+            tokens.remove(userIndex, cached)
+            return null
+        }
+        return cached.registration.pushHintKey?.clone()
     }
 
     fun getTokenCount(): Int {
@@ -79,9 +101,9 @@ class FcmTokenStore internal constructor(
         tokens.entries.removeIf { (_, token) -> token.updatedAtMillis < cutoffMillis }
     }
 
-    private fun upsertToDb(userIndex: String, token: String) {
+    private fun upsertToDb(userIndex: String, registration: DeviceRegistration) {
         try {
-            val encrypted = cipher.seal(userIndex, token)
+            val encrypted = cipher.seal(userIndex, encodeRegistration(registration))
             Database.getConnection().use { connection ->
                 connection.prepareStatement(
                     """INSERT INTO fcm_tokens (user_index, token, registered_on)
@@ -144,7 +166,8 @@ class FcmTokenStore internal constructor(
                     } else {
                         null
                     }
-                    if (plaintext == null || !isValidPushToken(plaintext)) {
+                    val registration = plaintext?.let(::decodeRegistration)
+                    if (registration == null) {
                         deleteRow(connection, row.id)
                         erased++
                         continue
@@ -152,7 +175,7 @@ class FcmTokenStore internal constructor(
                     if (cipher.needsMigration(row.token)) {
                         migrateEnvelope(connection, row, cipher.seal(row.userIndex, plaintext))
                     }
-                    loaded[row.userIndex] = CachedToken(plaintext, row.updatedAtMillis)
+                    loaded[row.userIndex] = CachedToken(registration, row.updatedAtMillis)
                 }
 
                 connection.commit()
@@ -222,9 +245,48 @@ class FcmTokenStore internal constructor(
         require(isValidPushToken(token)) { "Invalid FCM token format" }
     }
 
+    private fun encodeRegistration(registration: DeviceRegistration): String {
+        val key = registration.pushHintKey ?: return registration.token
+        val encodedToken = Base64.getUrlEncoder().withoutPadding().encodeToString(
+            registration.token.toByteArray(StandardCharsets.UTF_8),
+        )
+        val encodedKey = Base64.getUrlEncoder().withoutPadding().encodeToString(key)
+        return "$REGISTRATION_PREFIX$encodedToken:$encodedKey"
+    }
+
+    private fun decodeRegistration(value: String): DeviceRegistration? {
+        if (!value.startsWith(REGISTRATION_PREFIX)) {
+            return value.takeIf(::isValidPushToken)?.let { DeviceRegistration(it, null) }
+        }
+        val fields = value.removePrefix(REGISTRATION_PREFIX).split(':')
+        if (fields.size != 2) return null
+        return try {
+            val token = String(Base64.getUrlDecoder().decode(fields[0]), StandardCharsets.UTF_8)
+            val key = Base64.getUrlDecoder().decode(fields[1])
+            if (!isValidPushToken(token) || key.size != PUSH_HINT_KEY_BYTES) null
+            else DeviceRegistration(token, key)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+    }
+
+    private fun decodePushHintKey(value: String): ByteArray {
+        val decoded = try {
+            Base64.getUrlDecoder().decode(value)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalArgumentException("Invalid push hint key", error)
+        }
+        require(decoded.size == PUSH_HINT_KEY_BYTES) {
+            "Push hint key must decode to exactly $PUSH_HINT_KEY_BYTES bytes"
+        }
+        return decoded
+    }
+
     companion object {
         private const val MAX_STORED_TOKEN_CHARS = 8_192
         private const val MILLIS_PER_DAY = 86_400_000L
+        private const val REGISTRATION_PREFIX = "r1:"
+        private const val PUSH_HINT_KEY_BYTES = 32
 
         private fun normalizeUserId(value: String): String = UUID.fromString(value).toString()
 

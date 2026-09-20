@@ -313,7 +313,11 @@ data class StatusResponse(
 )
 
 @Serializable
-data class FcmRegisterRequest(val userId: String, val fcmToken: String)
+data class FcmRegisterRequest(
+    val userId: String,
+    val fcmToken: String,
+    val pushHintKey: String? = null,
+)
 
 @Serializable
 data class FcmUnregisterRequest(val userId: String)
@@ -1308,7 +1312,11 @@ fun Application.configureRoutes(
                 call.respond(HttpStatusCode.Forbidden, mapOf("error" to "userId token ile eslesmiyor"))
                 return@post
             }
-            fcmTokenStore.registerToken(authedUserId, request.fcmToken)
+            fcmTokenStore.registerToken(
+                authedUserId,
+                request.fcmToken,
+                request.pushHintKey,
+            )
             logger.info("[API] FCM token kaydedildi")
             call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
         }

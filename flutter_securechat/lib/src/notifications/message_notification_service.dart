@@ -3,6 +3,7 @@ import 'dart:async';
 import '../l10n/service_strings.dart';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/services.dart';
 
 import '../incoming/incoming_message_handler.dart';
 import '../media/call_models.dart';
@@ -83,15 +84,26 @@ abstract interface class MissedCallNotificationPresenter {
   Future<void> showMissedCall(MissedCallNotification notification);
 }
 
+typedef NotificationShowCallback =
+    Future<void> Function({
+      required int id,
+      String? title,
+      String? body,
+      NotificationDetails? notificationDetails,
+      String? payload,
+    });
+
 class PluginLocalNotificationPresenter
     implements LocalNotificationPresenter, MissedCallNotificationPresenter {
   PluginLocalNotificationPresenter({
     FlutterLocalNotificationsPlugin? plugin,
     ServiceStrings? strings,
+    NotificationShowCallback? showNotification,
   }) : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
        // Bildirim metinleri servis katmaninda uretiliyor ve burada
        // BuildContext yok; yerellestirme icin ServiceStrings kullanilir.
-       _strings = strings ?? ServiceStrings.fixed('tr');
+       _strings = strings ?? ServiceStrings.fixed('tr'),
+       _showNotificationOverride = showNotification;
 
   static const highChannelId = 'elcim_messages_v4';
   static const lowChannelId = 'elcim_messages_low_v1';
@@ -121,6 +133,7 @@ class PluginLocalNotificationPresenter
 
   final FlutterLocalNotificationsPlugin _plugin;
   final ServiceStrings _strings;
+  final NotificationShowCallback? _showNotificationOverride;
   final _tapController = StreamController<String>.broadcast();
   final _dismissController =
       StreamController<NotificationDismissal>.broadcast();
@@ -197,9 +210,11 @@ class PluginLocalNotificationPresenter
   Future<void> show(LocalMessageNotification notification) async {
     final channelId = _channelFor(notification);
     final l10n = await _strings.load();
-    final details = NotificationDetails(
+    NotificationDetails details({
+      required bool customSound,
+    }) => NotificationDetails(
       android: AndroidNotificationDetails(
-        channelId,
+        customSound ? channelId : '${channelId}_sound_fallback_v1',
         notification.silent
             ? l10n.messages_channel_silent
             : l10n.messages_channel,
@@ -210,7 +225,7 @@ class PluginLocalNotificationPresenter
         importance: notification.silent ? Importance.low : Importance.high,
         priority: notification.silent ? Priority.low : Priority.high,
         playSound: !notification.silent,
-        sound: notification.silent || notification.sound == null
+        sound: !customSound || notification.silent || notification.sound == null
             ? null
             : RawResourceAndroidNotificationSound(notification.sound),
         enableVibration: !notification.silent,
@@ -229,23 +244,39 @@ class PluginLocalNotificationPresenter
         presentBadge: true,
         presentSound: !notification.silent,
         // iOS'ta ses dosya adiyla verilir; uzanti sart.
-        sound: notification.silent || notification.sound == null
+        sound: !customSound || notification.silent || notification.sound == null
             ? null
             : '${notification.sound}.wav',
         threadIdentifier: notification.conversationId,
         categoryIdentifier: 'securechat_message',
       ),
     );
-    await _plugin.show(
+    try {
+      await _showMessage(notification, details(customSound: true));
+    } on PlatformException catch (error) {
+      // Eksik ya da paketlenmemis bir ses kaynagi bildirimin tamamini
+      // dusurmemeli. Ayrı kanal kimligi, Android'in hatali kanal ayarini
+      // gelecekteki duzeltilmis bildirimlere kalici olarak tasimasini engeller.
+      if (error.code != 'invalid_sound') rethrow;
+      await _showMessage(notification, details(customSound: false));
+    }
+    _shownMessages[notification.id] = notification.hideOnLockScreen
+        ? null
+        : notification.conversationId;
+  }
+
+  Future<void> _showMessage(
+    LocalMessageNotification notification,
+    NotificationDetails details,
+  ) {
+    final showNotification = _showNotificationOverride ?? _plugin.show;
+    return showNotification(
       id: notification.id,
       title: notification.title,
       body: notification.body,
       notificationDetails: details,
       payload: notification.payload,
     );
-    _shownMessages[notification.id] = notification.hideOnLockScreen
-        ? null
-        : notification.conversationId;
   }
 
   @override

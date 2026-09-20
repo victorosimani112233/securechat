@@ -1,10 +1,19 @@
 import '../core/signal_message.dart';
+import '../l10n/service_strings.dart';
 import '../services/crypto_service.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import '../storage/secure_chat_database.dart';
 import '../storage/storage_entities.dart';
+import 'disappearing_timer_notice.dart';
 import 'private_chat_control.dart';
+
+typedef DisappearingTimerUpdateSender =
+    Future<void> Function({
+      required String targetUserId,
+      required String conversationId,
+      required int durationMs,
+    });
 
 class ChatInfoService {
   ChatInfoService({
@@ -12,14 +21,20 @@ class ChatInfoService {
     required SessionStore session,
     required SignalingService signaling,
     required CryptoService crypto,
+    ServiceStrings? strings,
+    DisappearingTimerUpdateSender? timerUpdateSender,
   }) : _database = database,
        _session = session,
        _signaling = signaling,
-       _crypto = crypto;
+       _crypto = crypto,
+       _strings = strings ?? ServiceStrings.fixed('tr'),
+       _timerUpdateSender = timerUpdateSender;
   final SecureChatDatabase _database;
   final SessionStore _session;
   final SignalingService _signaling;
   final CryptoService _crypto;
+  final ServiceStrings _strings;
+  final DisappearingTimerUpdateSender? _timerUpdateSender;
 
   Stream<ConversationEntity?> watchConversation(String id) =>
       _database.conversations.observeById(id);
@@ -33,6 +48,7 @@ class ChatInfoService {
       _database.messages.searchMessages(id, query);
   Future<void> updateNote(String id, String note) =>
       _database.conversations.updateContactNote(id, note.trim());
+
   /// Sohbete ozel bildirim sesi. null verilince uygulama genelindeki ses
   /// kullanilir.
   ///
@@ -64,6 +80,29 @@ class ChatInfoService {
       conversation.id,
       milliseconds,
     );
+    final changedAt = DateTime.now();
+    final l10n = await _strings.load();
+    final notice = localDisappearingTimerNotice(l10n, milliseconds);
+    await _database.messages.insert(
+      MessageEntity(
+        id: 'timer:${changedAt.microsecondsSinceEpoch}:$userId',
+        conversationId: conversation.id,
+        senderId: 'SYSTEM',
+        content: notice,
+        contentType: StorageMessageContentType.system,
+        timestamp: changedAt.millisecondsSinceEpoch,
+        status: StorageMessageStatus.read,
+        isOutgoing: true,
+      ),
+    );
+    await _database.conversations.updateLastMessageById(
+      conversation.id,
+      notice,
+      changedAt.millisecondsSinceEpoch,
+      type: StorageMessageContentType.system,
+      outgoing: true,
+      status: StorageMessageStatus.read,
+    );
     final recipients = conversation.isGroup
         ? conversation.groupMembers
                   ?.split(',')
@@ -71,17 +110,26 @@ class ChatInfoService {
               const <String>[]
         : <String>[conversation.peerId];
     for (final recipient in recipients) {
-      await sendPrivateChatControl(
-        crypto: _crypto,
-        signaling: _signaling,
-        control: DisappearingTimerSignal(
-          senderId: userId,
-          recipientId: recipient,
-          timestamp: DateTime.now(),
-          durationMs: milliseconds,
+      final queuedSender = _timerUpdateSender;
+      if (queuedSender != null) {
+        await queuedSender(
+          targetUserId: recipient,
           conversationId: conversation.id,
-        ),
-      );
+          durationMs: milliseconds,
+        );
+      } else {
+        await sendPrivateChatControl(
+          crypto: _crypto,
+          signaling: _signaling,
+          control: DisappearingTimerSignal(
+            senderId: userId,
+            recipientId: recipient,
+            timestamp: changedAt,
+            durationMs: milliseconds,
+            conversationId: conversation.id,
+          ),
+        );
+      }
     }
   }
 

@@ -1491,8 +1491,50 @@ abstract class AppLocalizations {
   /// No description provided for @chat_lock_desc.
   ///
   /// In en, this message translates to:
-  /// **'Access with device authentication'**
+  /// **'Access with a chat password'**
   String get chat_lock_desc;
+
+  /// No description provided for @chat_lock_create_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Set chat password'**
+  String get chat_lock_create_title;
+
+  /// No description provided for @chat_lock_create_body.
+  ///
+  /// In en, this message translates to:
+  /// **'This password will be required whenever this chat is opened on this device.'**
+  String get chat_lock_create_body;
+
+  /// No description provided for @chat_lock_unlock_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock chat'**
+  String get chat_lock_unlock_title;
+
+  /// No description provided for @chat_lock_unlock_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the password for {chatName}.'**
+  String chat_lock_unlock_body(String chatName);
+
+  /// No description provided for @chat_lock_unlock_action.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock'**
+  String get chat_lock_unlock_action;
+
+  /// No description provided for @chat_lock_wrong_password.
+  ///
+  /// In en, this message translates to:
+  /// **'Incorrect password.'**
+  String get chat_lock_wrong_password;
+
+  /// No description provided for @chat_lock_update_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat lock could not be updated.'**
+  String get chat_lock_update_failed;
 
   /// No description provided for @export_history.
   ///
@@ -2207,6 +2249,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Disappearing messages'**
   String get disappearing_messages;
+
+  /// No description provided for @disappearing_timer_enabled_by_you.
+  ///
+  /// In en, this message translates to:
+  /// **'You set disappearing messages to {duration}.'**
+  String disappearing_timer_enabled_by_you(String duration);
+
+  /// No description provided for @disappearing_timer_disabled_by_you.
+  ///
+  /// In en, this message translates to:
+  /// **'You turned off disappearing messages.'**
+  String get disappearing_timer_disabled_by_you;
+
+  /// No description provided for @disappearing_timer_enabled_by_peer.
+  ///
+  /// In en, this message translates to:
+  /// **'{sender} set disappearing messages to {duration}.'**
+  String disappearing_timer_enabled_by_peer(String sender, String duration);
+
+  /// No description provided for @disappearing_timer_disabled_by_peer.
+  ///
+  /// In en, this message translates to:
+  /// **'{sender} turned off disappearing messages.'**
+  String disappearing_timer_disabled_by_peer(String sender);
 
   /// No description provided for @contact_note.
   ///

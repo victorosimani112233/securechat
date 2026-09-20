@@ -33,6 +33,7 @@ class FcmPushSender private constructor(
      * push kapisinin veritabani olmadan da dogrulanabilmesini saglar.
      */
     private val tokenLookup: (String) -> String?,
+    private val pushHintKeyLookup: (String) -> ByteArray?,
     /** Gecersiz oldugu FCM tarafindan bildirilen token'i siler. */
     private val tokenRemover: (String) -> Unit,
     /**
@@ -46,12 +47,14 @@ class FcmPushSender private constructor(
         serviceAccountPath: String? = System.getenv("FIREBASE_SERVICE_ACCOUNT_PATH"),
     ) : this(
         { userId -> tokenStore.getToken(userId) },
+        { userId -> tokenStore.getPushHintKey(userId) },
         { userId -> tokenStore.removeToken(userId) },
         serviceAccountPath,
     )
 
 
     private var initialized = false
+    private val pushHintCipher = PushHintCipher()
 
     // Rate-limit: userId -> son push zamani (ms) — normal mesajlar icin
     private val lastPushTime = ConcurrentHashMap<String, Long>()
@@ -168,6 +171,7 @@ class FcmPushSender private constructor(
         val isCallSignal = messageType in callSignalTypes
 
         val fcmToken = tokenLookup(recipientId) ?: return false
+        val pushHintKey = pushHintKeyLookup(recipientId)
 
         // FCM priority: arama ve mesaj -> HIGH, diger -> NORMAL
         val priority = when (messageType) {
@@ -190,6 +194,14 @@ class FcmPushSender private constructor(
                 // conversation, message kind and timestamp are learned after
                 // authenticated WebSocket drain on the device.
                 .putData("type", "securechat_wake_v2")
+                .also { builder ->
+                    if (pushHintKey != null) {
+                        builder.putData(
+                            "k",
+                            pushHintCipher.seal(pushHintKey, pushHintKind(messageType)),
+                        )
+                    }
+                }
                 .setAndroidConfig(
                     AndroidConfig.builder()
                         .setPriority(priority)
@@ -270,7 +282,14 @@ class FcmPushSender private constructor(
          * Kapi kararinin veritabanina bagimliligi yoktur.
          */
         internal fun forGateTest(serviceAccountPath: String? = null) =
-            FcmPushSender({ null }, {}, serviceAccountPath)
+            FcmPushSender({ null }, { null }, {}, serviceAccountPath)
+
+        internal fun pushHintKind(messageType: String): Char =
+            if (messageType == "sdp_offer" || messageType == "group_call_invite") {
+                PushHintCipher.CALL_KIND
+            } else {
+                PushHintCipher.MESSAGE_KIND
+            }
 
         /** Kendi push'unu uretmeyen, kuyruktan teslim edilen arama sinyalleri. */
         private val SELF_QUEUED_CALL_TYPES = setOf("ice_candidate", "sdp_answer")

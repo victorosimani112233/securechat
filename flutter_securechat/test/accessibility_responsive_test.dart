@@ -158,18 +158,22 @@ void main() {
 
     await tester.tap(find.text('Ayse Demir').first);
     await tester.pumpAndSettle();
-    for (final label in [
-      'Sesli ara',
-      'Görüntülü ara',
-      'Ek ekle',
-      'Sesli mesaj kaydet',
-    ]) {
+    for (final label in ['Ek ekle', 'Sesli mesaj kaydet']) {
       final action = find.bySemanticsLabel(label);
       expect(action, findsOneWidget);
       final size = tester.getSize(action);
       expect(size.width, greaterThanOrEqualTo(48), reason: '$label width');
       expect(size.height, greaterThanOrEqualTo(48), reason: '$label height');
     }
+    await tester.tap(find.byTooltip('Daha Fazla').last);
+    await tester.pumpAndSettle();
+    for (final label in ['Sesli ara', 'Görüntülü ara']) {
+      final action = find.bySemanticsLabel(label);
+      expect(action, findsOneWidget);
+      expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
+    }
+    await tester.tapAt(Offset.zero);
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('chat-message-composer')),
       'Merhaba',

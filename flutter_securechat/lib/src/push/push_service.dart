@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../background/background_scheduler.dart';
 import '../background/background_tasks.dart';
@@ -141,9 +142,11 @@ class PushTokenApi {
     required String userId,
     required String token,
     required String accessToken,
+    String? pushHintKey,
   }) => _post('/api/v1/fcm/register', {
     'userId': userId,
     'fcmToken': token,
+    if (pushHintKey != null) 'pushHintKey': pushHintKey,
   }, accessToken);
 
   Future<bool> unregister({
@@ -169,23 +172,47 @@ class PushTokenApi {
   }
 }
 
+abstract interface class PushHintKeyProvider {
+  Future<String?> getOrCreateKey();
+}
+
+class PlatformPushHintKeyProvider implements PushHintKeyProvider {
+  const PlatformPushHintKeyProvider({MethodChannel? channel})
+    : _channel = channel ?? const MethodChannel('com.securechat/native');
+
+  final MethodChannel _channel;
+
+  @override
+  Future<String?> getOrCreateKey() async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    final value = await _channel.invokeMethod<String>('getOrCreatePushHintKey');
+    if (value == null || value.isEmpty) {
+      throw StateError('Android push hint key is unavailable');
+    }
+    return value;
+  }
+}
+
 class PushCoordinator {
   PushCoordinator({
     required PushTransport transport,
     required PushTokenApi api,
     required SessionStore session,
     required SignalingService signaling,
+    PushHintKeyProvider? pushHintKeys,
     AsyncOperationFailureHandler? onAsyncFailure,
   }) : _transport = transport,
        _api = api,
        _session = session,
        _signaling = signaling,
+       _pushHintKeys = pushHintKeys ?? const PlatformPushHintKeyProvider(),
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
 
   final PushTransport _transport;
   final PushTokenApi _api;
   final SessionStore _session;
   final SignalingService _signaling;
+  final PushHintKeyProvider _pushHintKeys;
   final AsyncOperationTracker _operations;
   StreamSubscription<String>? _tokenSubscription;
   StreamSubscription<PushWakeEvent>? _messageSubscription;
@@ -219,10 +246,12 @@ class PushCoordinator {
     final accessToken = _session.accessToken;
     if (userId == null || accessToken == null || accessToken.isEmpty)
       return false;
+    final pushHintKey = await _pushHintKeys.getOrCreateKey();
     return _api.register(
       userId: userId,
       token: token,
       accessToken: accessToken,
+      pushHintKey: pushHintKey,
     );
   }
 

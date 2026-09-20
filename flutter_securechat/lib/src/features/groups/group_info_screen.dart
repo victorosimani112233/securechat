@@ -9,6 +9,7 @@ import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/chat_lock_dialog.dart';
 
 class GroupInfoScreen extends StatelessWidget {
   const GroupInfoScreen({super.key});
@@ -76,7 +77,11 @@ class _GroupInfoBody extends StatelessWidget {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  GeneratedAvatar(name: group.peerName, size: 96, isGroup: true),
+                  GeneratedAvatar(
+                    name: group.peerName,
+                    size: 96,
+                    isGroup: true,
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -135,7 +140,7 @@ class _GroupInfoBody extends StatelessWidget {
               title: Text(context.l10n.chat_lock),
               subtitle: Text(context.l10n.chat_lock_desc),
               value: group.isLocked,
-              onChanged: (value) => groups.setLocked(group.id, value),
+              onChanged: (value) => _setLocked(context, value),
             ),
             if (isAdmin)
               ListTile(
@@ -214,6 +219,48 @@ class _GroupInfoBody extends StatelessWidget {
     _run(context, () => service.toggleGroupExport(group.id, value));
   }
 
+  Future<void> _setLocked(BuildContext context, bool locked) async {
+    final runtime = AppContainerScope.of(context).chatAccessRuntime;
+    final credentials = runtime.credentials;
+    try {
+      if (credentials == null) {
+        await groups.setLocked(group.id, locked);
+        return;
+      }
+      if (locked) {
+        final password = await showCreateChatPasswordDialog(context);
+        if (password == null || !context.mounted) return;
+        await credentials.setPassword(group.id, password);
+        try {
+          await groups.setLocked(group.id, true);
+        } catch (_) {
+          await credentials.clear(group.id);
+          rethrow;
+        }
+        if (context.mounted) Navigator.pop(context, true);
+        return;
+      }
+
+      final hasPassword = await credentials.hasCredential(group.id);
+      if (!context.mounted) return;
+      final authorized = hasPassword
+          ? await showVerifyChatPasswordDialog(
+              context,
+              chatName: group.peerName,
+              verify: (password) =>
+                  credentials.verifyPassword(group.id, password),
+            )
+          : await runtime.service.authorize(routeArgument);
+      if (!authorized) return;
+      await groups.setLocked(group.id, false);
+      await credentials.clear(group.id);
+    } catch (_) {
+      if (context.mounted) {
+        _notice(context, context.l10n.chat_lock_update_failed);
+      }
+    }
+  }
+
   String _name(String memberId) =>
       contacts
           .where((contact) => contact.id == memberId)
@@ -229,18 +276,18 @@ class _GroupInfoBody extends StatelessWidget {
       builder: (context) => TextControllerScope(
         initialText: group.peerName,
         builder: (context, controller) => AlertDialog(
-        title: Text(context.l10n.edit_group_name),
-        content: TextField(controller: controller, autofocus: true),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(context.l10n.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: Text(context.l10n.save),
-          ),
-        ],
+          title: Text(context.l10n.edit_group_name),
+          content: TextField(controller: controller, autofocus: true),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(context.l10n.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: Text(context.l10n.save),
+            ),
+          ],
         ),
       ),
     );

@@ -28,7 +28,9 @@ import '../../widgets/azure_backdrop.dart';
 import '../../widgets/azure_options.dart';
 import '../../theme/secure_chat_theme.dart';
 import '../../widgets/haptics.dart';
+import '../../widgets/chat_lock_dialog.dart';
 import '../calls/call_screen.dart';
+import 'chat_info_screen.dart';
 import 'media_preview_screen.dart';
 import 'media_viewer_screen.dart';
 
@@ -65,6 +67,8 @@ class _ChatScreenState extends State<ChatScreen> {
   List<String> _messageOrder = const [];
   Timer? _highlightTimer;
   Timer? _composerScrollTimer;
+  Timer? _messageExpiryTimer;
+  int? _scheduledExpiryAt;
   LocalMessage? _replying;
   AppNotificationRuntime? _notificationRuntime;
   Conversation? _conversation;
@@ -88,6 +92,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (stopTyping != null) unawaited(stopTyping());
     _highlightTimer?.cancel();
     _composerScrollTimer?.cancel();
+    _messageExpiryTimer?.cancel();
     _messageScroll
       ..removeListener(_onMessageScroll)
       ..dispose();
@@ -115,9 +120,11 @@ class _ChatScreenState extends State<ChatScreen> {
           : container.peerActivity?.watch(routeConversation.peerId);
       _stopTyping = container.chatInfoRuntime?.activity.stopTyping;
       _accessGranted = !routeConversation.isLocked;
-      _accessChecking = routeConversation.isLocked;
+      _accessChecking = false;
       _markedRead = false;
       _knownMessageCount = -1;
+      _messageExpiryTimer?.cancel();
+      _scheduledExpiryAt = null;
       _unseenCount = 0;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (routeConversation.isLocked) {
@@ -152,9 +159,37 @@ class _ChatScreenState extends State<ChatScreen> {
       return Scaffold(
         appBar: AppBar(title: Text(context.l10n.locked_chat)),
         body: Center(
-          child: _accessChecking
-              ? const CircularProgressIndicator()
-              : const Icon(Icons.lock_outline, size: 48),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_outline, size: 48),
+                const SizedBox(height: 16),
+                Text(
+                  conversation.peerName,
+                  style: Theme.of(context).textTheme.titleLarge,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(context.l10n.chat_lock_desc, textAlign: TextAlign.center),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  key: const ValueKey('chat-unlock-action'),
+                  onPressed: _accessChecking
+                      ? null
+                      : () => _authorizeConversation(conversation),
+                  icon: _accessChecking
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.lock_open_outlined),
+                  label: Text(context.l10n.chat_lock_unlock_action),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -170,11 +205,9 @@ class _ChatScreenState extends State<ChatScreen> {
             initialData: const AppPeerActivity(),
             builder: (context, snapshot) => InkWell(
               borderRadius: BorderRadius.circular(10),
-              onTap: () => Navigator.pushNamed(
-                context,
-                conversation.isGroup ? '/group-info' : '/chat-info',
-                arguments: conversation,
-              ),
+              onTap: () => conversation.isGroup
+                  ? _openGroupInfo(conversation)
+                  : _openChatInfo(conversation),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
@@ -337,6 +370,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         growable: false,
                       )..sort((a, b) => a.timestamp.compareTo(b.timestamp));
                   _latestMessages = allMessages;
+                  _scheduleMessageExpiry(allMessages);
                   _handleMessageSnapshot(allMessages);
                   if (snapshot.hasData && allMessages.isNotEmpty) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -742,6 +776,31 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  void _scheduleMessageExpiry(List<LocalMessage> messages) {
+    final now = DateTime.now();
+    DateTime? next;
+    for (final message in messages) {
+      final expiry = message.expiresAt;
+      if (expiry == null) continue;
+      if (next == null || expiry.isBefore(next)) next = expiry;
+    }
+    final nextMs = next?.millisecondsSinceEpoch;
+    if (_scheduledExpiryAt == nextMs) return;
+    _messageExpiryTimer?.cancel();
+    _scheduledExpiryAt = nextMs;
+    if (next == null) return;
+    final delay = next.isAfter(now)
+        ? next.difference(now) + const Duration(milliseconds: 50)
+        : Duration.zero;
+    _messageExpiryTimer = Timer(delay, () async {
+      _scheduledExpiryAt = null;
+      final runtime = mounted
+          ? AppContainerScope.of(context).backgroundRuntime
+          : null;
+      await runtime?.expireMessages();
+    });
+  }
+
   void _scrollToMessage(
     String messageId, {
     bool transient = true,
@@ -854,13 +913,24 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _authorizeConversation(Conversation conversation) async {
-    final allowed = await AppContainerScope.of(
-      context,
-    ).chatAccessRuntime.service.authorize(conversation);
+    if (_accessChecking) return;
+    setState(() => _accessChecking = true);
+    final runtime = AppContainerScope.of(context).chatAccessRuntime;
+    final credentials = runtime.credentials;
+    final hasPassword =
+        credentials != null && await credentials.hasCredential(conversation.id);
+    if (!mounted) return;
+    final allowed = hasPassword
+        ? await showVerifyChatPasswordDialog(
+            context,
+            chatName: conversation.peerName,
+            verify: (password) =>
+                credentials.verifyPassword(conversation.id, password),
+          )
+        : await runtime.service.authorize(conversation);
     if (!mounted) return;
     if (!allowed) {
       setState(() => _accessChecking = false);
-      Navigator.of(context).maybePop();
       return;
     }
     setState(() {
@@ -1475,15 +1545,11 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     if (value == 'group_info') {
-      await Navigator.pushNamed(
-        context,
-        '/group-info',
-        arguments: conversation,
-      );
+      await _openGroupInfo(conversation);
       return;
     }
     if (value == 'chat_info') {
-      await Navigator.pushNamed(context, '/chat-info', arguments: conversation);
+      await _openChatInfo(conversation);
       return;
     }
     if (value == 'toggle_export') {
@@ -1565,10 +1631,46 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _openChatInfo(Conversation conversation) async {
+    final result = await Navigator.pushNamed<ChatInfoResult>(
+      context,
+      '/chat-info',
+      arguments: conversation,
+    );
+    if (!mounted || result == null) return;
+    if (result.lockEnabled) {
+      setState(() {
+        _conversation = conversation.copyWith(isLocked: true);
+        _accessGranted = false;
+        _accessChecking = false;
+      });
+      return;
+    }
+    final messageId = result.messageId;
+    if (messageId != null) {
+      _scrollToMessage(messageId);
+    }
+  }
+
+  Future<void> _openGroupInfo(Conversation conversation) async {
+    final locked = await Navigator.pushNamed<bool>(
+      context,
+      '/group-info',
+      arguments: conversation,
+    );
+    if (!mounted || locked != true) return;
+    setState(() {
+      _conversation = conversation.copyWith(isLocked: true);
+      _accessGranted = false;
+      _accessChecking = false;
+    });
+  }
+
   Future<void> _showDisappearingTimer(Conversation conversation) async {
     final options = <Duration>[
       Duration.zero,
-      const Duration(hours: 24),
+      const Duration(hours: 1),
+      const Duration(days: 1),
       const Duration(days: 7),
       const Duration(days: 30),
     ];
@@ -1601,5 +1703,10 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted || selected == null) return;
     await AppContainerScope.of(context).chatInfoRuntime?.service
         .setDisappearingTimerForConversation(conversation.id, selected);
+    if (mounted) {
+      setState(() {
+        _conversation = conversation.copyWith(disappearingDuration: selected);
+      });
+    }
   }
 }

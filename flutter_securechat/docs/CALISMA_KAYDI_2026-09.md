@@ -255,3 +255,80 @@ verify_ios_on_macos.sh          geçti (bu projede ilk kez)
 
 Son satır önemli: iOS kapısı — analiz, testler, denetimler, release derlemesi
 ve **simülatörde Runner XCTest** — bu projede ilk kez baştan sona koşuldu.
+
+---
+
+## 20 Eylül ek çalışmaları
+
+### Sohbet erişimi ve mesaj yaşam döngüsü
+
+- Yıldızlı/aranan/medya mesajına kişi bilgileri ekranından dokununca sohbet
+  açılıyor, sanallaştırılmış liste hedef mesaja kayıyor ve mesaj kısa süreli
+  vurgulanıyor.
+- Sohbet kilidi artık yalnız bir veritabanı bayrağı değil. İlk kilitlemede en
+  az sekiz karakterli parola iki kez isteniyor; PBKDF2-HMAC-SHA256 ile
+  120.000 tur, sohbet başına rastgele 32 bayt salt ve sabit zamanlı karşılaştırma
+  kullanılıyor. Parolanın kendisi saklanmıyor; doğrulayıcı mevcut şifreli yerel
+  durum deposunda tutuluyor.
+- Rehberden sohbet açma kilidi atlamıyor. Birebir ve grup bilgi ekranlarında
+  kilitleme/kilit açma aynı kurala bağlı. Eski sürümden gelen ve henüz uygulama
+  parolası olmayan kilitler cihaz kimlik doğrulamasına geri düşüyor.
+- Süreli mesaj ayarı şifreli kontrol olarak çevrimdışı kuyruğa girebiliyor ve
+  açma/kapama değişikliği iki tarafta yerelleştirilmiş sistem mesajı olarak
+  görünüyor. Açık sohbet en yakın `expiresAt` anında silme yapıyor; arka plan
+  bakımı yedek güvence olarak kalıyor. Silinen son mesaj sohbet önizlemesini
+  artık bayat bırakmıyor.
+
+### Bildirim sağlamlaştırması
+
+- Özel ses kaynağı Android tarafından `invalid_sound` ile reddedilirse bildirim
+  kaybolmuyor; ayrı bir sessiz-özel-ses-yedek kanalında varsayılan sesle yeniden
+  gösteriliyor. Diğer platform hataları teşhis katmanına ulaşmaya devam ediyor.
+- Paket denetiminde 10 mesaj sesi ve 3 çağrı tonu olmak üzere 13 adet
+  `elcim_*.wav` Android `res/raw` kaynağı bekleniyor.
+- Release resource shrinker, Dart tarafında yalnız adla kullanılan sesleri ölü
+  kaynak sanıp atıyordu. `res/raw/keep.xml` tüm `elcim_*` kaynaklarını koruyor;
+  üretilen APK'nın AAPT kaynak tablosunda 13 sesin tamamı doğrulandı.
+
+### Android şifreli çağrı uyandırması
+
+- Android kurulumu 32 baytlık cihaz anahtarı üretiyor. Anahtar Android Keystore
+  içindeki dışarı aktarılamayan AES anahtarıyla sarılıp özel tercihlere yazılıyor;
+  kayıt sırasında yalnız TLS üzerinden sunucuya gönderiliyor.
+- Sunucu FCM tokenı ve cihaz ipucu anahtarını `fcm_tokens.token` alanındaki aynı
+  kullanıcı-blind-index AAD'li v5 AES-GCM zarfında saklıyor. Yeni PostgreSQL
+  kolonu veya migrasyon yok; düz anahtar veritabanına yazılmıyor.
+- Push sağlayıcısı hâlâ yalnız `securechat_wake_v2` ve sabit 42 karakterlik `k`
+  alanını görüyor. `k`, yeni 12 bayt nonce ile AES-256-GCM şifrelenmiş tek
+  karakterlik `c`/`m` sınıfıdır. Aynı tür iki push aynı ciphertext'i üretmez.
+  Gönderici, sohbet, çağrı kimliği, medya türü ve zaman payload'a eklenmez.
+- Yalnız `sdp_offer` ve `group_call_invite` çağrı ipucu üretir. `call_control`
+  mesaj sınıfındadır; sonlandırma sinyali yanlışlıkla yeni çağrı ekranı açamaz.
+- FlutterFire receiver uygulama receiver'ıyla değiştirilip üst sınıfa iletim
+  korunmuştur. Native receiver ipucunu Flutter/Activity başlamadan çözer ve
+  anonim `ConnectionService` gelen çağrı yüzeyini açar. Dart arka plan kuyruğu
+  paralel çekilir; gerçek teklif çözülünce geçici çağrı aynı native kayıtta
+  gerçek çağrıya yükseltilir. Erken cevap/red eylemleri sekiz öğelik sınırlı
+  tampon üzerinden gerçek çağrı kimliğine aktarılır.
+
+**Dağıtım sırası:** önce yeni sunucu, sonra Android uygulaması. Değişiklik
+geriye uyumludur: eski istemci anahtar göndermezse sunucu `k` eklemeden genel
+uyandırma yollar; yeni istemcinin ek kayıt alanını eski sunucu da bilinmeyen alan
+olarak yok sayar. Anlık native çağrı yüzeyi için iki tarafın da güncel olması
+gerekir.
+
+### Bu turun doğrulaması
+
+```text
+flutter analyze --no-pub                         temiz
+flutter test --no-pub                            444/444 geçti
+./gradlew :signaling-server:test --no-daemon     geçti
+./gradlew :app:compileDebugKotlin --no-daemon    geçti
+temiz flutter build apk --release                geçti, 123.2 MB
+AAPT raw ses kaynağı denetimi                    13/13 geçti
+bağlı SM-S731B kurulum ve açılış                 geçti
+```
+
+Cihaza kurulan test APK'sı, cihazdaki mevcut uygulamanın verisini korumak için
+aynı yerel Android debug sertifikasıyla ayrıca imzalandı. Dağıtım APK/IPA'sı
+üretim anahtarıyla CI veya air-gapped imzalama ortamında imzalanmalıdır.

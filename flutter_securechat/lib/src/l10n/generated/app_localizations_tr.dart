@@ -745,7 +745,31 @@ class AppLocalizationsTr extends AppLocalizations {
   String get chat_lock => 'Sohbet kilidi';
 
   @override
-  String get chat_lock_desc => 'Cihaz doğrulamasıyla erişim';
+  String get chat_lock_desc => 'Sohbet parolasıyla erişim';
+
+  @override
+  String get chat_lock_create_title => 'Sohbet parolası belirle';
+
+  @override
+  String get chat_lock_create_body =>
+      'Bu sohbet bu cihazda her açıldığında bu parola istenecek.';
+
+  @override
+  String get chat_lock_unlock_title => 'Sohbet kilidini aç';
+
+  @override
+  String chat_lock_unlock_body(String chatName) {
+    return '$chatName için sohbet parolasını girin.';
+  }
+
+  @override
+  String get chat_lock_unlock_action => 'Kilidi aç';
+
+  @override
+  String get chat_lock_wrong_password => 'Parola yanlış.';
+
+  @override
+  String get chat_lock_update_failed => 'Sohbet kilidi güncellenemedi.';
 
   @override
   String get export_history => 'Dışa aktarma geçmişi';
@@ -1139,6 +1163,25 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get disappearing_messages => 'Süreli mesajlar';
+
+  @override
+  String disappearing_timer_enabled_by_you(String duration) {
+    return 'Süreli mesajları $duration olarak ayarladınız.';
+  }
+
+  @override
+  String get disappearing_timer_disabled_by_you =>
+      'Süreli mesajları kapattınız.';
+
+  @override
+  String disappearing_timer_enabled_by_peer(String sender, String duration) {
+    return '$sender, süreli mesajları $duration olarak ayarladı.';
+  }
+
+  @override
+  String disappearing_timer_disabled_by_peer(String sender) {
+    return '$sender, süreli mesajları kapattı.';
+  }
 
   @override
   String get contact_note => 'Kişiye not';

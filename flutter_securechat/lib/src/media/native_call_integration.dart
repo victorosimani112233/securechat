@@ -36,12 +36,16 @@ class MethodChannelNativeCallIntegration implements NativeCallIntegration {
     bool Function()? redactIdentity,
   }) : _channel = channel ?? const MethodChannel('com.securechat/native'),
        _redactIdentity = redactIdentity ?? _alwaysRedactIdentity {
+    _actions = StreamController<NativeCallAction>.broadcast(
+      onListen: _flushPendingActions,
+    );
     _channel.setMethodCallHandler(_handleNativeCall);
   }
 
   final MethodChannel _channel;
   final bool Function() _redactIdentity;
-  final _actions = StreamController<NativeCallAction>.broadcast();
+  late final StreamController<NativeCallAction> _actions;
+  final List<NativeCallAction> _pendingActions = [];
   bool _disposed = false;
 
   @override
@@ -99,13 +103,29 @@ class MethodChannelNativeCallIntegration implements NativeCallIntegration {
       'open' => NativeCallActionType.open,
       _ => null,
     };
-    if (type != null)
-      _actions.add(NativeCallAction(type: type, callId: callId));
+    if (type == null) return;
+    final event = NativeCallAction(type: type, callId: callId);
+    if (_actions.hasListener) {
+      _actions.add(event);
+    } else {
+      if (_pendingActions.length == 8) _pendingActions.removeAt(0);
+      _pendingActions.add(event);
+    }
+  }
+
+  void _flushPendingActions() {
+    if (_disposed || _pendingActions.isEmpty) return;
+    final pending = List<NativeCallAction>.of(_pendingActions);
+    _pendingActions.clear();
+    for (final action in pending) {
+      _actions.add(action);
+    }
   }
 
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    _pendingActions.clear();
     _channel.setMethodCallHandler(null);
     await _actions.close();
   }

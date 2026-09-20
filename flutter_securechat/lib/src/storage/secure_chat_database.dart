@@ -420,27 +420,7 @@ class ConversationDao {
   Future<void> clearLastMessage(String conversationId) => _db._write((s) {
     final current = s.conversations[conversationId];
     if (current == null) return;
-    s.conversations[conversationId] = ConversationEntity(
-      id: current.id,
-      peerId: current.peerId,
-      peerName: current.peerName,
-      peerPhone: current.peerPhone,
-      unreadCount: current.unreadCount,
-      isMuted: current.isMuted,
-      isPinned: current.isPinned,
-      isGroup: current.isGroup,
-      groupMembers: current.groupMembers,
-      contactNote: current.contactNote,
-      customNotificationUri: current.customNotificationUri,
-      isArchived: current.isArchived,
-      disappearingDuration: current.disappearingDuration,
-      groupAdmins: current.groupAdmins,
-      isFavorite: current.isFavorite,
-      isLocked: current.isLocked,
-      isExportEnabled: current.isExportEnabled,
-      manuallyUnread: current.manuallyUnread,
-      isReadOnly: current.isReadOnly,
-    );
+    s.conversations[conversationId] = _withoutLastMessage(current);
   });
   Future<void> updateManuallyUnread(String id, bool manuallyUnread) =>
       _patch(id, (c) => c.copyWith(manuallyUnread: manuallyUnread));
@@ -683,16 +663,37 @@ class MessageDao {
             .sortedBy((m) => -m.timestamp),
       );
   Future<int> deleteExpiredMessages(int now) async {
-    final ids = _db._snapshot.messages.values
-        .where((m) => m.expiresAt != null && m.expiresAt! < now)
-        .map((m) => m.id)
-        .toList();
+    var deleted = 0;
     await _db._write((s) {
-      for (final id in ids) {
-        s.messages.remove(id);
+      final expired = s.messages.values
+          .where((m) => m.expiresAt != null && m.expiresAt! <= now)
+          .toList(growable: false);
+      if (expired.isEmpty) return;
+      final affectedConversations = expired
+          .map((message) => message.conversationId)
+          .toSet();
+      for (final message in expired) {
+        if (s.messages.remove(message.id) != null) deleted++;
+      }
+      for (final conversationId in affectedConversations) {
+        final conversation = s.conversations[conversationId];
+        if (conversation == null) continue;
+        final remaining = s.messages.values
+            .where((message) => message.conversationId == conversationId)
+            .sortedBy((message) => -message.timestamp)
+            .firstOrNull;
+        s.conversations[conversationId] = remaining == null
+            ? _withoutLastMessage(conversation)
+            : conversation.copyWith(
+                lastMessage: remaining.content,
+                lastMessageTimestamp: remaining.timestamp,
+                lastMessageType: remaining.contentType.name,
+                lastMessageOutgoing: remaining.isOutgoing,
+                lastMessageStatus: remaining.status.name,
+              );
       }
     });
-    return ids.length;
+    return deleted;
   }
 
   Future<List<String>> getExpiredConversationIds(int now) async => _db
@@ -816,6 +817,29 @@ class MessageDao {
               m.content.contains('|audio/') ||
               m.content.contains('|image/')));
 }
+
+ConversationEntity _withoutLastMessage(ConversationEntity current) =>
+    ConversationEntity(
+      id: current.id,
+      peerId: current.peerId,
+      peerName: current.peerName,
+      peerPhone: current.peerPhone,
+      unreadCount: current.unreadCount,
+      isMuted: current.isMuted,
+      isPinned: current.isPinned,
+      isGroup: current.isGroup,
+      groupMembers: current.groupMembers,
+      contactNote: current.contactNote,
+      customNotificationUri: current.customNotificationUri,
+      isArchived: current.isArchived,
+      disappearingDuration: current.disappearingDuration,
+      groupAdmins: current.groupAdmins,
+      isFavorite: current.isFavorite,
+      isLocked: current.isLocked,
+      isExportEnabled: current.isExportEnabled,
+      manuallyUnread: current.manuallyUnread,
+      isReadOnly: current.isReadOnly,
+    );
 
 class ContactDao {
   ContactDao._(this._db);

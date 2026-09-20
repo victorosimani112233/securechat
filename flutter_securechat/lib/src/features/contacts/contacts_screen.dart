@@ -235,9 +235,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
     ContactService service,
     ContactEntity contact,
   ) async {
-    await service.ensureConversation(contact);
+    final conversation = await service.ensureConversation(contact);
     if (!mounted) return;
-    Navigator.of(context).pushNamed('/chat', arguments: _conversation(contact));
+    Navigator.of(
+      context,
+    ).pushNamed('/chat', arguments: _conversation(conversation));
   }
 
   Future<void> _openDialpad(ContactService service) async {
@@ -420,11 +422,17 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  Conversation _conversation(ContactEntity contact) => Conversation(
-    id: contact.id,
-    peerId: contact.id,
-    peerName: contact.displayName,
-    peerPhone: contact.phoneNumber,
+  Conversation _conversation(ConversationEntity conversation) => Conversation(
+    id: conversation.id,
+    peerId: conversation.peerId,
+    peerName: conversation.peerName,
+    peerPhone: conversation.peerPhone,
+    isGroup: conversation.isGroup,
+    groupMembers: conversation.groupMembers?.split(',') ?? const [],
+    groupAdmins: conversation.groupAdmins?.split(',') ?? const [],
+    isLocked: conversation.isLocked,
+    isReadOnly: conversation.isReadOnly,
+    isExportEnabled: conversation.isExportEnabled,
   );
 }
 

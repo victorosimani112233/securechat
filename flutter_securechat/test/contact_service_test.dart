@@ -133,6 +133,38 @@ void main() {
     expect(group.groupAdmins, 'me');
     expect(await fixture.database.conversations.getById(group.id), isNotNull);
   });
+
+  test('opening a contact preserves the existing chat lock', () async {
+    final fixture = await _openFixture();
+    addTearDown(fixture.close);
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: 'alice',
+        peerId: 'alice',
+        peerName: 'Alice',
+        peerPhone: '+90',
+        isLocked: true,
+      ),
+    );
+    final service = ContactService(
+      deviceContacts: const _FakeGateway([]),
+      api: _FakeDiscoveryApi(const []),
+      database: fixture.database,
+      session: SessionStore(userId: 'me', accessToken: 'access'),
+    );
+
+    final conversation = await service.ensureConversation(
+      const ContactEntity(
+        id: 'alice',
+        phoneNumber: '+90',
+        phoneHash: 'hash',
+        displayName: 'Alice',
+        isRegistered: true,
+      ),
+    );
+
+    expect(conversation.isLocked, isTrue);
+  });
 }
 
 class _FakeGateway implements DeviceContactsGateway {

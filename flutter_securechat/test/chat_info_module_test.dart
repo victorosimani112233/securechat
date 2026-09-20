@@ -70,6 +70,14 @@ void main() {
       updated.disappearingDuration,
       const Duration(days: 1).inMilliseconds,
     );
+    final messages = await database.messages.getMessagesImmediate('peer');
+    expect(
+      messages.where(
+        (message) => message.contentType == StorageMessageContentType.system,
+      ),
+      hasLength(1),
+    );
+    expect(messages.last.content, contains('1 gün'));
     final wire = signaling.sentMessages.single as EncryptedSignalMessage;
     final control = await decryptTestPrivateChatControl(
       crypto: crypto,

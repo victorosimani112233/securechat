@@ -48,16 +48,15 @@ class SecureChatConnectionService : ConnectionService() {
         val extras = request.extras ?: Bundle.EMPTY
         val remembered = NativeCallRegistry.findByCallId(request.address?.schemeSpecificPart)
             ?: NativeCallRegistry.findByPeer(request.address?.schemeSpecificPart)
-        val callId = extras.getString(EXTRA_CALL_ID) ?: remembered?.callId.orEmpty()
-        val peerId = extras.getString(EXTRA_PEER_ID)
-            ?: request.address?.schemeSpecificPart
-            ?: remembered?.peerId.orEmpty()
-        val peerName = extras.getString(EXTRA_PEER_NAME) ?: remembered?.peerName ?: peerId
-        val hasVideo = extras.getBoolean(EXTRA_HAS_VIDEO, remembered?.hasVideo ?: false)
-        val redactIdentity = extras.getBoolean(
-            EXTRA_REDACT_IDENTITY,
-            remembered?.redactIdentity ?: true
-        )
+        val callId = remembered?.callId ?: extras.getString(EXTRA_CALL_ID).orEmpty()
+        val peerId = remembered?.peerId
+            ?: extras.getString(EXTRA_PEER_ID)
+            ?: request.address?.schemeSpecificPart.orEmpty()
+        val peerName = remembered?.peerName ?: extras.getString(EXTRA_PEER_NAME) ?: peerId
+        val hasVideo = remembered?.hasVideo
+            ?: extras.getBoolean(EXTRA_HAS_VIDEO, false)
+        val redactIdentity = remembered?.redactIdentity
+            ?: extras.getBoolean(EXTRA_REDACT_IDENTITY, true)
         if (callId.isBlank()) {
             return Connection.createFailedConnection(
                 DisconnectCause(DisconnectCause.ERROR, "Missing SecureChat call id")
@@ -65,11 +64,7 @@ class SecureChatConnectionService : ConnectionService() {
         }
         val info = NativeCallInfo(callId, peerId, peerName, hasVideo, redactIdentity)
         NativeCallRegistry.remember(callId, peerId, peerName, hasVideo, redactIdentity)
-        val connection = SecureChatConnection(
-            callId = callId,
-            onConnecting = { callNotifications.showConnecting(info) },
-            onEnded = callNotifications::cancel
-        ).apply {
+        val connection = SecureChatConnection(info, callNotifications).apply {
             connectionProperties = Connection.PROPERTY_SELF_MANAGED
             connectionCapabilities = Connection.CAPABILITY_MUTE
             setAddress(
@@ -95,10 +90,10 @@ class SecureChatConnectionService : ConnectionService() {
 }
 
 internal class SecureChatConnection(
-    private val callId: String,
-    private val onConnecting: () -> Unit,
-    private val onEnded: () -> Unit
+    initialInfo: NativeCallInfo,
+    private val notifications: SecureChatCallNotificationManager
 ) : Connection() {
+    private var info = initialInfo
     private var availableEndpoints: List<CallEndpoint> = emptyList()
 
     init {
@@ -107,19 +102,19 @@ internal class SecureChatConnection(
 
     override fun onAnswer(videoState: Int) {
         setActive()
-        onConnecting()
-        NativeCallRegistry.emit("answer", callId)
+        notifications.showConnecting(info)
+        NativeCallRegistry.emit("answer", info.callId)
     }
 
     override fun onAnswer() = onAnswer(VideoProfile.STATE_AUDIO_ONLY)
 
     override fun onReject() {
-        NativeCallRegistry.emit("end", callId)
+        NativeCallRegistry.emit("end", info.callId)
         disconnect(DisconnectCause.REJECTED)
     }
 
     override fun onDisconnect() {
-        NativeCallRegistry.emit("end", callId)
+        NativeCallRegistry.emit("end", info.callId)
         disconnect(DisconnectCause.LOCAL)
     }
 
@@ -127,11 +122,11 @@ internal class SecureChatConnection(
 
     override fun onCallAudioStateChanged(state: android.telecom.CallAudioState?) {
         if (state != null) {
-            NativeCallRegistry.emit(if (state.isMuted) "mute" else "unmute", callId)
+            NativeCallRegistry.emit(if (state.isMuted) "mute" else "unmute", info.callId)
             NativeCallRegistry.emit(
                 if (state.route and CallAudioState.ROUTE_SPEAKER != 0) "speakerOn"
                 else "speakerOff",
-                callId
+                info.callId
             )
         }
     }
@@ -144,7 +139,7 @@ internal class SecureChatConnection(
         NativeCallRegistry.emit(
             if (endpoint.endpointType == CallEndpoint.TYPE_SPEAKER) "speakerOn"
             else "speakerOff",
-            callId
+            info.callId
         )
     }
 
@@ -204,11 +199,34 @@ internal class SecureChatConnection(
         return null
     }
 
+    fun promote(replacement: NativeCallInfo) {
+        info = replacement
+        setAddress(
+            Uri.fromParts(
+                "securechat",
+                if (replacement.redactIdentity) "private" else replacement.peerId,
+                null
+            ),
+            if (replacement.redactIdentity) TelecomManager.PRESENTATION_RESTRICTED
+            else TelecomManager.PRESENTATION_ALLOWED
+        )
+        setCallerDisplayName(
+            if (replacement.redactIdentity) "Elçim araması" else replacement.peerName,
+            if (replacement.redactIdentity) TelecomManager.PRESENTATION_RESTRICTED
+            else TelecomManager.PRESENTATION_ALLOWED
+        )
+        videoState = if (replacement.hasVideo) {
+            VideoProfile.STATE_BIDIRECTIONAL
+        } else {
+            VideoProfile.STATE_AUDIO_ONLY
+        }
+    }
+
     fun disconnect(cause: Int) {
-        onEnded()
+        notifications.cancel()
         setDisconnected(DisconnectCause(cause))
         destroy()
-        NativeCallRegistry.remove(callId)
+        NativeCallRegistry.remove(info.callId)
     }
 }
 
@@ -221,9 +239,16 @@ internal data class NativeCallInfo(
 )
 
 internal object NativeCallRegistry {
+    data class HintPromotion(val action: String?)
+
+    private data class PendingHint(val callId: String, val createdAt: Long)
+
     private val calls = ConcurrentHashMap<String, NativeCallInfo>()
     private val connections = ConcurrentHashMap<String, SecureChatConnection>()
+    private val aliases = ConcurrentHashMap<String, String>()
+    private val hintActions = ConcurrentHashMap<String, String>()
     private val pendingActions = ArrayDeque<Pair<String, String>>()
+    @Volatile private var pendingHint: PendingHint? = null
     @Volatile private var emitter: ((String, String) -> Unit)? = null
 
     fun attach(value: (String, String) -> Unit) {
@@ -239,6 +264,14 @@ internal object NativeCallRegistry {
     }
 
     fun emit(action: String, callId: String) {
+        if (pendingHint?.callId == callId) {
+            if (action == "answer" || action == "end") hintActions[callId] = action
+            return
+        }
+        emitResolved(action, resolve(callId))
+    }
+
+    fun emitResolved(action: String, callId: String) {
         val current = synchronized(this) {
             emitter.also {
                 if (it == null) {
@@ -249,6 +282,41 @@ internal object NativeCallRegistry {
         }
         current?.invoke(action, callId)
     }
+
+    @Synchronized
+    fun rememberHint(info: NativeCallInfo): Boolean {
+        val current = pendingHint
+        if (current?.callId == info.callId) return false
+        if (current != null) {
+            calls.remove(current.callId)
+            connections.remove(current.callId)?.disconnect(DisconnectCause.CANCELED)
+            hintActions.remove(current.callId)
+        }
+        pendingHint = PendingHint(info.callId, System.currentTimeMillis())
+        calls[info.callId] = info
+        return true
+    }
+
+    @Synchronized
+    fun promoteHint(info: NativeCallInfo): HintPromotion? {
+        val hint = pendingHint ?: return null
+        if (System.currentTimeMillis() - hint.createdAt > HINT_LIFETIME_MS) {
+            pendingHint = null
+            calls.remove(hint.callId)
+            hintActions.remove(hint.callId)
+            connections.remove(hint.callId)?.disconnect(DisconnectCause.CANCELED)
+            return null
+        }
+        pendingHint = null
+        calls.remove(hint.callId)
+        calls[info.callId] = info
+        aliases[hint.callId] = info.callId
+        connections.remove(hint.callId)?.let { connection ->
+            connection.promote(info)
+            connections[info.callId] = connection
+        }
+        return HintPromotion(hintActions.remove(hint.callId))
+    }
     fun remember(
         callId: String,
         peerId: String,
@@ -258,29 +326,37 @@ internal object NativeCallRegistry {
     ) {
         calls[callId] = NativeCallInfo(callId, peerId, peerName, hasVideo, redactIdentity)
     }
-    fun findByCallId(callId: String?): NativeCallInfo? = callId?.let(calls::get)
+    fun findByCallId(callId: String?): NativeCallInfo? = callId?.let {
+        calls[resolve(it)]
+    }
     fun findByPeer(peerId: String?): NativeCallInfo? =
         calls.values.firstOrNull { it.peerId == peerId }
     fun bind(callId: String, connection: SecureChatConnection) {
-        connections[callId] = connection
+        connections[resolve(callId)] = connection
     }
-    fun setActive(callId: String) { connections[callId]?.setActive() }
+    fun setActive(callId: String) { connections[resolve(callId)]?.setActive() }
     fun setSpeaker(
         callId: String,
         enabled: Boolean,
         executor: Executor,
         completion: (Boolean) -> Unit
     ) {
-        val connection = connections[callId]
+        val connection = connections[resolve(callId)]
         if (connection == null) {
             completion(false)
             return
         }
         connection.requestSpeaker(enabled, executor, completion)
     }
-    fun end(callId: String) { connections[callId]?.disconnect(DisconnectCause.LOCAL) }
+    fun end(callId: String) { connections[resolve(callId)]?.disconnect(DisconnectCause.LOCAL) }
     fun remove(callId: String) {
-        connections.remove(callId)
-        calls.remove(callId)
+        val resolved = resolve(callId)
+        connections.remove(resolved)
+        if (pendingHint?.callId != callId) calls.remove(resolved)
+        aliases.entries.removeIf { it.key == callId || it.value == resolved }
     }
+
+    private fun resolve(callId: String): String = aliases[callId] ?: callId
+
+    private const val HINT_LIFETIME_MS = 60_000L
 }

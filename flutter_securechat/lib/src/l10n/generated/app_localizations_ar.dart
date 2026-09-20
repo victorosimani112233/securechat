@@ -743,7 +743,31 @@ class AppLocalizationsAr extends AppLocalizations {
   String get chat_lock => 'Chat lock';
 
   @override
-  String get chat_lock_desc => 'Access with device authentication';
+  String get chat_lock_desc => 'Access with a chat password';
+
+  @override
+  String get chat_lock_create_title => 'Set chat password';
+
+  @override
+  String get chat_lock_create_body =>
+      'This password will be required whenever this chat is opened on this device.';
+
+  @override
+  String get chat_lock_unlock_title => 'Unlock chat';
+
+  @override
+  String chat_lock_unlock_body(String chatName) {
+    return 'Enter the password for $chatName.';
+  }
+
+  @override
+  String get chat_lock_unlock_action => 'Unlock';
+
+  @override
+  String get chat_lock_wrong_password => 'Incorrect password.';
+
+  @override
+  String get chat_lock_update_failed => 'Chat lock could not be updated.';
 
   @override
   String get export_history => 'Export history';
@@ -1136,6 +1160,25 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get disappearing_messages => 'Disappearing messages';
+
+  @override
+  String disappearing_timer_enabled_by_you(String duration) {
+    return 'You set disappearing messages to $duration.';
+  }
+
+  @override
+  String get disappearing_timer_disabled_by_you =>
+      'You turned off disappearing messages.';
+
+  @override
+  String disappearing_timer_enabled_by_peer(String sender, String duration) {
+    return '$sender set disappearing messages to $duration.';
+  }
+
+  @override
+  String disappearing_timer_disabled_by_peer(String sender) {
+    return '$sender turned off disappearing messages.';
+  }
 
   @override
   String get contact_note => 'Contact note';

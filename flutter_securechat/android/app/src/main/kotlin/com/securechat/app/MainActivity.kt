@@ -2,7 +2,6 @@ package com.securechat.app
 
 import android.Manifest
 import android.app.NotificationManager
-import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -12,9 +11,6 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.ContactsContract
 import android.provider.Settings
-import android.telecom.PhoneAccount
-import android.telecom.PhoneAccountHandle
-import android.telecom.TelecomManager
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -56,14 +52,6 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         nativeChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
-        NativeCallRegistry.attach { action, callId ->
-            runOnUiThread {
-                nativeChannel.invokeMethod(
-                    "nativeCallAction",
-                    mapOf("action" to action, "callId" to callId)
-                )
-            }
-        }
         nativeChannel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "enableScreenProtection" -> {
@@ -71,6 +59,7 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(null)
                     }
                     "registerCallIntegration" -> registerCallIntegration(result)
+                    "getOrCreatePushHintKey" -> getOrCreatePushHintKey(result)
                     "reportIncomingCall" -> reportIncomingCall(call.arguments, result)
                     "reportOutgoingCall" -> reportOutgoingCall(call.arguments, result)
                     "setNativeCallActive" -> updateNativeCall(call.arguments, true, result)
@@ -275,23 +264,31 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun accountHandle(): PhoneAccountHandle = PhoneAccountHandle(
-        ComponentName(this, SecureChatConnectionService::class.java),
-        "elcim_self_managed"
-    )
-
     private fun registerCallIntegration(result: MethodChannel.Result) {
         try {
-            callNotifications.ensureChannels()
-            val telecom = getSystemService(TelecomManager::class.java)
-            telecom.registerPhoneAccount(
-                PhoneAccount.builder(accountHandle(), "Elcim")
-                    .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
-                    .build()
-            )
+            SecureChatNativeCallController.register(applicationContext)
+            // Dart installs its MethodChannel handler before invoking this
+            // method. Attaching earlier could drop a pending call action while
+            // the Flutter application graph was still booting.
+            NativeCallRegistry.attach { action, callId ->
+                runOnUiThread {
+                    nativeChannel.invokeMethod(
+                        "nativeCallAction",
+                        mapOf("action" to action, "callId" to callId)
+                    )
+                }
+            }
             result.success(null)
         } catch (error: Exception) {
             result.error("TELECOM_REGISTER_FAILED", error.message, null)
+        }
+    }
+
+    private fun getOrCreatePushHintKey(result: MethodChannel.Result) {
+        try {
+            result.success(PushHintKeyStore.getOrCreateEncoded(applicationContext))
+        } catch (error: Exception) {
+            result.error("PUSH_HINT_KEY_FAILED", error.message, null)
         }
     }
 
@@ -306,12 +303,11 @@ class MainActivity : FlutterFragmentActivity() {
             val redactIdentity = data["redactIdentity"] as? Boolean ?: true
             val hasVideo = data["hasVideo"] as? Boolean ?: false
             require(callId.isNotBlank() && peerId.isNotBlank())
-            NativeCallRegistry.remember(callId, peerId, peerName, hasVideo, redactIdentity)
-            val info = requireNotNull(NativeCallRegistry.findByCallId(callId))
-            val extras = callExtras(callId, peerId, peerName, hasVideo, redactIdentity)
-            getSystemService(TelecomManager::class.java)
-                .addNewIncomingCall(accountHandle(), extras)
-            callNotifications.showIncoming(info)
+            SecureChatNativeCallController.reportIncoming(
+                applicationContext,
+                NativeCallInfo(callId, peerId, peerName, hasVideo, redactIdentity),
+                fromPushHint = false
+            )
             result.success(null)
         } catch (error: Exception) {
             result.error("INCOMING_CALL_FAILED", error.message, null)
@@ -329,32 +325,14 @@ class MainActivity : FlutterFragmentActivity() {
             val redactIdentity = data["redactIdentity"] as? Boolean ?: true
             val hasVideo = data["hasVideo"] as? Boolean ?: false
             require(callId.isNotBlank() && peerId.isNotBlank())
-            NativeCallRegistry.remember(callId, peerId, peerName, hasVideo, redactIdentity)
-            val info = requireNotNull(NativeCallRegistry.findByCallId(callId))
-            getSystemService(TelecomManager::class.java).placeCall(
-                Uri.fromParts("securechat", callId, null),
-                callExtras(callId, peerId, peerName, hasVideo, redactIdentity)
+            SecureChatNativeCallController.reportOutgoing(
+                applicationContext,
+                NativeCallInfo(callId, peerId, peerName, hasVideo, redactIdentity)
             )
-            callNotifications.showConnecting(info)
             result.success(null)
         } catch (error: Exception) {
             result.error("OUTGOING_CALL_FAILED", error.message, null)
         }
-    }
-
-    private fun callExtras(
-        callId: String,
-        peerId: String,
-        peerName: String,
-        hasVideo: Boolean,
-        redactIdentity: Boolean
-    ) = Bundle().apply {
-        putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, accountHandle())
-        putString(SecureChatConnectionService.EXTRA_CALL_ID, callId)
-        putString(SecureChatConnectionService.EXTRA_PEER_ID, peerId)
-        putString(SecureChatConnectionService.EXTRA_PEER_NAME, peerName)
-        putBoolean(SecureChatConnectionService.EXTRA_HAS_VIDEO, hasVideo)
-        putBoolean(SecureChatConnectionService.EXTRA_REDACT_IDENTITY, redactIdentity)
     }
 
     private fun updateNativeCall(
@@ -407,7 +385,10 @@ class MainActivity : FlutterFragmentActivity() {
             SecureChatCallNotificationManager.ACTION_ANSWER -> {
                 if (info != null) callNotifications.showConnecting(info)
             }
-            SecureChatCallNotificationManager.ACTION_END -> callNotifications.cancel()
+            SecureChatCallNotificationManager.ACTION_END -> {
+                NativeCallRegistry.end(callId)
+                callNotifications.cancel()
+            }
             SecureChatCallNotificationManager.ACTION_OPEN -> Unit
             else -> return
         }

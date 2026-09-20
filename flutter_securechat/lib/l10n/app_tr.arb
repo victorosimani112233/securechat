@@ -303,7 +303,17 @@
   "group_announcement_desc": "Grubu duyuru kanalı olarak kullan",
   "mute": "Sessize al",
   "chat_lock": "Sohbet kilidi",
-  "chat_lock_desc": "Cihaz doğrulamasıyla erişim",
+  "chat_lock_desc": "Sohbet parolasıyla erişim",
+  "chat_lock_create_title": "Sohbet parolası belirle",
+  "chat_lock_create_body": "Bu sohbet bu cihazda her açıldığında bu parola istenecek.",
+  "chat_lock_unlock_title": "Sohbet kilidini aç",
+  "chat_lock_unlock_body": "{chatName} için sohbet parolasını girin.",
+  "@chat_lock_unlock_body": {
+    "placeholders": {"chatName": {"type": "String"}}
+  },
+  "chat_lock_unlock_action": "Kilidi aç",
+  "chat_lock_wrong_password": "Parola yanlış.",
+  "chat_lock_update_failed": "Sohbet kilidi güncellenemedi.",
   "export_history": "Dışa aktarma geçmişi",
   "make_admin": "Yönetici yap",
   "no_contacts_to_add": "Eklenebilecek kayıtlı kişi yok.",
@@ -516,6 +526,22 @@
   "starred_messages": "Yıldızlı Mesajlar",
   "media": "Medya",
   "disappearing_messages": "Süreli mesajlar",
+  "disappearing_timer_enabled_by_you": "Süreli mesajları {duration} olarak ayarladınız.",
+  "@disappearing_timer_enabled_by_you": {
+    "placeholders": {"duration": {"type": "String"}}
+  },
+  "disappearing_timer_disabled_by_you": "Süreli mesajları kapattınız.",
+  "disappearing_timer_enabled_by_peer": "{sender}, süreli mesajları {duration} olarak ayarladı.",
+  "@disappearing_timer_enabled_by_peer": {
+    "placeholders": {
+      "sender": {"type": "String"},
+      "duration": {"type": "String"}
+    }
+  },
+  "disappearing_timer_disabled_by_peer": "{sender}, süreli mesajları kapattı.",
+  "@disappearing_timer_disabled_by_peer": {
+    "placeholders": {"sender": {"type": "String"}}
+  },
   "contact_note": "Kişiye not",
   "tap_to_add_note": "Not eklemek için dokun",
   "no_records": "Kayıt bulunamadı",
