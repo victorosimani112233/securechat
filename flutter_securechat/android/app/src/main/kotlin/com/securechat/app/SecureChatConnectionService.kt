@@ -1,7 +1,12 @@
 package com.securechat.app
 
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.OutcomeReceiver
+import android.telecom.CallAudioState
+import android.telecom.CallEndpoint
+import android.telecom.CallEndpointException
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
@@ -9,6 +14,7 @@ import android.telecom.DisconnectCause
 import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executor
 
 class SecureChatConnectionService : ConnectionService() {
     companion object {
@@ -93,6 +99,12 @@ internal class SecureChatConnection(
     private val onConnecting: () -> Unit,
     private val onEnded: () -> Unit
 ) : Connection() {
+    private var availableEndpoints: List<CallEndpoint> = emptyList()
+
+    init {
+        setAudioModeIsVoip(true)
+    }
+
     override fun onAnswer(videoState: Int) {
         setActive()
         onConnecting()
@@ -116,7 +128,80 @@ internal class SecureChatConnection(
     override fun onCallAudioStateChanged(state: android.telecom.CallAudioState?) {
         if (state != null) {
             NativeCallRegistry.emit(if (state.isMuted) "mute" else "unmute", callId)
+            NativeCallRegistry.emit(
+                if (state.route and CallAudioState.ROUTE_SPEAKER != 0) "speakerOn"
+                else "speakerOff",
+                callId
+            )
         }
+    }
+
+    override fun onAvailableCallEndpointsChanged(endpoints: List<CallEndpoint>) {
+        availableEndpoints = endpoints.toList()
+    }
+
+    override fun onCallEndpointChanged(endpoint: CallEndpoint) {
+        NativeCallRegistry.emit(
+            if (endpoint.endpointType == CallEndpoint.TYPE_SPEAKER) "speakerOn"
+            else "speakerOff",
+            callId
+        )
+    }
+
+    fun requestSpeaker(
+        enabled: Boolean,
+        executor: Executor,
+        completion: (Boolean) -> Unit
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val endpoint = preferredEndpoint(enabled)
+            if (endpoint != null) {
+                requestCallEndpointChange(
+                    endpoint,
+                    executor,
+                    object : OutcomeReceiver<Void, CallEndpointException> {
+                        override fun onResult(result: Void?) = completion(true)
+                        override fun onError(error: CallEndpointException) = completion(false)
+                    }
+                )
+                return
+            }
+        }
+        completion(requestLegacyAudioRoute(enabled))
+    }
+
+    private fun requestLegacyAudioRoute(enabled: Boolean): Boolean {
+        val supported = callAudioState?.supportedRouteMask ?: return false
+        val candidates = if (enabled) {
+            intArrayOf(CallAudioState.ROUTE_SPEAKER)
+        } else {
+            intArrayOf(
+                CallAudioState.ROUTE_BLUETOOTH,
+                CallAudioState.ROUTE_WIRED_HEADSET,
+                CallAudioState.ROUTE_EARPIECE
+            )
+        }
+        val route = candidates.firstOrNull { supported and it != 0 } ?: return false
+        @Suppress("DEPRECATION")
+        setAudioRoute(route)
+        return true
+    }
+
+    private fun preferredEndpoint(speaker: Boolean): CallEndpoint? {
+        val types = if (speaker) {
+            intArrayOf(CallEndpoint.TYPE_SPEAKER)
+        } else {
+            intArrayOf(
+                CallEndpoint.TYPE_BLUETOOTH,
+                CallEndpoint.TYPE_WIRED_HEADSET,
+                CallEndpoint.TYPE_EARPIECE
+            )
+        }
+        for (type in types) {
+            val endpoint = availableEndpoints.firstOrNull { it.endpointType == type }
+            if (endpoint != null) return endpoint
+        }
+        return null
     }
 
     fun disconnect(cause: Int) {
@@ -180,6 +265,19 @@ internal object NativeCallRegistry {
         connections[callId] = connection
     }
     fun setActive(callId: String) { connections[callId]?.setActive() }
+    fun setSpeaker(
+        callId: String,
+        enabled: Boolean,
+        executor: Executor,
+        completion: (Boolean) -> Unit
+    ) {
+        val connection = connections[callId]
+        if (connection == null) {
+            completion(false)
+            return
+        }
+        connection.requestSpeaker(enabled, executor, completion)
+    }
     fun end(callId: String) { connections[callId]?.disconnect(DisconnectCause.LOCAL) }
     fun remove(callId: String) {
         connections.remove(callId)

@@ -219,6 +219,7 @@
   "chat_custom_duration": "Özel Süre",
   "msg_action_reply": "Yanıtla",
   "msg_action_copy": "Kopyala",
+  "message_copied": "Mesaj kopyalandı.",
   "msg_action_edit": "Düzenle",
   "msg_action_edit_history": "Düzenleme Geçmişi",
   "msg_action_info": "Bilgi",

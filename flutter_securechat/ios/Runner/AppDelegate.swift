@@ -1,4 +1,5 @@
 import Flutter
+import AVFoundation
 import Contacts
 import CallKit
 import UIKit
@@ -17,6 +18,7 @@ import UserNotifications
   private var privacyOverlayHooksInstalled = false
   private var documentController: UIDocumentInteractionController?
   private let callIntegration = SecureChatCallKitIntegration()
+  private let callTones = SecureChatCallTonePlayer()
 
   override func application(
     _ application: UIApplication,
@@ -82,8 +84,20 @@ import UserNotifications
         self?.handleCallKitReport(call.arguments, incoming: false, result: result)
       case "setNativeCallActive":
         self?.handleCallKitState(call.arguments, active: true, result: result)
+      case "setCallSpeaker":
+        // CallKit owns the call lifecycle, while flutter_webrtc owns the
+        // AVAudioSession route. Returning false keeps that route as fallback.
+        result(false)
       case "endNativeCall":
         self?.handleCallKitState(call.arguments, active: false, result: result)
+      case "startNativeCallRingback":
+        result(self?.callTones.startRingback() ?? false)
+      case "stopNativeCallTones":
+        self?.callTones.stop()
+        result(true)
+      case "playNativeCallCue":
+        let cue = (call.arguments as? [String: Any])?["cue"] as? String ?? ""
+        result(self?.callTones.playCue(cue) ?? false)
       case "authenticateLockedChat":
         self?.authenticateLockedChat(call.arguments, result: result)
       case "getCallReadiness":
@@ -432,6 +446,53 @@ enum SecureChatPrivateFilePolicy {
   }
 }
 
+final class SecureChatCallTonePlayer: NSObject, AVAudioPlayerDelegate {
+  private var player: AVAudioPlayer?
+
+  func startRingback() -> Bool {
+    play(resource: "elcim_ringback", loops: -1)
+  }
+
+  func playCue(_ cue: String) -> Bool {
+    switch cue {
+    case "connected":
+      return play(resource: "elcim_call_connected", loops: 0)
+    case "ended":
+      return play(resource: "elcim_call_ended", loops: 0)
+    default:
+      return false
+    }
+  }
+
+  func stop() {
+    player?.stop()
+    player = nil
+  }
+
+  private func play(resource: String, loops: Int) -> Bool {
+    stop()
+    guard let url = Bundle.main.url(forResource: resource, withExtension: "wav") else {
+      return false
+    }
+    do {
+      let next = try AVAudioPlayer(contentsOf: url)
+      next.delegate = self
+      next.numberOfLoops = loops
+      next.volume = 0.9
+      next.prepareToPlay()
+      guard next.play() else { return false }
+      player = next
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+    if self.player === player { self.player = nil }
+  }
+}
+
 final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   var onAction: ((String, String) -> Void)?
   private var provider: CXProvider?
@@ -446,6 +507,7 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
     configuration.maximumCallGroups = 1
     configuration.maximumCallsPerCallGroup = 2
     configuration.supportedHandleTypes = [.generic]
+    configuration.ringtoneSound = "elcim_bell.wav"
     let value = CXProvider(configuration: configuration)
     value.setDelegate(self, queue: .main)
     provider = value

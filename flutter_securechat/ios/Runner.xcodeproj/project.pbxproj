@@ -28,6 +28,9 @@
 		5C5000000000000000000010 /* elcim_sparkle.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C500000000000000000000F /* elcim_sparkle.wav */; };
 		5C5000000000000000000012 /* elcim_tap.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000011 /* elcim_tap.wav */; };
 		5C5000000000000000000014 /* elcim_warm.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000013 /* elcim_warm.wav */; };
+		5C5000000000000000000016 /* elcim_ringback.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000015 /* elcim_ringback.wav */; };
+		5C5000000000000000000018 /* elcim_call_connected.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000017 /* elcim_call_connected.wav */; };
+		5C500000000000000000001A /* elcim_call_ended.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000019 /* elcim_call_ended.wav */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -83,6 +86,9 @@
 		5C500000000000000000000F /* elcim_sparkle.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_sparkle.wav"; path = "Runner/Sounds/elcim_sparkle.wav"; sourceTree = "<group>"; };
 		5C5000000000000000000011 /* elcim_tap.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_tap.wav"; path = "Runner/Sounds/elcim_tap.wav"; sourceTree = "<group>"; };
 		5C5000000000000000000013 /* elcim_warm.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_warm.wav"; path = "Runner/Sounds/elcim_warm.wav"; sourceTree = "<group>"; };
+		5C5000000000000000000015 /* elcim_ringback.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_ringback.wav"; path = "Runner/Sounds/elcim_ringback.wav"; sourceTree = "<group>"; };
+		5C5000000000000000000017 /* elcim_call_connected.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_call_connected.wav"; path = "Runner/Sounds/elcim_call_connected.wav"; sourceTree = "<group>"; };
+		5C5000000000000000000019 /* elcim_call_ended.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_call_ended.wav"; path = "Runner/Sounds/elcim_call_ended.wav"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -120,6 +126,9 @@
 				5C500000000000000000000F /* elcim_sparkle.wav */,
 				5C5000000000000000000011 /* elcim_tap.wav */,
 				5C5000000000000000000013 /* elcim_warm.wav */,
+				5C5000000000000000000015 /* elcim_ringback.wav */,
+				5C5000000000000000000017 /* elcim_call_connected.wav */,
+				5C5000000000000000000019 /* elcim_call_ended.wav */,
 				3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */,
 				9740EEB21CF90195004384FC /* Debug.xcconfig */,
 				7AFA3C8E1D35360C0083082E /* Release.xcconfig */,
@@ -279,6 +288,9 @@
 				5C5000000000000000000010 /* elcim_sparkle.wav in Resources */,
 				5C5000000000000000000012 /* elcim_tap.wav in Resources */,
 				5C5000000000000000000014 /* elcim_warm.wav in Resources */,
+				5C5000000000000000000016 /* elcim_ringback.wav in Resources */,
+				5C5000000000000000000018 /* elcim_call_connected.wav in Resources */,
+				5C500000000000000000001A /* elcim_call_ended.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

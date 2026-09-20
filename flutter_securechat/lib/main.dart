@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -15,6 +16,7 @@ Future<void> main() async {
   await runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      await _runNotificationSmokeTest();
       LicenseRegistry.addLicense(() async* {
         final license = await rootBundle.loadString(
           'assets/licenses/audioswitch_APACHE-2.0.txt',
@@ -42,5 +44,35 @@ Future<void> main() async {
         );
       }
     },
+  );
+}
+
+/// Opt-in device diagnostic. Production builds remain clean unless the define
+/// is explicitly enabled for a smoke-test APK.
+Future<void> _runNotificationSmokeTest() async {
+  const enabled = bool.fromEnvironment(
+    'SECURECHAT_NOTIFICATION_SMOKE_TEST',
+    defaultValue: false,
+  );
+  if (!enabled || kIsWeb || !Platform.isAndroid) return;
+  final notifications = FlutterLocalNotificationsPlugin();
+  await notifications.initialize(
+    settings: const InitializationSettings(
+      android: AndroidInitializationSettings('notification_icon'),
+    ),
+  );
+  await notifications.show(
+    id: 999,
+    title: 'Test',
+    body: 'Bildirim katmani calisiyor',
+    notificationDetails: const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'elcim_smoke_test',
+        'Test',
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: 'notification_icon',
+      ),
+    ),
   );
 }

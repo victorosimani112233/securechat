@@ -191,6 +191,54 @@ void main() {
     await expectLater(openRequest, completes);
   });
 
+  test('speaker routing prefers Telecom and falls back to WebRTC', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.dispose);
+    final signaling = InMemorySignalingService();
+    await signaling.connect(
+      userId: 'me',
+      url: 'wss://test.invalid',
+      accessToken: 'token',
+    );
+    final media = _FakeMediaEngine();
+    final nativeCalls = _FakeNativeCalls()..handlesSpeaker = true;
+    final manager = CallManager(
+      session: SessionStore(userId: 'me', accessToken: 'token'),
+      signaling: signaling,
+      media: media,
+      iceServers: const StaticIceServerProvider([]),
+      callLogs: fixture.database.callLogs,
+      nativeCalls: nativeCalls,
+      terminalVisibility: const Duration(minutes: 1),
+    );
+    addTearDown(manager.dispose);
+
+    expect(
+      await manager.initiateCall(
+        peerId: 'peer',
+        peerName: 'Peer',
+        callType: CallType.voice,
+      ),
+      isTrue,
+    );
+    final callId = manager.currentSession!.callId;
+
+    await manager.toggleSpeaker();
+
+    expect(nativeCalls.speakerRequests, [(callId, true)]);
+    expect(media.speakerValues, isEmpty);
+    expect(manager.currentSession?.isSpeakerOn, isTrue);
+
+    nativeCalls.emit(NativeCallActionType.speakerOff, callId);
+    await _flush();
+    expect(manager.currentSession?.isSpeakerOn, isFalse);
+
+    nativeCalls.handlesSpeaker = false;
+    await manager.toggleSpeaker();
+    expect(media.speakerValues, [true]);
+    expect(manager.currentSession?.isSpeakerOn, isTrue);
+  });
+
   test(
     'group coordinator fans invites and opens mesh peer after accept',
     () async {
@@ -1182,6 +1230,7 @@ class _FakeMediaEngine implements MediaEngine {
   String? acceptedOffer;
   String? appliedAnswer;
   final candidates = <(String, String?, int)>[];
+  final speakerValues = <bool>[];
 
   void emit(MediaConnectionState state) => _states.add(state);
 
@@ -1231,7 +1280,7 @@ class _FakeMediaEngine implements MediaEngine {
   @override
   Future<void> setMuted(bool muted) async {}
   @override
-  Future<void> setSpeakerOn(bool enabled) async {}
+  Future<void> setSpeakerOn(bool enabled) async => speakerValues.add(enabled);
   @override
   Future<void> switchCamera() async {}
 }
@@ -1379,6 +1428,8 @@ class _FakeGroupMediaEngine implements GroupMediaEngine {
 
 class _FakeNativeCalls implements NativeCallIntegration {
   final _actions = StreamController<NativeCallAction>.broadcast();
+  final speakerRequests = <(String, bool)>[];
+  bool handlesSpeaker = false;
 
   void emit(NativeCallActionType type, String callId) {
     _actions.add(NativeCallAction(type: type, callId: callId));
@@ -1394,6 +1445,12 @@ class _FakeNativeCalls implements NativeCallIntegration {
   Future<void> reportOutgoing(CallSession session) async {}
   @override
   Future<void> setActive(String callId) async {}
+  @override
+  Future<bool> setSpeaker(String callId, bool enabled) async {
+    speakerRequests.add((callId, enabled));
+    return handlesSpeaker;
+  }
+
   @override
   Future<void> end(String callId) async {}
 }

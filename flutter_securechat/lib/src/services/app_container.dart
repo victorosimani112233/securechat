@@ -40,6 +40,7 @@ import '../export/export_audit_service.dart';
 import '../groups/group_management_service.dart';
 import '../groups/private_group_control.dart';
 import '../media/call_manager.dart';
+import '../media/call_tone_service.dart';
 import '../media/file_transfer_manager.dart';
 import '../media/group_media_engine.dart';
 import '../media/ice_server_fetcher.dart';
@@ -246,7 +247,11 @@ class AppContainer {
       SignalingConnectionStatusSource(signaling);
   late final AppPeerActivitySource? peerActivity = networkRuntime == null
       ? null
-      : IncomingPeerActivitySource(networkRuntime!.incomingMessages);
+      : IncomingPeerActivitySource(
+          networkRuntime!.incomingMessages,
+          signaling: signaling,
+          session: session,
+        );
   final AppCryptoRuntime? cryptoRuntime;
   final AppNetworkRuntime? networkRuntime;
   final AuthCoordinator? auth;
@@ -461,10 +466,6 @@ class AppContainer {
         session: session,
         signaling: signaling,
         crypto: crypto,
-        // Sayacli baglantida yaziyor-gostergesi gonderilmez: gosterge
-        // kozmetiktir, sabit-boyutlu kontrol paketi ise ~29 KB'dir.
-        isMeteredConnection: () async =>
-            networkMonitor.current.kind == NetworkKind.cellular,
       );
       resources.register('chat-activity', chatActivity.dispose);
       final scheduler =
@@ -657,6 +658,12 @@ class AppContainer {
         onAsyncFailure: reportAsyncFailure,
       );
       resources.register('call-manager', callManager.dispose);
+      final callTones = CallToneCoordinator(
+        sessions: callManager.sessions,
+        player: PlatformCallTonePlayer(),
+        onAsyncFailure: reportAsyncFailure,
+      )..start();
+      resources.register('call-tone-coordinator', callTones.close);
       final mediaDirectory = Directory('${support.path}/media');
       final storageManagement = StorageManagementService(database);
       final fileTransfers = FileTransferManager(

@@ -219,6 +219,7 @@
   "chat_custom_duration": "Custom Duration",
   "msg_action_reply": "Reply",
   "msg_action_copy": "Copy",
+  "message_copied": "Message copied.",
   "msg_action_edit": "Edit",
   "msg_action_edit_history": "Edit History",
   "msg_action_info": "Info",

@@ -482,6 +482,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get msg_action_copy => 'Kopyala';
 
   @override
+  String get message_copied => 'Mesaj kopyalandı.';
+
+  @override
   String get msg_action_edit => 'Düzenle';
 
   @override

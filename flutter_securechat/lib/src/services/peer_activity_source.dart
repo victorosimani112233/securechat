@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import '../core/signal_message.dart';
 import '../incoming/incoming_message_handler.dart';
+import 'session_store.dart';
+import 'signaling_service.dart';
 
 class AppPeerActivity {
   const AppPeerActivity({
@@ -33,17 +36,29 @@ abstract interface class AppPeerActivitySource {
 /// Feature widgets consume only the privacy-safe activity projection and do
 /// not depend on the incoming-message/WebSocket implementation.
 class IncomingPeerActivitySource implements AppPeerActivitySource {
-  const IncomingPeerActivitySource(this._incoming);
+  const IncomingPeerActivitySource(
+    this._incoming, {
+    required SignalingService signaling,
+    required SessionStore session,
+  }) : _signaling = signaling,
+       _session = session;
 
   final IncomingMessageHandler _incoming;
+  final SignalingService _signaling;
+  final SessionStore _session;
 
   @override
   Stream<AppPeerActivity> watch(String peerId) {
     late final StreamController<AppPeerActivity> controller;
     StreamSubscription<Map<String, bool>>? typingSubscription;
     StreamSubscription<Map<String, PresenceInfo>>? presenceSubscription;
+    StreamSubscription<SignalingStatus>? statusSubscription;
     var typing = false;
     var online = false;
+    var subscribed = false;
+    var subscribing = false;
+    var closing = false;
+    Future<void>? pendingSubscription;
     DateTime? lastSeen;
     AppPeerActivity? previous;
 
@@ -58,6 +73,38 @@ class IncomingPeerActivitySource implements AppPeerActivitySource {
       controller.add(next);
     }
 
+    Future<void> subscribe() async {
+      if (closing || subscribed || subscribing) return;
+      final userId = _session.userId;
+      if (userId == null || !_signaling.currentStatus.isConnected) return;
+      subscribing = true;
+      try {
+        subscribed = await _signaling.send(
+          PresenceSubscribeSignal(
+            senderId: userId,
+            recipientId: peerId,
+            timestamp: DateTime.now(),
+          ),
+        );
+      } catch (_) {
+        subscribed = false;
+      } finally {
+        subscribing = false;
+      }
+    }
+
+    void requestSubscription() {
+      if (pendingSubscription != null) return;
+      late final Future<void> operation;
+      operation = subscribe().whenComplete(() {
+        if (identical(pendingSubscription, operation)) {
+          pendingSubscription = null;
+        }
+      });
+      pendingSubscription = operation;
+      unawaited(operation);
+    }
+
     controller = StreamController<AppPeerActivity>(
       onListen: () {
         typingSubscription = _incoming.typingStates.listen((states) {
@@ -70,8 +117,34 @@ class IncomingPeerActivitySource implements AppPeerActivitySource {
           lastSeen = presence?.lastSeen;
           emit();
         }, onError: controller.addError);
+        statusSubscription = _signaling.statuses.listen((status) {
+          if (status.isConnected) {
+            requestSubscription();
+          } else {
+            subscribed = false;
+          }
+        }, onError: controller.addError);
       },
       onCancel: () async {
+        closing = true;
+        await statusSubscription?.cancel();
+        await pendingSubscription;
+        final userId = _session.userId;
+        if (subscribed &&
+            userId != null &&
+            _signaling.currentStatus.isConnected) {
+          try {
+            await _signaling.send(
+              PresenceUnsubscribeSignal(
+                senderId: userId,
+                recipientId: peerId,
+                timestamp: DateTime.now(),
+              ),
+            );
+          } catch (_) {
+            // Socket teardown also clears the server-side subscription.
+          }
+        }
         await typingSubscription?.cancel();
         await presenceSubscription?.cancel();
       },

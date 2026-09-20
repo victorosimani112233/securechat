@@ -8,10 +8,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cryptography/cryptography.dart';
 
 /// Her kontrol paketi trafik analizi direnci icin sabit 16 KiB'a padlenir ve
-/// tel uzerinde ~29 KB'a cikar. Yaziyor-gostergesinin basla/dur dongusu her
-/// turda iki paket demektir; araliklarla yazan bir kullanici bunu surekli
-/// tetikler. Paket BOYUTU gizlilik ozelligi oldugu icin degistirilmedi;
-/// bunun yerine gonderim SIKLIGI dusuruldu.
+/// tel uzerinde ~29 KB'a cikar. Tus basina paket gonderilmez; bir yazma turu
+/// yalnizca basla/dur paketleri uretir. Paket boyutu ve E2EE korunurken mobil
+/// baglantida da kullaniciya vaat edilen yaziyor bilgisi calismalidir.
 void main() {
   late InMemorySignalingService signaling;
   late ChatActivityService activity;
@@ -26,14 +25,10 @@ void main() {
   /// Yaziyor-gostergesi `sendPrivateChatControl` tarafindan sabit boyutlu
   /// `CHATCTRL:` zarfina sarilip `EncryptedSignalMessage` olarak gonderilir.
   /// Dogru metrik tel uzerindeki paket sayisidir.
-  int typingFrames() => signaling.sentMessages
-      .whereType<EncryptedSignalMessage>()
-      .length;
+  int typingFrames() =>
+      signaling.sentMessages.whereType<EncryptedSignalMessage>().length;
 
-  Future<void> setUpService({
-    Future<bool> Function()? metered,
-    Duration cooldown = const Duration(seconds: 12),
-  }) async {
+  Future<void> setUpService() async {
     signaling = InMemorySignalingService();
     await signaling.connect(
       userId: 'me',
@@ -44,8 +39,6 @@ void main() {
       session: SessionStore(userId: 'me', accessToken: 'token'),
       signaling: signaling,
       crypto: LocalAeadCryptoService(SecretKey(List.filled(32, 5))),
-      isMeteredConnection: metered,
-      reannounceCooldown: cooldown,
     );
   }
 
@@ -62,38 +55,17 @@ void main() {
     expect(typingFrames(), 1, reason: 'tus basina paket gonderilmemeli');
   });
 
-  test('cooldown icinde yeniden duyuru yapilmaz', () async {
+  test('durduktan sonra yeniden yazma hemen duyurulur', () async {
     await setUpService();
     await activity.updateTyping(conversation, true);
     await activity.stopTyping();
-    final afterFirstBurst = typingFrames(); // start + stop = 2
-    expect(afterFirstBurst, 2);
-
-    // Hemen tekrar yazmaya basla: cooldown icinde oldugu icin yeni duyuru yok.
+    expect(typingFrames(), 2);
     await activity.updateTyping(conversation, true);
     await activity.stopTyping();
     expect(
       typingFrames(),
-      afterFirstBurst,
-      reason: 'cooldown icindeki dongu ek paket uretmemeli',
+      4,
+      reason: 'ikinci yazma turu aliciya hemen gorunmeli',
     );
-  });
-
-  test('cooldown dolunca yeniden duyurulur', () async {
-    await setUpService(cooldown: Duration.zero);
-    await activity.updateTyping(conversation, true);
-    await activity.stopTyping();
-    await activity.updateTyping(conversation, true);
-    await activity.stopTyping();
-    expect(typingFrames(), 4, reason: 'cooldown sifirken normal davranmali');
-  });
-
-  test('sayacli baglantida hic gonderilmez', () async {
-    await setUpService(metered: () async => true);
-    for (var i = 0; i < 5; i++) {
-      await activity.updateTyping(conversation, true);
-    }
-    await activity.stopTyping();
-    expect(typingFrames(), 0, reason: 'mobil veride gosterge kapali olmali');
   });
 }

@@ -98,7 +98,7 @@ class SecureChatFirebaseOptions {
         apiKey: _apiKey,
         appId: String.fromEnvironment(
           'SECURECHAT_FIREBASE_ANDROID_APP_ID',
-          defaultValue: '1:791820453236:android:78a4f0e3a7d8a1a5685821',
+          defaultValue: '1:791820453236:android:d570570ff740a58e685821',
         ),
         messagingSenderId: _senderId,
         projectId: _projectId,
@@ -306,17 +306,21 @@ class PushCoordinator {
 Future<void> firebasePushBackgroundHandler(RemoteMessage message) async {
   final event = PushWakeEvent.fromMap(message.data);
   if (!event.isWakeUp) return;
-  final options = SecureChatFirebaseOptions.current;
-  if (options != null && Firebase.apps.isEmpty) {
-    await Firebase.initializeApp(options: options);
-  }
-  final runtime = await SecureChatBackgroundRuntime.open();
+  SecureChatBackgroundRuntime? runtime;
   try {
+    final options = SecureChatFirebaseOptions.current;
+    if (options != null && Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(options: options);
+    }
+    runtime = await SecureChatBackgroundRuntime.open();
     await runtime.execute(
       WorkmanagerBackgroundScheduler.pushDrainTask,
       message.data,
     );
+  } catch (error, stackTrace) {
+    debugPrint('BG-RUNTIME FAIL: $error');
+    debugPrintStack(label: 'BG-RUNTIME STACK', stackTrace: stackTrace);
   } finally {
-    await runtime.close();
+    await runtime?.close();
   }
 }

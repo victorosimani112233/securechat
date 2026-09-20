@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_securechat/src/debug/notification_debug_harness.dart';
@@ -9,6 +10,15 @@ import 'package:flutter_securechat/src/notifications/missed_call_tracker.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('startup notification smoke test is explicit opt-in only', () {
+    final source = File('lib/main.dart').readAsStringSync();
+
+    expect(source, contains('SECURECHAT_NOTIFICATION_SMOKE_TEST'));
+    expect(source, contains('defaultValue: false'));
+    expect(source, contains("'elcim_smoke_test'"));
+    expect(source, contains("body: 'Bildirim katmani calisiyor'"));
+  });
+
   test(
     'debug harness drives incoming, missed and privacy notification paths',
     () async {
@@ -60,6 +70,8 @@ class _FakeNativeCalls implements NativeCallIntegration {
   Future<void> reportOutgoing(CallSession session) async {}
   @override
   Future<void> setActive(String callId) async {}
+  @override
+  Future<bool> setSpeaker(String callId, bool enabled) async => false;
   @override
   Future<void> end(String callId) async {}
 }

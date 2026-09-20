@@ -4,7 +4,15 @@ import 'package:flutter/services.dart';
 
 import 'call_models.dart';
 
-enum NativeCallActionType { answer, end, mute, unmute, open }
+enum NativeCallActionType {
+  answer,
+  end,
+  mute,
+  unmute,
+  speakerOn,
+  speakerOff,
+  open,
+}
 
 class NativeCallAction {
   const NativeCallAction({required this.type, required this.callId});
@@ -18,6 +26,7 @@ abstract interface class NativeCallIntegration {
   Future<void> reportIncoming(CallSession session);
   Future<void> reportOutgoing(CallSession session);
   Future<void> setActive(String callId);
+  Future<bool> setSpeaker(String callId, bool enabled);
   Future<void> end(String callId);
 }
 
@@ -58,6 +67,14 @@ class MethodChannelNativeCallIntegration implements NativeCallIntegration {
       _invoke('setNativeCallActive', {'callId': callId});
 
   @override
+  Future<bool> setSpeaker(String callId, bool enabled) async =>
+      await _channel.invokeMethod<bool>('setCallSpeaker', {
+        'callId': callId,
+        'enabled': enabled,
+      }) ??
+      false;
+
+  @override
   Future<void> end(String callId) =>
       _invoke('endNativeCall', {'callId': callId});
 
@@ -77,6 +94,8 @@ class MethodChannelNativeCallIntegration implements NativeCallIntegration {
       'end' => NativeCallActionType.end,
       'mute' => NativeCallActionType.mute,
       'unmute' => NativeCallActionType.unmute,
+      'speakeron' => NativeCallActionType.speakerOn,
+      'speakeroff' => NativeCallActionType.speakerOff,
       'open' => NativeCallActionType.open,
       _ => null,
     };

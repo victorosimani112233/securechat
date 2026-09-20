@@ -109,9 +109,7 @@ class PluginLocalNotificationPresenter
   /// Yan faydasi: kullanici her sesi sistem ayarlarindan ayrica
   /// ozellestirebiliyor ve o ayar kaliciligini koruyor.
   static String _channelFor(LocalMessageNotification notification) =>
-      notification.silent
-      ? lowChannelId
-      : channelForSound(notification.sound);
+      notification.silent ? lowChannelId : channelForSound(notification.sound);
 
   /// Bir sesin kanal kimligi.
   ///
@@ -411,6 +409,10 @@ class MessageNotificationCoordinator {
     _counts.clear();
     await _presenter.cancelAll();
   }
+
+  /// Waits until notification work already accepted from the message stream
+  /// has completed without closing the coordinator.
+  Future<void> waitForIdle() => _operations.waitForIdle();
 
   void _onDismissed(NotificationDismissal dismissal) {
     if (dismissal.dismissAll) {

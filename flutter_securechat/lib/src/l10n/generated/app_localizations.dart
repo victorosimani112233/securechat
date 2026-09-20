@@ -984,6 +984,12 @@ abstract class AppLocalizations {
   /// **'Copy'**
   String get msg_action_copy;
 
+  /// No description provided for @message_copied.
+  ///
+  /// In en, this message translates to:
+  /// **'Message copied.'**
+  String get message_copied;
+
   /// No description provided for @msg_action_edit.
   ///
   /// In en, this message translates to:

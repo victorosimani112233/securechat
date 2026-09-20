@@ -480,6 +480,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get msg_action_copy => 'Copy';
 
   @override
+  String get message_copied => 'Message copied.';
+
+  @override
   String get msg_action_edit => 'Edit';
 
   @override

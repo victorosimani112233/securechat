@@ -1,10 +1,13 @@
 package com.securechat.app
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
@@ -14,7 +17,9 @@ internal class SecureChatCallNotificationManager(
 ) {
     companion object {
         const val NOTIFICATION_ID = 1200
-        const val INCOMING_CHANNEL_ID = "incoming_call_channel"
+        // Channel sound is immutable after creation. The v2 id replaces the
+        // previously deployed silent channel on existing installations.
+        const val INCOMING_CHANNEL_ID = "incoming_call_channel_v2"
         const val ONGOING_CHANNEL_ID = "call_channel"
         const val ACTION_NOTIFICATION = "com.securechat.app.CALL_NOTIFICATION_ACTION"
         const val EXTRA_ACTION = "securechat.notification_call_action"
@@ -28,6 +33,13 @@ internal class SecureChatCallNotificationManager(
     fun ensureChannels() {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(INCOMING_CHANNEL_ID) == null) {
+            val ringtone = Uri.parse(
+                "android.resource://${context.packageName}/${R.raw.elcim_bell}"
+            )
+            val ringtoneAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .build()
             manager.createNotificationChannel(
                 NotificationChannel(
                     INCOMING_CHANNEL_ID,
@@ -35,9 +47,9 @@ internal class SecureChatCallNotificationManager(
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
                     description = context.getString(R.string.incoming_call_channel_description)
-                    setSound(null, null)
+                    setSound(ringtone, ringtoneAttributes)
                     enableLights(true)
-                    enableVibration(false)
+                    enableVibration(true)
                     lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
                 }
             )
@@ -81,6 +93,9 @@ internal class SecureChatCallNotificationManager(
             .setTimeoutAfter(60_000)
             .addPerson(person)
             .build()
+            .apply {
+                flags = flags or Notification.FLAG_INSISTENT
+            }
         notify(notification)
     }
 

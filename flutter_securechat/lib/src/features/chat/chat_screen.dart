@@ -64,6 +64,7 @@ class _ChatScreenState extends State<ChatScreen> {
   /// `GlobalKey.currentContext` uzaktaki mesajlarda null doner.
   List<String> _messageOrder = const [];
   Timer? _highlightTimer;
+  Timer? _composerScrollTimer;
   LocalMessage? _replying;
   AppNotificationRuntime? _notificationRuntime;
   Conversation? _conversation;
@@ -86,6 +87,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final stopTyping = _stopTyping;
     if (stopTyping != null) unawaited(stopTyping());
     _highlightTimer?.cancel();
+    _composerScrollTimer?.cancel();
     _messageScroll
       ..removeListener(_onMessageScroll)
       ..dispose();
@@ -108,9 +110,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_conversation?.id != routeConversation.id) {
       final container = AppContainerScope.of(context);
       _conversation = routeConversation;
-      _peerActivityStream = container.peerActivity?.watch(
-        routeConversation.peerId,
-      );
+      _peerActivityStream = routeConversation.isGroup
+          ? null
+          : container.peerActivity?.watch(routeConversation.peerId);
       _stopTyping = container.chatInfoRuntime?.activity.stopTyping;
       _accessGranted = !routeConversation.isLocked;
       _accessChecking = routeConversation.isLocked;
@@ -228,28 +230,6 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           actions: [
-            Semantics(
-              label: context.l10n.voice_call,
-              button: true,
-              excludeSemantics: true,
-              child: IconButton(
-                tooltip: context.l10n.voice_call,
-                onPressed: () =>
-                    _startCall(context, conversation, CallType.voice),
-                icon: const Icon(Icons.call_outlined),
-              ),
-            ),
-            Semantics(
-              label: context.l10n.video_call,
-              button: true,
-              excludeSemantics: true,
-              child: IconButton(
-                tooltip: context.l10n.video_call,
-                onPressed: () =>
-                    _startCall(context, conversation, CallType.video),
-                icon: const Icon(Icons.videocam_outlined),
-              ),
-            ),
             PopupMenuButton<String>(
               tooltip: context.l10n.cd_more,
               icon: const Icon(Icons.more_vert),
@@ -260,6 +240,26 @@ class _ChatScreenState extends State<ChatScreen> {
                     conversation.isGroup &&
                     conversation.groupAdmins.contains(userId);
                 return [
+                  PopupMenuItem(
+                    value: 'voice_call',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.call_outlined),
+                        const SizedBox(width: 12),
+                        Text(context.l10n.voice_call),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'video_call',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.videocam_outlined),
+                        const SizedBox(width: 12),
+                        Text(context.l10n.video_call),
+                      ],
+                    ),
+                  ),
                   PopupMenuItem(
                     value: 'search',
                     child: Text(context.l10n.chat_search_in_chat),
@@ -468,6 +468,7 @@ class _ChatScreenState extends State<ChatScreen> {
             if (_forwardSelection.isEmpty)
               _ChatComposer(
                 controller: _input,
+                onTap: _onComposerTap,
                 onChanged: (value) => _onComposerChanged(conversation, value),
                 onAttach: () =>
                     setState(() => _showAttachments = !_showAttachments),
@@ -710,7 +711,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final lastId = _messageOrder.isEmpty ? null : _messageOrder.last;
     for (var step = 0; step < 24; step++) {
       if (!mounted || !_messageScroll.hasClients) return;
-      final target = lastId == null ? null : _messageKeys[lastId]?.currentContext;
+      final target = lastId == null
+          ? null
+          : _messageKeys[lastId]?.currentContext;
       if (target != null) {
         await Scrollable.ensureVisible(
           target,
@@ -729,6 +732,14 @@ class _ChatScreenState extends State<ChatScreen> {
       position.jumpTo(position.maxScrollExtent);
       await SchedulerBinding.instance.endOfFrame;
     }
+  }
+
+  void _onComposerTap() {
+    unawaited(_scrollToBottom());
+    _composerScrollTimer?.cancel();
+    _composerScrollTimer = Timer(const Duration(milliseconds: 380), () {
+      if (mounted) unawaited(_scrollToBottom());
+    });
   }
 
   void _scrollToMessage(
@@ -750,11 +761,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _messageScroll.jumpTo(estimate.clamp(0.0, position.maxScrollExtent));
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _scrollToMessage(
-          messageId,
-          transient: transient,
-          attempt: attempt + 1,
-        );
+        _scrollToMessage(messageId, transient: transient, attempt: attempt + 1);
       });
       return;
     }
@@ -1082,74 +1089,120 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _showMessageActions(LocalMessage message) async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final action = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.reply),
-              title: Text(context.l10n.msg_action_reply),
-              onTap: () => Navigator.pop(context, 'reply'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.emoji_emotions_outlined),
-              title: Text(context.l10n.add_reaction),
-              onTap: () => Navigator.pop(context, 'reaction'),
-            ),
-            if (!message.isViewOnce &&
-                !message.isDeleted &&
-                message.contentType != MessageContentType.system)
-              ListTile(
-                leading: const Icon(Icons.forward_outlined),
-                title: Text(context.l10n.msg_action_forward),
-                onTap: () => Navigator.pop(context, 'forward'),
+      builder: (sheetContext) {
+        final bottomSafeArea = MediaQuery.viewPaddingOf(sheetContext).bottom;
+        return SizedBox(
+          height: MediaQuery.sizeOf(sheetContext).height * .82,
+          child: Column(
+            children: [
+              Expanded(
+                child: ListView(
+                  key: const ValueKey('message-action-list'),
+                  padding: const EdgeInsets.only(bottom: 8),
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.reply),
+                      title: Text(sheetContext.l10n.msg_action_reply),
+                      onTap: () => Navigator.pop(sheetContext, 'reply'),
+                    ),
+                    if (_canCopy(message))
+                      ListTile(
+                        key: const ValueKey('message-action-copy'),
+                        leading: const Icon(Icons.copy_outlined),
+                        title: Text(sheetContext.l10n.msg_action_copy),
+                        onTap: () => Navigator.pop(sheetContext, 'copy'),
+                      ),
+                    ListTile(
+                      leading: const Icon(Icons.emoji_emotions_outlined),
+                      title: Text(sheetContext.l10n.add_reaction),
+                      onTap: () => Navigator.pop(sheetContext, 'reaction'),
+                    ),
+                    if (!message.isViewOnce &&
+                        !message.isDeleted &&
+                        message.contentType != MessageContentType.system)
+                      ListTile(
+                        leading: const Icon(Icons.forward_outlined),
+                        title: Text(sheetContext.l10n.msg_action_forward),
+                        onTap: () => Navigator.pop(sheetContext, 'forward'),
+                      ),
+                    if (message.isOutgoing)
+                      ListTile(
+                        leading: const Icon(Icons.info_outline),
+                        title: Text(sheetContext.l10n.msg_action_info),
+                        onTap: () => Navigator.pop(sheetContext, 'info'),
+                      ),
+                    ListTile(
+                      leading: Icon(
+                        message.isStarred ? Icons.star : Icons.star_border,
+                      ),
+                      title: Text(
+                        message.isStarred
+                            ? sheetContext.l10n.remove_star
+                            : sheetContext.l10n.add_star,
+                      ),
+                      onTap: () => Navigator.pop(sheetContext, 'star'),
+                    ),
+                    ListTile(
+                      leading: Icon(
+                        message.isPinned
+                            ? Icons.push_pin
+                            : Icons.push_pin_outlined,
+                      ),
+                      title: Text(
+                        message.isPinned
+                            ? sheetContext.l10n.unpin
+                            : sheetContext.l10n.pin,
+                      ),
+                      onTap: () => Navigator.pop(sheetContext, 'pin'),
+                    ),
+                    if (message.isOutgoing &&
+                        message.contentType == MessageContentType.text &&
+                        !message.isViewOnce &&
+                        DateTime.now().difference(message.timestamp) <=
+                            const Duration(minutes: 15))
+                      ListTile(
+                        leading: const Icon(Icons.edit_outlined),
+                        title: Text(sheetContext.l10n.msg_action_edit),
+                        onTap: () => Navigator.pop(sheetContext, 'edit'),
+                      ),
+                  ],
+                ),
               ),
-            if (message.isOutgoing)
-              ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: Text(context.l10n.msg_action_info),
-                onTap: () => Navigator.pop(context, 'info'),
+              const Divider(height: 1),
+              Padding(
+                padding: EdgeInsets.only(bottom: bottomSafeArea + 8),
+                child: ListTile(
+                  key: const ValueKey('message-action-delete'),
+                  leading: Icon(
+                    Icons.delete_outline,
+                    color: Theme.of(sheetContext).colorScheme.error,
+                  ),
+                  title: Text(
+                    sheetContext.l10n.conv_delete,
+                    style: TextStyle(
+                      color: Theme.of(sheetContext).colorScheme.error,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(sheetContext, 'delete'),
+                ),
               ),
-            ListTile(
-              leading: Icon(message.isStarred ? Icons.star : Icons.star_border),
-              title: Text(
-                message.isStarred
-                    ? context.l10n.remove_star
-                    : context.l10n.add_star,
-              ),
-              onTap: () => Navigator.pop(context, 'star'),
-            ),
-            ListTile(
-              leading: Icon(
-                message.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-              ),
-              title: Text(
-                message.isPinned ? context.l10n.unpin : context.l10n.pin,
-              ),
-              onTap: () => Navigator.pop(context, 'pin'),
-            ),
-            if (message.isOutgoing &&
-                message.contentType == MessageContentType.text &&
-                !message.isViewOnce &&
-                DateTime.now().difference(message.timestamp) <=
-                    const Duration(minutes: 15))
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: Text(context.l10n.msg_action_edit),
-                onTap: () => Navigator.pop(context, 'edit'),
-              ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: Text(context.l10n.conv_delete),
-              onTap: () => Navigator.pop(context, 'delete'),
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
     if (!mounted || action == null) return;
+    if (action == 'copy') {
+      await Clipboard.setData(ClipboardData(text: message.content));
+      if (mounted) _notice(context, context.l10n.message_copied);
+      return;
+    }
     if (action == 'forward') {
       setState(() {
         _replying = null;
@@ -1192,6 +1245,12 @@ class _ChatScreenState extends State<ChatScreen> {
       !message.isViewOnce &&
       !message.isDeleted &&
       message.contentType != MessageContentType.system;
+
+  bool _canCopy(LocalMessage message) =>
+      message.contentType == MessageContentType.text &&
+      !message.isViewOnce &&
+      !message.isDeleted &&
+      message.content.isNotEmpty;
 
   void _toggleForwardSelection(LocalMessage message) {
     if (!_canForward(message)) return;
@@ -1304,22 +1363,22 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (context) => TextControllerScope(
         initialText: message.content,
         builder: (context, controller) => AlertDialog(
-        title: Text(context.l10n.msg_edit_title),
-        content: TextField(
-          controller: controller,
-          maxLength: 10000,
-          maxLines: 5,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(context.l10n.cancel),
+          title: Text(context.l10n.msg_edit_title),
+          content: TextField(
+            controller: controller,
+            maxLength: 10000,
+            maxLines: 5,
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: Text(context.l10n.save),
-          ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(context.l10n.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: Text(context.l10n.save),
+            ),
+          ],
         ),
       ),
     );
@@ -1387,6 +1446,14 @@ class _ChatScreenState extends State<ChatScreen> {
     Conversation conversation,
     String value,
   ) async {
+    if (value == 'voice_call') {
+      _startCall(context, conversation, CallType.voice);
+      return;
+    }
+    if (value == 'video_call') {
+      _startCall(context, conversation, CallType.video);
+      return;
+    }
     final container = AppContainerScope.of(context);
     final audit = container.auditRuntime?.service;
     if (value == 'export') {

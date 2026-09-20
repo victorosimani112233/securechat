@@ -667,10 +667,14 @@ class CallManager {
     final session = _current;
     if (session == null || session.isTerminal) return;
     final enabled = !session.isSpeakerOn;
-    if (session.isGroupCall) {
-      await _groupMedia?.setSpeakerOn(enabled);
-    } else {
-      await _media.setSpeakerOn(enabled);
+    final handledNatively =
+        await _nativeCalls?.setSpeaker(session.callId, enabled) ?? false;
+    if (!handledNatively) {
+      if (session.isGroupCall) {
+        await _groupMedia?.setSpeakerOn(enabled);
+      } else {
+        await _media.setSpeakerOn(enabled);
+      }
     }
     _setSession(session.copyWith(isSpeakerOn: enabled));
   }
@@ -1545,6 +1549,14 @@ class CallManager {
         if (!session.isMuted) _track(toggleMute());
       case NativeCallActionType.unmute:
         if (session.isMuted) _track(toggleMute());
+      case NativeCallActionType.speakerOn:
+        if (!session.isSpeakerOn) {
+          _setSession(session.copyWith(isSpeakerOn: true));
+        }
+      case NativeCallActionType.speakerOff:
+        if (session.isSpeakerOn) {
+          _setSession(session.copyWith(isSpeakerOn: false));
+        }
       case NativeCallActionType.open:
         _requestCallOpen();
     }

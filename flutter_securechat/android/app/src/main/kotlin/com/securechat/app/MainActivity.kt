@@ -37,6 +37,9 @@ class MainActivity : FlutterFragmentActivity() {
     private val callNotifications by lazy {
         SecureChatCallNotificationManager(applicationContext)
     }
+    private val callTones by lazy {
+        SecureChatCallTonePlayer(applicationContext)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,7 +74,17 @@ class MainActivity : FlutterFragmentActivity() {
                     "reportIncomingCall" -> reportIncomingCall(call.arguments, result)
                     "reportOutgoingCall" -> reportOutgoingCall(call.arguments, result)
                     "setNativeCallActive" -> updateNativeCall(call.arguments, true, result)
+                    "setCallSpeaker" -> setCallSpeaker(call.arguments, result)
                     "endNativeCall" -> updateNativeCall(call.arguments, false, result)
+                    "startNativeCallRingback" -> result.success(callTones.startRingback())
+                    "stopNativeCallTones" -> {
+                        callTones.stop()
+                        result.success(true)
+                    }
+                    "playNativeCallCue" -> {
+                        val cue = (call.arguments as? Map<*, *>)?.get("cue")?.toString().orEmpty()
+                        result.success(callTones.playCue(cue))
+                    }
                     "authenticateLockedChat" -> authenticateLockedChat(call.arguments, result)
                     "getCallReadiness" -> getCallReadiness(result)
                     "openNotificationChannelSettings" -> openNotificationChannelSettings(call.arguments, result)
@@ -112,6 +125,7 @@ class MainActivity : FlutterFragmentActivity() {
         biometricPrompt?.cancelAuthentication()
         pendingAuthentication?.success(false)
         pendingAuthentication = null
+        callTones.release()
         NativeCallRegistry.detach()
         super.onDestroy()
     }
@@ -362,6 +376,22 @@ class MainActivity : FlutterFragmentActivity() {
             callNotifications.cancel()
         }
         result.success(null)
+    }
+
+    private fun setCallSpeaker(arguments: Any?, result: MethodChannel.Result) {
+        val values = arguments as? Map<*, *>
+        val callId = values?.get("callId")?.toString()
+        val enabled = values?.get("enabled") as? Boolean
+        if (callId.isNullOrBlank() || enabled == null) {
+            result.error("INVALID_ARGUMENTS", "callId or enabled is missing", null)
+            return
+        }
+        NativeCallRegistry.setSpeaker(
+            callId = callId,
+            enabled = enabled,
+            executor = ContextCompat.getMainExecutor(this),
+            completion = result::success
+        )
     }
 
     private fun handleCallNotificationIntent(intent: Intent?) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -20,6 +21,7 @@ import '../domain/send_message_use_case.dart';
 import '../incoming/incoming_message_handler.dart';
 import '../network/network_resilience.dart';
 import '../network/tls_pinning.dart';
+import '../notifications/message_notification_service.dart';
 import '../services/crypto_service.dart';
 import '../services/app_resource_scope.dart';
 import '../services/key_material_store.dart';
@@ -60,6 +62,7 @@ class SecureChatBackgroundRuntime {
     required this.stuckRecovery,
     required this.session,
     required this.incomingMessages,
+    required this.notifications,
     required this.preKeyMaintenance,
     required AppResourceScope resources,
   }) : _resources = resources;
@@ -72,6 +75,7 @@ class SecureChatBackgroundRuntime {
   final StuckMessageRecovery stuckRecovery;
   final SessionStore session;
   final IncomingMessageHandler incomingMessages;
+  final MessageNotificationCoordinator notifications;
   final PreKeyMaintenanceService preKeyMaintenance;
   final AppResourceScope _resources;
   bool _closed = false;
@@ -128,11 +132,32 @@ class SecureChatBackgroundRuntime {
         database: database,
         session: session,
         identityResolver: contactIdentityResolver,
+        onAsyncFailure: (operation, error, stackTrace) async {
+          _logBackgroundFailure('BG-INCOMING', operation, error, stackTrace);
+        },
       )..start();
       resources.register(
         'background-incoming-messages',
         incomingMessages.close,
       );
+      final notificationPresenter = PluginLocalNotificationPresenter();
+      resources.register(
+        'background-notification-presenter',
+        notificationPresenter.dispose,
+      );
+      final notifications = MessageNotificationCoordinator(
+        incomingMessages: incomingMessages.acceptedMessages,
+        session: session,
+        presenter: notificationPresenter,
+        onAsyncFailure: (operation, error, stackTrace) async {
+          _logBackgroundFailure('BG-NOTIF', operation, error, stackTrace);
+        },
+      );
+      await notifications.start();
+      // A background isolate never has a visible conversation. Leaving the
+      // coordinator in its foreground default would make notifications silent.
+      notifications.setAppForeground(false);
+      resources.register('background-notifications', notifications.close);
       final sender = SendMessageUseCase(
         database: database,
         signaling: signaling,
@@ -168,6 +193,7 @@ class SecureChatBackgroundRuntime {
         stuckRecovery: StuckMessageRecovery(database),
         session: session,
         incomingMessages: incomingMessages,
+        notifications: notifications,
         preKeyMaintenance: preKeyMaintenance,
         resources: resources,
       );
@@ -182,7 +208,7 @@ class SecureChatBackgroundRuntime {
     if (_closed) throw StateError('Background runtime is closed');
     if (task == WorkmanagerBackgroundScheduler.pushDrainTask) {
       if (!await _connect()) return false;
-      await Future<void>.delayed(const Duration(seconds: 5));
+      await _drainUntilIdle();
       return true;
     }
     if (task == WorkmanagerBackgroundScheduler.scheduledMessageTask) {
@@ -227,10 +253,69 @@ class SecureChatBackgroundRuntime {
     }
   }
 
+  Future<void> _drainUntilIdle({
+    Duration idleFor = const Duration(seconds: 3),
+    Duration maxWait = const Duration(seconds: 25),
+  }) async {
+    await waitForBackgroundDrainIdle(
+      incomingMessages.acceptedMessages,
+      idleFor: idleFor,
+      maxWait: maxWait,
+    );
+    // An accepted-message event is emitted after persistence but before every
+    // listener has necessarily finished. Drain both owned async pipelines so
+    // runtime teardown cannot cancel notification presentation in flight.
+    await incomingMessages.waitForIdle();
+    await notifications.waitForIdle();
+  }
+
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
     await _resources.dispose();
+  }
+}
+
+void _logBackgroundFailure(
+  String scope,
+  String operation,
+  Object error,
+  StackTrace stackTrace,
+) {
+  debugPrint('$scope FAIL [$operation]: $error');
+  debugPrintStack(label: '$scope STACK [$operation]', stackTrace: stackTrace);
+}
+
+/// Waits for a quiet period after the server queue starts draining.
+///
+/// The hard cap keeps the FCM background callback bounded even if messages
+/// continue arriving. Exposed for deterministic timing tests.
+Future<void> waitForBackgroundDrainIdle(
+  Stream<Object?> activity, {
+  Duration idleFor = const Duration(seconds: 3),
+  Duration maxWait = const Duration(seconds: 25),
+}) async {
+  final done = Completer<void>();
+  Timer? idle;
+
+  void restartIdleWindow() {
+    idle?.cancel();
+    idle = Timer(idleFor, () {
+      if (!done.isCompleted) done.complete();
+    });
+  }
+
+  final subscription = activity.listen((_) => restartIdleWindow());
+  restartIdleWindow();
+  final cap = Timer(maxWait, () {
+    if (!done.isCompleted) done.complete();
+  });
+  try {
+    await done.future;
+  } finally {
+    idle?.cancel();
+    cap.cancel();
+    await subscription.cancel();
   }
 }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -20,6 +21,70 @@ import 'support/private_chat_control_support.dart';
 import 'support/storage_at_rest.dart';
 
 void main() {
+  test('background runtime owns an initialized notification coordinator', () {
+    final source = File(
+      'lib/src/background/background_tasks.dart',
+    ).readAsStringSync();
+    final start = source.indexOf('await notifications.start()');
+    final background = source.indexOf('notifications.setAppForeground(false)');
+    final registration = source.indexOf(
+      "resources.register('background-notifications', notifications.close)",
+    );
+
+    expect(
+      source,
+      contains('final MessageNotificationCoordinator notifications;'),
+    );
+    expect(source, contains('required this.notifications'));
+    expect(source, contains('PluginLocalNotificationPresenter()'));
+    expect(source, contains("'BG-INCOMING'"));
+    expect(source, contains("'BG-NOTIF'"));
+    expect(source, contains('onAsyncFailure:'));
+    expect(start, greaterThanOrEqualTo(0));
+    expect(background, greaterThan(start));
+    expect(registration, greaterThan(background));
+  });
+
+  test('push handler logs failures including runtime bootstrap', () {
+    final source = File('lib/src/push/push_service.dart').readAsStringSync();
+    final runtimeDeclaration = source.indexOf(
+      'SecureChatBackgroundRuntime? runtime',
+    );
+    final tryBlock = source.indexOf('try {', runtimeDeclaration);
+    final runtimeOpen = source.indexOf(
+      'runtime = await SecureChatBackgroundRuntime.open()',
+      tryBlock,
+    );
+    final failureLog = source.indexOf("debugPrint('BG-RUNTIME FAIL:");
+
+    expect(runtimeDeclaration, greaterThanOrEqualTo(0));
+    expect(runtimeOpen, greaterThan(tryBlock));
+    expect(failureLog, greaterThan(runtimeOpen));
+    expect(source, contains("label: 'BG-RUNTIME STACK'"));
+  });
+
+  test(
+    'push drain waits for silence after the latest accepted message',
+    () async {
+      final activity = StreamController<Object?>.broadcast();
+      var completed = false;
+      final wait = waitForBackgroundDrainIdle(
+        activity.stream,
+        idleFor: const Duration(milliseconds: 80),
+        maxWait: const Duration(milliseconds: 500),
+      ).then((_) => completed = true);
+
+      await Future<void>.delayed(const Duration(milliseconds: 55));
+      activity.add(Object());
+      await Future<void>.delayed(const Duration(milliseconds: 55));
+      expect(completed, isFalse);
+
+      await wait;
+      await activity.close();
+      expect(completed, isTrue);
+    },
+  );
+
   test('custom schedule chooses the next selected weekday', () {
     final next = ScheduledMessageService.calculateNextTrigger(
       hour: 9,
@@ -54,10 +119,7 @@ void main() {
       fixture.signaling.sentMessages.whereType<EncryptedSignalMessage>(),
       hasLength(1),
     );
-    expect(
-      await storageAtRest(fixture.file),
-      isNot(contains('later secret')),
-    );
+    expect(await storageAtRest(fixture.file), isNot(contains('later secret')));
   });
 
   test('daily scheduled message advances and is re-registered', () async {

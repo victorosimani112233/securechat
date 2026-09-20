@@ -397,6 +397,7 @@ class _AttachmentAction extends StatelessWidget {
 class _ChatComposer extends StatefulWidget {
   const _ChatComposer({
     required this.controller,
+    required this.onTap,
     required this.onChanged,
     required this.onAttach,
     required this.onRecord,
@@ -405,6 +406,7 @@ class _ChatComposer extends StatefulWidget {
   });
 
   final TextEditingController controller;
+  final VoidCallback onTap;
   final ValueChanged<String> onChanged;
   final VoidCallback onAttach;
   final VoidCallback onRecord;
@@ -472,6 +474,7 @@ class _ChatComposerState extends State<_ChatComposer> {
                         child: TextField(
                           key: const ValueKey('chat-message-composer'),
                           controller: widget.controller,
+                          onTap: widget.onTap,
                           minLines: 1,
                           maxLines: 4,
                           maxLength: 10000,

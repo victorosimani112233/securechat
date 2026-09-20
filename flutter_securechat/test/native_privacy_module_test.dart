@@ -80,4 +80,32 @@ void main() {
       2,
     );
   });
+
+  test('iOS CallKit uses the packaged incoming-call ringtone', () {
+    final root = Directory.current.path;
+    final swift = File('$root/ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(swift, contains('configuration.ringtoneSound = "elcim_bell.wav"'));
+    expect(File('$root/ios/Runner/Sounds/elcim_bell.wav').existsSync(), isTrue);
+  });
+
+  test('iOS native call tones cover ringing, connected and ended states', () {
+    final root = Directory.current.path;
+    final swift = File('$root/ios/Runner/AppDelegate.swift').readAsStringSync();
+    final project = File(
+      '$root/ios/Runner.xcodeproj/project.pbxproj',
+    ).readAsStringSync();
+
+    expect(swift, contains('final class SecureChatCallTonePlayer'));
+    expect(swift, contains('case "startNativeCallRingback"'));
+    expect(swift, contains('case "playNativeCallCue"'));
+    for (final name in const [
+      'elcim_ringback.wav',
+      'elcim_call_connected.wav',
+      'elcim_call_ended.wav',
+    ]) {
+      expect(project, contains('$name in Resources'));
+      expect(File('$root/ios/Runner/Sounds/$name').existsSync(), isTrue);
+    }
+  });
 }

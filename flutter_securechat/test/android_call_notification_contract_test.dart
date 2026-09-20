@@ -20,12 +20,21 @@ void main() {
       '$root/android/app/src/main/kotlin/com/securechat/app/'
       'SecureChatCallService.kt',
     ).readAsStringSync();
+    final tones = File(
+      '$root/android/app/src/main/kotlin/com/securechat/app/'
+      'SecureChatCallTonePlayer.kt',
+    ).readAsStringSync();
     final manifest = File(
       '$root/android/app/src/main/AndroidManifest.xml',
     ).readAsStringSync();
 
     expect(notifications, contains('const val NOTIFICATION_ID = 1200'));
     expect(notifications, contains('CallStyle.forIncomingCall'));
+    expect(notifications, contains('incoming_call_channel_v2'));
+    expect(notifications, contains('R.raw.elcim_bell'));
+    expect(notifications, contains('USAGE_NOTIFICATION_RINGTONE'));
+    expect(notifications, contains('Notification.FLAG_INSISTENT'));
+    expect(notifications, contains('enableVibration(true)'));
     expect(notifications, contains('CallStyle.forOngoingCall'));
     expect(notifications, contains('setFullScreenIntent'));
     expect(notifications, contains('PendingIntent.FLAG_IMMUTABLE'));
@@ -38,6 +47,18 @@ void main() {
     expect(activity, contains('handleCallNotificationIntent(intent)'));
     expect(connection, contains('pendingActions'));
     expect(connection, contains('callNotifications.showConnecting(info)'));
+    expect(connection, contains('setAudioModeIsVoip(true)'));
+    expect(connection, contains('requestCallEndpointChange('));
+    expect(connection, contains('setAudioRoute(route)'));
+    expect(connection, contains('CallAudioState.ROUTE_SPEAKER'));
+    expect(activity, contains('"setCallSpeaker" -> setCallSpeaker'));
+    expect(activity, contains('"startNativeCallRingback"'));
+    expect(activity, contains('"stopNativeCallTones"'));
+    expect(activity, contains('"playNativeCallCue"'));
+    expect(tones, contains('USAGE_VOICE_COMMUNICATION_SIGNALLING'));
+    expect(tones, contains('R.raw.elcim_ringback'));
+    expect(tones, contains('R.raw.elcim_call_connected'));
+    expect(tones, contains('R.raw.elcim_call_ended'));
     expect(service, contains('startForeground('));
     expect(service, contains('FOREGROUND_SERVICE_TYPE_PHONE_CALL'));
     expect(service, contains('NativeCallRegistry.emit("end", callId)'));
