@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter_securechat/src/media/call_media_key.dart';
 import 'package:flutter_securechat/src/chat/poll_service.dart';
 import 'package:flutter_securechat/src/chat/message_interaction_service.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
@@ -27,6 +28,56 @@ void main() {
     expect(parsed.mentionedUserIds, ['me', 'bob']);
     expect(parsed.contentType, StorageMessageContentType.poll);
     expect(parsed.content, '{"q":"?"}');
+  });
+
+  test(
+    'a call media key is routed to the call manager, not the chat',
+    () async {
+      final fixture = await _Fixture.open();
+      addTearDown(fixture.close);
+      final mediaKey = CallMediaKey.generate(callId: 'call-1');
+      final envelope = await fixture.crypto.encryptDirect(
+        recipientId: 'me',
+        plaintext: mediaKey.encode(),
+      );
+
+      fixture.signaling.addIncoming(
+        EncryptedSignalMessage(
+          senderId: 'alice',
+          recipientId: 'me',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(2000),
+          envelope: envelope,
+        ),
+      );
+      await fixture.handler.waitForIdle();
+
+      expect(fixture.receivedMediaKeys, [('alice', mediaKey.encode())]);
+      // Anahtar bir sohbet mesaji degildir; veritabanina yazilmamali.
+      expect(await fixture.database.messages.getMessageCount('alice'), 0);
+    },
+  );
+
+  test('a call media key addressed to someone else is ignored', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    final mediaKey = CallMediaKey.generate(callId: 'call-1');
+    final envelope = await fixture.crypto.encryptDirect(
+      recipientId: 'me',
+      plaintext: mediaKey.encode(),
+    );
+
+    fixture.signaling.addIncoming(
+      EncryptedSignalMessage(
+        senderId: 'alice',
+        recipientId: 'someone-else',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(2000),
+        envelope: envelope,
+      ),
+    );
+    await fixture.handler.waitForIdle();
+
+    expect(fixture.receivedMediaKeys, isEmpty);
+    expect(await fixture.database.messages.getMessageCount('alice'), 0);
   });
 
   test('incoming direct message decrypts, deduplicates and receipts', () async {
@@ -65,6 +116,98 @@ void main() {
     expect(event.title, 'alice');
     expect(event.preview, 'hello');
   });
+
+  test(
+    'transport ACK follows persistence and duplicate token skips decrypt',
+    () async {
+      final fixture = await _Fixture.open();
+      addTearDown(fixture.close);
+      final envelope = await fixture.crypto.encryptDirect(
+        recipientId: 'me',
+        plaintext: 'MSGID:acked-1:hello',
+      );
+      final deliveryToken = List.filled(43, 'B').join();
+      final signal = EncryptedSignalMessage(
+        senderId: 'alice',
+        recipientId: 'me',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
+        envelope: envelope,
+        deliveryToken: deliveryToken,
+      );
+
+      fixture.signaling.addIncoming(signal);
+      await fixture.handler.waitForIdle();
+      expect(await fixture.database.messages.getById('acked-1'), isNotNull);
+      expect(
+        await fixture.database.cryptoState.get(
+          'processed-delivery:$deliveryToken',
+        ),
+        isNotNull,
+      );
+      expect(
+        fixture.signaling.sentMessages.whereType<DeliveryTransportAckSignal>(),
+        hasLength(1),
+      );
+
+      fixture.signaling.addIncoming(signal);
+      await fixture.handler.waitForIdle();
+      expect(await fixture.database.messages.getMessageCount('alice'), 1);
+      expect(
+        fixture.signaling.sentMessages.whereType<DeliveryTransportAckSignal>(),
+        hasLength(2),
+      );
+    },
+  );
+
+  test(
+    'failed receipt keeps processed token and retry completes without duplicate',
+    () async {
+      final fixture = await _Fixture.open();
+      addTearDown(fixture.close);
+      final envelope = await fixture.crypto.encryptDirect(
+        recipientId: 'me',
+        plaintext: 'MSGID:receipt-retry:hello',
+      );
+      final deliveryToken = List.filled(43, 'R').join();
+      final signal = EncryptedSignalMessage(
+        senderId: 'alice',
+        recipientId: 'me',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
+        envelope: envelope,
+        deliveryToken: deliveryToken,
+      );
+
+      fixture.signaling.setConnected(false);
+      fixture.signaling.addIncoming(signal);
+      await fixture.handler.waitForIdle();
+
+      expect(
+        await fixture.database.cryptoState.get(
+          'processed-delivery:$deliveryToken',
+        ),
+        isNotNull,
+      );
+      expect(
+        await fixture.database.messages.getById('receipt-retry'),
+        isNotNull,
+      );
+      expect(fixture.signaling.sentMessages, isEmpty);
+
+      fixture.signaling.setConnected(true);
+      fixture.signaling.addIncoming(signal);
+      await fixture.handler.waitForIdle();
+
+      expect(await fixture.database.messages.getMessageCount('alice'), 1);
+      expect(
+        fixture.signaling.sentMessages.whereType<EncryptedSignalMessage>(),
+        hasLength(1),
+      );
+      expect(
+        fixture.signaling.sentMessages.whereType<DeliveryTransportAckSignal>(),
+        hasLength(1),
+      );
+    },
+  );
 
   test(
     'incoming group message carries opaque group id and stores in group',
@@ -131,6 +274,16 @@ void main() {
           isOutgoing: true,
         ),
       );
+      await fixture.database.pendingSignals.put(
+        PendingSignalEntity(
+          id: List.filled(43, 'C').join(),
+          encodedSignal: '{}',
+          createdAt: 1,
+          messageId: 'out',
+          recipientId: 'alice',
+          retainUntilReceipt: true,
+        ),
+      );
       fixture.signaling.addIncoming(
         DeliveryReceiptSignal(
           senderId: 'alice',
@@ -146,6 +299,7 @@ void main() {
           recipientId: 'me',
           timestamp: DateTime.now(),
           envelope: 'E2EE:v1:LOCAL_AES_GCM:bad:bad:bad',
+          deliveryToken: List.filled(43, 'D').join(),
         ),
       );
       await fixture.handler.waitForIdle();
@@ -154,6 +308,11 @@ void main() {
         StorageMessageStatus.sent,
       );
       expect(await fixture.database.messages.getMessageCount('alice'), 1);
+      expect(await fixture.database.pendingSignals.count(), 1);
+      expect(
+        fixture.signaling.sentMessages.whereType<DeliveryTransportAckSignal>(),
+        isEmpty,
+      );
 
       fixture.signaling.addIncoming(
         await encryptTestPrivateChatControl(
@@ -172,6 +331,7 @@ void main() {
         (await fixture.database.messages.getById('out'))?.status,
         StorageMessageStatus.read,
       );
+      expect(await fixture.database.pendingSignals.count(), 0);
     },
   );
 
@@ -346,12 +506,14 @@ class _Fixture {
     this.crypto,
     this.signaling,
     this.handler,
+    this.receivedMediaKeys,
   );
   final Directory directory;
   final SecureChatDatabase database;
   final LocalAeadCryptoService crypto;
   final InMemorySignalingService signaling;
   final IncomingMessageHandler handler;
+  final List<(String, String)> receivedMediaKeys;
 
   static Future<_Fixture> open() async {
     final directory = await Directory.systemTemp.createTemp('incoming_test_');
@@ -368,13 +530,18 @@ class _Fixture {
       url: 'ws://local',
       accessToken: 'token',
     );
+    final mediaKeys = <(String, String)>[];
     final handler = IncomingMessageHandler(
       signaling: signaling,
       crypto: crypto,
       database: database,
       session: SessionStore(userId: 'me', accessToken: 'token'),
+      applyCallMediaKey:
+          ({required String senderId, required String payload}) async {
+            mediaKeys.add((senderId, payload));
+          },
     )..start();
-    return _Fixture(directory, database, crypto, signaling, handler);
+    return _Fixture(directory, database, crypto, signaling, handler, mediaKeys);
   }
 
   Future<void> close() async {

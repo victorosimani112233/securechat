@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../onboarding/permission_service.dart';
 import '../../services/app_container.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../theme/secure_chat_theme.dart';
 
 class LaunchScreen extends StatefulWidget {
   const LaunchScreen({super.key});
@@ -348,12 +349,12 @@ class _PermissionWalkthroughScreenState
               const SizedBox(height: 20),
               for (final item in items)
                 Card(
-                  child: ListTile(
-                    leading: Icon(item.$2),
-                    title: Text(item.$3),
-                    subtitle: Text(item.$4),
-                    trailing: _granted[item.$1] == true
-                        ? const Icon(Icons.check_circle, color: Colors.green)
+                  child: _PermissionRow(
+                    icon: Icon(item.$2),
+                    title: item.$3,
+                    reason: item.$4,
+                    action: _granted[item.$1] == true
+                        ? const Icon(Icons.check_circle, color: AzureTokens.ok)
                         : _busy == item.$1
                         ? const SizedBox.square(
                             dimension: 22,
@@ -375,5 +376,101 @@ class _PermissionWalkthroughScreenState
         ),
       ),
     );
+  }
+}
+
+/// Izin satiri: eylem normalde sagda durur, sigmadigi zaman metnin altina iner.
+///
+/// Neden ozel widget: `ListTile` trailing widget'i satir genisligini asarsa
+/// layout sirasinda assert atar ("Trailing widget consumes the entire tile
+/// width") ve ekran hic cizilemez. Dar bir telefonda %200 metin olceginde
+/// "Izin ver" butonu tam olarak bunu yapiyordu; yani erisilebilirlik ayari
+/// acik olan kullanici kurulumun ilk ekranini goremiyordu. Almanca/Arapca gibi
+/// daha uzun etiketlerde ayni sinir normal olcekte de zorlanir.
+class _PermissionRow extends StatelessWidget {
+  const _PermissionRow({
+    required this.icon,
+    required this.title,
+    required this.reason,
+    required this.action,
+  });
+
+  final Widget icon;
+  final String title;
+  final String reason;
+  final Widget action;
+
+  /// Eylemin yanina sigabilmesi icin metne birakilmasi gereken en az genislik.
+  static const _minimumTextWidth = 120.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final texts = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(title, style: theme.textTheme.titleMedium),
+        const SizedBox(height: 4),
+        Text(reason, style: theme.textTheme.bodyMedium),
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final actionWidth = _measureActionWidth(context);
+          final fitsBeside =
+              constraints.maxWidth - actionWidth - 48 >= _minimumTextWidth;
+          if (fitsBeside) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                icon,
+                const SizedBox(width: 16),
+                Expanded(child: texts),
+                const SizedBox(width: 8),
+                action,
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  icon,
+                  const SizedBox(width: 16),
+                  Expanded(child: texts),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Align(alignment: AlignmentDirectional.centerEnd, child: action),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Eylemin kaplayacagi genisligi olcer. Ikon ve gostergenin boyutu sabittir;
+  /// buton metinle birlikte buyudugu icin gercek metin genisligi olculur.
+  double _measureActionWidth(BuildContext context) {
+    final button = action;
+    if (button is! TextButton) return 32;
+    final label = button.child;
+    if (label is! Text) return 32;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: label.data ?? '',
+        style: Theme.of(context).textTheme.labelLarge,
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    // TextButton'un varsayilan yatay ic bosluklari.
+    return painter.width + 32;
   }
 }

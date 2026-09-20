@@ -255,6 +255,21 @@
   "settings_notification_preview_desc": "Kilit ekranı bildirim önizlemesi",
   "settings_default_notification_sound": "Varsayılan bildirim sesi",
   "settings_silent": "Sessiz",
+  "sound_system": "Cihaz varsayılanı",
+  "sound_chime": "Çınlama",
+  "sound_bell": "Çan",
+  "sound_tap": "Dokunuş",
+  "sound_warm": "Sıcak",
+  "sound_soft": "Yumuşak",
+  "sound_melody": "Ezgi",
+  "sound_flow": "Akış",
+  "sound_sparkle": "Parıltı",
+  "sound_beep": "Bip",
+  "sound_ding": "Ding",
+  "sound_preview": "Sesi dinle",
+  "sound_inherit": "Uygulama ayarını kullan",
+  "sound_system_picker": "Cihazdaki diğer sesler",
+  "sound_system_picker_desc": "Sistem ayarlarından herhangi bir sesi seçin",
   "settings_share_last_seen": "Son görülmeyi paylaş",
   "settings_screen_protection": "Ekran koruması etkin",
   "camera": "Kamera",
@@ -300,6 +315,8 @@
   "repeat_daily": "Her gün",
   "repeat_custom": "Özel",
   "weekdays_short": "Pzt,Sal,Çar,Per,Cum,Cmt,Paz",
+  "schedule_days_label": "Günler",
+  "schedule_days_empty": "Gün seçin",
   "delivery_time": "Gönderim saati",
   "message_content": "Mesaj içeriği",
   "recipients": "Alıcılar",
@@ -362,6 +379,19 @@
   "entire_chat": "Tüm sohbet",
   "admin_only_screen": "Bu ekran sadece grup yöneticilerine açıktır",
   "bulk_unavailable": "Toplu gönderim kullanılamıyor.",
+  "bulk_explainer_title": "Herkese ayrı ayrı gider",
+  "bulk_explainer_body": "Seçtiğiniz her sohbete aynı mesaj ayrı bir mesaj olarak gönderilir. Alıcılar birbirini görmez ve grup oluşturulmaz.",
+  "bulk_search_hint": "Kişi veya grup ara",
+  "bulk_selected_count": "{arg1} / {arg2} seçili",
+  "@bulk_selected_count": {
+    "placeholders": {
+      "arg1": {},
+      "arg2": {}
+    }
+  },
+  "bulk_no_recipients": "Gönderilecek sohbet yok",
+  "bulk_no_results": "Eşleşen sohbet yok",
+  "bulk_message_required": "Önce mesajınızı yazın",
   "select_all": "Tümünü seç",
   "group": "Grup",
   "send_to_recipients": "{arg1} alıcıya gönder",
@@ -812,7 +842,13 @@
   "connected": "Bağlandı",
   "chat_online": "çevrimiçi",
   "chat_last_seen": "son görülme {time}",
-  "@chat_last_seen": {"placeholders": {"time": {"type": "String"}}},
+  "@chat_last_seen": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "chat_encryption_notice": "Mesajlar uçtan uca şifrelenmiştir.",
   "chat_today": "Bugün",
   "chat_yesterday": "Dün",
@@ -829,5 +865,25 @@
   "sending": "Gönderiliyor",
   "return_to_call": "Aramaya dön",
   "settings_open_source_licenses": "Açık kaynak lisansları",
-  "settings_open_source_licenses_desc": "Bu derlemeye dahil edilen yazılım lisanslarını inceleyin."
+  "settings_open_source_licenses_desc": "Bu derlemeye dahil edilen yazılım lisanslarını inceleyin.",
+  "settings_about": "Hakkında",
+  "settings_about_desc": "Sürüm, güvenlik notları ve lisanslar",
+  "about_security_title": "Güvenlik",
+  "about_security_body": "Mesajlar cihazdan çıkmadan önce Signal Protokolü ile uçtan uca şifrelenir ve ratchet her mesaj için yeni bir mesaj anahtarı üretir. Sunucu düz metni veya sohbet geçmişini saklamaz; teslim edilmemiş şifreli zarf yalnızca kısa süreli RAM kuyruğunda ACK ya da süre sonuna kadar tutulabilir. Yerel veritabanı SQLCipher ile şifrelenir.",
+  "about_version": "Sürüm",
+  "missed_call": "Kaçırılan arama",
+  "missed_video_call": "Kaçırılan Görüntülü Arama",
+  "missed_voice_call": "Kaçırılan Sesli Arama",
+  "missed_call_from": "{peer} tarafından",
+  "missed_calls_channel": "Kaçırılan Aramalar",
+  "missed_calls_channel_desc": "Cevaplanmayan arama bildirimleri",
+  "messages_channel": "Elçim Mesajlar",
+  "messages_channel_silent": "Elçim Mesajlar (Sessiz)",
+  "messages_channel_desc": "Gelen güvenli mesaj bildirimleri",
+  "messages_channel_silent_desc": "Sessize alınmış veya uygulama içi mesajlar",
+  "security_number_changed": "Güvenlik numarası değişti. Bu kişi uygulamayı yeniden kurmuş olabilir. Emin değilsen kimliğini başka bir kanaldan doğrula.",
+  "security_message_unreadable": "Bir mesaj çözülemedi ve gösterilemiyor. Göndericiden tekrar göndermesini isteyebilirsiniz.",
+  "chat_jump_to_replied_message": "Yanıtlanan mesaja git",
+  "contacts_empty_body": "Rehberinizdeki kişiler yalnızca hash ile eşleştirilir. elçim kullanan biri çıkarsa burada görünür.",
+  "calls_empty_body": "Yaptığınız ve gelen aramalar burada listelenir. Arama içeriği hiçbir zaman kaydedilmez."
 }

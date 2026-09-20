@@ -40,10 +40,14 @@ class PreKeyMaintenanceService {
   Future<bool> _replenish() async {
     final token = await _accessTokenProvider();
     if (token == null || token.isEmpty) return false;
-    final batch = await _manager.buildSerializedReplenishBatch();
-    if (batch == null) return true;
-    final keyIds = batch.map((key) => key.keyId).toList(growable: false);
+    List<int>? generatedKeyIds;
     try {
+      final serverRemaining = await _loadServerRemaining(token);
+      final batch = await _manager.buildSerializedReplenishBatch(
+        serverRemaining: serverRemaining,
+      );
+      if (batch == null) return true;
+      generatedKeyIds = batch.map((key) => key.keyId).toList(growable: false);
       final request = await _httpClient
           .postUrl(_apiBaseUrl.resolve('/api/v1/prekeys/refresh'))
           .timeout(const Duration(seconds: 20));
@@ -59,8 +63,32 @@ class PreKeyMaintenanceService {
       }
       return true;
     } catch (_) {
-      await _manager.discardOneTimePreKeys(keyIds);
+      if (generatedKeyIds != null) {
+        await _manager.discardOneTimePreKeys(generatedKeyIds);
+      }
       return false;
     }
+  }
+
+  Future<int> _loadServerRemaining(String token) async {
+    final request = await _httpClient
+        .getUrl(_apiBaseUrl.resolve('/api/v1/prekeys/status'))
+        .timeout(const Duration(seconds: 20));
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    final response = await request.close().timeout(const Duration(seconds: 20));
+    final raw = await utf8.decoder
+        .bind(response)
+        .join()
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode != HttpStatus.ok || raw.length > 4096) {
+      throw HttpException('Prekey status HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) throw const FormatException('Invalid prekey status');
+    final remaining = (decoded['remaining'] as num?)?.toInt();
+    if (remaining == null || remaining < 0) {
+      throw const FormatException('Invalid prekey remaining count');
+    }
+    return remaining;
   }
 }

@@ -593,6 +593,52 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settings_silent => 'Sessiz';
 
   @override
+  String get sound_system => 'Cihaz varsayılanı';
+
+  @override
+  String get sound_chime => 'Çınlama';
+
+  @override
+  String get sound_bell => 'Çan';
+
+  @override
+  String get sound_tap => 'Dokunuş';
+
+  @override
+  String get sound_warm => 'Sıcak';
+
+  @override
+  String get sound_soft => 'Yumuşak';
+
+  @override
+  String get sound_melody => 'Ezgi';
+
+  @override
+  String get sound_flow => 'Akış';
+
+  @override
+  String get sound_sparkle => 'Parıltı';
+
+  @override
+  String get sound_beep => 'Bip';
+
+  @override
+  String get sound_ding => 'Ding';
+
+  @override
+  String get sound_preview => 'Sesi dinle';
+
+  @override
+  String get sound_inherit => 'Uygulama ayarını kullan';
+
+  @override
+  String get sound_system_picker => 'Cihazdaki diğer sesler';
+
+  @override
+  String get sound_system_picker_desc =>
+      'Sistem ayarlarından herhangi bir sesi seçin';
+
+  @override
   String get settings_share_last_seen => 'Son görülmeyi paylaş';
 
   @override
@@ -735,6 +781,12 @@ class AppLocalizationsTr extends AppLocalizations {
   String get weekdays_short => 'Pzt,Sal,Çar,Per,Cum,Cmt,Paz';
 
   @override
+  String get schedule_days_label => 'Günler';
+
+  @override
+  String get schedule_days_empty => 'Gün seçin';
+
+  @override
   String get delivery_time => 'Gönderim saati';
 
   @override
@@ -813,6 +865,30 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get bulk_unavailable => 'Toplu gönderim kullanılamıyor.';
+
+  @override
+  String get bulk_explainer_title => 'Herkese ayrı ayrı gider';
+
+  @override
+  String get bulk_explainer_body =>
+      'Seçtiğiniz her sohbete aynı mesaj ayrı bir mesaj olarak gönderilir. Alıcılar birbirini görmez ve grup oluşturulmaz.';
+
+  @override
+  String get bulk_search_hint => 'Kişi veya grup ara';
+
+  @override
+  String bulk_selected_count(Object arg1, Object arg2) {
+    return '$arg1 / $arg2 seçili';
+  }
+
+  @override
+  String get bulk_no_recipients => 'Gönderilecek sohbet yok';
+
+  @override
+  String get bulk_no_results => 'Eşleşen sohbet yok';
+
+  @override
+  String get bulk_message_required => 'Önce mesajınızı yazın';
 
   @override
   String get select_all => 'Tümünü seç';
@@ -1614,4 +1690,72 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get settings_open_source_licenses_desc =>
       'Bu derlemeye dahil edilen yazılım lisanslarını inceleyin.';
+
+  @override
+  String get settings_about => 'Hakkında';
+
+  @override
+  String get settings_about_desc => 'Sürüm, güvenlik notları ve lisanslar';
+
+  @override
+  String get about_security_title => 'Güvenlik';
+
+  @override
+  String get about_security_body =>
+      'Mesajlar cihazdan çıkmadan önce Signal Protokolü ile uçtan uca şifrelenir ve ratchet her mesaj için yeni bir mesaj anahtarı üretir. Sunucu düz metni veya sohbet geçmişini saklamaz; teslim edilmemiş şifreli zarf yalnızca kısa süreli RAM kuyruğunda ACK ya da süre sonuna kadar tutulabilir. Yerel veritabanı SQLCipher ile şifrelenir.';
+
+  @override
+  String get about_version => 'Sürüm';
+
+  @override
+  String get missed_call => 'Kaçırılan arama';
+
+  @override
+  String get missed_video_call => 'Kaçırılan Görüntülü Arama';
+
+  @override
+  String get missed_voice_call => 'Kaçırılan Sesli Arama';
+
+  @override
+  String missed_call_from(Object peer) {
+    return '$peer tarafından';
+  }
+
+  @override
+  String get missed_calls_channel => 'Kaçırılan Aramalar';
+
+  @override
+  String get missed_calls_channel_desc => 'Cevaplanmayan arama bildirimleri';
+
+  @override
+  String get messages_channel => 'Elçim Mesajlar';
+
+  @override
+  String get messages_channel_silent => 'Elçim Mesajlar (Sessiz)';
+
+  @override
+  String get messages_channel_desc => 'Gelen güvenli mesaj bildirimleri';
+
+  @override
+  String get messages_channel_silent_desc =>
+      'Sessize alınmış veya uygulama içi mesajlar';
+
+  @override
+  String get security_number_changed =>
+      'Güvenlik numarası değişti. Bu kişi uygulamayı yeniden kurmuş olabilir. Emin değilsen kimliğini başka bir kanaldan doğrula.';
+
+  @override
+  String get security_message_unreadable =>
+      'Bir mesaj çözülemedi ve gösterilemiyor. Göndericiden tekrar göndermesini isteyebilirsiniz.';
+
+  @override
+  String get chat_jump_to_replied_message => 'Yanıtlanan mesaja git';
+
+  @override
+  String get contacts_empty_body =>
+      'Rehberinizdeki kişiler yalnızca hash ile eşleştirilir. elçim kullanan biri çıkarsa burada görünür.';
+
+  @override
+  String get calls_empty_body =>
+      'Yaptığınız ve gelen aramalar burada listelenir. Arama içeriği hiçbir zaman kaydedilmez.';
 }

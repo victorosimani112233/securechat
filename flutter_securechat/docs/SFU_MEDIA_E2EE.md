@@ -74,8 +74,8 @@ kabul edilir: **eski istemci sessizce SFU'ya gecirilmez.**
 
 ### 4.2 Katilimci tavani
 
-`SfuPolicy.meshCapacity(callType)` → VIDEO 6, VOICE 10.
-`SfuPolicy.MAX_PARTICIPANTS` → 32.
+`SfuPolicy.meshCapacity(callType)` → VIDEO 6, VOICE 8.
+`SfuPolicy.MAX_PARTICIPANTS` → 8 (arayan dahil mutlak tavan).
 
 Tavan moda baglidir: SFU'ya gecilemiyorsa mesh tavani, gecilebiliyorsa
 protokol tavani uygulanir. Kontrol per-group lock altindadir; iki es zamanli

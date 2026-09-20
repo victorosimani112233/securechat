@@ -9,6 +9,8 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart'
     as storage;
 
+import 'support/storage_at_rest.dart';
+
 void main() {
   test(
     'local AEAD crypto round trips direct, group, and storage envelopes',
@@ -45,75 +47,65 @@ void main() {
     },
   );
 
-  test(
-    'signaling codec covers media, prekey, server and group call messages',
-    () {
-      final now = DateTime.fromMillisecondsSinceEpoch(1234);
-      final messages = <SignalMessage>[
-        PreKeyBundleSignal(
-          senderId: 'me',
-          recipientId: 'peer',
-          timestamp: now,
-          bundle: 'bundle-json',
-        ),
-        AudioDataSignal(
-          senderId: 'me',
-          recipientId: 'peer',
-          timestamp: now,
-          data: 'base64pcm',
-        ),
-        VideoDataSignal(
-          senderId: 'me',
-          recipientId: 'peer',
-          timestamp: now,
-          data: 'base64jpg',
-          width: 320,
-          height: 240,
-        ),
-        AdminEncryptedLogSignal(
-          senderId: 'me',
-          timestamp: now,
-          groupId: 'group',
-          eventType: 'PRIVATE_EVENT',
-          adminPayloads: {'admin': 'cipher'},
-        ),
-        SfuRoomCreatedSignal(
-          timestamp: now,
-          groupId: 'group',
-          roomId: 42,
-          janusWsUrl: 'wss://janus',
-        ),
-        GroupCallInviteSignal(
-          senderId: 'me',
-          recipientId: 'peer',
-          timestamp: now,
-          groupId: 'group',
-          callType: 'VIDEO',
-          callId: 'call-1',
-          participants: ['me', 'peer'],
-        ),
-        GroupCallStatusResponseSignal(
-          recipientId: 'me',
-          timestamp: now,
-          groupId: 'group',
-          isActive: true,
-          callId: 'call-1',
-          coordinatorId: 'me',
-          callType: 'VIDEO',
-          participants: ['me', 'peer'],
-          mode: 'SFU',
-          sfuRoomId: 42,
-          janusWsUrl: 'wss://janus',
-        ),
-      ];
+  test('signaling codec covers server and group call messages', () {
+    final now = DateTime.fromMillisecondsSinceEpoch(1234);
+    final messages = <SignalMessage>[
+      EncryptedSignalMessage(
+        senderId: 'me',
+        recipientId: 'peer',
+        timestamp: now,
+        envelope: 'signal-ciphertext',
+        deliveryId: List.filled(43, 'A').join(),
+        deliveryToken: List.filled(43, 'B').join(),
+      ),
+      DeliveryTransportAckSignal(
+        senderId: 'me',
+        timestamp: now,
+        deliveryToken: List.filled(43, 'B').join(),
+      ),
+      AdminEncryptedLogSignal(
+        senderId: 'me',
+        timestamp: now,
+        groupId: 'group',
+        eventType: 'PRIVATE_EVENT',
+        adminPayloads: {'admin': 'cipher'},
+      ),
+      SfuRoomCreatedSignal(
+        timestamp: now,
+        groupId: 'group',
+        roomId: 42,
+        janusWsUrl: 'wss://janus',
+      ),
+      GroupCallInviteSignal(
+        senderId: 'me',
+        recipientId: 'peer',
+        timestamp: now,
+        groupId: 'group',
+        callType: 'VIDEO',
+        callId: 'call-1',
+        participants: ['me', 'peer'],
+      ),
+      GroupCallStatusResponseSignal(
+        recipientId: 'me',
+        timestamp: now,
+        groupId: 'group',
+        isActive: true,
+        callId: 'call-1',
+        coordinatorId: 'me',
+        callType: 'VIDEO',
+        participants: ['me', 'peer'],
+        mode: 'SFU',
+        sfuRoomId: 42,
+        janusWsUrl: 'wss://janus',
+      ),
+    ];
 
-      for (final message in messages) {
-        final decoded = SignalMessage.decode(message.encode());
-        expect(decoded.runtimeType, message.runtimeType);
-        expect(decoded.toJson(), message.toJson());
-      }
-    },
-  );
+    for (final message in messages) {
+      final decoded = SignalMessage.decode(message.encode());
+      expect(decoded.runtimeType, message.runtimeType);
+      expect(decoded.toJson(), message.toJson());
+    }
+  });
 
   test('secure storage database covers DAO-style module contracts', () async {
     final dir = await Directory.systemTemp.createTemp('securechat_db_test_');
@@ -190,7 +182,7 @@ void main() {
     expect(await db.preKeys.exists(1), isTrue);
     expect(await db.sessions.exists('peer-1:1'), isTrue);
     expect(await db.senderKeys.exists('group', 'me', 1), isTrue);
-    expect(await file.readAsString(), isNot(contains('secret text')));
+    expect(await storageAtRest(file), isNot(contains('secret text')));
 
     final reopened = await SecureChatDatabase.open(file: file, crypto: crypto);
     addTearDown(reopened.close);

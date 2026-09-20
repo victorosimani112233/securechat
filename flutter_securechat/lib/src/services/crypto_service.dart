@@ -3,6 +3,49 @@ import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 
+/// Karsi tarafla kurulmus Signal oturumu artik kullanilamaz durumda.
+///
+/// Pratikte en sik sebep, karsi tarafin uygulamayi silip yeniden kurmasi:
+/// yeni kimlik anahtariyla birlikte bizim sakladigimiz ratchet durumu olur.
+/// Bu tip firlatildiginda cagiran taraf oturumu sifirlayip X3DH'i tazelemeli;
+/// aksi halde o sohbet kalici olarak sessizce olur.
+class SignalSessionUnusableException implements Exception {
+  const SignalSessionUnusableException({
+    required this.peerId,
+    required this.cause,
+  });
+
+  final String peerId;
+  final Object cause;
+
+  @override
+  String toString() =>
+      'SignalSessionUnusableException(peer hash gizli, cause: '
+      '${cause.runtimeType})';
+}
+
+/// Bozuk peer oturumunu atip yeniden kurabilen kripto servisleri.
+///
+/// Ayri bir arayuz cunku yalniz gercek Signal Protocol implementasyonu bunu
+/// saglayabilir; yerel test/AEAD servisleri oturum durumu tutmaz.
+abstract interface class PeerSessionRecovery {
+  /// Peer ile olan tum oturum durumunu siler. Sonraki gonderim yeni bir
+  /// prekey bundle cekip X3DH'i bastan kurar.
+  Future<void> resetPeerSession(String peerId);
+
+  /// Oturumu atip hemen yeniden kurar. Karsi tarafin kimligi degismisse
+  /// yeniden kurma fail-closed olur; yeni kimlik kullanici onayi veya
+  /// key-transparency kaniti olmadan kabul edilmez.
+  Future<bool> rebuildPeerSession(String peerId);
+}
+
+/// Karsi tarafin Signal kimlik anahtari degistiginde cagrilir.
+///
+/// Kullaniciya "guvenlik numarasi degisti" benzeri gorunur bir uyari
+/// gosterilir. Bu callback bildirimdir, guven karari degildir; yeni kimlik
+/// ayrica onaylanmadan kripto servisi tarafindan kabul edilmez.
+typedef PeerIdentityRotationHandler = Future<void> Function(String peerId);
+
 abstract interface class CryptoService {
   Future<String> encryptDirect({
     required String recipientId,
@@ -199,6 +242,21 @@ class LocalAeadCryptoService implements CryptoService {
     );
     final bytes = await _aead.decrypt(box, secretKey: key);
     return utf8.decode(bytes);
+  }
+
+  /// SQLCipher veritabani anahtari (32 bayt ham anahtar).
+  ///
+  /// JSON zarf anahtarindan AYRI turetilir. Ayni anahtar materyalini iki
+  /// farkli sifreleme semasinda kullanmak, birinde bulunan bir zayifligin
+  /// digerine tasinmasi anlamina gelir; HKDF baglami ve info degeri farkli
+  /// verilerek alan ayrimi saglanir.
+  Future<List<int>> deriveDatabaseKey() async {
+    final key = await _hkdf.deriveKey(
+      secretKey: _masterKey,
+      nonce: utf8.encode('sqlcipher-store'),
+      info: utf8.encode('securechat.flutter.sqlcipher.v1'),
+    );
+    return key.extractBytes();
   }
 
   Future<SecretKey> _deriveKey(String context) {

@@ -31,6 +31,7 @@ dependencies:
   record: 7.1.1
   web_socket_channel: 3.0.3
   workmanager: 0.10.7
+  sqlite3: 2.9.4
 
 dev_dependencies:
   flutter_test:
@@ -45,6 +46,7 @@ flutter:
     - assets/images/new_logo.png
     - assets/images/splash_logo.png
     - assets/licenses/audioswitch_APACHE-2.0.txt
+    - assets/sounds/
   fonts:
     - family: Inter
       fonts:

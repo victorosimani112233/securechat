@@ -191,8 +191,11 @@ void main() {
       1,
     );
 
-    final settings = source('lib/src/features/settings/settings_screen.dart');
-    expect(settings, contains('showLicensePage('));
+    // Lisans sayfasi Ayarlar'dan Hakkinda ekranina tasindi. Kaldirilmadi:
+    // `libsignal_protocol_dart` GPL-3.0 ve lisans metninin kullaniciya
+    // ulasabilir olmasi bir yukumluluk.
+    final about = source('lib/src/features/settings/about_screen.dart');
+    expect(about, contains('showLicensePage('));
     expect(source('docs/SUPPLY_CHAIN_AUDIT.md'), contains('GPL-3.0'));
   });
 }

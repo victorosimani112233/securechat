@@ -1,4 +1,6 @@
 import 'dart:async';
+import '../notifications/message_notification_service.dart';
+import '../platform/native_bridge.dart';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -13,7 +15,52 @@ enum AppThemePreference { system, light, dark }
 
 enum AppLanguagePreference { system, tr, en, de, ar }
 
-enum NotificationSoundPreference { defaultSound, silent }
+/// Bildirim sesi secenegi.
+///
+/// `asset` paketlenmis ses dosyasinin adi (uzantisiz). Ayni dosya iki
+/// platformda da kullaniliyor: iOS `ios/Runner/Sounds/<asset>.wav`,
+/// Android `res/raw/<asset>.wav`.
+///
+/// `silent` ve `system` disa bir dosya tasimaz: birincisi ses calmaz,
+/// ikincisi cihazin varsayilan bildirim sesini kullanir.
+enum NotificationSoundPreference {
+  silent(null),
+  system(null),
+  chime('elcim_chime'),
+  bell('elcim_bell'),
+  tap('elcim_tap'),
+  warm('elcim_warm'),
+  soft('elcim_soft'),
+  melody('elcim_melody'),
+  flow('elcim_flow'),
+  sparkle('elcim_sparkle'),
+  beep('elcim_beep'),
+  ding('elcim_ding');
+
+  const NotificationSoundPreference(this.asset);
+
+  /// Uygulamanin varsayilan sesi.
+  ///
+  /// Tek yerde tanimli: saklama varsayilani, sifirlama ve taninmayan deger
+  /// hepsi buna bakiyor. Ayri ayri yazilsalardi varsayilan degistiginde
+  /// biri atlanirdi.
+  static const defaultSound = flow;
+
+  /// Paketlenmis dosyanin adi; `silent` ve `system` icin null.
+  final String? asset;
+
+  /// Kalici saklamada kullanilan ad. Eski kayitlarda 'default' yaziyordu.
+  static NotificationSoundPreference fromStorage(String value) {
+    for (final option in values) {
+      if (option.name == value) return option;
+    }
+    // Eski kayitlarda 'default' yaziyordu ve "uygulamanin varsayilani"
+    // demekti; varsayilan degistigi icin yeni varsayilana esleniyor.
+    // Taninmayan bir deger de buraya duser: bildirim hic calmamaktansa
+    // varsayilan sesle calsin.
+    return defaultSound;
+  }
+}
 
 class AppSettingsState {
   const AppSettingsState({
@@ -81,6 +128,7 @@ class SettingsService {
   final Directory _profileDirectory;
   final FullscreenController _fullscreen;
   final Future<void> Function()? _clearNotifications;
+  final NativeBridge _bridge = const NativeBridge();
   final _changes = StreamController<AppSettingsState>.broadcast();
 
   AppSettingsState get current => AppSettingsState(
@@ -97,9 +145,9 @@ class SettingsService {
       _ => AppLanguagePreference.system,
     },
     showNotificationContent: _session.showNotificationContent,
-    notificationSound: _session.notificationSound == 'silent'
-        ? NotificationSoundPreference.silent
-        : NotificationSoundPreference.defaultSound,
+    notificationSound: NotificationSoundPreference.fromStorage(
+      _session.notificationSound,
+    ),
     useDoodleBackground: _session.useDoodleBackground,
     fullscreenMode: _session.fullscreenMode,
     scheduledMessagesEnabled: _session.scheduledMessagesEnabled,
@@ -137,10 +185,25 @@ class SettingsService {
     if (changed) await _clearNotifications?.call();
   }
 
+  /// Secili sesin SISTEM ayarlarini acar.
+  ///
+  /// Paketlenmis sesler sinirli bir liste; cihazdaki her sesi secebilmenin
+  /// tek yolu sistemin kendi secicisi. Android 8'den beri bir kanalin sesi
+  /// zaten yalnizca oradan degistirilebiliyor.
+  ///
+  /// Kanal kimligi burada hesaplaniyor, arayuzde degil: arayuzun bildirim
+  /// altyapisini tanimasi gerekmiyor (bkz. architecture_boundaries_test).
+  Future<bool> openSystemSoundSettings() => _bridge
+      .openNotificationChannelSettings(
+        PluginLocalNotificationPresenter.channelForSound(
+          NotificationSoundPreference.fromStorage(
+            _session.notificationSound,
+          ).asset,
+        ),
+      );
+
   Future<void> setNotificationSound(NotificationSoundPreference value) async {
-    _session.notificationSound = value == NotificationSoundPreference.silent
-        ? 'silent'
-        : 'default';
+    _session.notificationSound = value.name;
     await _persistAndEmit();
   }
 

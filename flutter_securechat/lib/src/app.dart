@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'features/auth/auth_screen.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'features/backup/backup_screen.dart';
-import 'features/bulk/bulk_message_screen.dart';
 import 'features/calls/call_screen.dart';
 import 'features/calls/call_readiness_screen.dart';
 import 'features/calls/ongoing_call_bar.dart';
@@ -15,6 +14,8 @@ import 'features/contacts/contacts_screen.dart';
 import 'features/export/export_history_screen.dart';
 import 'features/groups/group_info_screen.dart';
 import 'features/onboarding/launch_flow.dart';
+import 'features/bulk/bulk_message_screen.dart';
+import 'features/settings/about_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/auto_download_screen.dart';
 import 'features/settings/storage_usage_screen.dart';
@@ -143,7 +144,6 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
           '/launch': (_) => const LaunchScreen(),
           '/onboarding': (_) => const OnboardingScreen(),
           '/permissions': (_) => const PermissionWalkthroughScreen(),
-          '/bulk-message': (_) => const BulkMessageScreen(),
           '/auth': (_) => const AuthScreen(),
           '/': (_) => const MainShell(),
           '/chat': (_) => const ChatScreen(),
@@ -156,7 +156,9 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
           '/export-history': (_) => const ExportHistoryScreen(),
           '/group-info': (_) => const GroupInfoScreen(),
           '/auto-download': (_) => const AutoDownloadScreen(),
+          '/bulk-message': (_) => const BulkMessageScreen(),
           '/storage-usage': (_) => const StorageUsageScreen(),
+          '/about': (_) => const AboutScreen(),
           '/chat-info': (_) => const ChatInfoScreen(),
         },
         initialRoute: '/launch',
@@ -227,9 +229,17 @@ class _AppNavigatorObserver extends NavigatorObserver {
 
   final ValueChanged<String?> onRouteChanged;
   final activeRoute = ValueNotifier<String?>(null);
+  bool _disposed = false;
 
+  /// Navigator gozlemci callback'leri `_flushHistoryUpdates` icinde senkron
+  /// calisir; bu da route geri yukleme sirasinda build fazina denk gelebilir.
+  /// Bildirimi kare sonuna erteleyerek `ValueListenableBuilder` dinleyicisinin
+  /// build sirasinda `setState` cagirmasi engellenir.
   void _setActiveRoute(String? routeName) {
-    activeRoute.value = routeName;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      activeRoute.value = routeName;
+    });
     onRouteChanged(routeName);
   }
 
@@ -253,7 +263,10 @@ class _AppNavigatorObserver extends NavigatorObserver {
     _setActiveRoute(previousRoute?.settings.name);
   }
 
-  void dispose() => activeRoute.dispose();
+  void dispose() {
+    _disposed = true;
+    activeRoute.dispose();
+  }
 }
 
 ThemeMode _themeModeFor(AppThemePreference preference) => switch (preference) {

@@ -4,6 +4,7 @@ import '../../calls/call_readiness_service.dart';
 import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../theme/secure_chat_theme.dart';
 
 class CallReadinessScreen extends StatefulWidget {
   const CallReadinessScreen({super.key});
@@ -62,7 +63,7 @@ class _CallReadinessScreenState extends State<CallReadinessScreen>
                           : Icons.phone_android,
                       size: 64,
                       color: state.allGranted
-                          ? Colors.green
+                          ? AzureTokens.ok
                           : Theme.of(context).colorScheme.primary,
                     ),
                     const SizedBox(height: 16),
@@ -131,7 +132,7 @@ class _CallReadinessScreenState extends State<CallReadinessScreen>
         subtitle: Text(description),
         trailing: Icon(
           granted ? Icons.check_circle : Icons.arrow_forward,
-          color: granted ? Colors.green : Theme.of(context).colorScheme.error,
+          color: granted ? AzureTokens.ok : Theme.of(context).colorScheme.error,
         ),
         onTap: granted ? null : () => _open(kind),
       ),

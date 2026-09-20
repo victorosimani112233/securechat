@@ -7,6 +7,8 @@ import '../../services/app_container.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
 import 'call_screen.dart';
+import '../../widgets/azure_surface.dart';
+import '../../widgets/azure_empty_state.dart';
 
 class CallHistoryScreen extends StatelessWidget {
   const CallHistoryScreen({super.key, this.embedded = false});
@@ -23,39 +25,53 @@ class CallHistoryScreen extends StatelessWidget {
           title: Text(context.l10n.nav_calls),
         ),
         body: runtime == null
-            ? Center(child: Text(context.l10n.no_call_history))
+            ? AzureEmptyState(
+                icon: Icons.call_outlined,
+                title: context.l10n.no_call_history,
+                message: context.l10n.calls_empty_body,
+              )
             : StreamBuilder<List<CallHistoryEntry>>(
                 stream: runtime.callHistory.watchAll(),
                 builder: (context, snapshot) {
                   final calls = snapshot.data ?? const [];
                   if (calls.isEmpty) {
-                    return Center(child: Text(context.l10n.no_call_history));
+                    return AzureEmptyState(
+                      icon: Icons.call_outlined,
+                      title: context.l10n.no_call_history,
+                      message: context.l10n.calls_empty_body,
+                    );
                   }
                   return ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
                     itemCount: calls.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const SizedBox(height: 7),
                     itemBuilder: (context, index) {
                       final call = calls[index];
                       final video = call.callType == CallType.video;
-                      return ListTile(
-                        leading: GeneratedAvatar(name: call.peerName),
-                        title: Text(call.peerName),
-                        subtitle: Text(_description(context, call)),
-                        trailing: IconButton(
-                          tooltip: video
-                              ? context.l10n.video_call
-                              : context.l10n.voice_call,
-                          icon: Icon(
-                            video
-                                ? Icons.videocam_outlined
-                                : Icons.call_outlined,
-                          ),
-                          onPressed: () => Navigator.of(context).pushNamed(
-                            '/calls',
-                            arguments: CallRouteArguments(
-                              peerId: call.peerId,
-                              peerName: call.peerName,
-                              callType: video ? CallType.video : CallType.voice,
+                      // Desen yazinin altindan gecmemeli: opak yuzey.
+                      return AzureSurface(
+                        child: ListTile(
+                          leading: GeneratedAvatar(name: call.peerName),
+                          title: Text(call.peerName),
+                          subtitle: Text(_description(context, call)),
+                          trailing: IconButton(
+                            tooltip: video
+                                ? context.l10n.video_call
+                                : context.l10n.voice_call,
+                            icon: Icon(
+                              video
+                                  ? Icons.videocam_outlined
+                                  : Icons.call_outlined,
+                            ),
+                            onPressed: () => Navigator.of(context).pushNamed(
+                              '/calls',
+                              arguments: CallRouteArguments(
+                                peerId: call.peerId,
+                                peerName: call.peerName,
+                                callType: video
+                                    ? CallType.video
+                                    : CallType.voice,
+                              ),
                             ),
                           ),
                         ),

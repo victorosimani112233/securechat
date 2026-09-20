@@ -107,12 +107,10 @@ class AuthApi {
 
   Future<RegisterResult> register({
     required String userId,
-    required String phoneHash,
     String? registrationToken,
   }) async {
     final response = await _post('/api/v1/users/register', {
       'userId': userId,
-      'phoneHash': phoneHash,
       if (registrationToken != null) 'registrationToken': registrationToken,
     });
     if (response.statusCode != 200) throw response.error();
@@ -161,7 +159,7 @@ class AuthApi {
     if (response.statusCode != 200) throw response.error();
   }
 
-  Future<bool> uploadPreKeys(
+  Future<void> uploadPreKeys(
     SerializedPreKeyBundle bundle,
     String accessToken,
   ) async {
@@ -170,7 +168,7 @@ class AuthApi {
       bundle.toJson(),
       bearerToken: accessToken,
     );
-    return response.statusCode == 200;
+    if (response.statusCode != 200) throw response.error();
   }
 
   Future<_ApiResponse> _post(

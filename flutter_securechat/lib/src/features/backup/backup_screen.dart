@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../backup/backup_service.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../widgets/azure_backdrop.dart';
 
@@ -152,73 +153,76 @@ class _BackupScreenState extends State<BackupScreen> {
     required String title,
     bool confirm = false,
   }) async {
-    final first = TextEditingController();
-    final second = TextEditingController();
     String? error;
+    // Controller'lar dialog'un yasam dongusune ait (bkz TextControllerScope).
     final result = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(title),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: first,
-                obscureText: true,
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: context.l10n.password,
-                  helperText: context.l10n.password_min_length,
-                ),
-              ),
-              if (confirm)
+      builder: (dialogContext) => DualTextControllerScope(
+        builder: (dialogContext, first, second) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(title),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
                 TextField(
-                  controller: second,
+                  controller: first,
                   obscureText: true,
+                  autofocus: true,
                   decoration: InputDecoration(
-                    labelText: context.l10n.password_repeat,
+                    labelText: context.l10n.password,
+                    helperText: context.l10n.password_min_length,
                   ),
                 ),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
+                if (confirm)
+                  TextField(
+                    controller: second,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.password_repeat,
                     ),
                   ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(context.l10n.cancel),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (first.text.length < 8) {
+                    setDialogState(
+                      () => error = context.l10n.password_too_short,
+                    );
+                  } else if (confirm && first.text != second.text) {
+                    setDialogState(
+                      () => error = context.l10n.password_mismatch,
+                    );
+                  } else {
+                    Navigator.pop(dialogContext, first.text);
+                  }
+                },
+                child: Text(
+                  confirm
+                      ? context.l10n.create_group_action
+                      : context.l10n.restore,
                 ),
+              ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(context.l10n.cancel),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (first.text.length < 8) {
-                  setDialogState(() => error = context.l10n.password_too_short);
-                } else if (confirm && first.text != second.text) {
-                  setDialogState(() => error = context.l10n.password_mismatch);
-                } else {
-                  Navigator.pop(dialogContext, first.text);
-                }
-              },
-              child: Text(
-                confirm
-                    ? context.l10n.create_group_action
-                    : context.l10n.restore,
-              ),
-            ),
-          ],
         ),
       ),
     );
-    first.dispose();
-    second.dispose();
     return result;
   }
 

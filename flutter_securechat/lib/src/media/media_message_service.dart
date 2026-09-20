@@ -223,6 +223,9 @@ class MediaMessageService {
         isVoiceNote: voiceNote != null,
       ),
       now,
+      type: _contentType(attachment.mimeType, isVoiceNote: voiceNote != null),
+      outgoing: true,
+      status: StorageMessageStatus.sending,
     );
   }
 
@@ -289,6 +292,8 @@ class MediaMessageService {
         isVoiceNote: voiceNote != null,
       ),
       timestamp,
+      type: _contentType(received.mimeType, isVoiceNote: voiceNote != null),
+      outgoing: false,
     );
     await _database.conversations.incrementUnreadCount(conversationId);
   }

@@ -18,7 +18,8 @@ ise sinirsiz saklanabilir" yaklasimi kesinlikle kabul edilmez.
    plaintext olarak sunucu persistence katmanina yazilmaz.
 3. Offline teslim yalniz client-E2EE zarfina uygulanir; zarf Redis'te ayrica
    server-storage AEAD ile sarilir, opaque key altinda kisa TTL ile tutulur ve
-   basarili socket gonderiminden sonra silinir.
+   alicinin kalici isleme transport ACK'inden sonra silinir. Socket write ve
+   push provider basarisi teslim sayilmaz.
 4. Saklama veya privacy migration katmani calismiyorsa servis fail-closed
    baslar/yanit verir. DB/Redis hatasinda cache-only hesap, plaintext fallback
    veya eski zayif kayda geri donus yoktur.
@@ -39,7 +40,7 @@ ise sinirsiz saklanabilir" yaklasimi kesinlikle kabul edilmez.
 | E-posta OTP | Kayit sahipligi | Redis key'i e-posta HMAC blind index'i; deger OTP+adres bagli HMAC | 10 dk / 10 dk, 5 deneme | Basarida veya limitte hemen |
 | Public Signal materyali | Yeni E2EE session kurma | Identity public key, tek aktif signed prekey ve kullanilmamis one-time public prekey | Aktif key | One-time prekey atomik teslimde hemen silinir; digerleri rotate/hesap silme |
 | Offline mesaj | Kisa sureli offline teslim | Client Signal ciphertext'i + server AES-GCM; recipient HMAC key; yalniz persistence-kapali Redis RAM | 15 dk / 1 saat | Gonderim ACK-sonrasi silme veya TTL |
-| Offline dosya parcasi | Kesintili file transfer | Client ciphertext + server AES-GCM; ayri opaque RAM bucket | 5 dk / 15 dk | Gonderim ACK-sonrasi silme veya TTL |
+| Offline dosya parcasi | Kesintili file transfer | Client ciphertext + server AES-GCM; ayri opaque RAM bucket | 5 dk / 15 dk | Basarili socket gonderimi veya TTL; mesaj transport ACK protokolune dahil degil |
 | Presence/call state | Canli route | Presence process RAM; 1:1 call key'i opaque Redis; grup call state'i yalniz process RAM | Oturum; 1:1 call 5 dk; grup call sert ust sinir 4 saat | Disconnect/hangup/hesap silme/TTL |
 | Sohbet kontrol olaylari | Edit/delete/reaction/pin/receipt/typing/timer senkronu | Sunucu yalniz ordinary direct Signal ciphertext gorur; kontrol turu ve alanlari sabit 16 KiB `CHATCTRL:v2` paketinin icindedir | Offline mesaj zarfiyla ayni en fazla 15 dk / 1 saat RAM TTL | ACK sonrasi veya TTL; plaintext frame reddedilir |
 | Grup sosyal grafigi | Sunucu icin zorunlu degil | **Tutulmaz**; `group_members` V9 ile drop edilir | Yok | Migration aninda fiziksel tablo silme |
@@ -127,8 +128,8 @@ sunucuya karsi tam PSI iddiasi degildir.
 Authenticated hesap silme once tek PostgreSQL transaction'inda private push
 indeksini, bot recipient session'ini ve account/cascade prekey kayitlarini
 siler. Commit sonrasinda FCM
-RAM cache, user registry, token revocation, socket, presence, aktif call ve iki
-offline Redis bucket temizlenir. Silme basarisizsa istemci yerel hesabi silmez;
+RAM cache, user registry, token revocation, socket, presence, aktif call ve
+message/file/delivery Redis yapilari temizlenir. Silme basarisizsa istemci yerel hesabi silmez;
 retry yapabilmesi icin fail-closed kalir.
 
 Retention worker listener acilmadan once zorunlu cleanup transaction'i

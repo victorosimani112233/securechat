@@ -1,5 +1,8 @@
 enum CallType { voice, video }
 
+/// Arayan dahil bir grup aramasinda bulunabilecek en fazla kisi sayisi.
+const int maxGroupCallParticipants = 8;
+
 enum CallDirection { incoming, outgoing }
 
 enum CallState {
@@ -117,3 +120,13 @@ class IceServerConfig {
     if (credential != null) 'credential': credential!,
   };
 }
+
+/// Kabul edilmemis, calmakta olan bir GELEN cagri mi.
+///
+/// Sistem bildirimindeki "Reddet" ile aktif cagridaki "Kapat" ayni native
+/// aksiyona dusuyor; arayan tarafin "reddedildi" ile "gorusme bitti" ayrimini
+/// yapabilmesi icin bu ayrim burada verilir.
+bool isUnansweredIncomingCall(CallSession session) =>
+    session.direction == CallDirection.incoming &&
+    (session.state == CallState.ringing ||
+        session.state == CallState.initiating);

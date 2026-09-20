@@ -22,6 +22,16 @@ class AzureTokens {
   static const danger = Color(0xFFFF5E87);
   static const dangerDeep = Color(0xFFC0264E);
 
+  /// Arka plan deseninin uzerinde durdugu bilesik zemin rengi.
+  ///
+  /// Yuzeyler (mesaj balonu, kart) bu renge harmanlanarak SAYDAM OLMAYAN bir
+  /// renk uretir. Yari saydam birakilirlarsa kayan desen yazinin altindan
+  /// gecer ve okunabilirligi bozar.
+  static Color ground(bool dark) => Color.alphaBlend(
+    azure.withValues(alpha: dark ? .035 : .04),
+    dark ? night : paper,
+  );
+
   static const s1 = 4.0;
   static const s2 = 8.0;
   static const s3 = 12.0;
@@ -74,6 +84,13 @@ class SecureChatTheme {
 
   static ThemeData _base(ColorScheme scheme) {
     final dark = scheme.brightness == Brightness.dark;
+    // Tipografi olcegi ACIK yazilir. Tanimlanmayan stiller Material
+    // varsayilanlarina duserdi; boylece marka yazi tipi yalnizca iki stilde
+    // gorunuyor, uygulamanin en cok bakilan metinleri (AppBar basliklari,
+    // liste adlari) notr kaliyordu.
+    //
+    // Rol dagilimi: SpaceGrotesk = kimlik (basliklar), Inter = okuma (govde),
+    // JetBrainsMono = veri (etiket, sayac).
     final textTheme = const TextTheme(
       displayLarge: TextStyle(
         fontFamily: 'SpaceGrotesk',
@@ -89,16 +106,31 @@ class SecureChatTheme {
         letterSpacing: -.6,
         height: 28 / 24,
       ),
-      titleLarge: TextStyle(
-        fontFamily: 'Inter',
+      headlineSmall: TextStyle(
+        fontFamily: 'SpaceGrotesk',
         fontWeight: FontWeight.w600,
-        fontSize: 17,
-        letterSpacing: -.2,
+        fontSize: 20,
+        letterSpacing: -.4,
+        height: 26 / 20,
+      ),
+      // AppBar basliklari buradan gelir: uygulamada en cok gorulen baslik.
+      // Marka yazi tipinin gercekten hak ettigi yer.
+      titleLarge: TextStyle(
+        fontFamily: 'SpaceGrotesk',
+        fontWeight: FontWeight.w600,
+        fontSize: 18,
+        letterSpacing: -.3,
       ),
       titleMedium: TextStyle(
         fontFamily: 'Inter',
         fontWeight: FontWeight.w600,
         fontSize: 15,
+      ),
+      titleSmall: TextStyle(
+        fontFamily: 'Inter',
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        letterSpacing: -.1,
       ),
       bodyLarge: TextStyle(
         fontFamily: 'Inter',
@@ -116,6 +148,13 @@ class SecureChatTheme {
         fontFamily: 'Inter',
         fontWeight: FontWeight.w400,
         fontSize: 12,
+        height: 16 / 12,
+      ),
+      labelLarge: TextStyle(
+        fontFamily: 'Inter',
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        letterSpacing: .1,
       ),
       labelMedium: TextStyle(
         fontFamily: 'JetBrainsMono',
@@ -123,7 +162,23 @@ class SecureChatTheme {
         fontSize: 11,
         letterSpacing: .5,
       ),
+      labelSmall: TextStyle(
+        fontFamily: 'JetBrainsMono',
+        fontWeight: FontWeight.w400,
+        fontSize: 11,
+        letterSpacing: .3,
+      ),
     );
+    // Acilir yuzeylerin ortak rengi: mesaj balonlari ve kartlarla ayni
+    // tarif (bkz. `AzureSurface.colorOf`). Opak olmasi sart.
+    final dialogSurface = Color.alphaBlend(
+      scheme.surface.withValues(alpha: .96),
+      AzureTokens.ground(dark),
+    );
+    final shadow = dark
+        ? Colors.black.withValues(alpha: .6)
+        : AzureTokens.ink.withValues(alpha: .18);
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -147,6 +202,92 @@ class SecureChatTheme {
             ? AzureTokens.nightRaise.withValues(alpha: .72)
             : Colors.white.withValues(alpha: .72),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      // --- Acilir yuzeyler --------------------------------------------
+      //
+      // Diyaloglar, alt sayfalar ve menuler varsayilan Material gorunumunde
+      // kaliyordu: kare kose, tema disi bir yuzey rengi ve Material 3'un
+      // kendi renk tonlamasi. Arka planda kayan desenin uzerinde bunlar
+      // uygulamadan kopuk duruyordu.
+      //
+      // Yuzey rengi mesaj balonlari ve kartlarla AYNI tarifle uretiliyor
+      // (yuzey rengi zemine harmanlanir), boylece tek bir malzeme dili
+      // olusuyor. Opak olmasi sart: yari saydam bir diyalog altindaki
+      // hareketli deseni gosterir ve metin okunmaz hale gelir.
+      //
+      // `surfaceTintColor` kapali: Material 3 yuzeyleri yukseklige gore
+      // birincil renkle tonluyor, bu da secilmis paleti kaydiriyor.
+      dialogTheme: DialogThemeData(
+        backgroundColor: dialogSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shadowColor: shadow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .48)),
+        ),
+        titleTextStyle: textTheme.titleLarge?.copyWith(
+          color: scheme.onSurface,
+        ),
+        contentTextStyle: textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: dialogSurface,
+        surfaceTintColor: Colors.transparent,
+        modalBackgroundColor: dialogSurface,
+        elevation: 3,
+        modalElevation: 3,
+        shadowColor: shadow,
+        showDragHandle: true,
+        dragHandleColor: scheme.outlineVariant,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: dialogSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shadowColor: shadow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .48)),
+        ),
+        textStyle: textTheme.bodyMedium?.copyWith(color: scheme.onSurface),
+      ),
+      timePickerTheme: TimePickerThemeData(
+        backgroundColor: dialogSurface,
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .48)),
+        ),
+      ),
+      datePickerTheme: DatePickerThemeData(
+        backgroundColor: dialogSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .48)),
+        ),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(dialogSurface),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(3),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: .48),
+              ),
+            ),
+          ),
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: false,

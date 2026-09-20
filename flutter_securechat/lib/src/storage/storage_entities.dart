@@ -24,6 +24,9 @@ class ConversationEntity {
     required this.peerPhone,
     this.lastMessage,
     this.lastMessageTimestamp,
+    this.lastMessageType,
+    this.lastMessageOutgoing = false,
+    this.lastMessageStatus,
     this.unreadCount = 0,
     this.isMuted = false,
     this.isPinned = false,
@@ -47,6 +50,17 @@ class ConversationEntity {
   final String peerPhone;
   final String? lastMessage;
   final int? lastMessageTimestamp;
+
+  /// Son mesajin turu. Sohbet listesi "Fotograf" yazisi yerine tur ikonu
+  /// gosterebilsin diye saklanir; listede her sohbet icin mesaj tablosunu
+  /// taramak O(n) maliyet getirirdi.
+  final String? lastMessageType;
+
+  /// Son mesaji biz mi gonderdik. Teslim tiki yalnizca giden mesajda gosterilir.
+  final bool lastMessageOutgoing;
+
+  /// Son giden mesajin teslim durumu (sending/sent/delivered/read/failed).
+  final String? lastMessageStatus;
   final int unreadCount;
   final bool isMuted;
   final bool isPinned;
@@ -68,6 +82,9 @@ class ConversationEntity {
     String? peerPhone,
     Object? lastMessage = _notProvided,
     Object? lastMessageTimestamp = _notProvided,
+    String? lastMessageType,
+    bool? lastMessageOutgoing,
+    String? lastMessageStatus,
     int? unreadCount,
     bool? isMuted,
     bool? isPinned,
@@ -93,6 +110,9 @@ class ConversationEntity {
     lastMessageTimestamp: identical(lastMessageTimestamp, _notProvided)
         ? this.lastMessageTimestamp
         : lastMessageTimestamp as int?,
+    lastMessageType: lastMessageType ?? this.lastMessageType,
+    lastMessageOutgoing: lastMessageOutgoing ?? this.lastMessageOutgoing,
+    lastMessageStatus: lastMessageStatus ?? this.lastMessageStatus,
     unreadCount: unreadCount ?? this.unreadCount,
     isMuted: isMuted ?? this.isMuted,
     isPinned: isPinned ?? this.isPinned,
@@ -118,6 +138,9 @@ class ConversationEntity {
         peerPhone: json['peerPhone'] as String? ?? '',
         lastMessage: json['lastMessage'] as String?,
         lastMessageTimestamp: (json['lastMessageTimestamp'] as num?)?.toInt(),
+        lastMessageType: json['lastMessageType'] as String?,
+        lastMessageOutgoing: json['lastMessageOutgoing'] as bool? ?? false,
+        lastMessageStatus: json['lastMessageStatus'] as String?,
         unreadCount: (json['unreadCount'] as num?)?.toInt() ?? 0,
         isMuted: json['isMuted'] as bool? ?? false,
         isPinned: json['isPinned'] as bool? ?? false,
@@ -143,6 +166,9 @@ class ConversationEntity {
     'peerPhone': peerPhone,
     'lastMessage': lastMessage,
     'lastMessageTimestamp': lastMessageTimestamp,
+    'lastMessageType': lastMessageType,
+    'lastMessageOutgoing': lastMessageOutgoing,
+    'lastMessageStatus': lastMessageStatus,
     'unreadCount': unreadCount,
     'isMuted': isMuted,
     'isPinned': isPinned,
@@ -654,18 +680,27 @@ class PendingSignalEntity {
     required this.encodedSignal,
     required this.createdAt,
     this.attempts = 0,
+    this.messageId,
+    this.recipientId,
+    this.retainUntilReceipt = false,
   });
 
   final String id;
   final String encodedSignal;
   final int createdAt;
   final int attempts;
+  final String? messageId;
+  final String? recipientId;
+  final bool retainUntilReceipt;
 
   PendingSignalEntity copyWith({int? attempts}) => PendingSignalEntity(
     id: id,
     encodedSignal: encodedSignal,
     createdAt: createdAt,
     attempts: attempts ?? this.attempts,
+    messageId: messageId,
+    recipientId: recipientId,
+    retainUntilReceipt: retainUntilReceipt,
   );
 
   factory PendingSignalEntity.fromJson(Map<String, Object?> json) =>
@@ -674,6 +709,9 @@ class PendingSignalEntity {
         encodedSignal: json['encodedSignal'] as String? ?? '',
         createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
         attempts: (json['attempts'] as num?)?.toInt() ?? 0,
+        messageId: json['messageId'] as String?,
+        recipientId: json['recipientId'] as String?,
+        retainUntilReceipt: json['retainUntilReceipt'] as bool? ?? false,
       );
 
   Map<String, Object?> toJson() => {
@@ -681,6 +719,9 @@ class PendingSignalEntity {
     'encodedSignal': encodedSignal,
     'createdAt': createdAt,
     'attempts': attempts,
+    if (messageId != null) 'messageId': messageId,
+    if (recipientId != null) 'recipientId': recipientId,
+    'retainUntilReceipt': retainUntilReceipt,
   };
 }
 

@@ -10,6 +10,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_securechat/src/calls/call_history_service.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
 import 'package:flutter_securechat/src/media/call_manager.dart';
+import 'package:flutter_securechat/src/media/call_media_key.dart';
 import 'package:flutter_securechat/src/media/call_models.dart';
 import 'package:flutter_securechat/src/media/file_transfer_manager.dart';
 import 'package:flutter_securechat/src/media/group_media_engine.dart';
@@ -285,6 +286,94 @@ void main() {
     },
   );
 
+  test('group call accepts exactly eight total participants', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.dispose);
+    final signaling = InMemorySignalingService();
+    await signaling.connect(
+      userId: 'me',
+      url: 'wss://test.invalid',
+      accessToken: 'token',
+    );
+    final manager = CallManager(
+      session: SessionStore(userId: 'me', accessToken: 'token'),
+      signaling: signaling,
+      media: _FakeMediaEngine(),
+      groupMedia: _FakeGroupMediaEngine(),
+      iceServers: const StaticIceServerProvider([]),
+      callLogs: fixture.database.callLogs,
+      preparePrivateGroupCall:
+          ({
+            required String groupId,
+            required String groupName,
+            required List<String> peerIds,
+          }) async => newOpaqueRoutingNonce(),
+      terminalVisibility: const Duration(minutes: 1),
+    );
+    addTearDown(manager.dispose);
+
+    expect(maxGroupCallParticipants, 8);
+    expect(
+      await manager.initiateGroupCall(
+        groupId: 'group-at-limit',
+        groupName: 'Ekip',
+        peerIds: [
+          'me',
+          ...List.generate(maxGroupCallParticipants - 1, (i) => 'peer-$i'),
+        ],
+        callType: CallType.video,
+      ),
+      isTrue,
+    );
+    expect(
+      signaling.sentMessages.whereType<GroupCallInviteSignal>(),
+      hasLength(maxGroupCallParticipants - 1),
+    );
+  });
+
+  test('group call rejects a ninth participant before signaling', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.dispose);
+    final signaling = InMemorySignalingService();
+    await signaling.connect(
+      userId: 'me',
+      url: 'wss://test.invalid',
+      accessToken: 'token',
+    );
+    final groupMedia = _FakeGroupMediaEngine();
+    final manager = CallManager(
+      session: SessionStore(userId: 'me', accessToken: 'token'),
+      signaling: signaling,
+      media: _FakeMediaEngine(),
+      groupMedia: groupMedia,
+      iceServers: const StaticIceServerProvider([]),
+      callLogs: fixture.database.callLogs,
+      preparePrivateGroupCall:
+          ({
+            required String groupId,
+            required String groupName,
+            required List<String> peerIds,
+          }) async => newOpaqueRoutingNonce(),
+      terminalVisibility: const Duration(minutes: 1),
+    );
+    addTearDown(manager.dispose);
+
+    expect(
+      await manager.initiateGroupCall(
+        groupId: 'group-over-limit',
+        groupName: 'Ekip',
+        peerIds: [
+          'me',
+          ...List.generate(maxGroupCallParticipants, (i) => 'peer-$i'),
+        ],
+        callType: CallType.video,
+      ),
+      isFalse,
+    );
+    expect(manager.currentSession, isNull);
+    expect(signaling.sentMessages.whereType<GroupCallInviteSignal>(), isEmpty);
+  });
+
   test('incoming group call buffers mesh offer until accepted', () async {
     final fixture = await _Fixture.open();
     addTearDown(fixture.dispose);
@@ -434,7 +523,7 @@ void main() {
         .toList();
     expect(chunks, hasLength(3));
     expect(chunks.first.data, isNot(contains('AA0a')));
-    expect(chunks.first.encryption, 'flutter-file-v2-direct');
+    expect(chunks.first.encryption, FileTransferManager.directWireVersion);
     expect(chunks.first.fileName, 'attachment.bin');
     expect(chunks.first.mimeType, 'application/octet-stream');
     expect(chunks.first.groupId, isNull);
@@ -525,7 +614,7 @@ void main() {
         .single;
     final wire = jsonEncode(signal.toJson());
     expect(signal.recipientId, 'bob');
-    expect(signal.encryption, 'flutter-file-v3-group');
+    expect(signal.encryption, FileTransferManager.groupWireVersion);
     expect(signal.groupId, isNull);
     expect(signal.groupName, isNull);
     expect(signal.fileSize, manager.chunkSize);
@@ -716,6 +805,372 @@ void main() {
       );
     },
   );
+  group('call media encryption', () {
+    /// SFU yolunda WebRTC oturumu Janus'ta sonlanir; frame sifrelemesi
+    /// olmadan medya sunucunun guven sinirinin icinde kalir. Sunucu SFU'ya
+    /// ancak tum katilimcilar yetenegi bildirdiginde gecer.
+    Future<_MediaKeyFixture> openCall({
+      bool withDistributor = true,
+      List<String> peerIds = const ['peer-a', 'peer-b'],
+      Set<String> undeliverable = const {},
+      bool failEncryption = false,
+    }) async {
+      final fixture = await _Fixture.open();
+      final signaling = InMemorySignalingService();
+      await signaling.connect(
+        userId: 'me',
+        url: 'wss://test.invalid',
+        accessToken: 'token',
+      );
+      final groupMedia = _FakeGroupMediaEngine()
+        ..failMediaEncryption = failEncryption;
+      final distributedTo = <String>[];
+      final payloads = <String>[];
+      final manager = CallManager(
+        session: SessionStore(userId: 'me', accessToken: 'token'),
+        signaling: signaling,
+        media: _FakeMediaEngine(),
+        groupMedia: groupMedia,
+        iceServers: const StaticIceServerProvider([]),
+        callLogs: fixture.database.callLogs,
+        preparePrivateGroupCall:
+            ({
+              required String groupId,
+              required String groupName,
+              required List<String> peerIds,
+            }) async => newOpaqueRoutingNonce(),
+        distributeCallMediaKey: withDistributor
+            ? ({required String recipientId, required String payload}) async {
+                distributedTo.add(recipientId);
+                payloads.add(payload);
+                return !undeliverable.contains(recipientId);
+              }
+            : null,
+        terminalVisibility: const Duration(minutes: 1),
+      );
+      final started = await manager.initiateGroupCall(
+        groupId: 'group-1',
+        groupName: 'Ekip',
+        peerIds: ['me', ...peerIds],
+        callType: CallType.video,
+      );
+      return _MediaKeyFixture(
+        fixture: fixture,
+        manager: manager,
+        signaling: signaling,
+        engine: groupMedia,
+        distributedTo: distributedTo,
+        payloads: payloads,
+        started: started,
+      );
+    }
+
+    Future<_MediaKeyFixture> openIncomingCall({
+      String coordinatorId = 'coordinator',
+      CallMediaKey? mediaKey,
+      bool keyBeforeInvite = false,
+    }) async {
+      final fixture = await _Fixture.open();
+      final signaling = InMemorySignalingService();
+      await signaling.connect(
+        userId: 'me',
+        url: 'wss://test.invalid',
+        accessToken: 'token',
+      );
+      final routingToken = newOpaqueRoutingNonce();
+      final groupMedia = _FakeGroupMediaEngine();
+      final distributedTo = <String>[];
+      final payloads = <String>[];
+      final manager = CallManager(
+        session: SessionStore(userId: 'me', accessToken: 'token'),
+        signaling: signaling,
+        media: _FakeMediaEngine(),
+        groupMedia: groupMedia,
+        iceServers: const StaticIceServerProvider([]),
+        callLogs: fixture.database.callLogs,
+        groupLocalIdResolver: (token) async =>
+            token == routingToken ? 'group-1' : null,
+        distributeCallMediaKey:
+            ({required String recipientId, required String payload}) async {
+              distributedTo.add(recipientId);
+              payloads.add(payload);
+              return true;
+            },
+        terminalVisibility: const Duration(minutes: 1),
+      );
+      final key = mediaKey ?? CallMediaKey.generate(callId: 'call-incoming');
+      if (keyBeforeInvite) {
+        await manager.applyIncomingMediaKey(
+          senderId: coordinatorId,
+          payload: key.encode(),
+        );
+      }
+      signaling.addIncoming(
+        GroupCallInviteSignal(
+          senderId: coordinatorId,
+          recipientId: 'me',
+          timestamp: DateTime.now(),
+          groupId: routingToken,
+          callType: 'VIDEO',
+          callId: key.callId,
+          participants: const [],
+          mediaE2ee: true,
+        ),
+      );
+      await _flush();
+      if (!keyBeforeInvite) {
+        await manager.applyIncomingMediaKey(
+          senderId: coordinatorId,
+          payload: key.encode(),
+        );
+      }
+      return _MediaKeyFixture(
+        fixture: fixture,
+        manager: manager,
+        signaling: signaling,
+        engine: groupMedia,
+        distributedTo: distributedTo,
+        payloads: payloads,
+        started: true,
+      );
+    }
+
+    test(
+      'a group call distributes one key and advertises the capability',
+      () async {
+        final call = await openCall();
+        addTearDown(call.dispose);
+
+        expect(call.started, isTrue);
+        expect(call.manager.mediaEncryptionActive, isTrue);
+        // Anahtar her katilimciya ayri ayri gider.
+        expect(call.distributedTo, ['peer-a', 'peer-b']);
+        // Ayni anahtar; kusak sifirdan baslar.
+        expect(call.payloads.toSet(), hasLength(1));
+        expect(CallMediaKey.tryParse(call.payloads.first)?.epoch, 0);
+        // Sifreleme baglantilar kurulmadan once acilir.
+        expect(call.engine.appliedMediaKeys, hasLength(1));
+
+        final invites = call.signaling.sentMessages
+            .whereType<GroupCallInviteSignal>()
+            .toList();
+        expect(invites, hasLength(2));
+        expect(invites.every((invite) => invite.mediaE2ee), isTrue);
+      },
+    );
+
+    test(
+      'an unsupported platform stays in mesh instead of a plaintext SFU',
+      () async {
+        final call = await openCall(peerIds: ['peer-a'], failEncryption: true);
+        addTearDown(call.dispose);
+
+        expect(call.started, isTrue);
+        expect(call.manager.mediaEncryptionActive, isFalse);
+        // Yetenek bildirilmezse sunucu SFU'ya gecmez.
+        final invite = call.signaling.sentMessages
+            .whereType<GroupCallInviteSignal>()
+            .single;
+        expect(invite.mediaE2ee, isFalse);
+      },
+    );
+
+    test(
+      'a participant that never receives the key disables encryption',
+      () async {
+        final call = await openCall(undeliverable: {'peer-b'});
+        addTearDown(call.dispose);
+
+        // Anahtari alamayan katilimci frame'leri cozemezdi.
+        expect(call.manager.mediaEncryptionActive, isFalse);
+        expect(call.engine.appliedMediaKeys, isEmpty);
+        expect(
+          call.signaling.sentMessages.whereType<GroupCallInviteSignal>().every(
+            (invite) => invite.mediaE2ee,
+          ),
+          isFalse,
+        );
+      },
+    );
+
+    test('without a distributor no key is generated', () async {
+      final call = await openCall(peerIds: ['peer-a'], withDistributor: false);
+      addTearDown(call.dispose);
+
+      expect(call.manager.mediaEncryptionActive, isFalse);
+      expect(call.engine.appliedMediaKeys, isEmpty);
+    });
+
+    test('an incoming key minted for another call is refused', () async {
+      final call = await openIncomingCall();
+      addTearDown(call.dispose);
+
+      final foreign = CallMediaKey.generate(callId: 'someone-elses-call');
+
+      expect(
+        await call.manager.applyIncomingMediaKey(
+          senderId: 'coordinator',
+          payload: foreign.encode(),
+        ),
+        isFalse,
+      );
+    });
+
+    test('a superseded epoch cannot be replayed', () async {
+      final initial = CallMediaKey.generate(callId: 'call-incoming');
+      final call = await openIncomingCall(mediaKey: initial);
+      addTearDown(call.dispose);
+      final callId = call.manager.currentSession!.callId;
+
+      final newer = CallMediaKey.generate(callId: callId, epoch: 5);
+      expect(
+        await call.manager.applyIncomingMediaKey(
+          senderId: 'coordinator',
+          payload: newer.encode(),
+        ),
+        isTrue,
+      );
+
+      final older = CallMediaKey.generate(callId: callId, epoch: 4);
+      expect(
+        await call.manager.applyIncomingMediaKey(
+          senderId: 'coordinator',
+          payload: older.encode(),
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'a media key received before its invite is applied after binding',
+      () async {
+        final call = await openIncomingCall(keyBeforeInvite: true);
+        addTearDown(call.dispose);
+
+        expect(call.manager.mediaEncryptionActive, isTrue);
+        expect(call.engine.appliedMediaKeys, hasLength(1));
+      },
+    );
+
+    test('a non-coordinator cannot replace the active media key', () async {
+      final initial = CallMediaKey.generate(callId: 'call-incoming');
+      final call = await openIncomingCall(mediaKey: initial);
+      addTearDown(call.dispose);
+      final injected = CallMediaKey.generate(
+        callId: initial.callId,
+        epoch: initial.epoch + 1,
+      );
+
+      expect(
+        await call.manager.applyIncomingMediaKey(
+          senderId: 'ordinary-member',
+          payload: injected.encode(),
+        ),
+        isFalse,
+      );
+      expect(call.engine.appliedMediaKeys, [initial]);
+    });
+
+    test('the same epoch is idempotent but cannot carry another key', () async {
+      final initial = CallMediaKey.generate(callId: 'call-incoming');
+      final call = await openIncomingCall(mediaKey: initial);
+      addTearDown(call.dispose);
+
+      expect(
+        await call.manager.applyIncomingMediaKey(
+          senderId: 'coordinator',
+          payload: initial.encode(),
+        ),
+        isTrue,
+      );
+      final substituted = CallMediaKey.generate(
+        callId: initial.callId,
+        epoch: initial.epoch,
+      );
+      expect(
+        await call.manager.applyIncomingMediaKey(
+          senderId: 'coordinator',
+          payload: substituted.encode(),
+        ),
+        isFalse,
+      );
+      expect(call.manager.currentSession?.state, CallState.failed);
+      expect(call.manager.mediaEncryptionActive, isFalse);
+    });
+
+    test('only the coordinator rotates after a membership update', () async {
+      final initial = CallMediaKey.generate(callId: 'call-incoming');
+      final call = await openIncomingCall(mediaKey: initial);
+      addTearDown(call.dispose);
+
+      call.signaling.addIncoming(
+        GroupCallMemberJoinedSignal(
+          senderId: 'coordinator',
+          recipientId: 'me',
+          timestamp: DateTime.now(),
+          groupCallId: initial.callId,
+          joinedMemberId: 'new-member',
+        ),
+      );
+      await _flush();
+
+      expect(call.distributedTo, isEmpty);
+      expect(call.engine.appliedMediaKeys, [initial]);
+    });
+
+    test('a partial rotation failure terminates the encrypted call', () async {
+      final undeliverable = <String>{};
+      final call = await openCall(
+        peerIds: ['peer-a'],
+        undeliverable: undeliverable,
+      );
+      addTearDown(call.dispose);
+      expect(call.manager.mediaEncryptionActive, isTrue);
+      undeliverable.add('peer-b');
+
+      call.signaling.addIncoming(
+        GroupCallMemberJoinedSignal(
+          senderId: 'peer-a',
+          recipientId: 'me',
+          timestamp: DateTime.now(),
+          groupCallId: call.manager.currentSession!.callId,
+          joinedMemberId: 'peer-b',
+        ),
+      );
+      final acknowledged = <String>{};
+      for (var attempt = 0; attempt < 20; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        for (final control
+            in call.signaling.sentMessages.whereType<CallControlSignal>()) {
+          final messageId = control.messageId;
+          if (messageId == null || !acknowledged.add(messageId)) continue;
+          call.signaling.addIncoming(
+            CallControlAckSignal(
+              senderId: control.recipientId,
+              recipientId: 'me',
+              timestamp: DateTime.now(),
+              messageId: messageId,
+              action: control.action,
+            ),
+          );
+        }
+        if (call.manager.currentSession?.state == CallState.failed) break;
+      }
+
+      expect(call.manager.currentSession?.state, CallState.failed);
+      expect(call.manager.mediaEncryptionActive, isFalse);
+    });
+
+    test('the media key is dropped when the call ends', () async {
+      final call = await openCall(peerIds: ['peer-a']);
+      addTearDown(call.dispose);
+      expect(call.manager.mediaEncryptionActive, isTrue);
+
+      await call.manager.endCall();
+
+      expect(call.manager.mediaEncryptionActive, isFalse);
+    });
+  });
 }
 
 Future<void> _flush() => Future<void>.delayed(const Duration(milliseconds: 20));
@@ -781,6 +1236,31 @@ class _FakeMediaEngine implements MediaEngine {
   Future<void> switchCamera() async {}
 }
 
+class _MediaKeyFixture {
+  _MediaKeyFixture({
+    required this.fixture,
+    required this.manager,
+    required this.signaling,
+    required this.engine,
+    required this.distributedTo,
+    required this.payloads,
+    required this.started,
+  });
+
+  final _Fixture fixture;
+  final CallManager manager;
+  final InMemorySignalingService signaling;
+  final _FakeGroupMediaEngine engine;
+  final List<String> distributedTo;
+  final List<String> payloads;
+  final bool started;
+
+  Future<void> dispose() async {
+    await manager.dispose();
+    await fixture.dispose();
+  }
+}
+
 class _FakeGroupMediaEngine implements GroupMediaEngine {
   final _states = StreamController<GroupPeerState>.broadcast();
   final _local = RTCVideoRenderer();
@@ -788,7 +1268,28 @@ class _FakeGroupMediaEngine implements GroupMediaEngine {
   final acceptedOffers = <String, String>{};
   final answers = <String, String>{};
   final candidates = <String, List<String>>{};
+  final appliedMediaKeys = <CallMediaKey>[];
   bool closed = false;
+  bool failMediaEncryption = false;
+
+  @override
+  bool get mediaEncryptionEnabled => appliedMediaKeys.isNotEmpty;
+
+  @override
+  Future<void> enableMediaEncryption(CallMediaKey mediaKey) async {
+    if (failMediaEncryption) {
+      throw StateError('frame encryption unsupported');
+    }
+    appliedMediaKeys.add(mediaKey);
+  }
+
+  @override
+  Future<void> rotateMediaKey(CallMediaKey mediaKey) async {
+    if (failMediaEncryption) {
+      throw StateError('frame encryption unsupported');
+    }
+    appliedMediaKeys.add(mediaKey);
+  }
 
   void emit(String peerId, MediaConnectionState state) =>
       _states.add(GroupPeerState(peerId, state));

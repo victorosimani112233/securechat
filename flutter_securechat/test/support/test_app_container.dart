@@ -1,5 +1,7 @@
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_securechat/src/calls/call_readiness_service.dart';
+import 'package:flutter_securechat/src/bulk/bulk_message_service.dart';
+import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_securechat/src/core/models.dart';
 import 'package:flutter_securechat/src/security/chat_access_service.dart';
 import 'package:flutter_securechat/src/services/app_container.dart';
@@ -10,6 +12,9 @@ import 'package:flutter_securechat/src/services/signaling_service.dart';
 
 AppContainer createWidgetTestContainer({
   AppNotificationRuntime? notificationRuntime,
+  /// Uzun sohbet davranisini (kaydirma, sinir tahmini) sinamak isteyen
+  /// testler kendi mesaj listesini verebilir.
+  List<LocalMessage> Function(String conversationId)? messagesFor,
 }) {
   final conversations = _testConversations();
   return AppContainer.testing(
@@ -18,7 +23,7 @@ AppContainer createWidgetTestContainer({
       conversations: conversations,
       messages: {
         for (final conversation in conversations)
-          conversation.id: _testMessages(conversation.id),
+          conversation.id: (messagesFor ?? _testMessages)(conversation.id),
       },
     ),
     crypto: LocalAeadCryptoService(
@@ -30,6 +35,13 @@ AppContainer createWidgetTestContainer({
       service: ChatAccessService(
         authenticator: AlwaysAllowDeviceOwnerAuthenticator(),
       ),
+    ),
+    // Gercek `BulkMessageService` veritabani ve gonderim zincirini cekiyor;
+    // test kabinda kurulamiyor ve ekran "kullanilamiyor" yazisina dusuyordu.
+    // Yani ekranin dar telefonda ve %200 metin olceginde bozulup bozulmadigi
+    // HIC sinanmiyordu.
+    bulkRuntime: AppBulkRuntime(
+      service: _FakeBulkSender(conversations),
     ),
     callReadinessRuntime: const AppCallReadinessRuntime(
       service: CallReadinessService(
@@ -135,4 +147,26 @@ List<LocalMessage> _testMessages(String conversationId) {
       isPinned: true,
     ),
   ];
+}
+
+class _FakeBulkSender implements BulkMessageSender {
+  _FakeBulkSender(this._conversations);
+
+  final List<Conversation> _conversations;
+
+  @override
+  Stream<List<ConversationEntity>> watchConversations() => Stream.value([
+    for (final conversation in _conversations)
+      ConversationEntity(
+        id: conversation.id,
+        peerId: conversation.peerId,
+        peerName: conversation.peerName,
+        peerPhone: conversation.peerPhone,
+        isGroup: conversation.isGroup,
+      ),
+  ]);
+
+  @override
+  Future<BulkSendResult> send(String content, Iterable<String> recipients) async =>
+      BulkSendResult(sent: recipients.length, failed: const {});
 }

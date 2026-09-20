@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import '../l10n/service_strings.dart';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../incoming/incoming_message_handler.dart';
 import '../media/call_models.dart';
 import '../services/session_store.dart';
+import '../settings/settings_service.dart';
 import '../services/async_operation_tracker.dart';
 
 class LocalMessageNotification {
@@ -17,6 +20,7 @@ class LocalMessageNotification {
     required this.count,
     required this.silent,
     required this.hideOnLockScreen,
+    this.sound,
   });
 
   final int id;
@@ -27,6 +31,12 @@ class LocalMessageNotification {
   final int count;
   final bool silent;
   final bool hideOnLockScreen;
+
+  /// Paketlenmis ses dosyasinin adi (uzantisiz), ya da null.
+  ///
+  /// null iki durumda gelir: bildirim sessiz, ya da kullanici cihazin
+  /// varsayilan sesini secmis.
+  final String? sound;
 }
 
 class NotificationDismissal {
@@ -75,14 +85,44 @@ abstract interface class MissedCallNotificationPresenter {
 
 class PluginLocalNotificationPresenter
     implements LocalNotificationPresenter, MissedCallNotificationPresenter {
-  PluginLocalNotificationPresenter({FlutterLocalNotificationsPlugin? plugin})
-    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+  PluginLocalNotificationPresenter({
+    FlutterLocalNotificationsPlugin? plugin,
+    ServiceStrings? strings,
+  }) : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
+       // Bildirim metinleri servis katmaninda uretiliyor ve burada
+       // BuildContext yok; yerellestirme icin ServiceStrings kullanilir.
+       _strings = strings ?? ServiceStrings.fixed('tr');
 
   static const highChannelId = 'elcim_messages_v4';
   static const lowChannelId = 'elcim_messages_low_v1';
   static const groupKey = 'elcim_messages';
 
+  /// Her ses icin AYRI kanal.
+  ///
+  /// Android 8'den beri bir kanalin sesi olusturulduktan SONRA kodla
+  /// degistirilemiyor. Tek kanal kullanilsaydi ses degistirmek icin kanali
+  /// silip yeniden kurmak gerekirdi — ustelik ayni kimlikle degil, cunku
+  /// Android silinen kanalin ayarlarini hatirliyor ve eski sesle geri
+  /// getiriyor. Ses basina kalici bir kanal bu dansi tamamen gereksiz
+  /// kiliyor: kullanici sesi degistirdiginde yalnizca hedef kanal degisiyor.
+  ///
+  /// Yan faydasi: kullanici her sesi sistem ayarlarindan ayrica
+  /// ozellestirebiliyor ve o ayar kaliciligini koruyor.
+  static String _channelFor(LocalMessageNotification notification) =>
+      notification.silent
+      ? lowChannelId
+      : channelForSound(notification.sound);
+
+  /// Bir sesin kanal kimligi.
+  ///
+  /// Ayarlar ekrani da bunu kullaniyor: sistem ses secicisini acarken hangi
+  /// kanalin ayarlarina gidilecegini bilmesi gerekiyor. Iki yerde ayri
+  /// hesaplanirsa kullanici yanlis kanalin ayarina duser.
+  static String channelForSound(String? sound) =>
+      sound == null ? highChannelId : 'elcim_messages_$sound';
+
   final FlutterLocalNotificationsPlugin _plugin;
+  final ServiceStrings _strings;
   final _tapController = StreamController<String>.broadcast();
   final _dismissController =
       StreamController<NotificationDismissal>.broadcast();
@@ -157,18 +197,24 @@ class PluginLocalNotificationPresenter
 
   @override
   Future<void> show(LocalMessageNotification notification) async {
-    final channelId = notification.silent ? lowChannelId : highChannelId;
+    final channelId = _channelFor(notification);
+    final l10n = await _strings.load();
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
         channelId,
-        notification.silent ? 'Elçim Mesajlar (Sessiz)' : 'Elçim Mesajlar',
+        notification.silent
+            ? l10n.messages_channel_silent
+            : l10n.messages_channel,
         channelDescription: notification.silent
-            ? 'Sessize alınmış veya uygulama içi mesajlar'
-            : 'Gelen güvenli mesaj bildirimleri',
+            ? l10n.messages_channel_silent_desc
+            : l10n.messages_channel_desc,
         icon: 'notification_icon',
         importance: notification.silent ? Importance.low : Importance.high,
         priority: notification.silent ? Priority.low : Priority.high,
         playSound: !notification.silent,
+        sound: notification.silent || notification.sound == null
+            ? null
+            : RawResourceAndroidNotificationSound(notification.sound),
         enableVibration: !notification.silent,
         silent: notification.silent,
         groupKey: groupKey,
@@ -184,6 +230,10 @@ class PluginLocalNotificationPresenter
         presentList: true,
         presentBadge: true,
         presentSound: !notification.silent,
+        // iOS'ta ses dosya adiyla verilir; uzanti sart.
+        sound: notification.silent || notification.sound == null
+            ? null
+            : '${notification.sound}.wav',
         threadIdentifier: notification.conversationId,
         categoryIdentifier: 'securechat_message',
       ),
@@ -203,17 +253,18 @@ class PluginLocalNotificationPresenter
   @override
   Future<void> showMissedCall(MissedCallNotification notification) async {
     final payload = _encodeMissedCall(notification);
+    final l10n = await _strings.load();
     await _plugin.show(
       id: notification.id,
       title: notification.callType == CallType.video
-          ? 'Kaçırılan Görüntülü Arama'
-          : 'Kaçırılan Sesli Arama',
-      body: '${notification.peerName} tarafından',
-      notificationDetails: const NotificationDetails(
+          ? l10n.missed_video_call
+          : l10n.missed_voice_call,
+      body: l10n.missed_call_from(notification.peerName),
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           'missed_call_channel',
-          'Kaçırılan Aramalar',
-          channelDescription: 'Cevaplanmayan arama bildirimleri',
+          l10n.missed_calls_channel,
+          channelDescription: l10n.missed_calls_channel_desc,
           icon: 'notification_icon',
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
@@ -327,10 +378,16 @@ class MessageNotificationCoordinator {
     final total = _counts.values.fold<int>(0, (sum, value) => sum + value);
     final privacy = !_session.showNotificationContent;
     final conversationSilent = event.isMuted && !event.isMention;
+    // Sohbete ozel ses, uygulama genelindeki ayari EZER. Sessize alinmis bir
+    // sohbet yine sessiz kalir: susturma daha guclu bir karar.
+    final custom = event.customSound;
+    final preference = custom == null
+        ? NotificationSoundPreference.fromStorage(_session.notificationSound)
+        : NotificationSoundPreference.fromStorage(custom);
     final silent =
         _isForeground ||
         conversationSilent ||
-        _session.notificationSound == 'silent';
+        preference == NotificationSoundPreference.silent;
     await _presenter.show(
       LocalMessageNotification(
         id: privacy ? privacyNotificationId : _stableId(event.conversationId),
@@ -345,6 +402,7 @@ class MessageNotificationCoordinator {
         count: privacy ? total : _counts[event.conversationId]!,
         silent: silent,
         hideOnLockScreen: privacy,
+        sound: preference.asset,
       ),
     );
   }

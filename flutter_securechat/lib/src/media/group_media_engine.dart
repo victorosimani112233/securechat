@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import 'call_media_key.dart';
 import 'call_models.dart';
 import 'media_engine.dart';
 
@@ -51,6 +53,21 @@ abstract interface class GroupMediaEngine {
     required String? sdpMid,
     required int sdpMLineIndex,
   });
+  /// Medya frame sifrelemesini acar.
+  ///
+  /// SFU yolunda WebRTC oturumu Janus'ta sonlanir; bu katman olmadan medya
+  /// sunucunun guven sinirinin icinde kalir. Baglantilar kurulmadan **once**
+  /// cagrilmalidir, aksi halde ilk frame'ler sifresiz gider.
+  ///
+  /// Platform destegi yoksa hata firlatir; cagiran mesh'te kalmalidir.
+  Future<void> enableMediaEncryption(CallMediaKey mediaKey);
+
+  /// Uyelik degisiminde yeni kusaga gecer.
+  Future<void> rotateMediaKey(CallMediaKey mediaKey);
+
+  /// Frame sifrelemesi su an etkin mi.
+  bool get mediaEncryptionEnabled;
+
   Future<void> removePeer(String peerId);
   Future<void> removeSfuFeed(int feedId);
   Future<void> setMuted(bool muted);
@@ -75,6 +92,95 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
 
   static const _sfuPublisherKey = 'sfu:publisher';
   static String _sfuSubscriberKey(int feedId) => 'sfu:$feedId';
+
+  /// Frame sifreleme durumu.
+  ///
+  /// Anahtar halkasi tum katilimcilar icin ortaktir: cagri basina tek medya
+  /// anahtari vardir ve kusak, anahtar indeksi olarak tasinir.
+  KeyProvider? _keyProvider;
+  CallMediaKey? _mediaKey;
+  final Map<String, List<FrameCryptor>> _cryptors = {};
+
+  @override
+  bool get mediaEncryptionEnabled => _mediaKey != null;
+
+  @override
+  Future<void> enableMediaEncryption(CallMediaKey mediaKey) async {
+    final provider = _keyProvider ??= await frameCryptorFactory
+        .createDefaultKeyProvider(
+          KeyProviderOptions(
+            // Cagri basina tek ortak anahtar; kusak anahtar indeksidir.
+            sharedKey: true,
+            ratchetSalt: _ratchetSalt(mediaKey.callId),
+            ratchetWindowSize: 0,
+            keyRingSize: CallMediaKey.keyRingSize,
+            // Anahtar hazir degilken frame acik gonderilmez, dusurulur.
+            discardFrameWhenCryptorNotReady: true,
+          ),
+        );
+    await provider.setSharedKey(key: mediaKey.key, index: mediaKey.keyIndex);
+    _mediaKey = mediaKey;
+  }
+
+  @override
+  Future<void> rotateMediaKey(CallMediaKey mediaKey) async {
+    final provider = _keyProvider;
+    if (provider == null) {
+      // Henuz acilmadiysa rotasyon acilis demektir.
+      await enableMediaEncryption(mediaKey);
+      return;
+    }
+    await provider.setSharedKey(key: mediaKey.key, index: mediaKey.keyIndex);
+    for (final cryptors in _cryptors.values) {
+      for (final cryptor in cryptors) {
+        await cryptor.setKeyIndex(mediaKey.keyIndex);
+      }
+    }
+    _mediaKey = mediaKey;
+  }
+
+  /// Salt cagriya baglidir; sabit bir deger tum aramalarda ayni turetmeyi
+  /// verirdi.
+  static Uint8List _ratchetSalt(String callId) =>
+      Uint8List.fromList('securechat-call-$callId'.codeUnits);
+
+  Future<void> _attachSenderCryptors(String key, RTCPeerConnection pc) async {
+    final mediaKey = _mediaKey;
+    final provider = _keyProvider;
+    if (mediaKey == null || provider == null) return;
+    for (final sender in await pc.getSenders()) {
+      final cryptor = await frameCryptorFactory.createFrameCryptorForRtpSender(
+        participantId: _participantId,
+        sender: sender,
+        algorithm: Algorithm.kAesGcm,
+        keyProvider: provider,
+      );
+      await cryptor.setKeyIndex(mediaKey.keyIndex);
+      await cryptor.setEnabled(true);
+      _cryptors.putIfAbsent(key, () => []).add(cryptor);
+    }
+  }
+
+  Future<void> _attachReceiverCryptor(
+    String key,
+    RTCRtpReceiver? receiver,
+  ) async {
+    final mediaKey = _mediaKey;
+    final provider = _keyProvider;
+    if (mediaKey == null || provider == null || receiver == null) return;
+    final cryptor = await frameCryptorFactory.createFrameCryptorForRtpReceiver(
+      participantId: key,
+      receiver: receiver,
+      algorithm: Algorithm.kAesGcm,
+      keyProvider: provider,
+    );
+    await cryptor.setKeyIndex(mediaKey.keyIndex);
+    await cryptor.setEnabled(true);
+    _cryptors.putIfAbsent(key, () => []).add(cryptor);
+  }
+
+  /// Kendi gonderdigimiz frame'lerin katilimci etiketi.
+  static const String _participantId = 'self';
 
   @override
   Stream<GroupPeerState> get peerStates => _peerStates.stream;
@@ -265,8 +371,13 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
       if (value == null || value.isEmpty) return;
       onIceCandidate(value, candidate.sdpMid, candidate.sdpMLineIndex ?? 0);
     };
+    // Sifreleme acikken cryptor'lar frame akmadan once baglanmalidir.
+    await _attachSenderCryptors(key, pc);
     if (renderRemote) {
-      pc.onTrack = (event) => _attachRemoteStream(key, event);
+      pc.onTrack = (event) {
+        unawaited(_attachReceiverCryptor(key, event.receiver));
+        unawaited(_attachRemoteStream(key, event));
+      };
     }
     pc.onConnectionState = (state) {
       _peerStates.add(GroupPeerState(key, WebRtcMediaEngine.mapState(state)));
@@ -295,6 +406,9 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
       _disposeConnection(_sfuSubscriberKey(feedId));
 
   Future<void> _disposeConnection(String key) async {
+    for (final cryptor in _cryptors.remove(key) ?? const <FrameCryptor>[]) {
+      await cryptor.dispose();
+    }
     final pc = _connections.remove(key);
     if (pc != null) {
       await pc.close();

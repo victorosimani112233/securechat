@@ -593,6 +593,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settings_silent => 'Silent';
 
   @override
+  String get sound_system => 'Device default';
+
+  @override
+  String get sound_chime => 'Chime';
+
+  @override
+  String get sound_bell => 'Bell';
+
+  @override
+  String get sound_tap => 'Tap';
+
+  @override
+  String get sound_warm => 'Warm';
+
+  @override
+  String get sound_soft => 'Soft';
+
+  @override
+  String get sound_melody => 'Melody';
+
+  @override
+  String get sound_flow => 'Flow';
+
+  @override
+  String get sound_sparkle => 'Sparkle';
+
+  @override
+  String get sound_beep => 'Beep';
+
+  @override
+  String get sound_ding => 'Ding';
+
+  @override
+  String get sound_preview => 'Play sound';
+
+  @override
+  String get sound_inherit => 'Use app setting';
+
+  @override
+  String get sound_system_picker => 'More sounds on this device';
+
+  @override
+  String get sound_system_picker_desc => 'Pick any sound from system settings';
+
+  @override
   String get settings_share_last_seen => 'Share last seen';
 
   @override
@@ -735,6 +780,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get weekdays_short => 'Mon,Tue,Wed,Thu,Fri,Sat,Sun';
 
   @override
+  String get schedule_days_label => 'Days';
+
+  @override
+  String get schedule_days_empty => 'Select days';
+
+  @override
   String get delivery_time => 'Delivery time';
 
   @override
@@ -814,6 +865,30 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get bulk_unavailable => 'Bulk sending is unavailable.';
+
+  @override
+  String get bulk_explainer_title => 'Sent separately to each';
+
+  @override
+  String get bulk_explainer_body =>
+      'The same message is sent to each selected chat as a separate message. Recipients cannot see each other and no group is created.';
+
+  @override
+  String get bulk_search_hint => 'Search people or groups';
+
+  @override
+  String bulk_selected_count(Object arg1, Object arg2) {
+    return '$arg1 of $arg2 selected';
+  }
+
+  @override
+  String get bulk_no_recipients => 'No chats to send to';
+
+  @override
+  String get bulk_no_results => 'No matching chats';
+
+  @override
+  String get bulk_message_required => 'Write your message first';
 
   @override
   String get select_all => 'Select all';
@@ -1614,4 +1689,71 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settings_open_source_licenses_desc =>
       'Review the software licenses included in this build.';
+
+  @override
+  String get settings_about => 'About';
+
+  @override
+  String get settings_about_desc => 'Version, security notes and licenses';
+
+  @override
+  String get about_security_title => 'Security';
+
+  @override
+  String get about_security_body =>
+      'Messages are end-to-end encrypted with the Signal Protocol before leaving the device, and the ratchet derives a new message key for every message. The server stores neither plaintext nor conversation history; an undelivered encrypted envelope may remain only in a short-lived RAM queue until acknowledgement or expiry. The local database is encrypted with SQLCipher.';
+
+  @override
+  String get about_version => 'Version';
+
+  @override
+  String get missed_call => 'Missed call';
+
+  @override
+  String get missed_video_call => 'Missed video call';
+
+  @override
+  String get missed_voice_call => 'Missed voice call';
+
+  @override
+  String missed_call_from(Object peer) {
+    return 'From $peer';
+  }
+
+  @override
+  String get missed_calls_channel => 'Missed calls';
+
+  @override
+  String get missed_calls_channel_desc => 'Notifications for unanswered calls';
+
+  @override
+  String get messages_channel => 'elçim Messages';
+
+  @override
+  String get messages_channel_silent => 'elçim Messages (silent)';
+
+  @override
+  String get messages_channel_desc => 'Incoming secure message notifications';
+
+  @override
+  String get messages_channel_silent_desc => 'Muted or in-app messages';
+
+  @override
+  String get security_number_changed =>
+      'The security number changed. This person may have reinstalled the app. If unsure, verify their identity through another channel.';
+
+  @override
+  String get security_message_unreadable =>
+      'A message could not be decrypted and cannot be shown. You can ask the sender to send it again.';
+
+  @override
+  String get chat_jump_to_replied_message => 'Go to the replied message';
+
+  @override
+  String get contacts_empty_body =>
+      'Your contacts are matched by hash only. Anyone who uses elçim will appear here.';
+
+  @override
+  String get calls_empty_body =>
+      'Calls you make and receive are listed here. Call content is never recorded.';
 }

@@ -5,6 +5,7 @@ import UIKit
 import workmanager_apple
 import firebase_messaging
 import LocalAuthentication
+import SQLCipher
 import UserNotifications
 
 @main
@@ -41,6 +42,16 @@ import UserNotifications
       object: nil
     )
     installPrivacyOverlayHooks()
+    // Gomulu SQLCipher'i uygulama ikilisinde tutar.
+    //
+    // SQLCipher'a yalniz Dart FFI tarafindan basvuruluyor; Swift veya
+    // Objective-C hicbir simgesine dokunmuyor. Bu cagri olmadan baglayici,
+    // basvurulmayan statik kutuphaneyi atar ve uygulama iOS'un DUZ
+    // SQLite'ina duser — o da `PRAGMA key`i sessizce yok sayip veritabanini
+    // SIFRESIZ yazar. Dart tarafindaki `PRAGMA cipher_version` denetimi bu
+    // durumu yakalayip depoyu hic acmaz; buradaki cagri sorunun en bastan
+    // olusmamasi icin.
+    SQLCipherRuntime.ensureLinked()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -77,6 +88,11 @@ import UserNotifications
         self?.authenticateLockedChat(call.arguments, result: result)
       case "getCallReadiness":
         self?.getCallReadiness(result: result)
+      case "openNotificationChannelSettings":
+        // iOS'ta bildirim KANALI kavrami yok; ses secimi paketlenmis
+        // listeden yapiliyor. Burada yalnizca uygulamanin bildirim
+        // ayarlari aciliyor (izin, banner, kilit ekrani gorunumu).
+        self?.openNotificationSettings(result: result)
       case "openCallReadinessSetting":
         self?.openCallReadinessSetting(call.arguments, result: result)
       case "requestContactsPermission":
@@ -142,6 +158,14 @@ import UserNotifications
         ])
       }
     }
+  }
+
+  private func openNotificationSettings(result: @escaping FlutterResult) {
+    guard let url = URL(string: UIApplication.openSettingsURLString) else {
+      result(false)
+      return
+    }
+    UIApplication.shared.open(url, options: [:]) { opened in result(opened) }
   }
 
   private func openCallReadinessSetting(_ arguments: Any?, result: @escaping FlutterResult) {

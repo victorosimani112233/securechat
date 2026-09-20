@@ -21,12 +21,19 @@ void main() {
       refreshThreshold: 2,
     );
     await manager.generateAndSerializeInitialBundle();
-    await manager.discardOneTimePreKeys([0, 1, 2, 3]);
     late List<Object?> received;
     late String authorization;
     final server = await _serve((request) async {
       authorization =
           request.headers.value(HttpHeaders.authorizationHeader) ?? '';
+      if (request.method == 'GET') {
+        await request.drain<void>();
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..write('{"remaining":0}');
+        await request.response.close();
+        return;
+      }
       received = jsonDecode(await utf8.decoder.bind(request).join()) as List;
       request.response
         ..statusCode = HttpStatus.ok
@@ -40,7 +47,8 @@ void main() {
     expect(authorization, 'Bearer access-token');
     expect(received, hasLength(4));
     expect((received.first as Map).keys.toSet(), {'keyId', 'publicKey'});
-    expect(await manager.availablePreKeyCount(), 4);
+    expect((received.first as Map)['keyId'], 4);
+    expect(await manager.availablePreKeyCount(), 8);
   });
 
   test('failed prekey refresh rolls back and remains retryable', () async {
@@ -53,10 +61,17 @@ void main() {
     );
     await manager.generateAndSerializeInitialBundle();
     await manager.discardOneTimePreKeys([0, 1, 2]);
-    var requests = 0;
+    var uploadRequests = 0;
     final server = await _serve((request) async {
-      requests++;
       await request.drain<void>();
+      if (request.method == 'GET') {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..write('{"remaining":0}');
+        await request.response.close();
+        return;
+      }
+      uploadRequests++;
       request.response.statusCode = HttpStatus.internalServerError;
       await request.response.close();
     });
@@ -66,7 +81,32 @@ void main() {
     expect(await service.replenishIfNeeded(), isFalse);
     expect(await manager.availablePreKeyCount(), 0);
     expect(await service.replenishIfNeeded(), isFalse);
-    expect(requests, 2);
+    expect(uploadRequests, 2);
+  });
+
+  test('server prekey count suppresses unnecessary local generation', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    final manager = PreKeyManager(
+      fixture.store,
+      batchSize: 4,
+      refreshThreshold: 2,
+    );
+    await manager.generateAndSerializeInitialBundle();
+    var postRequests = 0;
+    final server = await _serve((request) async {
+      await request.drain<void>();
+      if (request.method == 'POST') postRequests++;
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..write('{"remaining":50}');
+      await request.response.close();
+    });
+    addTearDown(() => server.close(force: true));
+
+    expect(await _preKeyService(server, manager).replenishIfNeeded(), isTrue);
+    expect(postRequests, 0);
+    expect(await manager.availablePreKeyCount(), 4);
   });
 
   test(

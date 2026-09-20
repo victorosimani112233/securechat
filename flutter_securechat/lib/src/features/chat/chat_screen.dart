@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/text_controller_scope.dart';
 import '../../chat/poll_service.dart';
 import '../../chat/message_forwarding_service.dart';
 import '../../chat/message_interaction_service.dart';
@@ -23,6 +25,8 @@ import '../../services/conversation_repository.dart';
 import '../../services/peer_activity_source.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/azure_options.dart';
+import '../../theme/secure_chat_theme.dart';
 import '../../widgets/haptics.dart';
 import '../calls/call_screen.dart';
 import 'media_preview_screen.dart';
@@ -54,6 +58,11 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _highlightedMessageId;
   List<LocalMessage> _latestMessages = const [];
   final Map<String, GlobalKey> _messageKeys = {};
+
+  /// Ekranda cizili olmayan bir mesaja gidebilmek icin son cizilen siralama.
+  /// `ListView` gorunur araligin disindaki ogeleri olusturmadigi icin
+  /// `GlobalKey.currentContext` uzaktaki mesajlarda null doner.
+  List<String> _messageOrder = const [];
   Timer? _highlightTimer;
   LocalMessage? _replying;
   AppNotificationRuntime? _notificationRuntime;
@@ -168,7 +177,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   children: [
-                    GeneratedAvatar(name: conversation.peerName, size: 38),
+                    GeneratedAvatar(
+                      name: conversation.peerName,
+                      size: 38,
+                      isGroup: conversation.isGroup,
+                    ),
                     const SizedBox(width: 11),
                     Expanded(
                       child: Column(
@@ -576,6 +589,7 @@ class _ChatScreenState extends State<ChatScreen> {
     List<LocalMessage> messages,
   ) {
     final replyById = {for (final message in messages) message.id: message};
+    _messageOrder = [for (final message in messages) message.id];
     final children = <Widget>[
       const Padding(
         padding: EdgeInsets.symmetric(horizontal: 32, vertical: 8),
@@ -608,6 +622,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final bubble = _MessageBubble(
       message: message,
       replyMessage: replyMessage,
+      onReplyTap: replyMessage == null
+          ? null
+          : () => _scrollToMessage(replyMessage.id),
       replySenderLabel: replyMessage == null
           ? null
           : replyMessage.isOutgoing
@@ -642,26 +659,14 @@ class _ChatScreenState extends State<ChatScreen> {
           )
         : bubble;
     if (selecting || !_canReply(message)) return selectable;
-    return Dismissible(
+    return _SwipeToReply(
       key: ValueKey('chat-reply-${message.id}'),
-      direction: DismissDirection.startToEnd,
-      confirmDismiss: (_) async {
+      onReply: () {
         setState(() {
           _replying = message;
           _showAttachments = false;
         });
-        return false;
       },
-      background: Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: Padding(
-          padding: const EdgeInsetsDirectional.only(start: 22),
-          child: Icon(
-            Icons.reply,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-      ),
       child: selectable,
     );
   }
@@ -685,22 +690,74 @@ class _ChatScreenState extends State<ChatScreen> {
       first.month == second.month &&
       first.day == second.day;
 
-  void _scrollToBottom() {
+  /// Sohbetin en altina iner.
+  ///
+  /// `maxScrollExtent` TAHMINDIR: gorunur alanin disindaki ogeler cizilmedigi
+  /// icin liste onlarin yuksekligini tahmin eder. Cok uzun tek bir mesaj
+  /// (birkac ekran boyu metin) bu tahmini tamamen sasirtir; tahmini sinira
+  /// atlamak mesajin ORTASINDA kaliyor, dahasi `pixels == maxScrollExtent`
+  /// oldugu icin "en alttayiz" saniliyordu.
+  ///
+  /// Bu yuzden hedef sinir degil SON MESAJIN KENDISI'dir: anahtari zaten
+  /// tutuluyor. Mesaj henuz cizilmediyse tahmini sinira atlanip bir kare
+  /// beklenir; cizilince ona hizalanilir.
+  Future<void> _scrollToBottom() async {
     if (!_messageScroll.hasClients) return;
-    _messageScroll.animateTo(
-      _messageScroll.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
     setState(() {
       _nearBottom = true;
       _unseenCount = 0;
     });
+    final lastId = _messageOrder.isEmpty ? null : _messageOrder.last;
+    for (var step = 0; step < 24; step++) {
+      if (!mounted || !_messageScroll.hasClients) return;
+      final target = lastId == null ? null : _messageKeys[lastId]?.currentContext;
+      if (target != null) {
+        await Scrollable.ensureVisible(
+          target,
+          alignment: 1,
+          duration: Duration(milliseconds: step == 0 ? 260 : 0),
+          curve: Curves.easeOutCubic,
+        );
+        if (!mounted || !_messageScroll.hasClients) return;
+        await SchedulerBinding.instance.endOfFrame;
+        if (!mounted || !_messageScroll.hasClients) return;
+        final position = _messageScroll.position;
+        if (position.pixels >= position.maxScrollExtent - .5) return;
+        continue;
+      }
+      final position = _messageScroll.position;
+      position.jumpTo(position.maxScrollExtent);
+      await SchedulerBinding.instance.endOfFrame;
+    }
   }
 
-  void _scrollToMessage(String messageId, {bool transient = true}) {
+  void _scrollToMessage(
+    String messageId, {
+    bool transient = true,
+    int attempt = 0,
+  }) {
     final target = _messageKeys[messageId]?.currentContext;
-    if (target == null) return;
+    if (target == null) {
+      // Hedef henuz cizilmemis. Sirasindan kaba bir konum tahmin edip oraya
+      // atliyoruz; bir sonraki karede oge olusunca kesin hizalama yapilir.
+      // Tahmin tutmazsa birkac kez daha yaklasilir, sonra sessizce birakilir.
+      if (attempt >= 4 || !_messageScroll.hasClients) return;
+      final index = _messageOrder.indexOf(messageId);
+      if (index < 0 || _messageOrder.length < 2) return;
+      final position = _messageScroll.position;
+      final estimate =
+          position.maxScrollExtent * (index / (_messageOrder.length - 1));
+      _messageScroll.jumpTo(estimate.clamp(0.0, position.maxScrollExtent));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scrollToMessage(
+          messageId,
+          transient: transient,
+          attempt: attempt + 1,
+        );
+      });
+      return;
+    }
     Scrollable.ensureVisible(
       target,
       duration: const Duration(milliseconds: 280),
@@ -1240,10 +1297,13 @@ class _ChatScreenState extends State<ChatScreen> {
     MessageInteractionService service,
     LocalMessage message,
   ) async {
-    final controller = TextEditingController(text: message.content);
     final content = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      // Controller dialog'un yasam dongusune ait; cikis animasyonu
+      // surerken dispose edilmemeli (bkz TextControllerScope).
+      builder: (context) => TextControllerScope(
+        initialText: message.content,
+        builder: (context, controller) => AlertDialog(
         title: Text(context.l10n.msg_edit_title),
         content: TextField(
           controller: controller,
@@ -1260,9 +1320,9 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Text(context.l10n.save),
           ),
         ],
+        ),
       ),
     );
-    controller.dispose();
     if (content != null &&
         !await service.edit(message.id, content) &&
         mounted) {
@@ -1449,40 +1509,25 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
-        child: AzureGlassPanel(
-          strong: true,
-          padding: EdgeInsets.zero,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.timer_outlined),
-                title: Text(context.l10n.disappearing_messages),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AzureSheetHeading(context.l10n.disappearing_messages),
+            for (final duration in options)
+              AzureOptionTile(
+                selected: duration == conversation.disappearingDuration,
+                icon: duration == Duration.zero
+                    ? Icons.timer_off_outlined
+                    : Icons.timer_outlined,
+                title: duration == Duration.zero
+                    ? context.l10n.off
+                    : duration.inHours == 24
+                    ? context.l10n.hours(24)
+                    : context.l10n.days(duration.inDays),
+                onTap: () => Navigator.pop(sheetContext, duration),
               ),
-              for (final duration in options)
-                ListTile(
-                  leading: Icon(
-                    duration == Duration.zero
-                        ? Icons.timer_off_outlined
-                        : Icons.timer_outlined,
-                  ),
-                  title: Text(
-                    duration == Duration.zero
-                        ? context.l10n.off
-                        : duration.inHours == 24
-                        ? context.l10n.hours(24)
-                        : context.l10n.days(duration.inDays),
-                  ),
-                  trailing: duration == conversation.disappearingDuration
-                      ? Icon(
-                          Icons.check_circle,
-                          color: Theme.of(context).colorScheme.primary,
-                        )
-                      : null,
-                  onTap: () => Navigator.pop(sheetContext, duration),
-                ),
-            ],
-          ),
+            const SizedBox(height: 10),
+          ],
         ),
       ),
     );

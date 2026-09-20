@@ -18,7 +18,7 @@ class SessionStore {
     this.themePreference = 'system',
     this.languagePreference = 'system',
     this.showNotificationContent = false,
-    this.notificationSound = 'default',
+    this.notificationSound = 'flow',
     this.useDoodleBackground = true,
     this.fullscreenMode = false,
     this.scheduledMessagesEnabled = true,
@@ -69,7 +69,7 @@ class SessionStore {
     themePreference = 'system';
     languagePreference = 'system';
     showNotificationContent = false;
-    notificationSound = 'default';
+    notificationSound = 'flow';
     useDoodleBackground = true;
     fullscreenMode = false;
     scheduledMessagesEnabled = true;
@@ -158,10 +158,10 @@ class SessionStore {
       'ar',
     }, 'system');
     showNotificationContent = json['showNotificationContent'] as bool? ?? false;
-    notificationSound = _allowed(json['notificationSound'], const {
-      'default',
-      'silent',
-    }, 'default');
+    // Ses adlari `NotificationSoundPreference` ile ayni; burada liste
+    // tekrar edilmiyor. Taninmayan deger (eski kayitlardaki 'default' ya da
+    // kaldirilmis bir ses) varsayilana duser — bkz. `fromStorage`.
+    notificationSound = (json['notificationSound'] as String?) ?? 'flow';
     useDoodleBackground = json['useDoodleBackground'] as bool? ?? true;
     fullscreenMode = json['fullscreenMode'] as bool? ?? false;
     scheduledMessagesEnabled =

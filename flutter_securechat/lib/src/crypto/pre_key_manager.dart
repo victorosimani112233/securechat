@@ -62,6 +62,11 @@ class PreKeyManager {
   final int batchSize;
   final int refreshThreshold;
 
+  /// Hesap degisiminde yerel Signal identity, prekey, session ve SenderKey
+  /// durumunu atomik olarak siler. Aksi halde ayni cihazdaki sonraki hesap
+  /// onceki hesabin identity anahtarini yeniden kullanir.
+  Future<void> clearProtocolState() => _store.clearProtocolState();
+
   Future<SerializedPreKeyBundle> generateAndSerializeInitialBundle() async {
     var existing = await _store.getIdentityKeyPair();
     if (existing != null && !_isSignalIdentityRecord(existing)) {
@@ -88,8 +93,11 @@ class PreKeyManager {
     return _buildExistingBundle(identity.serialize());
   }
 
-  Future<List<SerializedOneTimePreKey>?> buildSerializedReplenishBatch() async {
-    if (await availablePreKeyCount() >= refreshThreshold) return null;
+  Future<List<SerializedOneTimePreKey>?> buildSerializedReplenishBatch({
+    int? serverRemaining,
+  }) async {
+    final remaining = serverRemaining ?? await availablePreKeyCount();
+    if (remaining >= refreshThreshold) return null;
     return _generatePreKeys(await _store.getNextPreKeyId(), batchSize);
   }
 

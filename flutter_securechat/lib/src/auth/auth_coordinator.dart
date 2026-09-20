@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import '../contacts/contact_discovery_api.dart';
 import '../crypto/pre_key_manager.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
@@ -13,12 +14,14 @@ class AuthCoordinator {
     required PreKeyManager preKeys,
     required SignalingService signaling,
     required String signalingUrl,
+    ContactDiscoveryApi? privateDirectory,
     Random? random,
   }) : _api = api,
        _session = session,
        _preKeys = preKeys,
        _signaling = signaling,
        _signalingUrl = signalingUrl,
+       _privateDirectory = privateDirectory,
        _random = random ?? Random.secure();
 
   final AuthApi _api;
@@ -26,6 +29,7 @@ class AuthCoordinator {
   final PreKeyManager _preKeys;
   final SignalingService _signaling;
   final String _signalingUrl;
+  final ContactDiscoveryApi? _privateDirectory;
   final Random _random;
 
   Future<OtpRequestResult> requestOtp(String email) =>
@@ -42,7 +46,6 @@ class AuthCoordinator {
     final normalized = normalizePhoneDigits(phoneNumber);
     final result = await _api.register(
       userId: _uuidV4(),
-      phoneHash: await hashPhoneNumber(normalized),
       registrationToken: registrationToken,
     );
     await _session.loginAndPersist(
@@ -51,6 +54,13 @@ class AuthCoordinator {
       phoneNumber: '+$normalized',
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
+    );
+
+    await _privateDirectory?.checkUsers(
+      const [],
+      result.accessToken,
+      ownPhoneHash: await hashPhoneNumber(normalized),
+      ownUserId: result.userId,
     );
 
     final bundle = await _preKeys.generateAndSerializeInitialBundle();
@@ -86,7 +96,11 @@ class AuthCoordinator {
       // Sunucuya ulasilamasa da cihazdaki tokenlar ve socket temizlenmelidir.
     } finally {
       await _signaling.disconnect();
-      await _session.clearAndPersist();
+      try {
+        await _preKeys.clearProtocolState();
+      } finally {
+        await _session.clearAndPersist();
+      }
     }
   }
 
@@ -103,7 +117,11 @@ class AuthCoordinator {
 
   Future<void> clearLocalAuthentication() async {
     await _signaling.disconnect();
-    await _session.clearAndPersist();
+    try {
+      await _preKeys.clearProtocolState();
+    } finally {
+      await _session.clearAndPersist();
+    }
   }
 
   String _uuidV4() {

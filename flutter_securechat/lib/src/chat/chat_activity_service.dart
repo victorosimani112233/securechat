@@ -15,19 +15,33 @@ class ChatActivityService {
     required SessionStore session,
     required SignalingService signaling,
     required CryptoService crypto,
+    Future<bool> Function()? isMeteredConnection,
+    this.reannounceCooldown = const Duration(seconds: 12),
   }) : _session = session,
        _signaling = signaling,
-       _crypto = crypto;
+       _crypto = crypto,
+       _isMeteredConnection = isMeteredConnection;
 
   static const idleTimeout = Duration(seconds: 3);
+
+  /// Yaziyor-gostergesi durduktan sonra bu sure gecmeden yeniden duyurulmaz.
+  ///
+  /// Her kontrol paketi trafik analizi direnci icin sabit 16 KiB'a padlenir ve
+  /// tel uzerinde ~29 KB'a cikar. Araliklarla yazan bir kullanici surekli
+  /// yaziyor/durdu dongusu uretir; her dongu iki paket demektir. Cooldown bu
+  /// churn'u keser, paket BOYUTUNU degistirmedigi icin gizlilik ozelligi
+  /// bozulmaz.
+  final Duration reannounceCooldown;
 
   final SessionStore _session;
   final SignalingService _signaling;
   final CryptoService _crypto;
+  final Future<bool> Function()? _isMeteredConnection;
   Timer? _idleTimer;
   Conversation? _activeConversation;
   bool _announcedTyping = false;
   bool _disposed = false;
+  DateTime? _lastStoppedAt;
 
   Future<void> updateTyping(Conversation conversation, bool isTyping) async {
     if (_disposed) return;
@@ -40,7 +54,7 @@ class ChatActivityService {
       await stopTyping();
       return;
     }
-    if (!_announcedTyping) {
+    if (!_announcedTyping && !await _shouldSuppressAnnounce()) {
       _announcedTyping = await _send(conversation, true);
     }
     _idleTimer = Timer(idleTimeout, () {
@@ -55,7 +69,23 @@ class ChatActivityService {
     final shouldNotify = _announcedTyping && conversation != null;
     _announcedTyping = false;
     _activeConversation = null;
-    if (shouldNotify) await _send(conversation, false);
+    if (shouldNotify) {
+      _lastStoppedAt = DateTime.now();
+      await _send(conversation, false);
+    }
+  }
+
+  /// Yaziyor-gostergesi bu turda hic gonderilmeli mi.
+  ///
+  /// Sayacli baglantida tamamen kapatilir: gosterge kozmetiktir, sabit-boyutlu
+  /// paket ise pahalidir. Ayrica kisa araliklarla yeniden duyurulmasi
+  /// engellenir.
+  Future<bool> _shouldSuppressAnnounce() async {
+    final metered = _isMeteredConnection;
+    if (metered != null && await metered()) return true;
+    final last = _lastStoppedAt;
+    if (last == null) return false;
+    return DateTime.now().difference(last) < reannounceCooldown;
   }
 
   Future<bool> _send(Conversation conversation, bool isTyping) async {

@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import '../../chat/chat_info_service.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/azure_options.dart';
+import '../../settings/settings_service.dart';
+import '../../widgets/notification_sound_picker.dart';
+import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/avatar.dart';
@@ -103,7 +107,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
         padding: const EdgeInsets.all(28),
         child: Column(
           children: [
-            GeneratedAvatar(name: c.peerName, size: 96),
+            GeneratedAvatar(name: c.peerName, size: 96, isGroup: c.isGroup),
             const SizedBox(height: 12),
             Text(c.peerName, style: Theme.of(context).textTheme.headlineSmall),
             Text(c.peerPhone),
@@ -159,8 +163,52 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
         value: c.isLocked,
         onChanged: (value) => service.setLocked(c.id, value),
       ),
+      // Sohbete ozel ses. Susturulmus bir sohbette anlamsiz oldugu icin
+      // satir orada gizleniyor: susturma daha guclu bir karar ve ikisini
+      // ayni anda gostermek celiskili goruntu veriyor.
+      if (!c.isMuted)
+        ListTile(
+          leading: const Icon(Icons.music_note_outlined),
+          title: Text(context.l10n.settings_notification_sound),
+          subtitle: Text(
+            c.customNotificationUri == null
+                ? context.l10n.sound_inherit
+                : soundName(
+                    context,
+                    NotificationSoundPreference.fromStorage(
+                      c.customNotificationUri!,
+                    ),
+                  ),
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _soundSheet(service, c),
+        ),
     ],
   );
+
+  /// Sohbete ozel bildirim sesi secimi.
+  ///
+  /// Uygulama genelindeki secimle AYNI sayfa kullaniliyor; tek farki
+  /// "uygulama ayarini kullan" secenegi. Ayri yazilsalardi listeler zamanla
+  /// ayrisirdi.
+  Future<void> _soundSheet(ChatInfoService service, ConversationEntity c) =>
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) => NotificationSoundPicker(
+          allowInherit: true,
+          selected: c.customNotificationUri == null
+              ? null
+              : NotificationSoundPreference.fromStorage(
+                  c.customNotificationUri!,
+                ),
+          onSelected: (value) {
+            service.setNotificationSound(c.id, value?.name);
+            Navigator.pop(sheetContext);
+          },
+        ),
+      );
 
   Widget _tile(IconData icon, String title, VoidCallback onTap) => ListTile(
     leading: Icon(icon),
@@ -206,10 +254,13 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     ChatInfoService service,
     ConversationEntity c,
   ) async {
-    final controller = TextEditingController(text: c.contactNote);
     final note = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      // Controller dialog'un yasam dongusune ait; cikis animasyonu
+      // surerken dispose edilmemeli (bkz TextControllerScope).
+      builder: (context) => TextControllerScope(
+        initialText: c.contactNote ?? '',
+        builder: (context, controller) => AlertDialog(
         title: Text(context.l10n.add_contact_note),
         content: TextField(controller: controller, maxLines: 5),
         actions: [
@@ -222,9 +273,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
             child: Text(context.l10n.save),
           ),
         ],
+        ),
       ),
     );
-    controller.dispose();
     if (note != null) await service.updateNote(c.id, note);
   }
 
@@ -239,15 +290,23 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
       const Duration(days: 7),
       const Duration(days: 30),
     ];
+    // Secili sure satirda isaretlensin; oncesinde hicbir secenek secili
+    // gorunmuyordu ve kullanici mevcut ayarini goremiyordu.
+    final current = Duration(milliseconds: c.disappearingDuration);
     final value = await showDialog<Duration>(
       context: context,
       builder: (context) => SimpleDialog(
         title: Text(context.l10n.disappearing_messages),
+        contentPadding: const EdgeInsets.only(bottom: 12),
         children: [
           for (final option in options)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, option),
-              child: Text(_duration(context, option.inMilliseconds)),
+            AzureOptionTile(
+              selected: option == current,
+              icon: option == Duration.zero
+                  ? Icons.timer_off_outlined
+                  : Icons.timer_outlined,
+              title: _duration(context, option.inMilliseconds),
+              onTap: () => Navigator.pop(context, option),
             ),
         ],
       ),

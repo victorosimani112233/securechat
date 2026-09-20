@@ -38,7 +38,9 @@ void main() {
         'com/securechat/botapi/BotApiConfig.kt',
       ),
       allOf(
-        contains('SecretSource.required(name)'),
+        // Her zorunlu secret tek sinirdan gecer; ortam disaridan
+        // verilebilir olsa da okuma yolu degismez.
+        contains('SecretSource.required(name'),
         contains('requirePurposeSeparatedSecrets()'),
       ),
     );

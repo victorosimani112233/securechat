@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
 import 'package:flutter_securechat/src/domain/send_message_use_case.dart';
+import 'package:flutter_securechat/src/network/network_resilience.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
@@ -140,6 +141,94 @@ void main() {
     expect(
       (await fixture.database.messages.getAllMessages()).single.status,
       StorageMessageStatus.failed,
+    );
+  });
+
+  test(
+    'offline reliable send is accepted into encrypted local outbox',
+    () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final signaling = InMemorySignalingService();
+      final queue = OfflineMessageQueue(
+        database: fixture.database,
+        signaling: signaling,
+      );
+      addTearDown(queue.close);
+      final sender = SendMessageUseCase(
+        database: fixture.database,
+        signaling: signaling,
+        session: SessionStore(userId: 'me', accessToken: 'token'),
+        crypto: _RecordingCrypto(),
+        reliableQueue: queue,
+        maxRetryCount: 0,
+        retryDelay: Duration.zero,
+      );
+
+      final outcome = await sender(
+        const SendMessageRequest(conversationId: 'alice', content: 'offline'),
+      );
+
+      expect(outcome, SendMessageOutcome.sent);
+      final pending = (await fixture.database.pendingSignals.getAll()).single;
+      expect(pending.retainUntilReceipt, isTrue);
+      expect(pending.recipientId, 'alice');
+      expect(pending.messageId, isNotEmpty);
+      expect(pending.encodedSignal, isNot(contains('offline')));
+      expect(
+        (await fixture.database.messages.getAllMessages()).single.status,
+        StorageMessageStatus.sent,
+      );
+    },
+  );
+
+  test('group dependencies share the message receipt lifecycle', () async {
+    final fixture = await _openFixture();
+    addTearDown(fixture.close);
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: 'group-1',
+        peerId: 'group-1',
+        peerName: 'Private group',
+        peerPhone: '',
+        isGroup: true,
+        groupMembers: 'alice,bob',
+      ),
+    );
+    final signaling = InMemorySignalingService();
+    final queue = OfflineMessageQueue(
+      database: fixture.database,
+      signaling: signaling,
+    );
+    addTearDown(queue.close);
+    final sender = SendMessageUseCase(
+      database: fixture.database,
+      signaling: signaling,
+      session: SessionStore(userId: 'me', accessToken: 'token'),
+      crypto: _RecordingCrypto(),
+      reliableQueue: queue,
+      maxRetryCount: 0,
+      retryDelay: Duration.zero,
+    );
+
+    expect(
+      await sender(
+        const SendMessageRequest(conversationId: 'group-1', content: 'hello'),
+      ),
+      SendMessageOutcome.sent,
+    );
+    final pending = await fixture.database.pendingSignals.getAll();
+    expect(pending, hasLength(4));
+    expect(pending.map((entry) => entry.messageId).toSet(), hasLength(1));
+    final messageId = pending.first.messageId!;
+
+    await queue.acknowledgeReceipt(messageId, 'alice');
+    expect(await fixture.database.pendingSignals.count(), 2);
+    expect(
+      (await fixture.database.pendingSignals.getAll())
+          .map((entry) => entry.recipientId)
+          .toSet(),
+      {'bob'},
     );
   });
 }

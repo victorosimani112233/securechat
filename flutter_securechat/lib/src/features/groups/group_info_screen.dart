@@ -4,6 +4,7 @@ import '../../core/models.dart';
 import '../../export/export_audit_service.dart';
 import '../../groups/group_management_service.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/avatar.dart';
@@ -75,7 +76,7 @@ class _GroupInfoBody extends StatelessWidget {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  GeneratedAvatar(name: group.peerName, size: 96),
+                  GeneratedAvatar(name: group.peerName, size: 96, isGroup: true),
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -191,10 +192,13 @@ class _GroupInfoBody extends StatelessWidget {
               ),
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.exit_to_app, color: Colors.red),
+              leading: Icon(
+                Icons.exit_to_app,
+                color: Theme.of(context).colorScheme.error,
+              ),
               title: Text(
                 context.l10n.group_leave,
-                style: const TextStyle(color: Colors.red),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
               onTap: () => _leave(context),
             ),
@@ -218,10 +222,13 @@ class _GroupInfoBody extends StatelessWidget {
       memberId;
 
   Future<void> _editName(BuildContext context) async {
-    final controller = TextEditingController(text: group.peerName);
     final name = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      // Controller dialog'un yasam dongusune ait; cikis animasyonu
+      // surerken dispose edilmemeli (bkz TextControllerScope).
+      builder: (context) => TextControllerScope(
+        initialText: group.peerName,
+        builder: (context, controller) => AlertDialog(
         title: Text(context.l10n.edit_group_name),
         content: TextField(controller: controller, autofocus: true),
         actions: [
@@ -234,9 +241,9 @@ class _GroupInfoBody extends StatelessWidget {
             child: Text(context.l10n.save),
           ),
         ],
+        ),
       ),
     );
-    controller.dispose();
     if (name != null && context.mounted) {
       await _run(context, () => groups.updateName(group.id, name));
     }

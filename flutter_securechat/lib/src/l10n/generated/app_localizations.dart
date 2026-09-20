@@ -1200,6 +1200,96 @@ abstract class AppLocalizations {
   /// **'Silent'**
   String get settings_silent;
 
+  /// No description provided for @sound_system.
+  ///
+  /// In en, this message translates to:
+  /// **'Device default'**
+  String get sound_system;
+
+  /// No description provided for @sound_chime.
+  ///
+  /// In en, this message translates to:
+  /// **'Chime'**
+  String get sound_chime;
+
+  /// No description provided for @sound_bell.
+  ///
+  /// In en, this message translates to:
+  /// **'Bell'**
+  String get sound_bell;
+
+  /// No description provided for @sound_tap.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap'**
+  String get sound_tap;
+
+  /// No description provided for @sound_warm.
+  ///
+  /// In en, this message translates to:
+  /// **'Warm'**
+  String get sound_warm;
+
+  /// No description provided for @sound_soft.
+  ///
+  /// In en, this message translates to:
+  /// **'Soft'**
+  String get sound_soft;
+
+  /// No description provided for @sound_melody.
+  ///
+  /// In en, this message translates to:
+  /// **'Melody'**
+  String get sound_melody;
+
+  /// No description provided for @sound_flow.
+  ///
+  /// In en, this message translates to:
+  /// **'Flow'**
+  String get sound_flow;
+
+  /// No description provided for @sound_sparkle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sparkle'**
+  String get sound_sparkle;
+
+  /// No description provided for @sound_beep.
+  ///
+  /// In en, this message translates to:
+  /// **'Beep'**
+  String get sound_beep;
+
+  /// No description provided for @sound_ding.
+  ///
+  /// In en, this message translates to:
+  /// **'Ding'**
+  String get sound_ding;
+
+  /// No description provided for @sound_preview.
+  ///
+  /// In en, this message translates to:
+  /// **'Play sound'**
+  String get sound_preview;
+
+  /// No description provided for @sound_inherit.
+  ///
+  /// In en, this message translates to:
+  /// **'Use app setting'**
+  String get sound_inherit;
+
+  /// No description provided for @sound_system_picker.
+  ///
+  /// In en, this message translates to:
+  /// **'More sounds on this device'**
+  String get sound_system_picker;
+
+  /// No description provided for @sound_system_picker_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick any sound from system settings'**
+  String get sound_system_picker_desc;
+
   /// No description provided for @settings_share_last_seen.
   ///
   /// In en, this message translates to:
@@ -1470,6 +1560,18 @@ abstract class AppLocalizations {
   /// **'Mon,Tue,Wed,Thu,Fri,Sat,Sun'**
   String get weekdays_short;
 
+  /// No description provided for @schedule_days_label.
+  ///
+  /// In en, this message translates to:
+  /// **'Days'**
+  String get schedule_days_label;
+
+  /// No description provided for @schedule_days_empty.
+  ///
+  /// In en, this message translates to:
+  /// **'Select days'**
+  String get schedule_days_empty;
+
   /// No description provided for @delivery_time.
   ///
   /// In en, this message translates to:
@@ -1613,6 +1715,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Bulk sending is unavailable.'**
   String get bulk_unavailable;
+
+  /// No description provided for @bulk_explainer_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent separately to each'**
+  String get bulk_explainer_title;
+
+  /// No description provided for @bulk_explainer_body.
+  ///
+  /// In en, this message translates to:
+  /// **'The same message is sent to each selected chat as a separate message. Recipients cannot see each other and no group is created.'**
+  String get bulk_explainer_body;
+
+  /// No description provided for @bulk_search_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search people or groups'**
+  String get bulk_search_hint;
+
+  /// No description provided for @bulk_selected_count.
+  ///
+  /// In en, this message translates to:
+  /// **'{arg1} of {arg2} selected'**
+  String bulk_selected_count(Object arg1, Object arg2);
+
+  /// No description provided for @bulk_no_recipients.
+  ///
+  /// In en, this message translates to:
+  /// **'No chats to send to'**
+  String get bulk_no_recipients;
+
+  /// No description provided for @bulk_no_results.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching chats'**
+  String get bulk_no_results;
+
+  /// No description provided for @bulk_message_required.
+  ///
+  /// In en, this message translates to:
+  /// **'Write your message first'**
+  String get bulk_message_required;
 
   /// No description provided for @select_all.
   ///
@@ -3041,6 +3185,126 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Review the software licenses included in this build.'**
   String get settings_open_source_licenses_desc;
+
+  /// No description provided for @settings_about.
+  ///
+  /// In en, this message translates to:
+  /// **'About'**
+  String get settings_about;
+
+  /// No description provided for @settings_about_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Version, security notes and licenses'**
+  String get settings_about_desc;
+
+  /// No description provided for @about_security_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Security'**
+  String get about_security_title;
+
+  /// No description provided for @about_security_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages are end-to-end encrypted with the Signal Protocol before leaving the device, and the ratchet derives a new message key for every message. The server stores neither plaintext nor conversation history; an undelivered encrypted envelope may remain only in a short-lived RAM queue until acknowledgement or expiry. The local database is encrypted with SQLCipher.'**
+  String get about_security_body;
+
+  /// No description provided for @about_version.
+  ///
+  /// In en, this message translates to:
+  /// **'Version'**
+  String get about_version;
+
+  /// No description provided for @missed_call.
+  ///
+  /// In en, this message translates to:
+  /// **'Missed call'**
+  String get missed_call;
+
+  /// No description provided for @missed_video_call.
+  ///
+  /// In en, this message translates to:
+  /// **'Missed video call'**
+  String get missed_video_call;
+
+  /// No description provided for @missed_voice_call.
+  ///
+  /// In en, this message translates to:
+  /// **'Missed voice call'**
+  String get missed_voice_call;
+
+  /// No description provided for @missed_call_from.
+  ///
+  /// In en, this message translates to:
+  /// **'From {peer}'**
+  String missed_call_from(Object peer);
+
+  /// No description provided for @missed_calls_channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Missed calls'**
+  String get missed_calls_channel;
+
+  /// No description provided for @missed_calls_channel_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications for unanswered calls'**
+  String get missed_calls_channel_desc;
+
+  /// No description provided for @messages_channel.
+  ///
+  /// In en, this message translates to:
+  /// **'elçim Messages'**
+  String get messages_channel;
+
+  /// No description provided for @messages_channel_silent.
+  ///
+  /// In en, this message translates to:
+  /// **'elçim Messages (silent)'**
+  String get messages_channel_silent;
+
+  /// No description provided for @messages_channel_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming secure message notifications'**
+  String get messages_channel_desc;
+
+  /// No description provided for @messages_channel_silent_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Muted or in-app messages'**
+  String get messages_channel_silent_desc;
+
+  /// No description provided for @security_number_changed.
+  ///
+  /// In en, this message translates to:
+  /// **'The security number changed. This person may have reinstalled the app. If unsure, verify their identity through another channel.'**
+  String get security_number_changed;
+
+  /// No description provided for @security_message_unreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'A message could not be decrypted and cannot be shown. You can ask the sender to send it again.'**
+  String get security_message_unreadable;
+
+  /// No description provided for @chat_jump_to_replied_message.
+  ///
+  /// In en, this message translates to:
+  /// **'Go to the replied message'**
+  String get chat_jump_to_replied_message;
+
+  /// No description provided for @contacts_empty_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Your contacts are matched by hash only. Anyone who uses elçim will appear here.'**
+  String get contacts_empty_body;
+
+  /// No description provided for @calls_empty_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Calls you make and receive are listed here. Call content is never recorded.'**
+  String get calls_empty_body;
 }
 
 class _AppLocalizationsDelegate

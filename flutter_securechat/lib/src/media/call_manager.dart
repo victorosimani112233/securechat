@@ -9,6 +9,7 @@ import '../services/signaling_service.dart';
 import '../notifications/missed_call_tracker.dart';
 import '../storage/secure_chat_database.dart';
 import '../storage/storage_entities.dart';
+import 'call_media_key.dart';
 import 'call_models.dart';
 import 'group_media_engine.dart';
 import 'ice_server_fetcher.dart';
@@ -29,6 +30,29 @@ typedef GroupCallPrivacyPreparation =
 Future<String?> _rejectUnknownGroup(String _) async => null;
 Future<String> _identityPeerName(String id) async => id;
 
+/// Cagri medya anahtarini tek bir aliciya E2EE olarak ulastiran sinir.
+///
+/// Anahtar sunucudan gecmez: mevcut direct Signal zarfi icinde gonderilir ve
+/// sunucu ordinary bir `encrypted_message` gorur. Kripto ayrintisi
+/// composition root'ta kalir; cagri yoneticisi yalniz bu sinirI cagirir.
+typedef CallMediaKeyDistributor =
+    Future<bool> Function({
+      required String recipientId,
+      required String payload,
+    });
+
+class _PendingCallMediaKey {
+  const _PendingCallMediaKey({
+    required this.senderId,
+    required this.mediaKey,
+    required this.receivedAt,
+  });
+
+  final String senderId;
+  final CallMediaKey mediaKey;
+  final DateTime receivedAt;
+}
+
 class CallManager {
   CallManager({
     required SessionStore session,
@@ -42,6 +66,7 @@ class CallManager {
     PeerNameResolver? peerNameResolver,
     GroupLocalIdResolver? groupLocalIdResolver,
     GroupCallPrivacyPreparation? preparePrivateGroupCall,
+    CallMediaKeyDistributor? distributeCallMediaKey,
     MissedCallLifecycle? missedCalls,
     this.ringTimeout = const Duration(seconds: 60),
     this.reconnectTimeout = const Duration(seconds: 15),
@@ -59,8 +84,12 @@ class CallManager {
        _peerNameResolver = peerNameResolver ?? _identityPeerName,
        _groupLocalIdResolver = groupLocalIdResolver ?? _rejectUnknownGroup,
        _preparePrivateGroupCall = preparePrivateGroupCall,
+       _distributeCallMediaKey = distributeCallMediaKey,
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure) {
-    _signalSubscription = signaling.incoming.listen(_handleSignal);
+    _signalSubscription = signaling.incoming.listen(
+      _handleSignal,
+      onError: _reportSignalStreamFailure,
+    );
     _mediaSubscription = media.connectionStates.listen(_handleMediaState);
     _nativeSubscription = nativeCalls?.actions.listen(_handleNativeAction);
     _groupMediaSubscription = groupMedia?.peerStates.listen(
@@ -78,6 +107,194 @@ class CallManager {
   final JanusClientFactory _janusClientFactory;
   final PeerNameResolver _peerNameResolver;
   final GroupLocalIdResolver _groupLocalIdResolver;
+  final CallMediaKeyDistributor? _distributeCallMediaKey;
+
+  /// Aktif cagrinin medya anahtari. Cagri bitince bellekten dusurulur.
+  CallMediaKey? _mediaKey;
+
+  /// Frame sifrelemesi bu cagri icin gercekten acildi mi.
+  bool _mediaEncryptionActive = false;
+
+  /// Koordinator bu cagriyi frame sifrelemeli olarak ilan etti mi.
+  bool _mediaEncryptionRequired = false;
+
+  static const _pendingMediaKeyTtl = Duration(minutes: 2);
+  static const _pendingMediaKeyLimit = 16;
+  final Map<String, _PendingCallMediaKey> _pendingMediaKeys = {};
+
+  bool get mediaEncryptionActive => _mediaEncryptionActive;
+
+  /// Cagri icin medya anahtari uretir, motorda acar ve alicilara dagitir.
+  ///
+  /// Fail-closed: dagitim kutusu yoksa, platform frame sifrelemesini
+  /// desteklemiyorsa veya anahtar bir aliciya bile ulasmazsa `null` doner.
+  /// O durumda arama mesh'te kalir; sifresiz SFU'ya gecilmez.
+  Future<CallMediaKey?> _prepareMediaEncryption({
+    required GroupMediaEngine groupMedia,
+    required String callId,
+    required List<String> recipients,
+  }) async {
+    final distribute = _distributeCallMediaKey;
+    if (distribute == null) return null;
+    final mediaKey = CallMediaKey.generate(callId: callId);
+    final payload = mediaKey.encode();
+    for (final recipient in recipients) {
+      final delivered = await distribute(
+        recipientId: recipient,
+        payload: payload,
+      ).catchError((_) => false);
+      if (!delivered) {
+        // Anahtari alamayan katilimci sifreli frame'leri cozemez. Yerel
+        // motor henuz acilmadi; boylece kismi dagitim plaintext/encrypted
+        // ayrismasina donusmez.
+        _mediaEncryptionActive = false;
+        return null;
+      }
+    }
+    try {
+      await groupMedia.enableMediaEncryption(mediaKey);
+    } catch (error, stackTrace) {
+      _reportCallFailure('prepare-media-encryption', error, stackTrace);
+      // Alicilar anahtari ancak mediaE2ee=true davetinden sonra uygular.
+      // Platform destegi yoksa davet false gider ve dagitilmis anahtar atilir.
+      _mediaEncryptionActive = false;
+      return null;
+    }
+    _mediaKey = mediaKey;
+    _mediaEncryptionActive = true;
+    return mediaKey;
+  }
+
+  /// Uyelik degisiminde yeni kusaga gecer.
+  ///
+  /// Katilan uye onceki frame'leri, ayrilan uye sonraki frame'leri
+  /// cozememelidir; bunun icin her degisimde yeni anahtar uretilip kalan
+  /// katilimcilara dagitilir.
+  Future<bool> _rotateMediaKey(List<String> recipients) async {
+    final current = _mediaKey;
+    final groupMedia = _groupMedia;
+    final distribute = _distributeCallMediaKey;
+    if (!_mediaEncryptionActive) return true;
+    if (!_isGroupCoordinator ||
+        current == null ||
+        groupMedia == null ||
+        distribute == null) {
+      return false;
+    }
+    final rotated = current.rotate();
+    final payload = rotated.encode();
+    final localUserId = _session.userId;
+    for (final recipient in recipients.toSet()) {
+      if (recipient == localUserId) continue;
+      final delivered = await distribute(
+        recipientId: recipient,
+        payload: payload,
+      ).catchError((_) => false);
+      if (!delivered) return false;
+    }
+    try {
+      await groupMedia.rotateMediaKey(rotated);
+      _mediaKey = rotated;
+      return true;
+    } catch (error, stackTrace) {
+      _reportCallFailure('rotate-media-key', error, stackTrace);
+      _mediaEncryptionActive = false;
+      return false;
+    }
+  }
+
+  /// Karsi taraftan gelen medya anahtarini uygular.
+  ///
+  /// Cozulmus payload incoming pipeline tarafindan buraya verilir; anahtar
+  /// yalniz aktif cagriya aitse kabul edilir.
+  Future<bool> applyIncomingMediaKey({
+    required String senderId,
+    required String payload,
+  }) async {
+    final groupMedia = _groupMedia;
+    if (groupMedia == null) return false;
+    final mediaKey = CallMediaKey.tryParse(payload);
+    if (mediaKey == null) return false;
+    final session = _current;
+    if (session == null) {
+      _stageIncomingMediaKey(senderId, mediaKey);
+      return true;
+    }
+    if (!session.isGroupCall ||
+        session.isTerminal ||
+        mediaKey.callId != session.callId ||
+        !_mediaEncryptionRequired ||
+        _isGroupCoordinator) {
+      return false;
+    }
+    if (senderId != session.peerId) {
+      // Koordinator degisimi signaling akisi ile anahtar zarfini farkli
+      // siralarda teslim edebilir. Anahtar, ancak sunucu yeni koordinatoru
+      // bildirdikten sonra tekrar ele alinmak uzere sinirli tutulur.
+      _stageIncomingMediaKey(senderId, mediaKey);
+      return false;
+    }
+    final current = _mediaKey;
+    if (current != null) {
+      // Eski kusak yeniden oynatilamaz. Ayni kusak yalniz birebir ayni
+      // anahtarsa idempotenttir; farkli anahtar key-substitution girisimidir.
+      if (mediaKey.epoch < current.epoch) return false;
+      if (mediaKey.epoch == current.epoch) {
+        if (mediaKey == current) return true;
+        await _finish(CallState.failed, notifyPeer: true);
+        return false;
+      }
+    }
+    try {
+      if (current == null) {
+        await groupMedia.enableMediaEncryption(mediaKey);
+      } else {
+        await groupMedia.rotateMediaKey(mediaKey);
+      }
+    } catch (error, stackTrace) {
+      _reportCallFailure('apply-incoming-media-key', error, stackTrace);
+      _mediaEncryptionActive = false;
+      await _finish(CallState.failed, notifyPeer: true);
+      return false;
+    }
+    _mediaKey = mediaKey;
+    _mediaEncryptionActive = true;
+    return true;
+  }
+
+  String _pendingMediaKeyId(String callId, String senderId) =>
+      '$callId\u0000$senderId';
+
+  void _stageIncomingMediaKey(String senderId, CallMediaKey mediaKey) {
+    final now = DateTime.now();
+    _pendingMediaKeys.removeWhere(
+      (_, pending) => now.difference(pending.receivedAt) > _pendingMediaKeyTtl,
+    );
+    if (_pendingMediaKeys.length >= _pendingMediaKeyLimit) {
+      final oldest = _pendingMediaKeys.entries.reduce(
+        (a, b) => a.value.receivedAt.isBefore(b.value.receivedAt) ? a : b,
+      );
+      _pendingMediaKeys.remove(oldest.key);
+    }
+    _pendingMediaKeys[_pendingMediaKeyId(
+      mediaKey.callId,
+      senderId,
+    )] = _PendingCallMediaKey(
+      senderId: senderId,
+      mediaKey: mediaKey,
+      receivedAt: now,
+    );
+  }
+
+  _PendingCallMediaKey? _takePendingMediaKey(String callId, String senderId) =>
+      _pendingMediaKeys.remove(_pendingMediaKeyId(callId, senderId));
+
+  void _dropPendingMediaKeysForCall(String callId) {
+    _pendingMediaKeys.removeWhere(
+      (_, pending) => pending.mediaKey.callId == callId,
+    );
+  }
+
   final GroupCallPrivacyPreparation? _preparePrivateGroupCall;
   final MissedCallLifecycle? _missedCalls;
   final Duration ringTimeout;
@@ -112,6 +329,34 @@ class CallManager {
   JanusClient? _janus;
   bool _disposed = false;
   Future<void>? _disposeTask;
+
+  /// Signaling akisindaki hatalari sahipli async sinirina yonlendirir.
+  ///
+  /// Broadcast stream'e `addError` ile basilan hatalar, `onError` vermeyen bir
+  /// dinleyicide islenmemis sayilip root zone'a kaciyor ve orada olumcul
+  /// isaretli crash raporu uretiyordu. Buradan gecince ayni hata gizlilik
+  /// guvenli teshis sinirinda, olumcul olmayan kayit olarak toplaniyor.
+  /// Cagri hatasini teshis sinirina bildirir.
+  ///
+  /// Bu bloklar kullaniciya dogru davraniyordu (cagri `failed` durumuna
+  /// geciyor, karsi taraf bilgilendiriliyor) ama HATANIN KENDISI kayboluyordu.
+  /// Sahadan "arama basarisiz" raporu geldiginde nedeni bulunacak hicbir iz
+  /// kalmiyordu. Davranis degismez; yalnizca iz birakilir.
+  void _reportCallFailure(String stage, Object error, StackTrace stackTrace) {
+    if (_disposed || _operations.isClosed) return;
+    _operations.run(
+      'call-manager.$stage',
+      Future<void>.error(error, stackTrace),
+    );
+  }
+
+  void _reportSignalStreamFailure(Object error, StackTrace stackTrace) {
+    if (_disposed || _operations.isClosed) return;
+    _operations.run(
+      'call-manager.signal-stream',
+      Future<void>.error(error, stackTrace),
+    );
+  }
 
   Stream<CallSession?> get sessions async* {
     yield _current;
@@ -186,7 +431,8 @@ class CallManager {
       _setSession(session.copyWith(state: CallState.ringing));
       _startRingTimeout();
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('initiate-call', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: false);
       return false;
     }
@@ -202,9 +448,15 @@ class CallManager {
     final userId = _requireUserId();
     if (_hasLiveCall || groupMedia == null) return false;
     final recipients = peerIds.where((id) => id != userId).toSet().toList();
-    if (recipients.isEmpty) return false;
+    if (recipients.isEmpty ||
+        recipients.length + 1 > maxGroupCallParticipants) {
+      return false;
+    }
     _terminating = false;
     _isGroupCoordinator = true;
+    _mediaKey = null;
+    _mediaEncryptionActive = false;
+    _mediaEncryptionRequired = false;
     final session = CallSession(
       callId: _newId(),
       peerId: groupId,
@@ -237,6 +489,16 @@ class CallManager {
         video: callType == CallType.video,
         iceServers: await _iceServers.fetch(),
       );
+      // Medya anahtari baglantilar kurulmadan once hazir olmali; sonra
+      // acilirsa ilk frame'ler sifresiz giderdi. Platform destegi yoksa
+      // veya anahtar bir aliciya ulasmazsa sifreleme kapali kalir ve
+      // sunucu SFU'ya gecmez — sessizce zayif bir garanti verilmez.
+      final mediaKey = await _prepareMediaEncryption(
+        groupMedia: groupMedia,
+        callId: session.callId,
+        recipients: recipients,
+      );
+      _mediaEncryptionRequired = mediaKey != null;
       var allSent = true;
       for (final peerId in recipients) {
         final sent = await _signaling.send(
@@ -250,6 +512,7 @@ class CallManager {
             // The target already appears in recipientId and the coordinator in
             // senderId. Repeating the full social graph here only leaks data.
             participants: const [],
+            mediaE2ee: mediaKey != null,
           ),
         );
         allSent = allSent && sent;
@@ -257,7 +520,8 @@ class CallManager {
       if (!allSent) throw StateError('One or more group invites failed');
       _setSession(session.copyWith(state: CallState.active));
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('initiate-group-call', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: true);
       return false;
     }
@@ -303,7 +567,8 @@ class CallManager {
       _pendingOffer = null;
       await _replayPendingIce();
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('accept-call', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: true);
       return false;
     }
@@ -319,6 +584,24 @@ class CallManager {
         video: session.callType == CallType.video,
         iceServers: await _iceServers.fetch(),
       );
+      if (_mediaEncryptionRequired && !_mediaEncryptionActive) {
+        throw StateError('Required media encryption key is unavailable');
+      }
+      final userId = _requireUserId();
+      final capabilitySent = await _signaling.send(
+        GroupCallJoinRequestSignal(
+          senderId: userId,
+          recipientId: session.peerId,
+          timestamp: DateTime.now(),
+          groupId: _currentGroupRoutingToken!,
+          callId: session.callId,
+          callType: session.callType.name.toUpperCase(),
+          mediaE2ee: _mediaEncryptionActive,
+        ),
+      );
+      if (!capabilitySent) {
+        throw StateError('Media encryption capability could not be delivered');
+      }
       await _sendControl(
         session.peerId,
         'ACCEPT',
@@ -334,7 +617,8 @@ class CallManager {
         await _acceptGroupPeerOffer(entry.key, entry.value);
       }
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('accept-group-call', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: true);
       return false;
     }
@@ -532,7 +816,8 @@ class CallManager {
       _setSession(session.copyWith(state: CallState.connecting));
       await _media.applyAnswer(signal.sdp);
       await _replayPendingIce();
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _reportCallFailure('handle-answer', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: true);
     }
   }
@@ -665,6 +950,9 @@ class CallManager {
     final userId = _requireUserId();
     _terminating = false;
     _isGroupCoordinator = false;
+    _mediaKey = null;
+    _mediaEncryptionActive = false;
+    _mediaEncryptionRequired = signal.mediaE2ee;
     _currentGroupRoutingToken = signal.groupId;
     _pendingGroupOffers.clear();
     _pendingGroupIce.clear();
@@ -680,12 +968,23 @@ class CallManager {
       isSpeakerOn: true,
       isGroupCall: true,
       groupId: localGroupId,
-      peerIds: {
-        signal.senderId,
-        ...signal.participants.where((id) => id != userId),
-      }.where((id) => id.isNotEmpty && id != userId).toList(),
+      peerIds:
+          {signal.senderId, ...signal.participants.where((id) => id != userId)}
+              .where((id) => id.isNotEmpty && id != userId)
+              .take(maxGroupCallParticipants - 1)
+              .toList(),
     );
     _setSession(session);
+    final pending = _takePendingMediaKey(signal.callId, signal.senderId);
+    if (_mediaEncryptionRequired && pending != null) {
+      await applyIncomingMediaKey(
+        senderId: pending.senderId,
+        payload: pending.mediaKey.encode(),
+      );
+      if (_current?.isTerminal == true) return;
+    } else if (!_mediaEncryptionRequired) {
+      _dropPendingMediaKeysForCall(signal.callId);
+    }
     await _nativeCalls?.reportIncoming(session);
     _missedCalls?.start(session);
     _startRingTimeout();
@@ -721,9 +1020,17 @@ class CallManager {
       return;
     }
     if (!session.peerIds.contains(signal.joinedMemberId)) {
+      if (session.peerIds.length >= maxGroupCallParticipants - 1) return;
       _setSession(
         session.copyWith(peerIds: [...session.peerIds, signal.joinedMemberId]),
       );
+    }
+    // Yeni kusak, katilan uye medya almadan once dagitilir; aksi halde o uye
+    // katilmadan onceki frame'leri de cozebilirdi.
+    if (_isGroupCoordinator &&
+        !await _rotateMediaKey(_current?.peerIds ?? const [])) {
+      await _finish(CallState.failed, notifyPeer: true);
+      return;
     }
     await _offerToGroupPeer(signal.joinedMemberId);
   }
@@ -820,7 +1127,15 @@ class CallManager {
         .where((id) => id != peerId)
         .toList();
     _setSession(session.copyWith(peerIds: peers, connectedPeerIds: connected));
-    if (peers.isEmpty) await _finish(CallState.ended, notifyPeer: false);
+    if (peers.isEmpty) {
+      await _finish(CallState.ended, notifyPeer: false);
+      return;
+    }
+    // Yalniz koordinator kusak uretebilir. Dagitim eksik kalirsa ayrilan uye
+    // eski anahtari bildigi icin cagri o anahtarla devam edemez.
+    if (_isGroupCoordinator && !await _rotateMediaKey(peers)) {
+      await _finish(CallState.failed, notifyPeer: true);
+    }
   }
 
   Future<void> _handleCoordinatorChanged(
@@ -834,12 +1149,32 @@ class CallManager {
       return;
     }
     _isGroupCoordinator = signal.newCoordinatorId == _session.userId;
+    final peers = session.peerIds
+        .where((id) => id != signal.previousCoordinatorId)
+        .toList();
     _setSession(
       session.copyWith(
         peerId: signal.newCoordinatorId,
         peerName: await _peerNameResolver(session.groupId!),
+        peerIds: peers,
       ),
     );
+    if (_isGroupCoordinator) {
+      if (!await _rotateMediaKey(peers)) {
+        await _finish(CallState.failed, notifyPeer: true);
+      }
+      return;
+    }
+    final pending = _takePendingMediaKey(
+      session.callId,
+      signal.newCoordinatorId,
+    );
+    if (pending != null) {
+      await applyIncomingMediaKey(
+        senderId: pending.senderId,
+        payload: pending.mediaKey.encode(),
+      );
+    }
   }
 
   void _handleGroupPeerState(GroupPeerState update) {
@@ -1035,6 +1370,11 @@ class CallManager {
     final session = _current;
     if (session == null || _terminating) return;
     _terminating = true;
+    // Medya anahtari cagriyla birlikte biter; bellekte kalici tutulmaz.
+    _dropPendingMediaKeysForCall(session.callId);
+    _mediaKey = null;
+    _mediaEncryptionActive = false;
+    _mediaEncryptionRequired = false;
     _ringTimer?.cancel();
     if (session.direction == CallDirection.incoming &&
         session.state == CallState.ringing &&
@@ -1196,7 +1536,11 @@ class CallManager {
         _requestCallOpen();
         _track(acceptCall());
       case NativeCallActionType.end:
-        _track(endCall());
+        // Sistem bildirimindeki "Reddet" ve aktif cagridaki "Kapat" ayni
+        // native aksiyona dusuyor. Henuz kabul edilmemis GELEN bir cagriyi
+        // kapatmak "reddetme"dir: arayan taraf "mesgul/reddedildi" ile
+        // "gorusme bitti" ayrimini yapabilmeli.
+        _track(isUnansweredIncomingCall(session) ? rejectCall() : endCall());
       case NativeCallActionType.mute:
         if (!session.isMuted) _track(toggleMute());
       case NativeCallActionType.unmute:
@@ -1247,6 +1591,10 @@ class CallManager {
       }
     }
     _controlAcks.clear();
+    _pendingMediaKeys.clear();
+    _mediaKey = null;
+    _mediaEncryptionActive = false;
+    _mediaEncryptionRequired = false;
     _currentGroupRoutingToken = null;
     await _operations.close();
     await _janus?.dispose();

@@ -10,6 +10,8 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/storage_at_rest.dart';
+
 void main() {
   test('conversation list actions persist through encrypted DAO', () async {
     final fixture = await _Fixture.open();
@@ -26,7 +28,7 @@ void main() {
     expect(conversation.isFavorite, isTrue);
     expect(conversation.manuallyUnread, isTrue);
     expect(conversation.isArchived, isTrue);
-    final raw = await fixture.databaseFile.readAsString();
+    final raw = await storageAtRest(fixture.databaseFile);
     expect(raw, isNot(contains('Alice')));
   });
 

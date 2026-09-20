@@ -8,7 +8,18 @@ class BulkSendResult {
   final Map<String, SendMessageOutcome> failed;
 }
 
-class BulkMessageService {
+/// Toplu gonderim ekraninin ihtiyac duydugu dar sozlesme.
+///
+/// Ekran gercek servise baglandiginda testler onu hic cizemiyordu: servis
+/// veritabani ve gonderim zincirini cekiyor, test kabinda kurulamiyor ve
+/// ekran "kullanilamiyor" yazisina dusuyordu. Yani ekranin dar telefonda ve
+/// %200 metin olceginde bozulup bozulmadigi HIC sinanmiyordu.
+abstract interface class BulkMessageSender {
+  Stream<List<ConversationEntity>> watchConversations();
+  Future<BulkSendResult> send(String content, Iterable<String> recipients);
+}
+
+class BulkMessageService implements BulkMessageSender {
   const BulkMessageService({
     required SecureChatDatabase database,
     required SendMessageUseCase sender,
@@ -17,9 +28,11 @@ class BulkMessageService {
   final SecureChatDatabase _database;
   final SendMessageUseCase _sender;
 
+  @override
   Stream<List<ConversationEntity>> watchConversations() =>
       _database.conversations.getAll();
 
+  @override
   Future<BulkSendResult> send(
     String content,
     Iterable<String> recipients,

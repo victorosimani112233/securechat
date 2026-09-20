@@ -36,6 +36,7 @@ class PrivateGroupControlSender {
     required String action,
     String? targetMemberId,
     DateTime? timestamp,
+    Future<bool> Function(EncryptedSignalMessage signal)? sendSignal,
   }) async {
     final members = memberIds
         .where((id) => id.isNotEmpty)
@@ -65,14 +66,14 @@ class PrivateGroupControlSender {
         recipientId: recipientId,
         plaintext: payload,
       );
-      final delivered = await _signaling.send(
-        EncryptedSignalMessage(
-          senderId: senderId,
-          recipientId: recipientId,
-          timestamp: sentAt,
-          envelope: envelope,
-        ),
+      final signal = EncryptedSignalMessage(
+        senderId: senderId,
+        recipientId: recipientId,
+        timestamp: sentAt,
+        envelope: envelope,
       );
+      final delivered =
+          await (sendSignal?.call(signal) ?? _signaling.send(signal));
       if (!delivered) {
         throw StateError('Private group control delivery failed');
       }

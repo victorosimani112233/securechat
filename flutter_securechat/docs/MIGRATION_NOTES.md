@@ -90,6 +90,16 @@ Master key'in app-support dizininde Base64 dosya olarak tutulmasi kaldirildi. `f
 
 Kotlin `OfflineMessageQueue` yorumda encrypted queue dese de send basarisizliginda `PendingMessage.content` alanina plaintext koyuyordu. Bu davranis guvenlik hedefiyle celistigi icin birebir tasinmadi. Flutter kuyruğu yalniz `EncryptedSignalMessage`, encrypted group fanout veya encrypted file-transfer kabul eder ve encrypted database'e yazar. Reconnect'te sirali flush ve 30 saniyelik stuck-SENDING recovery eklendi.
 
+Mesaj teslimi daha sonra ACK tabanli hale getirildi. Signal ciphertext socket
+gonderiminden once encrypted local outbox'a yazilir ve socket basarisinda
+silinmez; alicinin authenticated E2EE `DELIVERED`/`READ` kontrolu beklenir.
+Hardened server ciphertext'i online alici icin de transport ACK gelene kadar
+persistence-kapali Redis RAM'de varsayilan 15 dakika tutar. Retry ayni
+256-bit `deliveryId` ile idempotenttir, server TTL'ini yenilemez ve hizli
+zarflar Signal ratchet sirasinda teslim edilir. FCM/APNs yalniz generic wake-up
+olup teslim kaniti degildir. Veri siniri ve hata davranisi
+`PRIVACY_FIRST_RELIABLE_DELIVERY.md` icinde ayrintilidir.
+
 ### 10. Gercek auth ve gonderim akisi
 
 Demo token ile login kaldirildi. OTP request/verify, register, blind-RSA private

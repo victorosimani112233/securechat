@@ -47,6 +47,70 @@ void main() {
     },
   );
 
+  test(
+    'parallel direct operations serialize the ratchet state per peer',
+    () async {
+      final fixture = await _SignalFixture.open();
+      addTearDown(fixture.close);
+
+      final bootstrap = await fixture.alice.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'bootstrap',
+      );
+      expect(
+        await fixture.bob.decryptDirect(senderId: 'alice', envelope: bootstrap),
+        'bootstrap',
+      );
+
+      final outbound = await Future.wait(
+        List.generate(
+          64,
+          (index) => fixture.alice.encryptDirect(
+            recipientId: 'bob',
+            plaintext: 'parallel-$index',
+          ),
+        ),
+      );
+      final clear = await Future.wait(
+        outbound.map(
+          (envelope) =>
+              fixture.bob.decryptDirect(senderId: 'alice', envelope: envelope),
+        ),
+      );
+
+      expect(clear.toSet(), {
+        for (var index = 0; index < 64; index++) 'parallel-$index',
+      });
+    },
+  );
+
+  test(
+    'direct ratchet produces distinct ciphertext for identical plaintext',
+    () async {
+      final fixture = await _SignalFixture.open();
+      addTearDown(fixture.close);
+
+      final first = await fixture.alice.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'same plaintext',
+      );
+      final second = await fixture.alice.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'same plaintext',
+      );
+
+      expect(second, isNot(first));
+      expect(
+        await fixture.bob.decryptDirect(senderId: 'alice', envelope: first),
+        'same plaintext',
+      );
+      expect(
+        await fixture.bob.decryptDirect(senderId: 'alice', envelope: second),
+        'same plaintext',
+      );
+    },
+  );
+
   test('SenderKey distribution enables authenticated group messages', () async {
     final fixture = await _SignalFixture.open();
     addTearDown(fixture.close);
@@ -100,6 +164,51 @@ void main() {
       'legacy receive path',
     );
   });
+
+  test(
+    'group sender-key ratchet produces distinct ciphertext for identical plaintext',
+    () async {
+      final fixture = await _SignalFixture.open();
+      addTearDown(fixture.close);
+      final distribution = await fixture.alice.createSenderKeyDistribution(
+        groupId: 'group-ratchet',
+        senderId: 'alice',
+      );
+      await fixture.bob.processSenderKeyDistribution(
+        senderId: 'alice',
+        plaintext: distribution,
+      );
+
+      final first = await fixture.alice.encryptGroup(
+        senderId: 'alice',
+        groupId: 'group-ratchet',
+        plaintext: 'same group plaintext',
+      );
+      final second = await fixture.alice.encryptGroup(
+        senderId: 'alice',
+        groupId: 'group-ratchet',
+        plaintext: 'same group plaintext',
+      );
+
+      expect(second, isNot(first));
+      expect(
+        await fixture.bob.decryptGroup(
+          senderId: 'alice',
+          groupId: 'group-ratchet',
+          envelope: first,
+        ),
+        'same group plaintext',
+      );
+      expect(
+        await fixture.bob.decryptGroup(
+          senderId: 'alice',
+          groupId: 'group-ratchet',
+          envelope: second,
+        ),
+        'same group plaintext',
+      );
+    },
+  );
 
   test('group send distributes SKDM before the shared ciphertext', () async {
     final fixture = await _SignalFixture.open();

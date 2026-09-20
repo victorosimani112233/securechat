@@ -95,22 +95,37 @@
   "conversation_locked_preview": "هذه الدردشة مخفية",
   "conversations_messages_section": "في الرسائل",
   "signaling_disconnected": "انقطع الاتصال بالخادم",
-  "connected": "متصل"
-  ,"chat_online": "متصل الآن"
-  ,"chat_last_seen": "آخر ظهور {time}"
-  ,"chat_encryption_notice": "الرسائل مشفرة من طرف إلى طرف."
-  ,"chat_today": "اليوم"
-  ,"chat_yesterday": "أمس"
-  ,"chat_pinned_message": "رسالة مثبتة"
-  ,"chat_admins_only": "يمكن للمشرفين فقط إرسال الرسائل"
-  ,"chat_message_hint": "اكتب رسالة…"
-  ,"chat_scroll_bottom": "الانتقال إلى أحدث رسالة"
-  ,"chat_you": "أنت"
-  ,"chat_edited": "معدّلة"
-  ,"chat_attachment_options": "خيارات المرفقات"
-  ,"chat_empty_secure": "لا توجد رسائل في هذه الدردشة الآمنة بعد."
-  ,"chat_previous_result": "النتيجة السابقة"
-  ,"chat_next_result": "النتيجة التالية"
-  ,"sending": "جارٍ الإرسال"
-  ,"return_to_call": "العودة إلى المكالمة"
+  "connected": "متصل",
+  "chat_online": "متصل الآن",
+  "chat_last_seen": "آخر ظهور {time}",
+  "chat_encryption_notice": "الرسائل مشفرة من طرف إلى طرف.",
+  "chat_today": "اليوم",
+  "chat_yesterday": "أمس",
+  "chat_pinned_message": "رسالة مثبتة",
+  "chat_admins_only": "يمكن للمشرفين فقط إرسال الرسائل",
+  "chat_message_hint": "اكتب رسالة…",
+  "chat_scroll_bottom": "الانتقال إلى أحدث رسالة",
+  "chat_you": "أنت",
+  "chat_edited": "معدّلة",
+  "chat_attachment_options": "خيارات المرفقات",
+  "chat_empty_secure": "لا توجد رسائل في هذه الدردشة الآمنة بعد.",
+  "chat_previous_result": "النتيجة السابقة",
+  "chat_next_result": "النتيجة التالية",
+  "sending": "جارٍ الإرسال",
+  "return_to_call": "العودة إلى المكالمة",
+  "missed_call": "مكالمة فائتة",
+  "missed_video_call": "مكالمة فيديو فائتة",
+  "missed_voice_call": "مكالمة صوتية فائتة",
+  "missed_call_from": "من {peer}",
+  "missed_calls_channel": "المكالمات الفائتة",
+  "missed_calls_channel_desc": "إشعارات المكالمات التي لم يتم الرد عليها",
+  "messages_channel": "رسائل elçim",
+  "messages_channel_silent": "رسائل elçim (صامت)",
+  "messages_channel_desc": "إشعارات الرسائل الآمنة الواردة",
+  "messages_channel_silent_desc": "الرسائل المكتومة أو داخل التطبيق",
+  "security_number_changed": "تغير رقم الأمان. ربما أعاد هذا الشخص تثبيت التطبيق. إذا لم تكن متأكدًا، فتحقق من هويته عبر قناة أخرى.",
+  "security_message_unreadable": "تعذّر فك تشفير إحدى الرسائل ولا يمكن عرضها. يمكنك أن تطلب من المُرسِل إرسالها مرة أخرى.",
+  "chat_jump_to_replied_message": "الانتقال إلى الرسالة التي تم الرد عليها",
+  "contacts_empty_body": "تتم مطابقة جهات اتصالك عبر التجزئة فقط. سيظهر هنا كل من يستخدم elçim.",
+  "calls_empty_body": "تُدرج هنا المكالمات الصادرة والواردة. لا يُسجَّل محتوى المكالمات أبدًا."
 }

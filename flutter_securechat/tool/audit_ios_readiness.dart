@@ -22,6 +22,18 @@ const _requiredInfoPlistKeys = {
   'BGTaskSchedulerPermittedIdentifiers',
 };
 
+/// Desteklenen en dusuk iOS surumu.
+///
+/// Uc yerde ayni olmak zorunda ve tek tek degistirilirse hata mesajlari
+/// yaniltici oluyor:
+///   - `ios/Runner.xcodeproj/project.pbxproj` (uc yapilandirma)
+///   - `ios/SQLCipher/Package.swift` (`.iOS(.vNN)`)
+///   - burasi
+///
+/// Yukseltmek KULLANICI KAYBETTIRIR: bu surumun altindaki cihazlar
+/// guncelleme alamaz. Yalniz Xcode gercekten reddediyorsa yukseltin.
+const _minimumIosVersion = '15.0';
+
 const _backgroundIdentifiers = {
   'com.securechat.app.background.maintenance',
   'com.securechat.app.background.sender-key-rotation',
@@ -145,14 +157,119 @@ void main() {
     r'IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);',
   ).allMatches(project).map((match) => match[1]!).toList();
   if (deploymentTargets.length < 3 ||
-      deploymentTargets.any((target) => target != '15.0')) {
+      deploymentTargets.any((target) => target != _minimumIosVersion)) {
     failures.add(
-      'Tum iOS deployment targetlari Firebase Swift paketleri icin 15.0 olmali: '
-      '$deploymentTargets',
+      'Tum iOS deployment targetlari $_minimumIosVersion olmali '
+      '(Firebase Swift paketlerinin sarti): $deploymentTargets',
     );
   }
   if (!project.contains('PRODUCT_BUNDLE_IDENTIFIER = com.securechat.app')) {
     failures.add('iOS bundle ID com.securechat.app degil');
+  }
+
+  // SQLCipher iOS'ta ayri bir sistem kutuphanesi DEGIL; uygulama ikilisine
+  // gomulmek zorunda. Zincirin herhangi bir halkasi koparsa uygulama iOS'un
+  // duz SQLite'ina duser — o da `PRAGMA key`i sessizce yok sayip mesaj
+  // veritabanini SIFRESIZ yazar. Calisma aninda `assertCipherAvailable`
+  // bunu yakalayip depoyu acmiyor; buradaki denetimler ise durumun release
+  // derlemesine hic girmemesi icin.
+  if (!File('${root.path}/ios/SQLCipher/Sources/CSQLCipher/sqlite3.c')
+      .existsSync()) {
+    failures.add('Gomulu SQLCipher amalgamation dosyasi yok');
+  }
+  final cipherPackage = read('ios/SQLCipher/Package.swift');
+  for (final define in ['SQLITE_HAS_CODEC', 'SQLCIPHER_CRYPTO_CC']) {
+    if (!cipherPackage.contains(define)) {
+      failures.add('SQLCipher paketinde zorunlu tanim eksik: $define');
+    }
+  }
+  // Gomulu SQLCipher paketi ayri bir platform bildirimi tasiyor. pbxproj ile
+  // ayrisirsa SPM "package is not compatible" der ve hata deployment target
+  // uyusmazligini isaret etmez; bagimliligin kendisi bozuk sanilir.
+  final packageMinimum = RegExp(
+    r'\.iOS\(\.v([0-9_]+)\)',
+  ).firstMatch(cipherPackage)?.group(1)?.replaceAll('_', '.');
+  if (packageMinimum != _minimumIosVersion.split('.').first) {
+    failures.add(
+      'ios/SQLCipher/Package.swift minimum iOS surumu pbxproj ile ayrisiyor: '
+      'paket .v$packageMinimum, proje $_minimumIosVersion',
+    );
+  }
+
+  // NDEBUG olmadan assert() govdeleri derleniyor ve yalniz SQLITE_DEBUG
+  // tanimliyken var olan alanlara basvuruyorlar; iOS derlemesi
+  // "No member named 'zEnd' in 'struct EdupBuf'" ile duruyordu.
+  if (!cipherPackage.contains('.define("NDEBUG", to: "1")')) {
+    failures.add(
+      'SQLCipher paketinde NDEBUG yok: assert govdeleri derlenir ve iOS '
+      'derlemesi kirilir',
+    );
+  }
+  // SQLITE_DEBUG `#ifdef` ile denetleniyor; 0 degeri bile onu ACAR.
+  if (cipherPackage.contains('.define("SQLITE_DEBUG"')) {
+    failures.add('SQLCipher paketinde SQLITE_DEBUG tanimlanmis olmamali');
+  }
+  if (!cipherPackage.contains('.define("SQLITE_TEMP_STORE", to: "2")')) {
+    failures.add(
+      'SQLITE_TEMP_STORE=2 yok: gecici tablolar diske duz metin yazilir',
+    );
+  }
+  for (final wiring in [
+    'XCLocalSwiftPackageReference "SQLCipher"',
+    'relativePath = SQLCipher;',
+    'productName = SQLCipher;',
+    'SQLCipher in Frameworks',
+  ]) {
+    if (!project.contains(wiring)) {
+      failures.add('SQLCipher paketi Xcode projesine bagli degil: $wiring');
+    }
+  }
+  // Gomulu SQLCipher statik baglaniyor ve Dart ona `DynamicLibrary.process()`
+  // uzerinden, yani `dlsym` ile ulasiyor. `dlsym` ancak DISA AKTARILMIS
+  // simgeleri gorur; statik kutuphaneden gelen simgeler varsayilan olarak
+  // dinamik simge tablosuna girmez.
+  //
+  // Bayrak olmadigi durumda simgelerin bir kismi disa aktarilmis, bir kismi
+  // olmamisti (250 yerine 73). Sonuc: `sqlite3_open_v2` bizim SQLCipher'dan,
+  // `sqlite3_extended_result_codes` Apple'in `libsqlite3.dylib`'inden
+  // cozuluyordu. Veritabani tanitici yanlis kutuphaneye gidince surec
+  // EXC_BAD_ACCESS ile oluyordu — ve bu YALNIZ AOT derlemelerinde
+  // goruluyordu, debug'da JIT farkli cozumleme yaptigi icin sorun cikmiyordu.
+  if (!project.contains('-Wl,-export_dynamic')) {
+    failures.add(
+      'Runner hedefinde -Wl,-export_dynamic yok: SQLCipher simgeleri dlsym '
+      'icin disa aktarilmaz ve sistem libsqlite3 ile karisir',
+    );
+  }
+  if (!swift.contains('SQLCipherRuntime.ensureLinked()')) {
+    failures.add(
+      'AppDelegate SQLCipherRuntime.ensureLinked cagirmiyor; baglayici '
+      'basvurulmayan statik kutuphaneyi atabilir',
+    );
+  }
+  final store = read('lib/src/storage/encrypted_record_store.dart');
+  if (!store.contains('OperatingSystem.iOS') ||
+      !store.contains('OperatingSystem.macOS')) {
+    failures.add('EncryptedRecordStore Apple platformlari icin override etmiyor');
+  }
+  if (!store.contains('PRAGMA cipher_version')) {
+    failures.add('Depo acilisinda SQLCipher dogrulamasi yok');
+  }
+
+  // Xcode projesinde tanimsiz nesne kimligi kalmamali: pbxproj elle
+  // duzenlendiginde en sik yapilan hata, listeye eklenip bolumu yazilmayan
+  // (veya tersi) bir kimliktir ve Xcode projeyi hic acmaz.
+  final declared = RegExp(r'^\t\t([0-9A-F]{24}) /\*', multiLine: true)
+      .allMatches(project)
+      .map((match) => match[1]!)
+      .toSet();
+  final referenced = RegExp(r'^\t{3,4}([0-9A-F]{24}) /\*', multiLine: true)
+      .allMatches(project)
+      .map((match) => match[1]!)
+      .toSet();
+  final dangling = referenced.difference(declared);
+  if (dangling.isNotEmpty) {
+    failures.add('project.pbxproj icinde tanimsiz nesne kimligi: $dangling');
   }
 
   final firebase = read('lib/src/push/push_service.dart');

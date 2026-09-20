@@ -100,11 +100,17 @@ class SecureHttpClientFactory {
       }
       return Socket.startConnect(proxyHost, proxyPort!);
     }
+    final defaultPort = switch (uri.scheme) {
+      'https' || 'wss' => 443,
+      'http' || 'ws' => 80,
+      _ => 0,
+    };
+    final port = uri.hasPort ? uri.port : defaultPort;
     final secure = uri.scheme == 'https' || uri.scheme == 'wss';
-    if (!secure) return Socket.startConnect(uri.host, uri.port);
+    if (!secure) return Socket.startConnect(uri.host, port);
     final task = await SecureSocket.startConnect(
       uri.host,
-      uri.port,
+      port,
       onBadCertificate: (certificate) =>
           policy.requiresPin(uri.host) &&
           policy.verifyCertificate(uri.host, certificate),

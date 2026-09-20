@@ -4,10 +4,14 @@ import 'package:flutter/material.dart';
 
 import '../../services/app_container.dart';
 import '../../l10n/l10n.dart';
+import '../../widgets/text_controller_scope.dart';
 import '../../settings/account_data_service.dart';
 import '../../settings/settings_service.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/azure_options.dart';
+import '../../widgets/notification_sound_picker.dart';
+import '../../widgets/azure_surface.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -47,7 +51,10 @@ class SettingsScreen extends StatelessWidget {
         body: ListView(
           key: const ValueKey('settings-list'),
           padding: const EdgeInsets.all(16),
-          children: [
+          // Satirlar kayan desenin uzerinde ciplak duruyordu. `Divider`
+          // sinirlari artik opak bolumlere donusuyor: hem okunabilir hem
+          // hangi ayarin nereye ait oldugu belli.
+          children: azureSections(<Widget>[
             ListTile(
               leading: _profileAvatar(
                 settings?.profilePhotoPath,
@@ -92,10 +99,7 @@ class SettingsScreen extends StatelessWidget {
             _tile(
               Icons.notifications_outlined,
               l10n.settings_notification_sound,
-              settings?.showNotificationContent == false
-                  ? l10n.settings_content_hidden
-                  : '${l10n.settings_content_visible} · '
-                        '${_soundLabel(context, settings?.notificationSound)}',
+              _soundLabel(context, settings?.notificationSound),
               onTap: service == null
                   ? null
                   : () => _showNotificationSheet(context, service, settings!),
@@ -103,9 +107,7 @@ class SettingsScreen extends StatelessWidget {
             _tile(
               Icons.lock_outline,
               l10n.settings_privacy,
-              settings?.shareLastSeen == false
-                  ? l10n.settings_last_seen_hidden
-                  : l10n.settings_last_seen_shared,
+              _privacySummary(context, settings),
               onTap: service == null
                   ? null
                   : () => _showPrivacySheet(context, service, settings!),
@@ -161,12 +163,6 @@ class SettingsScreen extends StatelessWidget {
               onTap: () => Navigator.pushNamed(context, '/scheduled-messages'),
             ),
             _tile(
-              Icons.send_to_mobile_outlined,
-              l10n.settings_bulk_message,
-              l10n.settings_bulk_message_desc,
-              onTap: () => Navigator.pushNamed(context, '/bulk-message'),
-            ),
-            _tile(
               Icons.sd_storage_outlined,
               l10n.settings_storage_usage,
               l10n.settings_storage_desc,
@@ -179,11 +175,10 @@ class SettingsScreen extends StatelessWidget {
               onTap: () => Navigator.pushNamed(context, '/backup'),
             ),
             _tile(
-              Icons.article_outlined,
-              l10n.settings_open_source_licenses,
-              l10n.settings_open_source_licenses_desc,
-              onTap: () =>
-                  showLicensePage(context: context, applicationName: 'Elçim'),
+              Icons.info_outline,
+              l10n.settings_about,
+              l10n.settings_about_desc,
+              onTap: () => Navigator.pushNamed(context, '/about'),
             ),
             const Divider(),
             ListTile(
@@ -233,7 +228,7 @@ class SettingsScreen extends StatelessWidget {
                 ).pushNamedAndRemoveUntil('/auth', (_) => false);
               },
             ),
-          ],
+          ]),
         ),
       ),
     );
@@ -268,19 +263,20 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => SimpleDialog(
         title: Text(context.l10n.settings_chat_theme),
-        children: AppThemePreference.values
-            .map(
-              (value) => ListTile(
-                leading: Icon(
-                  value == selected
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                ),
-                title: Text(_themeLabel(context, value)),
-                onTap: () => Navigator.pop(context, value),
-              ),
-            )
-            .toList(growable: false),
+        contentPadding: const EdgeInsets.only(bottom: 12),
+        children: [
+          for (final option in AppThemePreference.values)
+            AzureOptionTile(
+              selected: option == selected,
+              icon: switch (option) {
+                AppThemePreference.system => Icons.brightness_auto_outlined,
+                AppThemePreference.light => Icons.light_mode_outlined,
+                AppThemePreference.dark => Icons.dark_mode_outlined,
+              },
+              title: _themeLabel(context, option),
+              onTap: () => Navigator.pop(context, option),
+            ),
+        ],
       ),
     );
     if (value != null && context.mounted) {
@@ -297,19 +293,16 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => SimpleDialog(
         title: Text(context.l10n.settings_language),
-        children: AppLanguagePreference.values
-            .map(
-              (value) => ListTile(
-                leading: Icon(
-                  value == selected
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                ),
-                title: Text(_languageLabel(value)),
-                onTap: () => Navigator.pop(context, value),
-              ),
-            )
-            .toList(growable: false),
+        contentPadding: const EdgeInsets.only(bottom: 12),
+        children: [
+          for (final option in AppLanguagePreference.values)
+            AzureOptionTile(
+              selected: option == selected,
+              icon: Icons.translate_outlined,
+              title: _languageLabel(option),
+              onTap: () => Navigator.pop(context, option),
+            ),
+        ],
       ),
     );
     if (value != null && context.mounted) {
@@ -317,78 +310,42 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
+  /// Bildirim SESI — yalniz ses secimi, her secenek dinlenebilir.
+  ///
+  /// "Mesaj icerigini goster" buradaydi; oraya ait degil. O ayar kilit
+  /// ekraninda ne gorunecegini belirliyor, yani bir GIZLILIK karari.
+  /// Gizlilik sayfasina tasindi.
+  ///
+  /// Sayfa kendi kopyasini tutmuyor, `service.states` akisini dinliyor.
+  /// Yerel kopya iki soruna yol aciyordu: deger ancak kaydetme bittikten
+  /// sonra degisiyordu (dokunusa tepkisiz goruntu), ve kaydetme BASARISIZ
+  /// olsa bile ekran yeni degeri gosteriyordu — yani yalan soyluyordu.
   static Future<void> _showNotificationSheet(
     BuildContext context,
     SettingsService service,
     AppSettingsState initial,
   ) => showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     showDragHandle: true,
-    builder: (sheetContext) {
-      var content = initial.showNotificationContent;
-      var sound = initial.notificationSound;
-      return StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SwitchListTile(
-                title: Text(context.l10n.settings_show_message_preview),
-                subtitle: Text(context.l10n.settings_notification_preview_desc),
-                value: content,
-                onChanged: (value) async {
-                  await _run(
-                    context,
-                    () => service.setShowNotificationContent(value),
-                  );
-                  setSheetState(() => content = value);
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  sound == NotificationSoundPreference.defaultSound
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                ),
-                title: Text(context.l10n.settings_default_notification_sound),
-                onTap: () async {
-                  await _run(
-                    context,
-                    () => service.setNotificationSound(
-                      NotificationSoundPreference.defaultSound,
-                    ),
-                  );
-                  setSheetState(
-                    () => sound = NotificationSoundPreference.defaultSound,
-                  );
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  sound == NotificationSoundPreference.silent
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                ),
-                title: Text(context.l10n.settings_silent),
-                onTap: () async {
-                  await _run(
-                    context,
-                    () => service.setNotificationSound(
-                      NotificationSoundPreference.silent,
-                    ),
-                  );
-                  setSheetState(
-                    () => sound = NotificationSoundPreference.silent,
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      );
-    },
+    builder: (sheetContext) => StreamBuilder<AppSettingsState>(
+      stream: service.states,
+      initialData: initial,
+      builder: (context, snapshot) => NotificationSoundPicker(
+        selected: (snapshot.data ?? initial).notificationSound,
+        onSelected: (value) {
+          if (value == null) return;
+          _run(context, () => service.setNotificationSound(value));
+        },
+        onSystemSettings: service.openSystemSoundSettings,
+      ),
+    ),
   );
 
+  /// Gizlilik — karsi tarafin ve kilit ekraninin ne gorecegi.
+  ///
+  /// Bildirim onizlemesi de burada: kilit ekraninda mesaj icerigi gorunup
+  /// gorunmeyecegi bir gizlilik karari, ses tercihiyle ilgisi yok.
   static Future<void> _showPrivacySheet(
     BuildContext context,
     SettingsService service,
@@ -396,32 +353,45 @@ class SettingsScreen extends StatelessWidget {
   ) => showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
-    builder: (sheetContext) {
-      var shareLastSeen = initial.shareLastSeen;
-      return StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
-          child: Column(
+    builder: (sheetContext) => SafeArea(
+      child: StreamBuilder<AppSettingsState>(
+        stream: service.states,
+        initialData: initial,
+        builder: (context, snapshot) {
+          final settings = snapshot.data ?? initial;
+          return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _SheetHeading(context.l10n.settings_privacy),
               SwitchListTile(
+                secondary: const Icon(Icons.visibility_outlined),
+                title: Text(context.l10n.settings_show_message_preview),
+                subtitle: Text(context.l10n.settings_notification_preview_desc),
+                value: settings.showNotificationContent,
+                onChanged: (value) => _run(
+                  context,
+                  () => service.setShowNotificationContent(value),
+                ),
+              ),
+              SwitchListTile(
+                secondary: const Icon(Icons.schedule_outlined),
                 title: Text(context.l10n.settings_share_last_seen),
                 subtitle: Text(context.l10n.settings_presence_immediate_desc),
-                value: shareLastSeen,
-                onChanged: (value) async {
-                  await _run(context, () => service.setShareLastSeen(value));
-                  setSheetState(() => shareLastSeen = value);
-                },
+                value: settings.shareLastSeen,
+                onChanged: (value) =>
+                    _run(context, () => service.setShareLastSeen(value)),
               ),
               ListTile(
                 leading: const Icon(Icons.screenshot_monitor_outlined),
                 title: Text(context.l10n.settings_screen_protection),
                 subtitle: Text(context.l10n.settings_screen_protection_desc),
               ),
+              const SizedBox(height: 8),
             ],
-          ),
-        ),
-      );
-    },
+          );
+        },
+      ),
+    ),
   );
 
   static Future<void> _showProfilePhotoSheet(
@@ -515,72 +485,73 @@ class SettingsScreen extends StatelessWidget {
     BuildContext context,
     AccountDataService accountData,
   ) async {
-    final controller = TextEditingController();
     final confirmationToken = context.l10n.settings_nuke_type_placeholder;
     var deleting = false;
+    // Controller dialog'un yasam dongusune ait (bkz TextControllerScope).
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (contentContext, setDialogState) => AlertDialog(
-          icon: Icon(
-            Icons.person_remove,
-            color: Theme.of(contentContext).colorScheme.error,
-          ),
-          title: Text(contentContext.l10n.settings_delete_account),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              OutlinedButton.icon(
+      builder: (dialogContext) => TextControllerScope(
+        builder: (dialogContext, controller) => StatefulBuilder(
+          builder: (contentContext, setDialogState) => AlertDialog(
+            icon: Icon(
+              Icons.person_remove,
+              color: Theme.of(contentContext).colorScheme.error,
+            ),
+            title: Text(contentContext.l10n.settings_delete_account),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: deleting
+                      ? null
+                      : () {
+                          Navigator.pop(dialogContext, false);
+                          Navigator.pushNamed(context, '/backup');
+                        },
+                  icon: const Icon(Icons.backup_outlined),
+                  label: Text(contentContext.l10n.settings_nuke_backup_first),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '${contentContext.l10n.settings_delete_account_body}\n\n'
+                  '${contentContext.l10n.settings_nuke_type_to_confirm}',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  enabled: !deleting,
+                  autofocus: true,
+                  decoration: InputDecoration(hintText: confirmationToken),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
                 onPressed: deleting
                     ? null
-                    : () {
-                        Navigator.pop(dialogContext, false);
-                        Navigator.pushNamed(context, '/backup');
-                      },
-                icon: const Icon(Icons.backup_outlined),
-                label: Text(contentContext.l10n.settings_nuke_backup_first),
+                    : () => Navigator.pop(dialogContext, false),
+                child: Text(contentContext.l10n.cancel),
               ),
-              const SizedBox(height: 12),
-              Text(
-                '${contentContext.l10n.settings_delete_account_body}\n\n'
-                '${contentContext.l10n.settings_nuke_type_to_confirm}',
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                enabled: !deleting,
-                autofocus: true,
-                decoration: InputDecoration(hintText: confirmationToken),
-                onChanged: (_) => setDialogState(() {}),
+              FilledButton(
+                onPressed:
+                    controller.text.trim().toUpperCase() ==
+                            confirmationToken.toUpperCase() &&
+                        !deleting
+                    ? () {
+                        setDialogState(() => deleting = true);
+                        Navigator.pop(dialogContext, true);
+                      }
+                    : null,
+                child: Text(contentContext.l10n.settings_delete_account),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: deleting
-                  ? null
-                  : () => Navigator.pop(dialogContext, false),
-              child: Text(contentContext.l10n.cancel),
-            ),
-            FilledButton(
-              onPressed:
-                  controller.text.trim().toUpperCase() ==
-                          confirmationToken.toUpperCase() &&
-                      !deleting
-                  ? () {
-                      setDialogState(() => deleting = true);
-                      Navigator.pop(dialogContext, true);
-                    }
-                  : null,
-              child: Text(contentContext.l10n.settings_delete_account),
-            ),
-          ],
         ),
       ),
     );
-    controller.dispose();
     if (confirmed != true || !context.mounted) return;
     await _runAndLeave(context, accountData.deleteAccount);
   }
@@ -630,10 +601,45 @@ class SettingsScreen extends StatelessWidget {
     _ => 'Sistem / System',
   };
 
+  /// Gizlilik satirinin ozeti: iki ayarin da durumu tek satirda.
+  ///
+  /// Onceden yalniz son gorulme yaziyordu; bildirim onizlemesi bu sayfaya
+  /// tasindigi icin o da ozete girdi.
+  static String _privacySummary(
+    BuildContext context,
+    AppSettingsState? settings,
+  ) {
+    final l10n = context.l10n;
+    final lastSeen = settings?.shareLastSeen == false
+        ? l10n.settings_last_seen_hidden
+        : l10n.settings_last_seen_shared;
+    final preview = settings?.showNotificationContent == false
+        ? l10n.settings_content_hidden
+        : l10n.settings_content_visible;
+    return '$lastSeen · $preview';
+  }
+
   static String _soundLabel(
     BuildContext context,
     NotificationSoundPreference? value,
-  ) => value == NotificationSoundPreference.silent
-      ? context.l10n.settings_silent
-      : context.l10n.settings_default_notification_sound;
+  ) => soundName(context, value ?? NotificationSoundPreference.system);
+}
+
+/// Alt sayfalarin basligi.
+///
+/// Sayfalarin hicbirinde baslik yoktu; acilan panelin neyi degistirdigi
+/// yalniz satirlardan anlasiliyordu.
+class _SheetHeading extends StatelessWidget {
+  const _SheetHeading(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsetsDirectional.fromSTEB(20, 4, 20, 12),
+    child: Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Text(text, style: Theme.of(context).textTheme.titleMedium),
+    ),
+  );
 }

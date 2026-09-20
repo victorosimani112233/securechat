@@ -11,6 +11,7 @@ import '../../services/conversation_repository.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/haptics.dart';
+import '../../widgets/azure_empty_state.dart';
 
 enum ConversationFilter { none, unread, groups, favorites }
 
@@ -248,7 +249,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                         ? 'archived-conversation-list'
                         : 'active-conversation-list',
                   ),
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 112),
+                  // Alt gezinme cubugu Scaffold tarafindan zaten paylanir
+                  // (extendBody kapali) ve ekranda yuzen bir oge yok; 112 px
+                  // liste sonunda olu bosluk biraktiriyordu.
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
                   children: [
                     if (!_showArchived) _readinessBanner(),
                     if (!_showArchived &&
@@ -358,43 +362,15 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     ),
   );
 
-  Widget _emptyState({required bool searching}) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 88, 20, 20),
-    child: Column(
-      children: [
-        CircleAvatar(
-          radius: 38,
-          backgroundColor: Theme.of(
-            context,
-          ).colorScheme.primary.withValues(alpha: .10),
-          child: Icon(
-            searching ? Icons.search_off : Icons.forum_outlined,
-            size: 38,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-        const SizedBox(height: 18),
-        Text(
-          searching
-              ? context.l10n.conversations_no_results
-              : context.l10n.no_chats_yet,
-          textAlign: TextAlign.center,
-          style: Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          searching
-              ? context.l10n.conversations_no_results_body
-              : context.l10n.conversations_empty_body,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    ),
+  Widget _emptyState({required bool searching}) => AzureEmptyState(
+    icon: searching ? Icons.search_off : Icons.forum_outlined,
+    title: searching
+        ? context.l10n.conversations_no_results
+        : context.l10n.no_chats_yet,
+    message: searching
+        ? context.l10n.conversations_no_results_body
+        : context.l10n.conversations_empty_body,
+    topPadding: 88,
   );
 
   Widget _conversationCard(
@@ -407,9 +383,16 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         : conversation.isLocked
         ? context.l10n.conversation_locked_preview
         : _displayLastMessage(conversation.lastMessage ?? '');
+    final scheme = Theme.of(context).colorScheme;
     return AzureGlassPanel(
       padding: EdgeInsets.zero,
       radius: 16,
+      // Kart zeminden ayrilir. Onceden her sey ayni duzlemdeydi ve sohbetler
+      // arka plandan yalnizca 1 px cerceveyle ayirt ediliyordu.
+      elevation: conversation.hasUnread ? 3 : 1,
+      borderColor: conversation.hasUnread
+          ? scheme.primary.withValues(alpha: .45)
+          : null,
       child: Dismissible(
         key: ValueKey('conversation-${conversation.id}'),
         dismissThresholds: const {
@@ -455,13 +438,29 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 72),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsetsDirectional.fromSTEB(11, 10, 14, 10),
               child: Row(
                 children: [
+                  // Aksan rengi yalnizca DURUM icin kullanilir: okunmamis
+                  // sohbet. Dekorasyon amaciyla baska yerde gorunmez.
+                  Container(
+                    width: 3,
+                    height: 34,
+                    margin: const EdgeInsetsDirectional.only(end: 8),
+                    decoration: BoxDecoration(
+                      color: conversation.hasUnread
+                          ? scheme.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
                   Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      GeneratedAvatar(name: conversation.peerName),
+                      GeneratedAvatar(
+                        name: conversation.peerName,
+                        isGroup: conversation.isGroup,
+                      ),
                       if (conversation.isLocked)
                         const Positioned(
                           right: -3,
@@ -486,11 +485,13 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                                 conversation.peerName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontWeight: conversation.hasUnread
-                                      ? FontWeight.w700
-                                      : FontWeight.w600,
-                                ),
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(
+                                      fontWeight: conversation.hasUnread
+                                          ? FontWeight.w700
+                                          : FontWeight.w600,
+                                      color: scheme.onSurface,
+                                    ),
                               ),
                             ),
                             if (conversation.isFavorite)
@@ -514,22 +515,32 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                               ),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: typing
-                                ? Theme.of(context).colorScheme.primary
-                                : Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                            fontWeight: typing
-                                ? FontWeight.w600
-                                : FontWeight.w400,
+                        // Henuz mesajlasilmamis sohbette bos bir satir
+                        // birakilmamali: ad dikeyde ortalanir.
+                        if (subtitle.isNotEmpty) const SizedBox(height: 3),
+                        if (subtitle.isNotEmpty)
+                          Row(
+                            children: [
+                              if (!typing)
+                                ..._previewLeading(context, conversation),
+                              Expanded(
+                                child: Text(
+                                  subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: typing
+                                            ? scheme.primary
+                                            : scheme.onSurfaceVariant,
+                                        fontWeight: typing
+                                            ? FontWeight.w600
+                                            : FontWeight.w400,
+                                      ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -542,8 +553,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                         _formatTimestamp(conversation.lastMessageTimestamp),
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: conversation.hasUnread
-                              ? Theme.of(context).colorScheme.secondary
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
+                          fontWeight: conversation.hasUnread
+                              ? FontWeight.w700
+                              : FontWeight.w400,
                         ),
                       ),
                       if (conversation.hasUnread) ...[
@@ -565,6 +579,44 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         ),
       ),
     );
+  }
+
+  /// Onizlemenin onunde duran isaretler: giden mesajda teslim tiki, medya
+  /// mesajinda tur ikonu.
+  ///
+  /// Onceden ikisi de yoktu: "mesajim gitti mi" sorusu icin sohbeti acmak,
+  /// ne geldigini anlamak icin de mesaji acmak gerekiyordu.
+  List<Widget> _previewLeading(
+    BuildContext context,
+    Conversation conversation,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final marks = <Widget>[];
+    if (conversation.lastMessageOutgoing) {
+      final (icon, color) = switch (conversation.lastMessageStatus) {
+        MessageStatus.sending => (Icons.schedule, scheme.onSurfaceVariant),
+        MessageStatus.sent => (Icons.done, scheme.onSurfaceVariant),
+        MessageStatus.delivered => (Icons.done_all, scheme.onSurfaceVariant),
+        MessageStatus.read => (Icons.done_all, scheme.primary),
+        MessageStatus.failed => (Icons.error_outline, scheme.error),
+        null => (Icons.done, scheme.onSurfaceVariant),
+      };
+      marks.add(Icon(icon, size: 14, color: color));
+    }
+    final typeIcon = switch (conversation.lastMessageType) {
+      MessageContentType.image => Icons.photo_outlined,
+      MessageContentType.file => Icons.insert_drive_file_outlined,
+      MessageContentType.voiceNote => Icons.mic_none,
+      MessageContentType.poll => Icons.bar_chart,
+      _ => null,
+    };
+    if (typeIcon != null) {
+      marks.add(Icon(typeIcon, size: 14, color: scheme.onSurfaceVariant));
+    }
+    if (marks.isEmpty) return const [];
+    return [
+      for (final mark in marks) ...[mark, const SizedBox(width: 4)],
+    ];
   }
 
   Widget _messageSearchHeader(int count) => Padding(

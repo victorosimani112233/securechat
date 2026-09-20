@@ -1,3 +1,18 @@
+analyzer:
+  exclude:
+    # iOS derlemesi Swift Package Manager checkout'larini build/ altina
+    # koyuyor ve bunlarin icinde Dart kaynagi da var (paketlerin kendi ornek
+    # uygulamalari ve testleri). Bunlar bizim kodumuz degil, bagimliliklari
+    # da cozulmus degil; analiz edilince 81 sahte hata uretiyorlardi.
+    #
+    # Siralama tuzagi: `verify_ios_on_macos.sh` once analyze sonra build
+    # yapiyor. Temiz bir agacta ilk kosum geciyor, derlemeden SONRAKI her
+    # kosum dusuyordu. Yani hata derlemenin kendisinden degil, bir onceki
+    # derlemenin biraktigi dosyalardan geliyordu.
+    - build/**
+    # Uretilen yerellestirme kodu; kaynagi .arb dosyalari.
+    - .dart_tool/**
+
 linter:
   rules:
     avoid_print: true
