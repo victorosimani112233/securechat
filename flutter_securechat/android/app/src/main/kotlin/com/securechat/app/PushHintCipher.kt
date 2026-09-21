@@ -18,11 +18,20 @@ internal object PushHintCipher {
             return null
         }
         return try {
+            val encoded = wire.removePrefix(WIRE_PREFIX)
             val payload = Base64.decode(
-                wire.removePrefix(WIRE_PREFIX),
+                encoded,
                 Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
             )
             if (payload.size != NONCE_BYTES + 1 + TAG_BYTES) return null
+            if (
+                Base64.encodeToString(
+                    payload,
+                    Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+                ) != encoded
+            ) {
+                return null
+            }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(
                 Cipher.DECRYPT_MODE,

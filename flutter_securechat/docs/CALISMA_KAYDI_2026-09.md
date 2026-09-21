@@ -332,3 +332,16 @@ bağlı SM-S731B kurulum ve açılış                 geçti
 Cihaza kurulan test APK'sı, cihazdaki mevcut uygulamanın verisini korumak için
 aynı yerel Android debug sertifikasıyla ayrıca imzalandı. Dağıtım APK/IPA'sı
 üretim anahtarıyla CI veya air-gapped imzalama ortamında imzalanmalıdır.
+
+### 21 Eylül kapalı uygulama bildirim teşhisi
+
+- Bağlı Samsung cihazda bildirim izni, yüksek öncelikli mesaj kanalı, FCM
+  receiver, batarya muafiyeti ve uygulama standby durumu doğrulandı.
+- Uygulama arka plandayken FCM receiver ve Flutter background service çalıştı;
+  `NotificationManager` mesaj bildirimini başarıyla yayımladı. Panelde gerçek
+  `FCM-TEST` bildirimi görüldü. Telefon sessiz modda olduğu için ses çıkmadı.
+- Sunucunun normal mesajlar için Android FCM `TTL=0` kullanması ayrı bir
+  güvenilirlik açığıydı: anlık teslim edilemeyen wake-up doğrudan siliniyordu.
+  Mesaj push TTL'i artık şifreli Redis kuyruk TTL'iyle aynı; çağrı TTL'i düşük
+  gecikme ve bayat çağrı yüzeyi oluşturmamak için 30 saniye olarak kaldı.
+- `group_call_invite` Android önceliği `NORMAL` yerine `HIGH` yapıldı.

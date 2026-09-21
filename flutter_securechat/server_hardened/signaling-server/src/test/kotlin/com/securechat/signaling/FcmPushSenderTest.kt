@@ -1,5 +1,6 @@
 package com.securechat.signaling
 
+import com.google.firebase.messaging.AndroidConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -86,6 +87,36 @@ class FcmPushSenderTest {
         // Ayni pencerede gelen cagri sinyali bloklanmamali.
         assertTrue(push.allowPush(user, "sdp_offer", now = base + 10_100L))
         assertFalse(push.allowPush(user, "sdp_offer", now = base + 10_200L))
+    }
+
+    @Test
+    fun `message wake survives until the encrypted queue expires`() {
+        assertEquals(
+            900_000L,
+            FcmPushSender.androidTtlMillis(
+                isCallSignal = false,
+                offlineQueueTtlSeconds = 900,
+            ),
+        )
+        assertEquals(
+            30_000L,
+            FcmPushSender.androidTtlMillis(
+                isCallSignal = true,
+                offlineQueueTtlSeconds = 900,
+            ),
+        )
+    }
+
+    @Test
+    fun `all incoming call wake types use high Android priority`() {
+        assertEquals(
+            AndroidConfig.Priority.HIGH,
+            FcmPushSender.androidPriorityFor("sdp_offer"),
+        )
+        assertEquals(
+            AndroidConfig.Priority.HIGH,
+            FcmPushSender.androidPriorityFor("group_call_invite"),
+        )
     }
 
     @Test

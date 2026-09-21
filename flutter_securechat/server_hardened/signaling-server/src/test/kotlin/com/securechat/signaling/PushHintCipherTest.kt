@@ -21,7 +21,10 @@ class PushHintCipherTest {
         assertEquals(PushHintCipher.MESSAGE_KIND, cipher.open(key, message))
         assertNotEquals(call, cipher.seal(key, PushHintCipher.CALL_KIND))
         assertNull(cipher.open(ByteArray(32) { 7 }, call))
-        assertNull(cipher.open(key, call.dropLast(1) + "A"))
+        val tamperIndex = 10
+        val replacement = if (call[tamperIndex] == 'A') 'B' else 'A'
+        val tampered = call.replaceRange(tamperIndex, tamperIndex + 1, replacement.toString())
+        assertNull(cipher.open(key, tampered))
     }
 
     @Test

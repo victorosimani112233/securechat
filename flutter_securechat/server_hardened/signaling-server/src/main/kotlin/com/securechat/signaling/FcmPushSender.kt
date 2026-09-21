@@ -65,8 +65,6 @@ class FcmPushSender private constructor(
     private val lastCallPushTime = ConcurrentHashMap<String, Long>()
 
     // Arama sinyali tipleri — kendi rate-limit map'ini kullanir
-    private val callSignalTypes = setOf("sdp_offer", "call_control", "group_call_invite")
-
     // Push gonderilmemesi gereken gecici sinyal tipleri
     private val transientTypes = setOf(
         "typing_indicator",
@@ -141,7 +139,7 @@ class FcmPushSender private constructor(
         if (messageType in transientTypes) return false
         if (messageType in SELF_QUEUED_CALL_TYPES) return false
 
-        val rateLimitMap = if (messageType in callSignalTypes) lastCallPushTime else lastPushTime
+        val rateLimitMap = if (messageType in CALL_SIGNAL_TYPES) lastCallPushTime else lastPushTime
         val rateKey = ServerPrivacy.blindIndex("push-rate", recipientId)
         val lastTime = rateLimitMap[rateKey] ?: 0L
         if (now - lastTime < RATE_LIMIT_MS) return false
@@ -168,17 +166,17 @@ class FcmPushSender private constructor(
         // Boylece delivery_receipt/message_reaction gibi normal mesajlar
         // SDP Offer'in incoming_call push'unu bloklayamaz
         if (!allowPush(recipientId, messageType)) return false
-        val isCallSignal = messageType in callSignalTypes
+        val isCallSignal = messageType in CALL_SIGNAL_TYPES
 
         val fcmToken = tokenLookup(recipientId) ?: return false
         val pushHintKey = pushHintKeyLookup(recipientId)
 
         // FCM priority: arama ve mesaj -> HIGH, diger -> NORMAL
-        val priority = when (messageType) {
-            "encrypted_message", "sdp_offer", "sdp_answer", "ice_candidate",
-            "call_control", "file_transfer", "prekey_bundle" -> AndroidConfig.Priority.HIGH
-            else -> AndroidConfig.Priority.NORMAL
-        }
+        val priority = androidPriorityFor(messageType)
+        val ttlMillis = androidTtlMillis(
+            isCallSignal = isCallSignal,
+            offlineQueueTtlSeconds = ServerPrivacy.config.offlineQueueTtlSeconds,
+        )
 
         return try {
             // TUM push'lar data-only. Notification payload eklenmez cunku:
@@ -205,7 +203,10 @@ class FcmPushSender private constructor(
                 .setAndroidConfig(
                     AndroidConfig.builder()
                         .setPriority(priority)
-                        .setTtl(if (isCallSignal) 30 * 1000 else 0) // Arama: 30sn TTL
+                        // TTL=0, FCM o anda teslim edemezse wake-up'i hemen
+                        // siliyordu. Ciphertext kuyrukta kalirken kapali veya
+                        // Doze'daki cihaz bir daha haberdar olmayabiliyordu.
+                        .setTtl(ttlMillis)
                         .build()
                 )
                 // iOS icin explicit APNs yapilandirmasi. Yalniz AndroidConfig
@@ -276,6 +277,30 @@ class FcmPushSender private constructor(
          * `10` gonderilen istek `BadPriority` ile reddedilir.
          */
         internal const val APNS_BACKGROUND_PRIORITY = "5"
+        private const val CALL_PUSH_TTL_MILLIS = 30_000L
+
+        private val CALL_SIGNAL_TYPES = setOf(
+            "sdp_offer",
+            "call_control",
+            "group_call_invite",
+        )
+
+        internal fun androidPriorityFor(messageType: String): AndroidConfig.Priority =
+            when (messageType) {
+                "encrypted_message", "sdp_offer", "sdp_answer", "ice_candidate",
+                "call_control", "group_call_invite", "file_transfer", "prekey_bundle" ->
+                    AndroidConfig.Priority.HIGH
+                else -> AndroidConfig.Priority.NORMAL
+            }
+
+        internal fun androidTtlMillis(
+            isCallSignal: Boolean,
+            offlineQueueTtlSeconds: Long,
+        ): Long = if (isCallSignal) {
+            CALL_PUSH_TTL_MILLIS
+        } else {
+            offlineQueueTtlSeconds * 1_000L
+        }
 
         /**
          * Yalniz test: token deposu olmadan yalniz kapi mantigini kurar.

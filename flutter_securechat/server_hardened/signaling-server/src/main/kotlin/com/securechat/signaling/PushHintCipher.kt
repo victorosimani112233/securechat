@@ -27,10 +27,18 @@ internal class PushHintCipher(
     }
 
     internal fun open(key: ByteArray, wire: String): Char? {
-        if (key.size != KEY_BYTES || !wire.startsWith(WIRE_PREFIX)) return null
+        if (key.size != KEY_BYTES || wire.length != WIRE_LENGTH || !wire.startsWith(WIRE_PREFIX)) {
+            return null
+        }
         return try {
-            val payload = Base64.getUrlDecoder().decode(wire.removePrefix(WIRE_PREFIX))
+            val encoded = wire.removePrefix(WIRE_PREFIX)
+            val payload = Base64.getUrlDecoder().decode(encoded)
             if (payload.size != NONCE_BYTES + 1 + TAG_BYTES) return null
+            // Reject alternate Base64 spellings that decode to the same bytes.
+            // A fixed-width opaque field must have one canonical wire form.
+            if (Base64.getUrlEncoder().withoutPadding().encodeToString(payload) != encoded) {
+                return null
+            }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(
                 Cipher.DECRYPT_MODE,
