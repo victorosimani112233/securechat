@@ -383,3 +383,29 @@ temiz flutter build apk --release                             geçti, 123.3 MB
 bağlı SM-S731B güncelleme kurulumu                            geçti
 bağlı cihaz kapalı süreç canlı FCM tanısı                     wake_no_hint
 ```
+
+### 21 Eylül kişi ve grup bilgileri yönlendirme düzeltmesi
+
+- **Neden açılmıyordu:** `ChatScreen`, kişi bilgileri için
+  `Navigator.pushNamed<ChatInfoResult>`, grup bilgileri için
+  `Navigator.pushNamed<bool>` çağırıyordu. `MaterialApp.routes` ise bu
+  sayfaları `MaterialPageRoute<dynamic>` olarak oluşturuyordu. Rota
+  dönüştürülürken `TypeError` oluştuğu için hem başlığa dokunma hem
+  "Bilgileri gör" menüsü sayfayı açamıyordu. Altı regresyon senaryosu
+  düzeltme öncesinde bu hatayla başarısız oldu.
+- **Nerede değişti:** `lib/src/app.dart` içinde yalnız `/chat-info` ve
+  `/group-info` rotaları, `onGenerateRoute` üzerinden sırasıyla
+  `MaterialPageRoute<ChatInfoResult>` ve `MaterialPageRoute<bool>` üretiyor.
+  Rota adları, argümanları, ekran tasarımı ve kilit denetimleri korunuyor.
+- **Test:** `test/chat_info_navigation_test.dart` içinde yedi test; kişi ve
+  grup başlığı/menüsü, geri dönüş, kilit sonucunun sohbeti kapatması ve bilgi
+  sayfasından dönen mesaj kimliğiyle eski mesaja kaydırma doğrulanıyor.
+  Odak testleri **25/25**, tüm Flutter testleri **452/452** geçti.
+- **Analiz sınırı:** Bu oturumdaki `flutter analyze --no-pub` çalıştırması
+  analiz sunucusunda `OS Error: Too many open files, errno = 24` nedeniyle
+  başarısız oldu. Temiz analiz sonucu olarak raporlanmıyor.
+- **Cihaz:** Release APK derlendi (123.3 MB), mevcut test imzasıyla
+  `adb install -r` üzerinden bağlı SM-S731B'ye veriler silinmeden kuruldu.
+  Gerçek sohbet başlığından ve "Bilgileri Gör" menüsünden kişi bilgileri
+  ekranının açıldığı Android UI hiyerarşisiyle ayrı ayrı doğrulandı.
+- Bu düzeltme istemci navigasyonuyla sınırlı; sunucu ve FCM akışı değişmedi.

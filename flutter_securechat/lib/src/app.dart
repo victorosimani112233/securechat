@@ -154,12 +154,22 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
           '/scheduled-messages': (_) => const ScheduledMessagesScreen(),
           '/backup': (_) => const BackupScreen(),
           '/export-history': (_) => const ExportHistoryScreen(),
-          '/group-info': (_) => const GroupInfoScreen(),
           '/auto-download': (_) => const AutoDownloadScreen(),
           '/bulk-message': (_) => const BulkMessageScreen(),
           '/storage-usage': (_) => const StorageUsageScreen(),
           '/about': (_) => const AboutScreen(),
-          '/chat-info': (_) => const ChatInfoScreen(),
+        },
+        // The routes map creates Route<dynamic>; these callers await typed results.
+        onGenerateRoute: (settings) => switch (settings.name) {
+          '/chat-info' => MaterialPageRoute<ChatInfoResult>(
+            settings: settings,
+            builder: (_) => const ChatInfoScreen(),
+          ),
+          '/group-info' => MaterialPageRoute<bool>(
+            settings: settings,
+            builder: (_) => const GroupInfoScreen(),
+          ),
+          _ => null,
         },
         initialRoute: '/launch',
         onGenerateInitialRoutes: (_) => [
