@@ -80,6 +80,28 @@ void main() {
       expect(requests.last.path, '/api/v1/fcm/unregister');
     },
   );
+
+  test(
+    'push registration failures reach the owned diagnostics callback',
+    () async {
+      final failures = <String>[];
+      final coordinator = PushCoordinator(
+        transport: _FakePushTransport('token-1'),
+        api: PushTokenApi(baseUrl: 'http://127.0.0.1:1'),
+        session: SessionStore(userId: 'me', accessToken: 'access'),
+        signaling: InMemorySignalingService(),
+        pushHintKeys: const _ThrowingPushHintKeyProvider(),
+        onAsyncFailure: (operation, error, stackTrace) async {
+          failures.add('$operation:${error.runtimeType}');
+        },
+      );
+      addTearDown(coordinator.close);
+
+      await coordinator.initialize();
+
+      expect(failures, ['push.register-current-token:StateError']);
+    },
+  );
 }
 
 class _FakePushHintKeyProvider implements PushHintKeyProvider {
@@ -88,6 +110,14 @@ class _FakePushHintKeyProvider implements PushHintKeyProvider {
 
   @override
   Future<String?> getOrCreateKey() async => value;
+}
+
+class _ThrowingPushHintKeyProvider implements PushHintKeyProvider {
+  const _ThrowingPushHintKeyProvider();
+
+  @override
+  Future<String?> getOrCreateKey() =>
+      Future<String?>.error(StateError('synthetic key failure'));
 }
 
 class _FakePushTransport implements PushTransport {

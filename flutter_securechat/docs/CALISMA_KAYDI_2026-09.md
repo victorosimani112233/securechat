@@ -345,3 +345,41 @@ aynı yerel Android debug sertifikasıyla ayrıca imzalandı. Dağıtım APK/IPA
   Mesaj push TTL'i artık şifreli Redis kuyruk TTL'iyle aynı; çağrı TTL'i düşük
   gecikme ve bayat çağrı yüzeyi oluşturmamak için 30 saniye olarak kaldı.
 - `group_call_invite` Android önceliği `NORMAL` yerine `HIGH` yapıldı.
+
+### 21 Eylül kapalı uygulama araması ve sohbet çağrı kayıtları
+
+- Bağlı `SM-S731B` üzerinde uygulama süreci `am kill` ile kapatıldı; paket
+  force-stop durumuna geçirilmedi. Canlı arama FCM'i `10:05:29`'da receiver'ı
+  ve Flutter background service'i başlattı. Native tanı sonucu kesin olarak
+  `wake_no_hint` oldu: çalışan sunucu `securechat_wake_v2` payload'ına şifreli
+  `k` tür ipucunu eklemiyor. Telefon izni, FCM teslimatı ve uygulama uyandırması
+  bu denemede çalıştı; `ConnectionService` bu eksik alan nedeniyle tasarım
+  gereği çağrılmadı.
+- Receiver'ın daha önce sessizce döndüğü `k yok`, yerel anahtar yok, geçersiz
+  ipucu, mesaj ipucu ve çağrı ipucu yollarına yalnız sabit durum kodları eklendi.
+  Anahtar, token, ciphertext, kullanıcı veya çağrı kimliği loglanmıyor.
+- Push anahtarı üretimi ve kayıt isteği de sessiz hata yutmuyor. Başarı yalnız
+  `hint_submitted`, hata yalnız işlem adı ve hata sınıfıyla loglanıyor; ayrıntı
+  mevcut şifreli yerel tanı deposuna gidiyor.
+- Canlı aramayı düzeltmek için sunucunun en az `3e6e2b9` içeren sürüme deploy
+  edilmesi ve alıcı uygulamanın bir kez açılarak cihaz ipucu anahtarını yeniden
+  kaydetmesi zorunlu. Eski sunucu yeni `pushHintKey` alanını yok saydığı için
+  yalnız APK güncellemesi yeterli değil.
+- Sohbet ekranı artık ayrı bir sahte mesaj üretmeden mevcut yerel `callLogs`
+  akışını mesajlarla zaman sırasına göre birleştiriyor. Her çağrı kaydı sesli /
+  görüntülü türünü, gelen / giden yönünü, cevapsız / reddedildi / meşgul /
+  başarısız sonucunu, cevaplanan aramada süreyi ve saatini gösteriyor.
+- `CallSession.createdAt`, aramanın cevaplandığı an yerine gerçek başlatılma
+  zamanını çağrı geçmişine yazıyor. Çağrı sekmesi ile sohbet içindeki kayıt aynı
+  tekil `CallLogEntity` kaynağını kullanıyor.
+
+Bu ek turun odak doğrulaması:
+
+```text
+flutter analyze --no-pub                                      temiz
+push + media + chat UI odak testleri                          36/36 geçti
+flutter test --no-pub                                         445/445 geçti
+temiz flutter build apk --release                             geçti, 123.3 MB
+bağlı SM-S731B güncelleme kurulumu                            geçti
+bağlı cihaz kapalı süreç canlı FCM tanısı                     wake_no_hint
+```

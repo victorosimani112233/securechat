@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.util.Log
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -23,6 +24,7 @@ internal object PushHintKeyStore {
     @Synchronized
     fun getOrCreateEncoded(context: Context): String {
         val raw = read(context) ?: create(context)
+        Log.i("SecureChatPushHint", "device_hint_key_ready")
         return Base64.encodeToString(
             raw,
             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING

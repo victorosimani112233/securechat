@@ -14,6 +14,7 @@ import '../../widgets/text_controller_scope.dart';
 import '../../chat/poll_service.dart';
 import '../../chat/message_forwarding_service.dart';
 import '../../chat/message_interaction_service.dart';
+import '../../calls/call_history_service.dart';
 import '../../domain/send_message_use_case.dart';
 import '../../media/call_models.dart';
 import '../../media/file_transfer_manager.dart';
@@ -371,7 +372,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       )..sort((a, b) => a.timestamp.compareTo(b.timestamp));
                   _latestMessages = allMessages;
                   _scheduleMessageExpiry(allMessages);
-                  _handleMessageSnapshot(allMessages);
                   if (snapshot.hasData && allMessages.isNotEmpty) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (mounted && _accessGranted) {
@@ -383,62 +383,31 @@ class _ChatScreenState extends State<ChatScreen> {
                       !snapshot.hasData) {
                     return const _ChatShimmerList();
                   }
-                  if (allMessages.isEmpty) {
-                    return const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(32),
-                        child: _EncryptionInfoPill(empty: true),
-                      ),
+                  final history = container.mediaRuntime?.callHistory;
+                  if (history == null) {
+                    return _buildChatTimeline(
+                      conversation: conversation,
+                      container: container,
+                      messages: allMessages,
+                      calls: const [],
                     );
                   }
-                  final pinned = allMessages
-                      .where((message) => message.isPinned)
-                      .lastOrNull;
-                  final canUnpin =
-                      !conversation.isGroup ||
-                      conversation.groupAdmins.contains(
-                        container.session.userId,
+                  return StreamBuilder<List<CallHistoryEntry>>(
+                    stream: history.watchPeer(conversation.peerId),
+                    builder: (context, callSnapshot) {
+                      if (callSnapshot.connectionState ==
+                              ConnectionState.waiting &&
+                          !callSnapshot.hasData &&
+                          allMessages.isEmpty) {
+                        return const _ChatShimmerList();
+                      }
+                      return _buildChatTimeline(
+                        conversation: conversation,
+                        container: container,
+                        messages: allMessages,
+                        calls: callSnapshot.data ?? const [],
                       );
-                  return Column(
-                    children: [
-                      if (pinned != null)
-                        _PinnedMessageBanner(
-                          message: pinned,
-                          canUnpin: canUnpin,
-                          onTap: () => _scrollToMessage(pinned.id),
-                          onUnpin: () => _unpinMessage(pinned),
-                        ),
-                      Expanded(
-                        child: Stack(
-                          children: [
-                            ListView(
-                              key: const ValueKey('chat-message-list'),
-                              controller: _messageScroll,
-                              padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
-                              children: _messageListChildren(
-                                context,
-                                allMessages,
-                              ),
-                            ),
-                            PositionedDirectional(
-                              end: 16,
-                              bottom: 16,
-                              child: AnimatedScale(
-                                duration: const Duration(milliseconds: 180),
-                                scale: _nearBottom ? 0 : 1,
-                                child: IgnorePointer(
-                                  ignoring: _nearBottom,
-                                  child: _ScrollToBottomAction(
-                                    unseenCount: _unseenCount,
-                                    onPressed: _scrollToBottom,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    },
                   );
                 },
               ),
@@ -517,6 +486,65 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildChatTimeline({
+    required Conversation conversation,
+    required AppContainer container,
+    required List<LocalMessage> messages,
+    required List<CallHistoryEntry> calls,
+  }) {
+    _handleTimelineSnapshot(messages.length + calls.length);
+    if (messages.isEmpty && calls.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: _EncryptionInfoPill(empty: true),
+        ),
+      );
+    }
+    final pinned = messages.where((message) => message.isPinned).lastOrNull;
+    final canUnpin =
+        !conversation.isGroup ||
+        conversation.groupAdmins.contains(container.session.userId);
+    return Column(
+      children: [
+        if (pinned != null)
+          _PinnedMessageBanner(
+            message: pinned,
+            canUnpin: canUnpin,
+            onTap: () => _scrollToMessage(pinned.id),
+            onUnpin: () => _unpinMessage(pinned),
+          ),
+        Expanded(
+          child: Stack(
+            children: [
+              ListView(
+                key: const ValueKey('chat-message-list'),
+                controller: _messageScroll,
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
+                children: _messageListChildren(context, messages, calls),
+              ),
+              PositionedDirectional(
+                end: 16,
+                bottom: 16,
+                child: AnimatedScale(
+                  duration: const Duration(milliseconds: 180),
+                  scale: _nearBottom ? 0 : 1,
+                  child: IgnorePointer(
+                    ignoring: _nearBottom,
+                    child: _ScrollToBottomAction(
+                      unseenCount: _unseenCount,
+                      onPressed: _scrollToBottom,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   String _peerSubtitle(Conversation conversation, AppPeerActivity activity) {
     if (activity.isTyping) return context.l10n.conversation_typing;
     if (conversation.isGroup) {
@@ -551,9 +579,8 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _handleMessageSnapshot(List<LocalMessage> messages) {
+  void _handleTimelineSnapshot(int nextCount) {
     final previousCount = _knownMessageCount;
-    final nextCount = messages.length;
     if (nextCount == previousCount) return;
     _knownMessageCount = nextCount;
     final added = previousCount < 0
@@ -622,9 +649,17 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Widget> _messageListChildren(
     BuildContext context,
     List<LocalMessage> messages,
+    List<CallHistoryEntry> calls,
   ) {
     final replyById = {for (final message in messages) message.id: message};
     _messageOrder = [for (final message in messages) message.id];
+    final timeline =
+        <({DateTime timestamp, LocalMessage? message, CallHistoryEntry? call})>[
+          for (final message in messages)
+            (timestamp: message.timestamp, message: message, call: null),
+          for (final call in calls)
+            (timestamp: call.timestamp, message: null, call: call),
+        ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     final children = <Widget>[
       const Padding(
         padding: EdgeInsets.symmetric(horizontal: 32, vertical: 8),
@@ -632,12 +667,23 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     ];
     DateTime? previousDay;
-    for (final message in messages) {
-      final local = message.timestamp.toLocal();
+    for (final entry in timeline) {
+      final local = entry.timestamp.toLocal();
       if (previousDay == null || !_sameCalendarDay(previousDay, local)) {
         children.add(_ChatDateSeparator(_dateLabel(local)));
         previousDay = local;
       }
+      final call = entry.call;
+      if (call != null) {
+        children.add(
+          KeyedSubtree(
+            key: ValueKey('chat-call-${call.id}'),
+            child: _CallActivityCard(call),
+          ),
+        );
+        continue;
+      }
+      final message = entry.message!;
       final key = _messageKeys.putIfAbsent(message.id, GlobalKey.new);
       children.add(
         KeyedSubtree(

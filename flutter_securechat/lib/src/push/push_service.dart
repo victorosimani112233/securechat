@@ -206,6 +206,7 @@ class PushCoordinator {
        _session = session,
        _signaling = signaling,
        _pushHintKeys = pushHintKeys ?? const PlatformPushHintKeyProvider(),
+       _onAsyncFailure = onAsyncFailure,
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
 
   final PushTransport _transport;
@@ -213,6 +214,7 @@ class PushCoordinator {
   final SessionStore _session;
   final SignalingService _signaling;
   final PushHintKeyProvider _pushHintKeys;
+  final AsyncOperationFailureHandler? _onAsyncFailure;
   final AsyncOperationTracker _operations;
   StreamSubscription<String>? _tokenSubscription;
   StreamSubscription<PushWakeEvent>? _messageSubscription;
@@ -247,12 +249,20 @@ class PushCoordinator {
     if (userId == null || accessToken == null || accessToken.isEmpty)
       return false;
     final pushHintKey = await _pushHintKeys.getOrCreateKey();
-    return _api.register(
+    final registered = await _api.register(
       userId: userId,
       token: token,
       accessToken: accessToken,
       pushHintKey: pushHintKey,
     );
+    if (!kIsWeb && Platform.isAndroid) {
+      debugPrint(
+        registered
+            ? 'PUSH-REGISTRATION hint_submitted'
+            : 'PUSH-REGISTRATION request_rejected',
+      );
+    }
+    return registered;
   }
 
   Future<bool> refreshRegistration() async {
@@ -260,7 +270,8 @@ class PushCoordinator {
       final token = await _transport.getToken();
       if (token == null || token.isEmpty) return false;
       return await registerToken(token);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _reportFailure('push.register-current-token', error, stackTrace);
       return false;
     }
   }
@@ -268,7 +279,8 @@ class PushCoordinator {
   Future<bool> _registerSafely(String token) async {
     try {
       return await registerToken(token);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _reportFailure('push.register-refreshed-token', error, stackTrace);
       return false;
     }
   }
@@ -308,8 +320,24 @@ class PushCoordinator {
   Future<void> _wakeSafely(PushWakeEvent event) async {
     try {
       await _wake(event);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _reportFailure('push.foreground-wake', error, stackTrace);
       // Foreground/lifecycle reconciliation retries the same encrypted queue.
+    }
+  }
+
+  Future<void> _reportFailure(
+    String operation,
+    Object error,
+    StackTrace stackTrace,
+  ) async {
+    debugPrint('PUSH-FAIL [$operation]: ${error.runtimeType}');
+    final handler = _onAsyncFailure;
+    if (handler == null) return;
+    try {
+      await handler(operation, error, stackTrace);
+    } catch (_) {
+      // Diagnostics must never replace the original recoverable push failure.
     }
   }
 

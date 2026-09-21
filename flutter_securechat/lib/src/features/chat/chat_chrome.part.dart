@@ -239,6 +239,105 @@ class _SystemMessageBanner extends StatelessWidget {
   );
 }
 
+class _CallActivityCard extends StatelessWidget {
+  const _CallActivityCard(this.call);
+
+  final CallHistoryEntry call;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final failed =
+        call.status == CallHistoryStatus.missed ||
+        call.status == CallHistoryStatus.rejected ||
+        call.status == CallHistoryStatus.failed;
+    final accent = failed ? scheme.error : scheme.primary;
+    final direction = call.direction == CallDirection.outgoing
+        ? context.l10n.outgoing
+        : context.l10n.incoming;
+    final type = call.callType == CallType.video
+        ? context.l10n.video
+        : context.l10n.voice;
+    final title = context.l10n.call_description(direction, type, '');
+    final status = switch (call.status) {
+      CallHistoryStatus.completed when call.duration > Duration.zero =>
+        _duration(call.duration),
+      CallHistoryStatus.completed => context.l10n.call_ended,
+      CallHistoryStatus.missed => context.l10n.missed,
+      CallHistoryStatus.rejected => context.l10n.rejected,
+      CallHistoryStatus.busy => context.l10n.busy,
+      CallHistoryStatus.failed => context.l10n.failed,
+    };
+    final local = call.timestamp.toLocal();
+    final time =
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 5),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 340),
+          child: AzureGlassPanel(
+            radius: 14,
+            padding: const EdgeInsetsDirectional.fromSTEB(12, 9, 12, 9),
+            child: Row(
+              children: [
+                Icon(
+                  call.callType == CallType.video
+                      ? Icons.videocam_outlined
+                      : Icons.call_outlined,
+                  size: 20,
+                  color: accent,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$status · $time',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: failed ? accent : scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  call.direction == CallDirection.outgoing
+                      ? Icons.call_made
+                      : Icons.call_received,
+                  size: 17,
+                  color: accent,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _duration(Duration value) {
+    final hours = value.inHours;
+    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0
+        ? '$hours:$minutes:$seconds'
+        : '${value.inMinutes}:$seconds';
+  }
+}
+
 class _ReplyComposerPreview extends StatelessWidget {
   const _ReplyComposerPreview({
     required this.message,

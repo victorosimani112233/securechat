@@ -26,6 +26,7 @@ class CallSession {
     required this.callType,
     required this.direction,
     required this.state,
+    this.createdAt,
     this.startTime,
     this.duration,
     this.isMuted = false,
@@ -47,6 +48,7 @@ class CallSession {
   final CallType callType;
   final CallDirection direction;
   final CallState state;
+  final DateTime? createdAt;
   final DateTime? startTime;
   final Duration? duration;
   final bool isMuted;
@@ -91,6 +93,7 @@ class CallSession {
     callType: callType,
     direction: direction,
     state: state ?? this.state,
+    createdAt: createdAt,
     startTime: clearStartTime ? null : startTime ?? this.startTime,
     duration: duration ?? this.duration,
     isMuted: isMuted ?? this.isMuted,

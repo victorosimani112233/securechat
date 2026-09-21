@@ -396,6 +396,7 @@ class CallManager {
       callType: callType,
       direction: CallDirection.outgoing,
       state: CallState.initiating,
+      createdAt: DateTime.now(),
       isSpeakerOn: callType == CallType.video,
     );
     _setSession(session);
@@ -464,6 +465,7 @@ class CallManager {
       callType: callType,
       direction: CallDirection.outgoing,
       state: CallState.initiating,
+      createdAt: DateTime.now(),
       startTime: DateTime.now(),
       isSpeakerOn: true,
       isGroupCall: true,
@@ -773,6 +775,7 @@ class CallManager {
       callType: type,
       direction: CallDirection.incoming,
       state: CallState.ringing,
+      createdAt: DateTime.now(),
       isSpeakerOn: type == CallType.video,
     );
     if (_hasLiveCall) {
@@ -969,6 +972,7 @@ class CallManager {
           : CallType.voice,
       direction: CallDirection.incoming,
       state: CallState.ringing,
+      createdAt: DateTime.now(),
       isSpeakerOn: true,
       isGroupCall: true,
       groupId: localGroupId,
@@ -1455,7 +1459,8 @@ class CallManager {
         callType: session.callType.name.toUpperCase(),
         direction: session.direction.name.toUpperCase(),
         status: status,
-        timestamp: (session.startTime ?? DateTime.now()).millisecondsSinceEpoch,
+        timestamp: (session.createdAt ?? session.startTime ?? DateTime.now())
+            .millisecondsSinceEpoch,
         duration: duration.inMilliseconds,
       ),
     );

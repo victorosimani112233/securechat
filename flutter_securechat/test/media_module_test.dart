@@ -98,6 +98,21 @@ void main() {
       expect(history.single.callType, CallType.video);
       expect(history.single.direction, CallDirection.outgoing);
       expect(history.single.status, CallHistoryStatus.completed);
+      expect(history.single.id, logs.single.id);
+      expect(
+        history.single.timestamp.millisecondsSinceEpoch,
+        logs.single.timestamp,
+      );
+      final peerHistory = await CallHistoryService(
+        fixture.database.callLogs,
+      ).watchPeer('peer').first;
+      expect(peerHistory.map((entry) => entry.id), [logs.single.id]);
+      expect(
+        await CallHistoryService(
+          fixture.database.callLogs,
+        ).watchPeer('somebody-else').first,
+        isEmpty,
+      );
     },
   );
 
