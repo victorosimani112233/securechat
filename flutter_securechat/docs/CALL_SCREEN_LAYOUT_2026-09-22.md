@@ -117,3 +117,24 @@ R5GL2452SJK using `adb install -r`; version 81 confirmed at 16:20:32 device time
 APK: `build/app/outputs/flutter-apk/app-release-1.0.81-device-test-signed.apk`.
 SHA-256: `4f201a960833ff32b765185a0bf7ad8b03bf87bb15f87a693fa089dfb375ab5a`.
 This remains a release-mode APK signed with the existing debug/test key.
+
+## Compact sizing follow-up
+
+User feedback: the voice-only layout was unnecessarily large. Normal portrait
+avatar is now 80 instead of 112; name/status text is 20/14 instead of 24/18.
+Audio control circles are 48 instead of 64 with 24-pixel icons and visible
+13-point labels. The end button is centered at 144x48 at normal text scale,
+not full-width. Controls are constrained to 300 pixels and internal spacing
+is reduced. Touch targets remain at least 48 pixels; accessibility text can
+still expand vertically. Video layout and call behavior are unchanged.
+
+All 35 call-layout tests pass, including new compact-dimension assertions.
+Portrait/landscape screenshots were reviewed; active, incoming and group
+video screenshot hashes remain identical to the preceding version.
+Complete Flutter suite: 596 passed. Static analysis: no issues.
+Android 1.0.82+82 built, alignment/signature verified and installed with
+`adb install -r` on Samsung R5GL2452SJK; version 82 and cold launch confirmed.
+APK: `build/app/outputs/flutter-apk/app-release-1.0.82-device-test-signed.apk`.
+SHA-256: `222ee0f88eeadacc6f0cd0821d5f81b8298025427eec01bbe709b0ce9d090f3f`.
+Existing debug/test signing key used; no app data was cleared. No new real
+two-device call or native iOS build was performed for this sizing change.

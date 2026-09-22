@@ -255,14 +255,14 @@ class _CallScreenState extends State<CallScreen> {
       overflow: TextOverflow.ellipsis,
       style: const TextStyle(
         color: Colors.white,
-        fontSize: 24,
+        fontSize: 20,
         fontWeight: FontWeight.w600,
       ),
     );
     final avatar = GeneratedAvatar(
       name: session.peerName,
       isGroup: session.isGroupCall,
-      size: compact ? 64 : 112,
+      size: compact ? 48 : 80,
     );
     final status = Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -281,7 +281,7 @@ class _CallScreenState extends State<CallScreen> {
               color: session.state == CallState.reconnecting
                   ? const Color(0xFFFFC977)
                   : const Color(0xFFCDD3DB),
-              fontSize: 18,
+              fontSize: 14,
             ),
           ),
         ),
@@ -289,25 +289,25 @@ class _CallScreenState extends State<CallScreen> {
     );
     return Padding(
       key: const ValueKey('voice-identity'),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (compact) ...[
             status,
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Row(
               children: [
                 avatar,
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Expanded(child: name),
               ],
             ),
           ] else ...[
             avatar,
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             name,
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             status,
           ],
           if (session.isGroupCall) ...[
@@ -364,70 +364,79 @@ class _CallScreenState extends State<CallScreen> {
               inline: compact,
             ),
           ];
-    return Padding(
-      key: const ValueKey('call-controls'),
-      padding: compact
-          ? const EdgeInsets.symmetric(horizontal: 16, vertical: 8)
-          : const EdgeInsets.fromLTRB(24, 16, 24, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (!session.isTerminal)
-            compact
-                ? Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      actions[0],
-                      const SizedBox(height: 8),
-                      actions[1],
-                    ],
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: actions[0]),
-                      const SizedBox(width: 16),
-                      Expanded(child: actions[1]),
-                    ],
-                  ),
-          if (!isIncomingRinging) ...[
-            if (!session.isTerminal) SizedBox(height: compact ? 12 : 24),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: session.isTerminal
-                      ? const Color(0xFF30353B)
-                      : const Color(0xFFD93951),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(0, 56),
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: compact ? 8 : 14,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0,
+    return Align(
+      heightFactor: 1,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 300),
+        child: Padding(
+          key: const ValueKey('call-controls'),
+          padding: compact
+              ? const EdgeInsets.symmetric(horizontal: 16, vertical: 8)
+              : const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!session.isTerminal)
+                compact
+                    ? Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          actions[0],
+                          const SizedBox(height: 8),
+                          actions[1],
+                        ],
+                      )
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: actions[0]),
+                          const SizedBox(width: 16),
+                          Expanded(child: actions[1]),
+                        ],
+                      ),
+              if (!isIncomingRinging) ...[
+                if (!session.isTerminal) const SizedBox(height: 12),
+                SizedBox(
+                  width: 144,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: session.isTerminal
+                          ? const Color(0xFF30353B)
+                          : const Color(0xFFD93951),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(0, 48),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      textStyle: Theme.of(context).textTheme.labelLarge
+                          ?.copyWith(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0,
+                          ),
+                    ),
+                    onPressed: () => session.isTerminal
+                        ? Navigator.of(context).maybePop()
+                        : _runCallAction(calls.endCall),
+                    icon: Icon(
+                      session.isTerminal ? Icons.close : Icons.call_end,
+                    ),
+                    label: Text(
+                      session.isTerminal
+                          ? context.l10n.action_close
+                          : context.l10n.end_call,
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
-                onPressed: () => session.isTerminal
-                    ? Navigator.of(context).maybePop()
-                    : _runCallAction(calls.endCall),
-                icon: Icon(session.isTerminal ? Icons.close : Icons.call_end),
-                label: Text(
-                  session.isTerminal
-                      ? context.l10n.action_close
-                      : context.l10n.end_call,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          ],
-        ],
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -446,8 +455,8 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     final symbol = Container(
-      width: inline ? 40 : 64,
-      height: inline ? 40 : 64,
+      width: inline ? 40 : 48,
+      height: inline ? 40 : 48,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color:
@@ -456,7 +465,7 @@ class _CallScreenState extends State<CallScreen> {
       ),
       child: Icon(
         icon,
-        size: 28,
+        size: 24,
         color: selected == true ? const Color(0xFF101214) : Colors.white,
       ),
     );
@@ -465,7 +474,7 @@ class _CallScreenState extends State<CallScreen> {
       textAlign: inline ? TextAlign.start : TextAlign.center,
       style: const TextStyle(
         color: Colors.white,
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: FontWeight.w500,
       ),
     );
@@ -493,7 +502,7 @@ class _CallScreenState extends State<CallScreen> {
                   )
                 : Column(
                     mainAxisSize: MainAxisSize.min,
-                    children: [symbol, const SizedBox(height: 10), caption],
+                    children: [symbol, const SizedBox(height: 6), caption],
                   ),
           ),
         ),

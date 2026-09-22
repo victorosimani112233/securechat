@@ -231,7 +231,7 @@ void main() {
     },
   );
   testWidgets(
-    'voice call retains identity and accessible audio controls without video',
+    'voice call uses compact labeled controls without video or a full-width end button',
     (tester) async {
       await _mount(
         tester,
@@ -248,6 +248,34 @@ void main() {
       expect(find.byTooltip('Camera'), findsNothing);
       expect(find.byTooltip('Mute'), findsOneWidget);
       expect(find.byTooltip('Speaker'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('call-peer-name')))
+            .style!
+            .fontSize,
+        20,
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('call-status')))
+            .style!
+            .fontSize,
+        14,
+      );
+      expect(
+        tester.getSize(find.widgetWithText(FilledButton, 'End')),
+        const Size(144, 48),
+      );
+      final controls = tester.getSize(
+        find.byKey(const ValueKey('call-controls')),
+      );
+      expect(controls.width, lessThanOrEqualTo(300));
+      expect(controls.height, lessThanOrEqualTo(180));
+      for (final label in ['Mute', 'Speaker']) {
+        final target = tester.getSize(find.byTooltip(label));
+        expect(target.width, greaterThanOrEqualTo(48));
+        expect(target.height, greaterThanOrEqualTo(48));
+      }
       await _screenshot(tester, 'voice-active');
       expect(tester.takeException(), isNull);
     },

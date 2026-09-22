@@ -627,3 +627,15 @@ bağlı cihaz kapalı süreç canlı FCM tanısı                     wake_no_hi
   Gerçek iki cihazlı arama ve native iOS derlemesi bu testlerin kapsamı dışında.
 - `1.0.81+81` release APK mevcut cihaz test imzasıyla doğrulandı ve bağlı
   Samsung'a veriler korunarak kuruldu; paket yöneticisi sürüm 81'i doğruladı.
+
+### 22 Eylül sesli arama boyutlarının sadeleştirilmesi
+
+- Kullanıcı geri bildirimi üzerine avatar 80, kişi adı 20, durum 14 ve
+  kontrol daireleri 48 piksele indirildi. Etiketler korunuyor.
+- Tam genişlikte bitirme butonu yerine ortalanmış 144x48 düğme kullanıldı;
+  kontrol alanı en fazla 300 piksel, iç boşluklar daha dar. Büyük yazı
+  desteği ve en az 48 piksel dokunma alanları korunuyor.
+- 35 ekran testi geçti; görüntülü arama ekran görüntüleri değişmedi.
+- Tüm Flutter test grubunda 596 test geçti; statik analiz temiz.
+- `1.0.82+82` mevcut test imzasıyla bağlı Samsung'a veriler korunarak
+  yüklendi; sürüm ve soğuk açılış doğrulandı. Gerçek arama testi yapılmadı.
