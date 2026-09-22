@@ -81,3 +81,39 @@ signaling protocol is changed by this layout work.
   App Store or production-signing artifact.
 - No new two-device video call was placed automatically; native camera/audio
   acceptance remains separate from these UI geometry and interaction tests.
+
+## Voice-only follow-up
+
+The shared video layout made voice controls too hard to identify. Voice calls
+now have their own layout in `call_screen.dart`; the video path is unchanged.
+
+- Normal portrait: larger avatar, centered name and duration/status, labeled
+  microphone and speaker controls, and a separate full-width red end button.
+- Compact screens: smaller avatar beside the name; status comes first so long
+  names and accessibility text cannot hide connection progress. The identity
+  area can scroll without moving the portrait controls off screen.
+- Landscape: identity and actions sit side by side. Action labels sit beside
+  icons to keep the end button visible, including at 200 percent text size.
+- Incoming calls have explicit answer/reject labels; terminal calls show only
+  Close. Labels as well as icons are tappable. Toggle semantics and tap actions
+  are exposed to screen readers, with selected controls visually highlighted.
+- No audio routing, WebRTC, notification, server, encryption or iOS permission
+  behavior changed. Existing localization strings are reused.
+
+18 additional widget tests cover outgoing/ringing/reconnecting voice across
+five viewport/text configurations, incoming answer/reject, label taps, initial
+status/end-button visibility, and screen-reader activation and toggle state.
+The call layout file now contains 35 passing tests. Voice screenshots were
+reviewed; existing active video, incoming video and group-video screenshots
+have identical SHA-256 hashes before and after this change.
+
+Screenshots use test renderer state, not a real two-device call. Native iOS
+compilation and hardware audio acceptance still require device testing.
+
+Voice follow-up verification: all 596 Flutter tests passed; static analysis
+and `git diff --check` passed. Android release 1.0.81+81 built successfully,
+alignment and existing device-test signature verified. Installed on Samsung
+R5GL2452SJK using `adb install -r`; version 81 confirmed at 16:20:32 device time.
+APK: `build/app/outputs/flutter-apk/app-release-1.0.81-device-test-signed.apk`.
+SHA-256: `4f201a960833ff32b765185a0bf7ad8b03bf87bb15f87a693fa089dfb375ab5a`.
+This remains a release-mode APK signed with the existing debug/test key.

@@ -28,6 +28,15 @@ const _video = CallSession(
   state: CallState.active,
 );
 
+const _voice = CallSession(
+  callId: 'voice',
+  peerId: 'peer',
+  peerName: 'Ayse Demir Uzun Soyadi ve Ikinci Isim',
+  callType: CallType.voice,
+  direction: CallDirection.outgoing,
+  state: CallState.active,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -261,6 +270,172 @@ void main() {
     }
   });
 
+  for (final viewport in [
+    (name: 'compact', size: const Size(320, 568), scale: 1.0),
+    (name: 'phone', size: const Size(390, 844), scale: 1.0),
+    (name: 'large-text', size: const Size(320, 568), scale: 2.0),
+    (name: 'landscape', size: const Size(844, 390), scale: 1.0),
+    (name: 'landscape-large-text', size: const Size(568, 320), scale: 2.0),
+  ]) {
+    for (final state in [
+      CallState.active,
+      CallState.ringing,
+      CallState.reconnecting,
+    ]) {
+      testWidgets(
+        'voice ${viewport.name} ${state.name} has reachable labeled controls',
+        (tester) async {
+          final calls = await _mount(
+            tester,
+            _voice.copyWith(state: state),
+            size: viewport.size,
+            scale: viewport.scale,
+            locale: const Locale('tr'),
+          );
+          expect(find.byType(VideoStreamView), findsNothing);
+          expect(find.byKey(const ValueKey('call-header')), findsNothing);
+          final controls = tester.getRect(
+            find.byKey(const ValueKey('call-controls')),
+          );
+          final identityViewport = find.byKey(
+            const ValueKey('voice-identity-viewport'),
+          );
+          final identity = tester.getRect(
+            identityViewport.evaluate().isNotEmpty
+                ? identityViewport
+                : find.byKey(const ValueKey('voice-identity')),
+          );
+          expect(controls.overlaps(identity), isFalse);
+          final initialStatus = tester.getRect(
+            find.byKey(const ValueKey('call-status')),
+          );
+          expect(initialStatus.top, greaterThanOrEqualTo(24));
+          expect(
+            initialStatus.bottom,
+            lessThanOrEqualTo(viewport.size.height - 34),
+          );
+          expect(initialStatus.overlaps(controls), isFalse);
+          final endButton = tester.getRect(
+            find.widgetWithText(FilledButton, 'Bitir'),
+          );
+          expect(
+            endButton.bottom,
+            lessThanOrEqualTo(viewport.size.height - 34),
+          );
+          await _screenshot(tester, 'voice-${viewport.name}-${state.name}');
+          await tester.ensureVisible(find.byKey(const ValueKey('call-status')));
+          await tester.pump();
+          final status = tester.getRect(
+            find.byKey(const ValueKey('call-status')),
+          );
+          expect(status.top, greaterThanOrEqualTo(24));
+          expect(status.bottom, lessThanOrEqualTo(viewport.size.height - 34));
+          for (final label in ['Sessize al', 'Hoparlör', 'Bitir']) {
+            final text = find.text(label);
+            expect(text, findsOneWidget);
+            await tester.ensureVisible(text);
+            await tester.pump();
+            final rect = tester.getRect(text);
+            expect(rect.top, greaterThanOrEqualTo(24));
+            expect(rect.bottom, lessThanOrEqualTo(viewport.size.height - 34));
+            await tester.tap(text);
+            await tester.pump();
+          }
+          expect(calls.currentSession!.isMuted, isTrue);
+          expect(calls.currentSession!.isSpeakerOn, isTrue);
+          expect(calls.currentSession!.state, CallState.ended);
+          expect(find.text('Kapat'), findsOneWidget);
+          expect(find.text('Hoparlör'), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  for (final answer in [true, false]) {
+    testWidgets(
+      'incoming voice ${answer ? 'answer' : 'reject'} uses visible labels',
+      (tester) async {
+        final calls = await _mount(
+          tester,
+          const CallSession(
+            callId: 'incoming-voice',
+            peerId: 'peer',
+            peerName: 'Ayse Demir',
+            callType: CallType.voice,
+            direction: CallDirection.incoming,
+            state: CallState.ringing,
+          ),
+          size: const Size(320, 568),
+          scale: 2,
+          locale: const Locale('tr'),
+        );
+        expect(calls.answers, 0);
+        expect(find.text('Cevapla'), findsOneWidget);
+        expect(find.text('Reddet'), findsOneWidget);
+        expect(find.text('Hoparlör'), findsNothing);
+        expect(find.text('Bitir'), findsNothing);
+        await _screenshot(tester, 'voice-incoming-large-text');
+        await tester.tap(find.text(answer ? 'Cevapla' : 'Reddet'));
+        await tester.pump();
+        if (answer) {
+          expect(calls.answers, 1);
+        } else {
+          expect(calls.currentSession!.state, CallState.rejected);
+          expect(find.text('Kapat'), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('voice control semantics expose state and activate actions', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      final calls = await _mount(tester, _voice);
+      for (final label in ['Mute', 'Speaker']) {
+        final node = tester.getSemantics(find.bySemanticsLabel(label));
+        expect(
+          node.getSemanticsData().hasAction(ui.SemanticsAction.tap),
+          isTrue,
+        );
+        expect(
+          node.getSemanticsData().flagsCollection.isToggled,
+          ui.Tristate.isFalse,
+        );
+        tester.binding.performSemanticsAction(
+          ui.SemanticsActionEvent(
+            nodeId: node.id,
+            viewId: tester.view.viewId,
+            type: ui.SemanticsAction.tap,
+          ),
+        );
+        await tester.pump();
+      }
+      expect(calls.currentSession!.isMuted, isTrue);
+      expect(calls.currentSession!.isSpeakerOn, isTrue);
+      for (final label in ['Unmute', 'Speaker']) {
+        expect(
+          tester
+              .getSemantics(find.bySemanticsLabel(label))
+              .getSemanticsData()
+              .flagsCollection
+              .isToggled,
+          ui.Tristate.isTrue,
+        );
+      }
+      await tester.tap(find.text('Unmute'));
+      await tester.tap(find.text('Speaker'));
+      await tester.pump();
+      expect(calls.currentSession!.isMuted, isFalse);
+      expect(calls.currentSession!.isSpeakerOn, isFalse);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets(
     'video view replaces the waiting state as renderer frames arrive',
     (tester) async {
@@ -298,6 +473,7 @@ Future<_Calls> _mount(
   double scale = 1,
   bool group = false,
   bool rtl = false,
+  Locale locale = const Locale('en'),
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -313,7 +489,7 @@ Future<_Calls> _mount(
     AppContainerScope(
       container: container,
       child: MaterialApp(
-        locale: const Locale('en'),
+        locale: locale,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         theme: SecureChatTheme.dark(),

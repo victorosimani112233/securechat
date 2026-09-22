@@ -116,57 +116,386 @@ class _CallScreenState extends State<CallScreen> {
       ),
       child: Scaffold(
         backgroundColor: const Color(0xFF101214),
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (video &&
-                !session.isGroupCall &&
-                showMedia &&
-                session.isRemoteCameraEnabled)
-              VideoStreamView(
-                key: const ValueKey('call-remote-video'),
-                renderer: calls.media.remoteRenderer,
-                placeholder: const SizedBox.expand(),
-              ),
-            SafeArea(
-              child: Column(
+        body: !video
+            ? _voiceLayout(session, calls, isIncomingRinging: isIncomingRinging)
+            : Stack(
+                fit: StackFit.expand,
                 children: [
-                  _header(session, calls),
-                  if (session.state == CallState.reconnecting)
-                    _reconnectionNotice(session, calls),
-                  Expanded(
-                    key: const ValueKey('call-content'),
-                    child: session.isGroupCall && video && showMedia
-                        ? _groupVideoGrid(session, calls)
-                        : _previewArea(session, calls, showMedia: showMedia),
-                  ),
-                  ColoredBox(
-                    key: const ValueKey('call-controls'),
-                    color: const Color(0xE6101214),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: session.isTerminal
-                          ? Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Center(
-                                child: _round(
-                                  Icons.close,
-                                  Colors.white24,
-                                  Colors.white,
-                                  label: context.l10n.action_close,
-                                  onTap: () => Navigator.of(context).maybePop(),
+                  if (video &&
+                      !session.isGroupCall &&
+                      showMedia &&
+                      session.isRemoteCameraEnabled)
+                    VideoStreamView(
+                      key: const ValueKey('call-remote-video'),
+                      renderer: calls.media.remoteRenderer,
+                      placeholder: const SizedBox.expand(),
+                    ),
+                  SafeArea(
+                    child: Column(
+                      children: [
+                        _header(session, calls),
+                        if (session.state == CallState.reconnecting)
+                          _reconnectionNotice(session, calls),
+                        Expanded(
+                          key: const ValueKey('call-content'),
+                          child: session.isGroupCall && video && showMedia
+                              ? _groupVideoGrid(session, calls)
+                              : _previewArea(
+                                  session,
+                                  calls,
+                                  showMedia: showMedia,
                                 ),
-                              ),
-                            )
-                          : isIncomingRinging
-                          ? _incomingControls(calls)
-                          : _activeControls(session, calls),
+                        ),
+                        ColoredBox(
+                          key: const ValueKey('call-controls'),
+                          color: const Color(0xE6101214),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: session.isTerminal
+                                ? Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Center(
+                                      child: _round(
+                                        Icons.close,
+                                        Colors.white24,
+                                        Colors.white,
+                                        label: context.l10n.action_close,
+                                        onTap: () =>
+                                            Navigator.of(context).maybePop(),
+                                      ),
+                                    ),
+                                  )
+                                : isIncomingRinging
+                                ? _incomingControls(calls)
+                                : _activeControls(session, calls),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
+      ),
+    );
+  }
+
+  Widget _voiceLayout(
+    CallSession session,
+    CallManager calls, {
+    required bool isIncomingRinging,
+  }) => SafeArea(
+    child: Column(
+      children: [
+        const Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: BackButton(color: Colors.white),
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final landscape =
+                  constraints.maxWidth > constraints.maxHeight * 1.3;
+              final identity = _voiceIdentity(
+                session,
+                calls,
+                compact: constraints.maxHeight < 600,
+              );
+              final controls = _voiceControls(
+                session,
+                calls,
+                isIncomingRinging: isIncomingRinging,
+                compact: landscape,
+              );
+              if (landscape) {
+                return Row(
+                  children: [
+                    Expanded(child: _scrollableVoicePane(identity)),
+                    Expanded(child: _scrollableVoicePane(controls)),
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  Expanded(
+                    child: KeyedSubtree(
+                      key: const ValueKey('voice-identity-viewport'),
+                      child: _scrollableVoicePane(identity),
+                    ),
+                  ),
+                  controls,
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    ),
+  );
+
+  // Large accessibility text and short landscape screens must stay reachable.
+  Widget _scrollableVoicePane(Widget child) => LayoutBuilder(
+    builder: (context, constraints) => SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: Center(child: child),
+      ),
+    ),
+  );
+
+  Widget _voiceIdentity(
+    CallSession session,
+    CallManager calls, {
+    required bool compact,
+  }) {
+    final name = Text(
+      session.peerName,
+      key: const ValueKey('call-peer-name'),
+      textAlign: compact ? TextAlign.start : TextAlign.center,
+      maxLines: 3,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 24,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+    final avatar = GeneratedAvatar(
+      name: session.peerName,
+      isGroup: session.isGroupCall,
+      size: compact ? 64 : 112,
+    );
+    final status = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (session.state == CallState.active ||
+            session.state == CallState.reconnecting) ...[
+          CallQualityIndicator(quality: session.state.callQuality),
+          const SizedBox(width: 8),
+        ],
+        Flexible(
+          child: Text(
+            _status(context, session, calls.currentDuration),
+            key: const ValueKey('call-status'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: session.state == CallState.reconnecting
+                  ? const Color(0xFFFFC977)
+                  : const Color(0xFFCDD3DB),
+              fontSize: 18,
+            ),
+          ),
+        ),
+      ],
+    );
+    return Padding(
+      key: const ValueKey('voice-identity'),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (compact) ...[
+            status,
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                avatar,
+                const SizedBox(width: 16),
+                Expanded(child: name),
+              ],
+            ),
+          ] else ...[
+            avatar,
+            const SizedBox(height: 24),
+            name,
+            const SizedBox(height: 12),
+            status,
+          ],
+          if (session.isGroupCall) ...[
+            const SizedBox(height: 8),
+            Text(
+              context.l10n.participant_count(
+                session.connectedPeerIds.length + 1,
+              ),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Color(0xFFCDD3DB), fontSize: 14),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _voiceControls(
+    CallSession session,
+    CallManager calls, {
+    required bool isIncomingRinging,
+    required bool compact,
+  }) {
+    final actions = isIncomingRinging
+        ? [
+            _voiceButton(
+              icon: Icons.call_end,
+              label: context.l10n.reject,
+              background: const Color(0xFFD93951),
+              onTap: calls.rejectCall,
+              inline: compact,
+            ),
+            _voiceButton(
+              icon: Icons.call,
+              label: context.l10n.answer,
+              background: const Color(0xFF167C55),
+              onTap: calls.acceptCall,
+              inline: compact,
+            ),
+          ]
+        : [
+            _voiceButton(
+              icon: session.isMuted ? Icons.mic_off : Icons.mic,
+              label: session.isMuted ? context.l10n.unmute : context.l10n.mute,
+              selected: session.isMuted,
+              onTap: calls.toggleMute,
+              inline: compact,
+            ),
+            _voiceButton(
+              icon: Icons.volume_up_outlined,
+              label: context.l10n.speaker,
+              selected: session.isSpeakerOn,
+              onTap: calls.toggleSpeaker,
+              inline: compact,
+            ),
+          ];
+    return Padding(
+      key: const ValueKey('call-controls'),
+      padding: compact
+          ? const EdgeInsets.symmetric(horizontal: 16, vertical: 8)
+          : const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!session.isTerminal)
+            compact
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      actions[0],
+                      const SizedBox(height: 8),
+                      actions[1],
+                    ],
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: actions[0]),
+                      const SizedBox(width: 16),
+                      Expanded(child: actions[1]),
+                    ],
+                  ),
+          if (!isIncomingRinging) ...[
+            if (!session.isTerminal) SizedBox(height: compact ? 12 : 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: session.isTerminal
+                      ? const Color(0xFF30353B)
+                      : const Color(0xFFD93951),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 56),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: compact ? 8 : 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0,
+                  ),
+                ),
+                onPressed: () => session.isTerminal
+                    ? Navigator.of(context).maybePop()
+                    : _runCallAction(calls.endCall),
+                icon: Icon(session.isTerminal ? Icons.close : Icons.call_end),
+                label: Text(
+                  session.isTerminal
+                      ? context.l10n.action_close
+                      : context.l10n.end_call,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _voiceButton({
+    required IconData icon,
+    required String label,
+    required FutureOr<dynamic> Function() onTap,
+    bool? selected,
+    Color? background,
+    bool inline = false,
+  }) {
+    void press() {
+      unawaited(SecureChatHaptics.longPress());
+      _runCallAction(onTap);
+    }
+
+    final symbol = Container(
+      width: inline ? 40 : 64,
+      height: inline ? 40 : 64,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color:
+            background ??
+            (selected == true ? Colors.white : const Color(0xFF30353B)),
+      ),
+      child: Icon(
+        icon,
+        size: 28,
+        color: selected == true ? const Color(0xFF101214) : Colors.white,
+      ),
+    );
+    final caption = Text(
+      label,
+      textAlign: inline ? TextAlign.start : TextAlign.center,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+
+    return Semantics(
+      label: label,
+      button: true,
+      toggled: selected,
+      onTap: press,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: label,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: press,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: inline
+                ? Row(
+                    children: [
+                      symbol,
+                      const SizedBox(width: 12),
+                      Expanded(child: caption),
+                    ],
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [symbol, const SizedBox(height: 10), caption],
+                  ),
+          ),
         ),
       ),
     );

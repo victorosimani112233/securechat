@@ -609,3 +609,21 @@ bağlı cihaz kapalı süreç canlı FCM tanısı                     wake_no_hi
   Android release derlemesi mevcut cihaz test imzasıyla doğrulandı ve bağlı
   Samsung'a veriler korunarak yüklendi. Gerçek iki cihazlı görüntülü arama
   denemesi ve native iOS derlemesi bu doğrulamanın parçası değildir.
+
+### 22 Eylül sesli arama ekranının okunabilirliği
+
+- Sesli arama görünümü görüntülü ekrandan ayrıldı. Kişi adı ve süre büyütüldü;
+  mikrofon ve hoparlöre görünür, dokunulabilir etiketler eklendi. Bitirme eylemi
+  ayrı kırmızı düğmede; gelen aramada Cevapla/Reddet, biten aramada Kapat var.
+- Dar ekranlarda durum bilgisi uzun adın önüne alındı. Yatay kullanımda
+  düğmeler ikon/yazı satırlarına dönüşüyor. Kontroller güvenli alan içinde;
+  çok büyük yazıda kişi alanı ayrıca kaydırılabiliyor.
+- 18 ek test ile arama ekranı testleri 35'e ulaştı; bütün Flutter grubunda
+  596 test geçti ve statik analiz temiz. Yüzde 200 yazı, küçük/yatay ekran,
+  etiketlere dokunma ve ekran okuyucu eylemleri doğrulandı.
+- Görüntülü ekranın aktif, gelen ve grup örneklerinin önceki/yeni test ekran
+  görüntüsü SHA-256 değerleri aynı. Video tasarımı değiştirilmedi.
+- WebRTC, ses yönlendirme, sunucu ve şifreleme akışında değişiklik yok.
+  Gerçek iki cihazlı arama ve native iOS derlemesi bu testlerin kapsamı dışında.
+- `1.0.81+81` release APK mevcut cihaz test imzasıyla doğrulandı ve bağlı
+  Samsung'a veriler korunarak kuruldu; paket yöneticisi sürüm 81'i doğruladı.
