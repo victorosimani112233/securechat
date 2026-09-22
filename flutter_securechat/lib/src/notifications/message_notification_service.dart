@@ -414,7 +414,6 @@ class MessageNotificationCoordinator {
         ? NotificationSoundPreference.fromStorage(_session.notificationSound)
         : NotificationSoundPreference.fromStorage(custom);
     final silent =
-        _isForeground ||
         conversationSilent ||
         preference == NotificationSoundPreference.silent;
     await _presenter.show(

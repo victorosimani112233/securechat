@@ -1302,6 +1302,18 @@ abstract class AppLocalizations {
   /// **'Share last seen'**
   String get settings_share_last_seen;
 
+  /// No description provided for @settings_share_phone_number.
+  ///
+  /// In en, this message translates to:
+  /// **'Share my phone number'**
+  String get settings_share_phone_number;
+
+  /// No description provided for @settings_share_phone_number_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Only with people I message directly, using end-to-end encryption. Previously shared numbers cannot be recalled.'**
+  String get settings_share_phone_number_desc;
+
   /// No description provided for @settings_screen_protection.
   ///
   /// In en, this message translates to:
@@ -3377,6 +3389,162 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Calls you make and receive are listed here. Call content is never recorded.'**
   String get calls_empty_body;
+
+  /// No description provided for @group_unknown_member.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown member'**
+  String get group_unknown_member;
+
+  /// No description provided for @backup_passwords_match.
+  ///
+  /// In en, this message translates to:
+  /// **'Passwords must match'**
+  String get backup_passwords_match;
+
+  /// No description provided for @sched_tab_history.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get sched_tab_history;
+
+  /// No description provided for @sched_history_note.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent does not mean the recipient has received or read the message.'**
+  String get sched_history_note;
+
+  /// No description provided for @sched_history_empty.
+  ///
+  /// In en, this message translates to:
+  /// **'No send history yet.'**
+  String get sched_history_empty;
+
+  /// No description provided for @sched_history_locked.
+  ///
+  /// In en, this message translates to:
+  /// **'Locked conversation content'**
+  String get sched_history_locked;
+
+  /// No description provided for @sched_history_sent.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent'**
+  String get sched_history_sent;
+
+  /// No description provided for @sched_history_partial_failure.
+  ///
+  /// In en, this message translates to:
+  /// **'Partially failed'**
+  String get sched_history_partial_failure;
+
+  /// No description provided for @sched_history_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to send'**
+  String get sched_history_failed;
+
+  /// No description provided for @sched_history_encryption_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Encryption failed'**
+  String get sched_history_encryption_failed;
+
+  /// No description provided for @sched_history_delivery_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Transmission failed'**
+  String get sched_history_delivery_failed;
+
+  /// No description provided for @sched_history_details.
+  ///
+  /// In en, this message translates to:
+  /// **'Send details'**
+  String get sched_history_details;
+
+  /// No description provided for @sched_history_executed_at.
+  ///
+  /// In en, this message translates to:
+  /// **'Send time'**
+  String get sched_history_executed_at;
+
+  /// No description provided for @sched_history_status.
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get sched_history_status;
+
+  /// No description provided for @sched_history_content_omitted.
+  ///
+  /// In en, this message translates to:
+  /// **'Content was not saved to history for privacy.'**
+  String get sched_history_content_omitted;
+
+  /// No description provided for @storage_reload.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get storage_reload;
+
+  /// No description provided for @storage_load_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage information could not be loaded.'**
+  String get storage_load_failed;
+
+  /// No description provided for @storage_filter.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter files'**
+  String get storage_filter;
+
+  /// No description provided for @storage_all_files.
+  ///
+  /// In en, this message translates to:
+  /// **'All files'**
+  String get storage_all_files;
+
+  /// No description provided for @storage_audio.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio'**
+  String get storage_audio;
+
+  /// No description provided for @storage_no_files.
+  ///
+  /// In en, this message translates to:
+  /// **'No media or files in this category.'**
+  String get storage_no_files;
+
+  /// No description provided for @storage_local_missing.
+  ///
+  /// In en, this message translates to:
+  /// **'Not on this device'**
+  String get storage_local_missing;
+
+  /// No description provided for @storage_delete_action.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete selected ({arg1})'**
+  String storage_delete_action(int arg1);
+
+  /// No description provided for @storage_delete_selected.
+  ///
+  /// In en, this message translates to:
+  /// **'The selected {arg1} media/file messages will be removed only from this device. Text messages and copies held by others are kept. This cannot be undone.'**
+  String storage_delete_selected(int arg1);
+
+  /// No description provided for @storage_cleanup_result.
+  ///
+  /// In en, this message translates to:
+  /// **'{arg1} records removed · {arg2} freed'**
+  String storage_cleanup_result(int arg1, String arg2);
+
+  /// No description provided for @storage_cleanup_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'{arg1} records could not be removed. Other files were updated; you can retry.'**
+  String storage_cleanup_failed(int arg1);
 }
 
 class _AppLocalizationsDelegate

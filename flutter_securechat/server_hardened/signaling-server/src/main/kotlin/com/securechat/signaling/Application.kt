@@ -113,6 +113,12 @@ fun main() {
 
     val fcmTokenStore = FcmTokenStore()
     val fcmPushSender = FcmPushSender(fcmTokenStore)
+    log.info(
+        "[FCM] Push contract ready; contract={}; diagnostics={}; operational={}",
+        FcmPushSender.PUSH_CONTRACT,
+        FcmPushSender.DIAGNOSTIC_REVISION,
+        fcmPushSender.isOperational,
+    )
     val connectionManager = ConnectionManager(fcmPushSender)
     val userRegistry = UserRegistry()
     PrivacyRetentionWorker.start(fcmTokenStore) {

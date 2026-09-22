@@ -10,6 +10,20 @@ import io.micrometer.core.instrument.binder.system.ProcessorMetrics
 import io.micrometer.prometheus.PrometheusConfig
 import io.micrometer.prometheus.PrometheusMeterRegistry
 
+/** Closed, identity-free labels: never accept a token, account ID or message type. */
+internal enum class PushDiagnosticStage(val label: String) {
+    REGISTRATION_HINTED("registration_hinted"),
+    REGISTRATION_KEYLESS("registration_keyless"),
+    NOT_OPERATIONAL("wake_not_operational"),
+    REGISTRATION_UNAVAILABLE("wake_registration_unavailable"),
+    LOOKUP_FAILED("wake_lookup_failed"),
+    RATE_LIMITED("wake_rate_limited"),
+    HINT_MISSING("wake_hint_missing"),
+    ACCEPTED_HINTED("wake_accepted_hinted"),
+    ACCEPTED_KEYLESS("wake_accepted_keyless"),
+    SEND_FAILED("wake_failed"),
+}
+
 /**
  * Prometheus metrics — `/metrics` endpoint'ine expose edilir.
  *
@@ -84,6 +98,17 @@ object Metrics {
         .description("FCM wake-up push fail sayisi")
         .tag("status", "failed")
         .register(registry)
+
+    private val pushDiagnostics = PushDiagnosticStage.entries.associateWith { stage ->
+        Counter.builder("securechat_fcm_diagnostic_total")
+            .description("Aggregate push pipeline outcomes, without identity or per-event timestamps")
+            .tag("stage", stage.label)
+            .register(registry)
+    }
+
+    internal fun recordPushDiagnostic(stage: PushDiagnosticStage) {
+        pushDiagnostics.getValue(stage).increment()
+    }
 
     val authRegistrations: Counter = Counter.builder("securechat_auth_registrations_total")
         .description("Yeni kullanici kayit sayisi")

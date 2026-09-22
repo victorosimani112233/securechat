@@ -53,6 +53,10 @@ void main() {
     expect(notifications, contains('.cancel(NOTIFICATION_ID)'));
     expect(notifications, contains('SecureChatCallService.start'));
     expect(controller, contains('notifications.showIncoming(info)'));
+    expect(controller, matches(RegExp(r'try\s*\{\s*register\(appContext\)')));
+    expect(controller, contains('incoming_telecom_unavailable:'));
+    expect(notifications, contains('incoming_notification_posted'));
+    expect(notifications, contains('call_notification_permission_denied'));
     expect(controller, contains('NativeCallRegistry.promoteHint(info)'));
     expect(pushReceiver, contains('PushHintCipher.open(key, encryptedHint)'));
     expect(

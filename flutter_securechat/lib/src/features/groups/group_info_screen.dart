@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../contacts/contact_service.dart';
 import '../../core/models.dart';
 import '../../export/export_audit_service.dart';
 import '../../groups/group_management_service.dart';
@@ -35,13 +36,18 @@ class GroupInfoScreen extends StatelessWidget {
         }
         return StreamBuilder<List<ContactEntity>>(
           stream: groups.watchContacts(),
-          builder: (context, contactsSnapshot) => _GroupInfoBody(
-            group: group,
-            contacts: contactsSnapshot.data ?? const [],
-            groups: groups,
-            audit: audit,
-            routeArgument: argument,
-          ),
+          builder: (context, contactsSnapshot) =>
+              StreamBuilder<Map<String, ContactIdentity>>(
+                stream: groups.watchMemberIdentities(group.id),
+                builder: (context, identitySnapshot) => _GroupInfoBody(
+                  group: group,
+                  contacts: contactsSnapshot.data ?? const [],
+                  identities: identitySnapshot.data ?? const {},
+                  groups: groups,
+                  audit: audit,
+                  routeArgument: argument,
+                ),
+              ),
         );
       },
     );
@@ -52,12 +58,14 @@ class _GroupInfoBody extends StatelessWidget {
   const _GroupInfoBody({
     required this.group,
     required this.contacts,
+    required this.identities,
     required this.groups,
     required this.audit,
     required this.routeArgument,
   });
   final ConversationEntity group;
   final List<ContactEntity> contacts;
+  final Map<String, ContactIdentity> identities;
   final GroupManagementService groups;
   final ExportAuditService? audit;
   final Conversation routeArgument;
@@ -171,11 +179,17 @@ class _GroupInfoBody extends StatelessWidget {
             ),
             for (final memberId in members)
               ListTile(
-                leading: GeneratedAvatar(name: _name(memberId), size: 40),
-                title: Text(_name(memberId)),
-                subtitle: memberId == groups.localUserId
-                    ? Text(context.l10n.you)
-                    : Text(memberId),
+                key: ValueKey('group-member-$memberId'),
+                leading: GeneratedAvatar(
+                  name: _name(context, memberId),
+                  size: 40,
+                ),
+                title: Text(_name(context, memberId)),
+                subtitle:
+                    _phone(memberId).isEmpty ||
+                        _phone(memberId) == _name(context, memberId)
+                    ? null
+                    : Text(_phone(memberId)),
                 trailing: admins.contains(memberId)
                     ? Chip(label: Text(context.l10n.admin))
                     : isAdmin && memberId != groups.localUserId
@@ -261,12 +275,17 @@ class _GroupInfoBody extends StatelessWidget {
     }
   }
 
-  String _name(String memberId) =>
-      contacts
-          .where((contact) => contact.id == memberId)
-          .map((contact) => contact.displayName)
-          .firstOrNull ??
-      memberId;
+  String _name(BuildContext context, String memberId) {
+    if (memberId == groups.localUserId) return context.l10n.you;
+    final identity = identities[memberId];
+    final name = identity?.displayName.trim() ?? '';
+    if (name.isNotEmpty && name != memberId) return name;
+    final phone = _phone(memberId);
+    return phone.isNotEmpty ? phone : context.l10n.group_unknown_member;
+  }
+
+  String _phone(String memberId) =>
+      identities[memberId]?.phoneNumber.trim() ?? '';
 
   Future<void> _editName(BuildContext context) async {
     final name = await showDialog<String>(
@@ -360,7 +379,7 @@ class _GroupInfoBody extends StatelessWidget {
     }
     final confirmed = await _confirm(
       context,
-      context.l10n.remove_member_named(_name(memberId)),
+      context.l10n.remove_member_named(_name(context, memberId)),
     );
     if (confirmed && context.mounted) {
       await _run(context, () => groups.removeMember(group.id, memberId));
@@ -418,8 +437,4 @@ class _GroupInfoBody extends StatelessWidget {
 
   static List<String> _split(String? value) =>
       value?.split(',').where((id) => id.isNotEmpty).toList() ?? const [];
-}
-
-extension _FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
 }

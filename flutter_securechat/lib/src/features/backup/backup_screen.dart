@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../backup/backup_service.dart';
 import '../../l10n/l10n.dart';
+import '../../theme/secure_chat_theme.dart';
 import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../widgets/azure_backdrop.dart';
@@ -159,67 +160,91 @@ class _BackupScreenState extends State<BackupScreen> {
       context: context,
       builder: (dialogContext) => DualTextControllerScope(
         builder: (dialogContext, first, second) => StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: Text(title),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: first,
-                  obscureText: true,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.password,
-                    helperText: context.l10n.password_min_length,
-                  ),
-                ),
-                if (confirm)
+          builder: (context, setDialogState) {
+            final hasMinimumLength =
+                first.text.length >= BackupService.minimumPasswordLength;
+            final passwordsMatch =
+                first.text.isNotEmpty && first.text == second.text;
+            return AlertDialog(
+              title: Text(title),
+              scrollable: true,
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   TextField(
-                    controller: second,
+                    controller: first,
                     obscureText: true,
+                    autofocus: true,
+                    onChanged: confirm ? (_) => setDialogState(() {}) : null,
                     decoration: InputDecoration(
-                      labelText: context.l10n.password_repeat,
+                      labelText: context.l10n.password,
+                      helperText: confirm
+                          ? null
+                          : context.l10n.password_min_length,
+                      helperMaxLines: 3,
                     ),
                   ),
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                  if (confirm) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: second,
+                      obscureText: true,
+                      onChanged: (_) => setDialogState(() {}),
+                      decoration: InputDecoration(
+                        labelText: context.l10n.password_repeat,
                       ),
                     ),
-                  ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: Text(context.l10n.cancel),
+                    const SizedBox(height: 16),
+                    _BackupPasswordRequirement(
+                      label: context.l10n.password_min_length,
+                      met: hasMinimumLength,
+                    ),
+                    const SizedBox(height: 8),
+                    _BackupPasswordRequirement(
+                      label: context.l10n.backup_passwords_match,
+                      met: passwordsMatch,
+                    ),
+                  ],
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                ],
               ),
-              FilledButton(
-                onPressed: () {
-                  if (first.text.length < 8) {
-                    setDialogState(
-                      () => error = context.l10n.password_too_short,
-                    );
-                  } else if (confirm && first.text != second.text) {
-                    setDialogState(
-                      () => error = context.l10n.password_mismatch,
-                    );
-                  } else {
-                    Navigator.pop(dialogContext, first.text);
-                  }
-                },
-                child: Text(
-                  confirm
-                      ? context.l10n.create_group_action
-                      : context.l10n.restore,
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(context.l10n.cancel),
                 ),
-              ),
-            ],
-          ),
+                FilledButton(
+                  onPressed: confirm && !(hasMinimumLength && passwordsMatch)
+                      ? null
+                      : () {
+                          if (first.text.length <
+                              BackupService.minimumPasswordLength) {
+                            setDialogState(
+                              () => error = context.l10n.password_too_short,
+                            );
+                          } else {
+                            Navigator.pop(dialogContext, first.text);
+                          }
+                        },
+                  child: Text(
+                    confirm
+                        ? context.l10n.create_group_action
+                        : context.l10n.restore,
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -239,4 +264,31 @@ class _BackupScreenState extends State<BackupScreen> {
         '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year} '
         '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
   }
+}
+
+class _BackupPasswordRequirement extends StatelessWidget {
+  const _BackupPasswordRequirement({required this.label, required this.met});
+
+  final String label;
+  final bool met;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    checked: met,
+    liveRegion: true,
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          met ? Icons.check_circle : Icons.close,
+          size: 20,
+          color: met ? AzureTokens.ok : Theme.of(context).colorScheme.error,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ),
+      ],
+    ),
+  );
 }

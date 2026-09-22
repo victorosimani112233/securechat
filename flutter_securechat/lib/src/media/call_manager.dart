@@ -400,14 +400,18 @@ class CallManager {
       isSpeakerOn: callType == CallType.video,
     );
     _setSession(session);
+    var stage = 'native-registration';
     try {
       await _nativeCalls?.reportOutgoing(session);
+      stage = 'signaling-readiness';
       if (!await _signaling.ensureConnected(
         timeout: const Duration(seconds: 8),
       )) {
         throw StateError('Signaling connection is unavailable');
       }
+      stage = 'ice-configuration';
       final servers = await _iceServers.fetch();
+      stage = 'media-offer';
       final offer = await _media.createOffer(
         video: callType == CallType.video,
         iceServers: servers,
@@ -419,6 +423,7 @@ class CallManager {
           sdpMLineIndex: line,
         ),
       );
+      stage = 'offer-send';
       final sent = await _signaling.send(
         SdpOfferSignal(
           senderId: userId,
@@ -433,7 +438,7 @@ class CallManager {
       _startRingTimeout();
       return true;
     } catch (error, stackTrace) {
-      _reportCallFailure('initiate-call', error, stackTrace);
+      _reportCallFailure('initiate-call.$stage', error, stackTrace);
       await _finish(CallState.failed, notifyPeer: false);
       return false;
     }

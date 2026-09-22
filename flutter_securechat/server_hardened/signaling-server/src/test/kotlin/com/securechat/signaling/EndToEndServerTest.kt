@@ -1,5 +1,6 @@
 package com.securechat.signaling
 
+import ch.qos.logback.classic.Level
 import com.securechat.signaling.db.Database
 import com.securechat.signaling.db.RedisManager
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
@@ -25,6 +26,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -133,6 +135,77 @@ class EndToEndServerTest {
     private fun e2e(block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
         configureServer()
         block()
+    }
+
+    @Test
+    fun `authenticated push registration retains a hint on same token refresh`() = e2e {
+        val (user, accessToken) = newAccount()
+        val deviceToken = "synthetic-fcm-token-for-hint-route-test"
+        val key = ByteArray(32) { (it + 1).toByte() }
+        val encodedKey = Base64.getUrlEncoder().withoutPadding().encodeToString(key)
+        try {
+            TestLogCapture("HttpRoutes", "FcmTokenStore").use { logs ->
+                val initial = client.post("/api/v1/fcm/register") {
+                    header("Authorization", "Bearer $accessToken")
+                    header("Content-Type", "application/json")
+                    setBody("""{"userId":"$user","fcmToken":"$deviceToken","pushHintKey":"$encodedKey"}""")
+                }
+                assertEquals(HttpStatusCode.OK, initial.status)
+                assertArrayEquals(key, fcmTokenStore.getPushHintKey(user))
+
+                val refresh = client.post("/api/v1/fcm/register") {
+                    header("Authorization", "Bearer $accessToken")
+                    header("Content-Type", "application/json")
+                    setBody("""{"userId":"$user","fcmToken":"$deviceToken"}""")
+                }
+                assertEquals(HttpStatusCode.OK, refresh.status)
+                assertArrayEquals(key, fcmTokenStore.getPushHintKey(user))
+                assertArrayEquals(key, FcmTokenStore().getPushHintKey(user))
+                assertEquals(
+                    listOf(
+                        Level.INFO to "[API] FCM kayit istegi; hint_key_field=present",
+                        Level.INFO to "[FCM] Token kaydedildi; hint_key=received",
+                        Level.INFO to "[API] FCM kayit istegi; hint_key_field=absent",
+                        Level.INFO to "[FCM] Token kaydedildi; hint_key=preserved",
+                    ),
+                    logs.events.filter {
+                        it.message == "[API] FCM kayit istegi; hint_key_field={}" ||
+                            it.message == "[FCM] Token kaydedildi; hint_key={}"
+                    }.map { it.level to it.formattedMessage },
+                )
+                logs.assertNoSecrets(user, accessToken, deviceToken, encodedKey)
+            }
+        } finally {
+            fcmTokenStore.removeToken(user)
+        }
+    }
+
+    @Test
+    fun `push registration diagnostics require authentication and matching user id`() = e2e {
+        val (user, accessToken) = newAccount()
+        val (otherUser, _) = newAccount()
+        val deviceToken = "synthetic-fcm-token-for-rejected-route-test"
+        val encodedKey = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32) { 9 })
+        TestLogCapture("HttpRoutes", "FcmTokenStore").use { logs ->
+            for ((bearer, target, status) in listOf(
+                Triple(null, user, HttpStatusCode.Unauthorized),
+                Triple("invalid-bearer-for-fcm-log-test", user, HttpStatusCode.Unauthorized),
+                Triple(accessToken, otherUser, HttpStatusCode.Forbidden),
+            )) {
+                val response = client.post("/api/v1/fcm/register") {
+                    if (bearer != null) header("Authorization", "Bearer $bearer")
+                    header("Content-Type", "application/json")
+                    setBody("""{"userId":"$target","fcmToken":"$deviceToken","pushHintKey":"$encodedKey"}""")
+                }
+                assertEquals(status, response.status)
+            }
+            assertNull(fcmTokenStore.getToken(user))
+            assertNull(fcmTokenStore.getToken(otherUser))
+            assertTrue(logs.events.none {
+                it.formattedMessage.startsWith("[API] FCM") || it.loggerName == "FcmTokenStore"
+            }, "Rejected requests must not produce FCM registration diagnostics")
+            logs.assertNoSecrets(user, otherUser, accessToken, deviceToken, encodedKey)
+        }
     }
 
     // ---------------- HTTP: kimlik dogrulamasi ve operator yuzeyleri ----------------

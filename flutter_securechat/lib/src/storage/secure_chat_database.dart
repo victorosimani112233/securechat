@@ -136,6 +136,10 @@ class SecureChatDatabase {
         'scheduledMessages',
         ScheduledMessageEntity.fromJson,
       ),
+      scheduledMessageHistory: byString(
+        'scheduledMessageHistory',
+        ScheduledMessageHistoryEntity.fromJson,
+      ),
       exportLogs: byString('exportLogs', ExportLogEntity.fromJson),
       pendingTimerUpdates: byString(
         'pendingTimerUpdates',
@@ -192,7 +196,13 @@ class SecureChatDatabase {
     // Parse before entering the serialized write queue. A malformed backup
     // therefore cannot partially mutate the active database.
     final replacement = _StorageSnapshot.fromJson(map);
-    await _write((_) => _snapshot = replacement);
+    await _write((_) {
+      _snapshot = replacement;
+      _fullReset = true;
+      for (final collection in replacement.tracked) {
+        collection.markAll();
+      }
+    });
   }
 
   static const legacyRoomImportMarker = 'legacy_room_v22_imported';
@@ -254,11 +264,17 @@ class SecureChatDatabase {
   Future<void> _write(FutureOr<void> Function(_StorageSnapshot s) mutate) {
     if (_closed) throw StateError('Secure chat database is closed');
     final operation = _writeTail.then<void>((_) async {
+      final previous = _snapshot;
+      final previousFullReset = _fullReset;
       try {
         await mutate(_snapshot);
         await _persist();
         _changed.add(null);
       } catch (_) {
+        // A failed whole-snapshot replacement must restore the old reference,
+        // not roll back the newly loaded maps into an empty in-memory state.
+        if (!identical(previous, _snapshot)) _snapshot = previous;
+        _fullReset = previousFullReset;
         // Geri alma yalnizca DOKUNULAN kayitlari eski degerine dondurur.
         // Onceden burada anlik goruntunun tam derin kopyasi cikariliyordu;
         // yazma yolundaki iki O(n) maliyetten biri buydu.
@@ -376,6 +392,8 @@ class ConversationDao {
       _patch(id, (c) => c.copyWith(customNotificationUri: uri));
   Future<void> updatePeerName(String id, String name) =>
       _patch(id, (c) => c.copyWith(peerName: name));
+  Future<void> updatePeerIdentity(String id, String name, String phone) =>
+      _patch(id, (c) => c.copyWith(peerName: name, peerPhone: phone));
   Future<void> updateArchived(String id, bool isArchived) =>
       _patch(id, (c) => c.copyWith(isArchived: isArchived));
   Future<void> updatePinned(String id, bool isPinned) =>
@@ -903,6 +921,45 @@ class CallLogDao {
 class ScheduledMessageDao {
   ScheduledMessageDao._(this._db);
   final SecureChatDatabase _db;
+  static const historyLimit = 500;
+
+  Stream<List<ScheduledMessageHistoryEntity>> watchHistory() =>
+      _db._watch(_sortedHistory);
+
+  Future<List<ScheduledMessageHistoryEntity>> getHistoryImmediate() async =>
+      _sortedHistory(_db._snapshot);
+
+  Future<ConversationEntity?> getRecipient(String id) =>
+      _db.conversations.getById(id);
+
+  /// The history and plan transition share one encrypted storage transaction.
+  Future<void> completeRun(
+    ScheduledMessageHistoryEntity history, {
+    ScheduledMessageEntity? nextPlan,
+  }) {
+    if (nextPlan != null && nextPlan.id != history.planId) {
+      throw ArgumentError('History and next plan must refer to the same plan');
+    }
+    return _db._write((s) {
+      s.scheduledMessageHistory[history.id] = history;
+      for (final expired in _sortedHistory(s).skip(historyLimit)) {
+        s.scheduledMessageHistory.remove(expired.id);
+      }
+      if (nextPlan == null) {
+        s.scheduledMessages.remove(history.planId);
+      } else {
+        s.scheduledMessages[nextPlan.id] = nextPlan;
+      }
+    });
+  }
+
+  static List<ScheduledMessageHistoryEntity> _sortedHistory(_StorageSnapshot s) =>
+      s.scheduledMessageHistory.values.toList()
+        ..sort((a, b) {
+          final byTime = b.executedAt.compareTo(a.executedAt);
+          return byTime == 0 ? b.id.compareTo(a.id) : byTime;
+        });
+
   Stream<List<ScheduledMessageEntity>> getAll() => _db._watch(
     (s) => s.scheduledMessages.values.sortedBy((m) => m.nextTriggerTime),
   );
@@ -1103,6 +1160,7 @@ class _StorageSnapshot {
     required Map<String, ContactEntity> contacts,
     required Map<String, CallLogEntity> callLogs,
     required Map<String, ScheduledMessageEntity> scheduledMessages,
+    required Map<String, ScheduledMessageHistoryEntity> scheduledMessageHistory,
     required Map<String, ExportLogEntity> exportLogs,
     required Map<String, PendingTimerUpdateEntity> pendingTimerUpdates,
     required Map<String, IdentityEntity> identities,
@@ -1139,6 +1197,12 @@ class _StorageSnapshot {
        scheduledMessages = _TrackedMap(
          'scheduledMessages',
          scheduledMessages,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       scheduledMessageHistory = _TrackedMap(
+         'scheduledMessageHistory',
+         scheduledMessageHistory,
          (value) => value.toJson(),
          (key) => key,
        ),
@@ -1202,6 +1266,7 @@ class _StorageSnapshot {
   final _TrackedMap<String, ContactEntity> contacts;
   final _TrackedMap<String, CallLogEntity> callLogs;
   final _TrackedMap<String, ScheduledMessageEntity> scheduledMessages;
+  final _TrackedMap<String, ScheduledMessageHistoryEntity> scheduledMessageHistory;
   final _TrackedMap<String, ExportLogEntity> exportLogs;
   final _TrackedMap<String, PendingTimerUpdateEntity> pendingTimerUpdates;
   final _TrackedMap<String, IdentityEntity> identities;
@@ -1219,6 +1284,7 @@ class _StorageSnapshot {
     contacts,
     callLogs,
     scheduledMessages,
+    scheduledMessageHistory,
     exportLogs,
     pendingTimerUpdates,
     identities,
@@ -1236,6 +1302,7 @@ class _StorageSnapshot {
       contacts.isEmpty &&
       callLogs.isEmpty &&
       scheduledMessages.isEmpty &&
+      scheduledMessageHistory.isEmpty &&
       exportLogs.isEmpty &&
       pendingTimerUpdates.isEmpty &&
       identities.isEmpty &&
@@ -1251,6 +1318,7 @@ class _StorageSnapshot {
     contacts: {},
     callLogs: {},
     scheduledMessages: {},
+    scheduledMessageHistory: {},
     exportLogs: {},
     pendingTimerUpdates: {},
     identities: {},
@@ -1287,6 +1355,11 @@ class _StorageSnapshot {
       scheduledMessages: _mapByString(
         json['scheduledMessages'],
         ScheduledMessageEntity.fromJson,
+        (e) => e.id,
+      ),
+      scheduledMessageHistory: _mapByString(
+        json['scheduledMessageHistory'],
+        ScheduledMessageHistoryEntity.fromJson,
         (e) => e.id,
       ),
       exportLogs: _mapByString(
@@ -1340,6 +1413,9 @@ class _StorageSnapshot {
     'contacts': contacts.values.map((e) => e.toJson()).toList(),
     'callLogs': callLogs.values.map((e) => e.toJson()).toList(),
     'scheduledMessages': scheduledMessages.values
+        .map((e) => e.toJson())
+        .toList(),
+    'scheduledMessageHistory': scheduledMessageHistory.values
         .map((e) => e.toJson())
         .toList(),
     'exportLogs': exportLogs.values.map((e) => e.toJson()).toList(),

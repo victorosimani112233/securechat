@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_management_service.dart';
 import '../../widgets/azure_backdrop.dart';
+import 'chat_storage_screen.dart';
 
 class StorageUsageScreen extends StatefulWidget {
   const StorageUsageScreen({super.key});
@@ -13,7 +14,7 @@ class StorageUsageScreen extends StatefulWidget {
 
 class _StorageUsageScreenState extends State<StorageUsageScreen> {
   List<ChatStorageBreakdown>? _items;
-  String? _cleaning;
+  bool _failed = false;
   StorageManagementService? _service;
   bool _loadStarted = false;
 
@@ -28,8 +29,16 @@ class _StorageUsageScreenState extends State<StorageUsageScreen> {
   }
 
   Future<void> _load(StorageManagementService service) async {
-    final items = await service.analyzeAll();
-    if (mounted) setState(() => _items = items);
+    try {
+      final items = await service.analyzeAll();
+      if (mounted)
+        setState(() {
+          _items = items;
+          _failed = false;
+        });
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
   }
 
   @override
@@ -38,6 +47,20 @@ class _StorageUsageScreenState extends State<StorageUsageScreen> {
       appBar: AppBar(title: Text(context.l10n.settings_storage_usage)),
       body: _service == null
           ? Center(child: Text(context.l10n.storage_service_unavailable))
+          : _failed
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(context.l10n.storage_load_failed),
+                  IconButton(
+                    onPressed: () => _load(_service!),
+                    tooltip: context.l10n.storage_reload,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
+            )
           : _items == null
           ? const Center(child: CircularProgressIndicator())
           : _items!.isEmpty
@@ -50,6 +73,7 @@ class _StorageUsageScreenState extends State<StorageUsageScreen> {
                 final item = _items![index];
                 return Card(
                   child: ListTile(
+                    key: ValueKey('storage-chat-${item.conversationId}'),
                     leading: Icon(item.isGroup ? Icons.group : Icons.person),
                     title: Text(item.displayName),
                     subtitle: Text(
@@ -59,18 +83,8 @@ class _StorageUsageScreenState extends State<StorageUsageScreen> {
                         _bytes(item.totalBytes),
                       ),
                     ),
-                    trailing: _cleaning == item.conversationId
-                        ? const SizedBox.square(
-                            dimension: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : item.fileCount == 0
-                        ? null
-                        : IconButton(
-                            tooltip: context.l10n.clear_media,
-                            icon: const Icon(Icons.cleaning_services_outlined),
-                            onPressed: () => _clean(item),
-                          ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _manage(item),
                   ),
                 );
               },
@@ -78,31 +92,18 @@ class _StorageUsageScreenState extends State<StorageUsageScreen> {
     ),
   );
 
-  Future<void> _clean(ChatStorageBreakdown item) async {
+  Future<void> _manage(ChatStorageBreakdown item) async {
     final service = _service;
     if (service == null) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.l10n.clear_media),
-        content: Text(context.l10n.clear_media_body(item.displayName)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(context.l10n.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(context.l10n.cd_clear),
-          ),
-        ],
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ChatStorageScreen(
+          conversationId: item.conversationId,
+          service: service,
+        ),
       ),
     );
-    if (confirmed != true || !mounted) return;
-    setState(() => _cleaning = item.conversationId);
-    await service.cleanFiles(item.conversationId);
-    await _load(service);
-    if (mounted) setState(() => _cleaning = null);
+    if (mounted) await _load(service);
   }
 
   static String _bytes(int bytes) {

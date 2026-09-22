@@ -59,11 +59,9 @@ void main() {
       reason: 'kurulum basarisiz olmali',
     );
     await Future<void>.delayed(const Duration(milliseconds: 20));
-    expect(
-      failures.any((name) => name.contains('initiate-call')),
-      isTrue,
-      reason: 'hata sessizce yutulmus: $failures',
-    );
+    expect(failures, [
+      'call-manager.initiate-call.media-offer',
+    ], reason: 'hata sessizce yutulmus: $failures');
   });
 }
 

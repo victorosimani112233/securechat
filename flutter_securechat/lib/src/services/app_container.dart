@@ -27,6 +27,7 @@ import '../config/app_config.dart';
 import '../l10n/service_strings.dart';
 import '../contacts/contact_service.dart';
 import '../contacts/private_contact_discovery.dart';
+import '../contacts/phone_number_sharing_service.dart';
 import '../crypto/call_crypto_manager.dart';
 import '../crypto/crypto_protocol_store.dart';
 import '../crypto/libsignal_protocol_store.dart';
@@ -396,6 +397,10 @@ class AppContainer {
       final contactIdentityResolver = ContactIdentityResolver(
         database: database,
       );
+      final privateDirectory = PrivateContactDiscoveryApi(
+        baseUrl: config.apiBaseUrl,
+        client: httpClients.create(),
+      );
       final signalStore = PersistentSignalProtocolStore(protocolStore);
       // Servis katmani metinleri BuildContext olmadan yerellestirilir.
       final serviceStrings = ServiceStrings(
@@ -423,6 +428,14 @@ class AppContainer {
           await securityNotices.peerIdentityRotated(peerId);
         },
       );
+      final phoneSharing = PhoneNumberSharingService(
+        session: session,
+        crypto: crypto,
+        signaling: signaling,
+        database: database,
+        discovery: privateDirectory,
+        onAsyncFailure: reportAsyncFailure,
+      );
       final offlineQueue = OfflineMessageQueue(
         database: database,
         signaling: signaling,
@@ -437,6 +450,7 @@ class AppContainer {
         session: session,
         strings: serviceStrings,
         identityResolver: contactIdentityResolver,
+        phoneSharing: phoneSharing,
         // Cozulemeyen mesaj sessizce dusmez: sohbete gorunur bir iz birakir.
         onUndecryptableMessage: (conversationId) async {
           diagnostics.log(
@@ -463,6 +477,7 @@ class AppContainer {
         session: session,
         crypto: crypto,
         reliableQueue: offlineQueue,
+        phoneSharing: phoneSharing,
       );
       final chatActivity = ChatActivityService(
         session: session,
@@ -667,7 +682,10 @@ class AppContainer {
       )..start();
       resources.register('call-tone-coordinator', callTones.close);
       final mediaDirectory = Directory('${support.path}/media');
-      final storageManagement = StorageManagementService(database);
+      final storageManagement = StorageManagementService(
+        database,
+        mediaDirectory: mediaDirectory,
+      );
       final fileTransfers = FileTransferManager(
         signaling: signaling,
         crypto: crypto,
@@ -684,6 +702,7 @@ class AppContainer {
         localMediaDirectory: mediaDirectory,
         storageManagement: storageManagement,
         networkKindProvider: networkMonitor,
+        phoneSharing: phoneSharing,
         onAsyncFailure: reportAsyncFailure,
       )..start();
       resources.register('media-message-service', mediaMessages.close);
@@ -693,10 +712,6 @@ class AppContainer {
         onAsyncFailure: reportAsyncFailure,
       );
       resources.register('voice-note-recorder', voiceNotes.dispose);
-      final privateDirectory = PrivateContactDiscoveryApi(
-        baseUrl: config.apiBaseUrl,
-        client: httpClients.create(),
-      );
       final authCoordinator = AuthCoordinator(
         api: AuthApi(baseUrl: config.apiBaseUrl, client: httpClients.create()),
         session: session,

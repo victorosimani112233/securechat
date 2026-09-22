@@ -409,3 +409,185 @@ bağlı cihaz kapalı süreç canlı FCM tanısı                     wake_no_hi
   Gerçek sohbet başlığından ve "Bilgileri Gör" menüsünden kişi bilgileri
   ekranının açıldığı Android UI hiyerarşisiyle ayrı ayrı doğrulandı.
 - Bu düzeltme istemci navigasyonuyla sınırlı; sunucu ve FCM akışı değişmedi.
+
+### 21 Eylül isteğe bağlı E2EE telefon numarası paylaşımı
+
+- Ayarlar > Gizlilik içine "Telefon numaramı paylaş" anahtarı eklendi.
+  Varsayılan kapalı; mevcut kurulumlar otomatik izin vermiyor. Tercih şifreli
+  oturum dosyasında saklanıyor ve farklı hesaba geçince sıfırlanıyor.
+- Açıkken birebir metin ve medya/sesli mesaj gönderimi, mevcut Signal
+  şifrelemesiyle yalnız alıcıya ayrı bir `shared_phone` kontrolü iletiyor.
+  Grup gönderimi, arama, otomatik alındı ve yalnız mesaj almak paylaşmıyor.
+  Gönderim sırasında izin iptal edilirse şifreleme sonrasında tekrar kontrol
+  edilerek yeni paket gönderilmiyor.
+- Alıcı, bilinmeyen numaranın mevcut özel rehber servisinde şifreli gönderen
+  hesapla eşleşmesini kontrol ediyor. Eşleşmeyen veya doğrulanamayan numara
+  gösterilmiyor; asıl mesajın teslimi devam ediyor. Açık signaling kontrolü
+  kabul edilmiyor; numara/ham hata metni tanı kaydına eklenmiyor.
+- Numara mevcut şifreli sohbet kaydına yazılıyor, telefon rehberine kişi
+  eklenmiyor. Yerel kişi adı öncelikli; sohbet kilidi, mesajlar ve okunmamış
+  sayısı korunuyor. Açık sohbet başlığı kimlik değişimini dinliyor.
+- Dar ekran testi açıklamanın anahtarı aşağı ittiğini gösterdi. Açıklama
+  tam genişliğe alındı; gizlilik paneli sınırlı yükseklikte kaydırılabiliyor.
+- **Sınır:** Önceden paylaşılan veya eski izinle teslim kuyruğuna alınmış
+  numara geri çağrılamaz. Rehber hesap eşleşmesi SMS sahiplik doğrulaması
+  değildir; mevcut giriş sistemi e-posta OTP'sini doğrular. Bu değişiklik
+  bağımsız kriptografi denetimi olarak sunulmuyor.
+- Ayrıntılı tasarım, dosyalar, ek paket maliyeti ve iki cihaz kabul testi:
+  [PHONE_NUMBER_SHARING.md](PHONE_NUMBER_SHARING.md).
+- Doğrulama: `flutter analyze --no-pub` temiz; `flutter test --no-pub`
+  **476/476 geçti**. Gerçek Signal ratchet, dosya/sesli mesaj, kapalı izin,
+  grup dışlama, bozuk iddia, yanlış hesap/hash, şifreli disk kaydı, rehber
+  kesintisi, sorgu sınırı ve dar ekran testleri bu sonuca dahil.
+- Sunucu kodu, FCM payload'ı, PostgreSQL şeması ve Kotlin uygulaması değişmedi.
+- Android release APK, mevcut sunucu adresi ve sertifika pinleriyle derlendi
+  (123.3 MB). Bu turda telefona kurulum veya canlı iki cihaz denemesi yapılmadı.
+- `audit_codemagic_privacy.dart` geçti. `audit_ios_readiness.dart` ise mevcut
+  arama sesi kodunda `startNativeCallRingback`, `stopNativeCallTones`,
+  `playNativeCallCue`, `connected`, `ended` için hata bildiriyor. Denetleyici
+  `call_tone_service.dart` dosyasını taramıyor ve Swift'teki diğer `case`
+  etiketlerini de kanal metodu sayıyor. Bu girdiler ve denetim kodu bu değişiklik
+  öncesindeki HEAD ile aynı; bu görevde değiştirilmedi. Xcode derlemesi Linux
+  üzerinde çalıştırılmadı, iOS için temiz sonuç iddia edilmiyor.
+
+### 21 Eylül arka plan arama teslimi ve iOS CallKit düzeltmeleri
+
+- Arka plan mesaj isolate'i artık WebSocket'te arama işleyicisi olmadığını
+  bildiriyor. Hardened signaling sunucusu arama paketlerini bu bağlantıya
+  tüketmek yerine arama destekleyen bağlantı için tutuyor; arka planın ana
+  bağlantıyı düşürmesi ve kapanırken arama durumunu temizlemesi engellendi.
+- FCM token yenilemesinin aynı cihazın şifreli ipucu anahtarını silmesi,
+  token/anahtarın ayrı okumalarda karışabilmesi ve arama kontrol push'unun
+  yeni arama push'unu hız sınırına takması düzeltildi. Yeni şema/migrasyon yok.
+- Android Telecom kaydı başarısız olunca da mevcut bildirim alternatifi denenir.
+  iOS'ta eksik `voip` modu, reddedilmiş CallKit UUID temizliği ve WebRTC ses
+  etkinleştirme bağlantıları düzeltildi. Başlatma tanısı beş aşamaya ayrıldı.
+- Önceki kayıttaki iOS denetleyici yanlış pozitifleri giderildi; iOS hazırlık
+  ve Codemagic gizlilik denetimleri artık PASS. Bu bir Xcode derleme sonucu değil.
+- Son kaynakla **496 Flutter testi** ve ilgili **159 sunucu testi** geçti.
+  Sunucu testlerinde PostgreSQL/Redis entegrasyonları dahil, atlanan test yok.
+  Statik analiz makinenin `errno = 24` dosya izleyici sınırında başarısız oldu.
+- Uzak sunucuya deployment yapılmadı. iPhone ve güncellenmiş sunucuyla canlı
+  arama sonucu henüz doğrulanmadı; iOS PushKit/VoIP APNs desteği eklenmedi.
+- Android release APK (123.3 MB), mevcut cihazın test sertifikasıyla imzalanıp
+  bağlı Samsung'a `adb install -r` ile veriler korunarak kuruldu. Uygulama açıldı
+  ve push anahtarı kayıt isteğini yeniden gönderdi; bu canlı arama kanıtı değil.
+- Dosya bazlı gerekçeler, uygulama sırası ve açık sınırlar:
+  [CALL_DELIVERY_FIX_2026-09-21.md](CALL_DELIVERY_FIX_2026-09-21.md).
+
+### 21 Eylül aktif JAR değişikliklerinin yerel sunucuyla birleştirilmesi
+
+- Kullanıcının aktif olarak paylaştığı masaüstü JAR'ı değiştirilmeden incelendi.
+  GitHub referansından farklı olan aynı-token anahtar koruması ve FCM tanı
+  kayıtları mevcut Kotlin düzeltmeleriyle birleştirildi.
+- JAR'ın `hint_key` durumları, HTTP `hint_key_field` tanısı, eksik anahtar
+  uyarısı ve şifreli ipucu eklendi kaydı korundu. Yereldeki atomik güncelleme,
+  retention denetimi, tek token/anahtar okuması ve arka plan arama teslimi
+  düzeltmeleri geri alınmadı. Ham anahtar/token/kimlik loglanmıyor.
+- Birleşik JAR derlendi. Eski ve yeni arşivlerde uygulama paketi dışında
+  yalnız derleme kimliği farklı; bağımlılıklar, migrasyonlar ve diğer
+  kaynaklar birebir aynı. Orijinal masaüstü JAR'ının SHA-256 değeri değişmedi.
+- Tüm signaling sunucusu testleri: **53 sınıfta 1.222 test geçti; 0 hata,
+  0 atlanan test**. PostgreSQL/Redis, HTTP/WebSocket, log gizliliği ve
+  eşzamanlılık testleri dahil. `git diff --check` temiz.
+- İstemci dosyaları bu birleştirmede değiştirilmedi. Commit/push, canlıya
+  yükleme, servis restart veya kurulum scripti çalıştırılmadı.
+- Birleşim kararları, artefakt yolu/hash'i ve kalan sınırlar:
+  [SERVER_JAR_MERGE_2026-09-21.md](SERVER_JAR_MERGE_2026-09-21.md).
+
+### 22 Eylül grup üyelerinde UUID yerine yerel kişi bilgisi
+
+- Grup bilgileri, mesaj gönderen kişi etiketi ve yanıt önizlemeleri rehber
+  adını veya daha önce E2EE ile paylaşılıp doğrulanmış yerel numarayı kullanır.
+  Yerel kullanıcı "Sen", bilgisi bulunmayan kişi "Bilinmeyen üye" olarak görünür.
+- Yerel kişi bilgisi değişince ekran güncellenir. Yeni grup olayları ve grup
+  bildirim başlıkları da UUID yerine kişi etiketini kullanır. Eski kayıtlı
+  sistem olayı metinleri yeniden yazılmadı.
+- Sunucuya numara sorgusu veya gruplara otomatik numara paylaşımı eklenmedi.
+  UUID tabanlı yönlendirme, şifreleme ve yetki kontrolleri değişmedi.
+- Tüm Flutter testleri **503/503 geçti**; telefon/tablet genişliği, iki kat
+  metin ölçeği, kişi adı güncellemeleri ve mevcut gizlilik testleri dahil.
+  Statik analiz yine `errno = 24` izleyici sınırına takıldı; temiz sonuç
+  iddia edilmiyor. `git diff --check` temiz.
+- Bu görevde sunucu kodu, iOS yeniden bağlanma akışı veya Kotlin uygulaması
+  değiştirilmedi. Build/kurulum ve commit/push yapılmadı.
+- Dosya bazlı açıklama:
+  [GROUP_MEMBER_IDENTITY_2026-09-22.md](GROUP_MEMBER_IDENTITY_2026-09-22.md).
+
+### 22 Eylül uygulama açıkken diğer sohbetlerden gelen bildirimler
+
+- `MessageNotificationCoordinator` uygulama ön plandayken tüm mesajları
+  sessiz/düşük öncelikli kanala gönderiyordu. Bu genel sessizleştirme kaldırıldı;
+  yalnızca o anda açık sohbetin mesaj bildirimi bastırılmaya devam eder.
+- Sohbet değiştirme, açık sohbet dışında bildirim, Android yüksek öncelik,
+  iOS banner/ses, içerik gizliliği, sessize alma ve özel ses tercihleri test edildi.
+  Sistem izinleri veya kullanıcının bildirim kanalı ayarları sıfırlanmadı.
+- Son kaynakla tüm Flutter testleri **505/505 geçti**. Sunucu kodu ve FCM
+  yükü değiştirilmedi. Açıklama:
+  [FOREGROUND_MESSAGE_NOTIFICATIONS_2026-09-22.md](FOREGROUND_MESSAGE_NOTIFICATIONS_2026-09-22.md).
+- Grup ve bildirim düzeltmelerini içeren release APK, mevcut sunucu/pinlerle
+  `--build-name=1.0.77 --build-number=77` kullanılarak derlendi (123.4 MB).
+  Telefonda kurulu olanla aynı test imzası doğrulandı; 22 Eylül 10:18:38'de
+  Samsung SM-S731B'ye `adb install -r` başarılı oldu. Veriler temizlenmedi.
+  Uygulama açılışı `Status: ok`, kurulu sürüm `1.0.77+77` olarak doğrulandı.
+  Bildirim izni ve yüksek öncelikli ses kanalı açık; gerçek karşı cihazdan
+  mesajın üst bildirimini görme testi henüz yapılmadı. Commit/push yapılmadı.
+
+### 22 Eylül yedek kalıcılığı, depolama yönetimi ve planlı mesaj geçmişi
+
+- Geri yüklemede sohbetlerin yalnız bellekte kalıp yeniden açılışta kaybolması
+  iki regresyon testiyle yeniden üretildi. Tam snapshot artık şifreli diske
+  tek işlemle yazılıyor; hata halinde eski bellek/disk kayıtları korunuyor.
+- Depolama Kullanımı: sohbet içindeki dosyaları kategorilere göre filtreleme,
+  seçme ve onaylı yerel silme eklendi. Metinler ve ortak dosya referansları
+  korunur; medya dizini dışındaki dosyalar silinmez. Kilit doğrulaması gerekir.
+- Yeni yedek parolası için mevcut 8 karakter ve eşleşme koşulları canlı tik/çarpı
+  gösterir; klavye, dar ekran ve büyük metin durumları test edildi.
+- Planlı Mesajlar'a Geçmiş sekmesi eklendi. Son 500 çalıştırmanın alıcıları,
+  zamanı ve gerçek gönderim sonucu şifreli olarak tutulur. Süreli mesaj
+  içeriği geçmişe kopyalanmaz; kilitli sohbetler geçmişten açığa çıkarılmaz.
+  Önceki sürümlerde kaydedilmemiş geçmiş sonradan tahmin edilmez.
+- Son kaynakta **553 Flutter testi geçti**, statik analiz **No issues found**;
+  `git diff --check` temiz. iOS native build bu Linux ortamında çalıştırılmadı.
+- Dosya bazlı açıklamalar ve sınırlar:
+  [STORAGE_BACKUP_HISTORY_2026-09-22.md](STORAGE_BACKUP_HISTORY_2026-09-22.md).
+- `1.0.78+78` release APK, mevcut test imzasıyla Samsung SM-S731B'ye
+  22 Eylül 10:51:58'de `adb install -r` ile başarıyla yüklendi. Uygulama
+  verileri silinmedi; kullanıcının yedeği otomatik geri yüklenmedi.
+  Commit/push ve sunucu deployment'i yapılmadı.
+
+### 22 Eylül arka plan araması için sunucu JAR'ı ve güvenli tanı
+
+- Kullanıcının canlı denemesinde Android `wake_no_hint` bildirdi. Gelen push
+  şifreli tür alanını taşımıyordu; aktif sunucudaki kesin kayıp noktası henüz
+  ölçülmedi. Önceki aktif-JAR birleştirmesi korunarak yeni fat JAR hazırlandı.
+- Token bulunmayan denemenin sonraki kayıtlı push'u hız sınırına takması ve
+  kayıt okuma hatasının çağırana taşması iki testle üretildi ve düzeltildi.
+  Eşzamanlı hız sınırı kararı atomik hale getirildi.
+- FCM kayıt yanıtına kalıcı anahtar durumu/protokol adı, yetkili `/metrics`
+  alanına kimliksiz toplam aşama sayaçları eklendi. Yeni tablo veya push
+  başına DB sorgusu yok; ERROR log seviyesi korunuyor.
+- Java 17 JAR; **54 sınıfta 1.227 test geçti, 0 hata/atlanan**. Operatör aracı
+  **5 test**, Flutter sunucu gizlilik kapısı **12 test**, deployment privacy
+  audit **PASS**. Canlı sunucuya yükleme/restart veya commit/push yapılmadı.
+- Dosya bazlı kararlar, hash, kurulum ve iki tanı raporu alma sırası:
+  [PUSH_JAR_2026-09-22.md](../server_hardened/signaling-server/docs/PUSH_JAR_2026-09-22.md).
+
+### 22 Eylül gelen aramanın uygulama simgesinden devralınması
+
+- Kullanıcının yüklediği yeni sunucu JAR'ı sonrası telefonda 14:54:07'de
+  `wake_call_hint` ve `incoming_notification_posted` görüldü. Native bildirim
+  çağrısı artık gerçekleşiyor; bu kayıt tek başına zil/ekran kanıtı değildir.
+- Uygulama simgesinden açılışta yalnızca native bildirim tıklamasına bağlı
+  yönlendirme eksikti. Mevcut gelen arama, açılış ve öne dönüşte kontrol
+  ediliyor; bağlantı sonrası gelen teklif de ekranı açıyor. Otomatik cevap yok.
+- Çalan arama için üst arama çubuğu da gösteriliyor. Geri dönünce arama
+  kaybolmuyor; biten arama gecikmiş callback ile yeniden açılmıyor.
+- Eski kodda üç yönlendirme testi hatayı üretti. Düzeltme sonrası ilgili
+  arama/bildirim/yaşam döngüsü grubunda 54, tüm Flutter grubunda 561 test
+  geçti; statik analiz temiz.
+- Yeni sunucu değişikliği veya migrasyon gerekmiyor. Dosya bazlı açıklama:
+  [INCOMING_CALL_LAUNCHER_2026-09-22.md](INCOMING_CALL_LAUNCHER_2026-09-22.md).
+- `1.0.79+79` APK mevcut cihaz test imzasıyla bağlı Samsung'a `adb install -r`
+  ile yüklendi; sürüm doğrulandı, soğuk açılış başarılı ve push kaydı yeniden
+  gönderildi. Veri silinmedi. Yeni iki telefonlu arama denemesi henüz yapılmadı.

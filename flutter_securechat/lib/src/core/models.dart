@@ -59,6 +59,8 @@ class Conversation {
   bool get hasUnread => unreadCount > 0 || manuallyUnread;
 
   Conversation copyWith({
+    String? peerName,
+    String? peerPhone,
     String? lastMessage,
     DateTime? lastMessageTimestamp,
     int? unreadCount,
@@ -75,8 +77,8 @@ class Conversation {
     return Conversation(
       id: id,
       peerId: peerId,
-      peerName: peerName,
-      peerPhone: peerPhone,
+      peerName: peerName ?? this.peerName,
+      peerPhone: peerPhone ?? this.peerPhone,
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageTimestamp: lastMessageTimestamp ?? this.lastMessageTimestamp,
       unreadCount: unreadCount ?? this.unreadCount,

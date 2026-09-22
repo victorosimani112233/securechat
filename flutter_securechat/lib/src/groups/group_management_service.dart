@@ -1,3 +1,4 @@
+import '../contacts/contact_service.dart';
 import '../services/crypto_service.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
@@ -34,6 +35,14 @@ class GroupManagementService {
       _database.conversations.observeById(groupId);
 
   Stream<List<ContactEntity>> watchContacts() => _database.contacts.getAll();
+
+  Stream<Map<String, ContactIdentity>> watchMemberIdentities(String groupId) {
+    final resolver = ContactIdentityResolver(database: _database);
+    // Database watchers also emit on local contact/verified-phone updates.
+    return watchGroup(
+      groupId,
+    ).asyncMap((group) => resolver.resolveMany(_split(group?.groupMembers)));
+  }
 
   bool isLocalAdmin(ConversationEntity group) {
     final members = _split(group.groupMembers);

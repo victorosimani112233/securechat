@@ -27,7 +27,7 @@ class FcmTokenStore internal constructor(
     },
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
-    private data class DeviceRegistration(
+    internal class DeviceRegistration(
         val token: String,
         val pushHintKey: ByteArray?,
     )
@@ -53,43 +53,62 @@ class FcmTokenStore internal constructor(
         loadPrivateRowsFromDb()
     }
 
-    fun registerToken(userId: String, token: String, pushHintKey: String? = null) {
+    /** Returns the committed key-presence result, not a later cache read. */
+    fun registerToken(userId: String, token: String, pushHintKey: String? = null): Boolean {
         requireValidToken(token)
         val decodedHintKey = pushHintKey?.let(::decodePushHintKey)
         val normalizedUserId = normalizeUserId(userId)
         val userIndex = indexFor(normalizedUserId)
-        val registration = DeviceRegistration(token, decodedHintKey)
-        upsertToDb(userIndex, registration)
-        tokens[userIndex] = CachedToken(registration, nowMillis())
-        log.info("[FCM] Token kaydedildi")
+        var hintState = "absent"
+        val updated = tokens.compute(userIndex) { _, previous ->
+            // Token-only refreshes must not downgrade this device. Never carry
+            // a key across a token change: it may belong to another device.
+            val retainedKey = previous?.takeIf {
+                it.updatedAtMillis >= retentionCutoff() && it.registration.token == token
+            }?.registration?.pushHintKey
+            hintState = when {
+                decodedHintKey != null -> "received"
+                retainedKey != null -> "preserved"
+                previous?.registration?.pushHintKey == null -> "absent"
+                previous.registration.token != token -> "dropped_token_changed"
+                else -> "dropped_expired"
+            }
+            val registration = DeviceRegistration(token, decodedHintKey ?: retainedKey)
+            upsertToDb(userIndex, registration)
+            CachedToken(registration, nowMillis())
+        }
+        log.info("[FCM] Token kaydedildi; hint_key={}", hintState)
+        log.info("[FCM] Token kaydedildi; hint={}", updated?.registration?.pushHintKey != null)
+        Metrics.recordPushDiagnostic(
+            if (updated?.registration?.pushHintKey != null) PushDiagnosticStage.REGISTRATION_HINTED
+            else PushDiagnosticStage.REGISTRATION_KEYLESS,
+        )
+        return updated?.registration?.pushHintKey != null
     }
 
     fun removeToken(userId: String) {
         val normalizedUserId = normalizeUserId(userId)
         val userIndex = indexFor(normalizedUserId)
-        deleteFromDb(userIndex)
-        tokens.remove(userIndex)
+        tokens.compute(userIndex) { _, _ ->
+            deleteFromDb(userIndex)
+            null
+        }
         log.info("[FCM] Token silindi")
     }
 
-    fun getToken(userId: String): String? {
-        val userIndex = indexFor(normalizeUserId(userId))
-        val cached = tokens[userIndex] ?: return null
-        if (cached.updatedAtMillis < retentionCutoff()) {
-            tokens.remove(userIndex, cached)
-            return null
-        }
-        return cached.registration.token
-    }
+    fun getToken(userId: String): String? = getRegistration(userId)?.token
 
-    fun getPushHintKey(userId: String): ByteArray? {
+    fun getPushHintKey(userId: String): ByteArray? = getRegistration(userId)?.pushHintKey
+
+    /** A single cache read prevents a token from being paired with a newer device's key. */
+    internal fun getRegistration(userId: String): DeviceRegistration? {
         val userIndex = indexFor(normalizeUserId(userId))
         val cached = tokens[userIndex] ?: return null
         if (cached.updatedAtMillis < retentionCutoff()) {
             tokens.remove(userIndex, cached)
             return null
         }
-        return cached.registration.pushHintKey?.clone()
+        return DeviceRegistration(cached.registration.token, cached.registration.pushHintKey?.clone())
     }
 
     fun getTokenCount(): Int {
@@ -185,6 +204,8 @@ class FcmTokenStore internal constructor(
                     loaded.size,
                     erased,
                 )
+                val hinted = loaded.values.count { it.registration.pushHintKey != null }
+                log.info("[FCM] Loaded registrations; hinted={}, keyless={}", hinted, loaded.size - hinted)
             } catch (error: Exception) {
                 connection.rollback()
                 throw IllegalStateException("FCM private token verification failed", error)

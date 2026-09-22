@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.net.Uri
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
@@ -164,9 +165,15 @@ internal class SecureChatCallNotificationManager(
 
     private fun notify(notification: android.app.Notification) {
         try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+            val manager = NotificationManagerCompat.from(context)
+            if (!manager.areNotificationsEnabled()) {
+                Log.w("SecureChatNativeCall", "call_notifications_disabled")
+            }
+            manager.notify(NOTIFICATION_ID, notification)
+            Log.i("SecureChatNativeCall", "incoming_notification_posted")
         } catch (_: SecurityException) {
             // Telecom remains usable when notification permission is denied.
+            Log.w("SecureChatNativeCall", "call_notification_permission_denied")
         }
     }
 }

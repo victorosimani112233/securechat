@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import '../chat/conversation_preview.dart';
+import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
 import '../groups/private_group_control.dart';
@@ -45,6 +46,7 @@ class SendMessageUseCase {
     this.retryDelay = const Duration(seconds: 2),
     Random? random,
     OfflineMessageQueue? reliableQueue,
+    PhoneNumberSharingService? phoneSharing,
   }) : _database = database,
        _signaling = signaling,
        _session = session,
@@ -53,6 +55,7 @@ class SendMessageUseCase {
            groupControls ??
            PrivateGroupControlSender(crypto: crypto, signaling: signaling),
        _reliableQueue = reliableQueue,
+       _phoneSharing = phoneSharing,
        _random = random ?? Random.secure();
 
   final SecureChatDatabase _database;
@@ -61,6 +64,7 @@ class SendMessageUseCase {
   final CryptoService _crypto;
   final PrivateGroupControlSender _groupControls;
   final OfflineMessageQueue? _reliableQueue;
+  final PhoneNumberSharingService? _phoneSharing;
   final Random _random;
   final int maxRetryCount;
   final Duration retryDelay;
@@ -135,6 +139,13 @@ class SendMessageUseCase {
 
     late final List<SignalMessage> signals;
     try {
+      if (!isGroup) {
+        await _phoneSharing?.shareWith(
+          request.conversationId,
+          send: (signal) =>
+              _sendEncryptedDependency(signal, messageId: messageId),
+        );
+      }
       if (isGroup && _crypto is SignalProtocolCryptoService) {
         final members = _members(conversation?.groupMembers);
         await _groupControls.send(

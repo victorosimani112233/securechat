@@ -24,7 +24,6 @@ internal object SecureChatNativeCallController {
 
     fun reportIncoming(context: Context, info: NativeCallInfo, fromPushHint: Boolean) {
         val appContext = context.applicationContext
-        register(appContext)
         val notifications = SecureChatCallNotificationManager(appContext)
         if (!fromPushHint) {
             val promotion = NativeCallRegistry.promoteHint(info)
@@ -54,12 +53,13 @@ internal object SecureChatNativeCallController {
         }
 
         try {
+            register(appContext)
             appContext.getSystemService(TelecomManager::class.java)
                 .addNewIncomingCall(accountHandle(appContext), callExtras(appContext, info))
         } catch (error: Exception) {
             // The full-screen notification remains a valid fallback on devices
             // that reject self-managed Telecom registration.
-            Log.w("SecureChatNativeCall", "Telecom incoming call rejected", error)
+            Log.w("SecureChatNativeCall", "incoming_telecom_unavailable:${error.javaClass.simpleName}")
         }
         notifications.showIncoming(info)
     }

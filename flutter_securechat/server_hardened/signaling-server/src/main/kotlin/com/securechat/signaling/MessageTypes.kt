@@ -31,7 +31,10 @@ object MessageTypes {
     const val FILE_TRANSFER = "file_transfer"
 
     /** Arayan vazgectiginde temizlenmesi gereken sinyaller. */
-    val PENDING_CALL = setOf("sdp_offer", "ice_candidate", "call_control")
+    val PENDING_CALL = setOf("sdp_offer", "sdp_answer", "ice_candidate", "call_control")
+
+    /** Message-only background sockets must leave these frames for a call handler. */
+    val REQUIRES_CALL_HANDLER = PENDING_CALL + "group_call_invite"
 
     private val TYPE_FIELD = """"type"\s*:\s*"([^"]+)"""".toRegex()
 

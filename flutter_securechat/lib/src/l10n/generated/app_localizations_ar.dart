@@ -643,6 +643,13 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settings_share_last_seen => 'مشاركة آخر ظهور';
 
   @override
+  String get settings_share_phone_number => 'مشاركة رقم هاتفي';
+
+  @override
+  String get settings_share_phone_number_desc =>
+      'فقط مع من أراسلهم مباشرة، بتشفير من طرف إلى طرف. لا يمكن استرجاع الأرقام التي تمت مشاركتها سابقاً.';
+
+  @override
   String get settings_screen_protection => 'حماية الشاشة مفعّلة';
 
   @override
@@ -1802,4 +1809,92 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get calls_empty_body =>
       'تُدرج هنا المكالمات الصادرة والواردة. لا يُسجَّل محتوى المكالمات أبدًا.';
+
+  @override
+  String get group_unknown_member => 'عضو غير معروف';
+
+  @override
+  String get backup_passwords_match => 'يجب أن تتطابق كلمتا المرور';
+
+  @override
+  String get sched_tab_history => 'السجل';
+
+  @override
+  String get sched_history_note =>
+      'لا تعني حالة الإرسال أن المستلم قد استلم الرسالة أو قرأها.';
+
+  @override
+  String get sched_history_empty => 'لا يوجد سجل إرسال بعد.';
+
+  @override
+  String get sched_history_locked => 'محتوى محادثة مقفلة';
+
+  @override
+  String get sched_history_sent => 'تم الإرسال';
+
+  @override
+  String get sched_history_partial_failure => 'فشل جزئي';
+
+  @override
+  String get sched_history_failed => 'تعذر الإرسال';
+
+  @override
+  String get sched_history_encryption_failed => 'فشل التشفير';
+
+  @override
+  String get sched_history_delivery_failed => 'فشل النقل';
+
+  @override
+  String get sched_history_details => 'تفاصيل الإرسال';
+
+  @override
+  String get sched_history_executed_at => 'وقت الإرسال';
+
+  @override
+  String get sched_history_status => 'الحالة';
+
+  @override
+  String get sched_history_content_omitted =>
+      'لم يُحفظ المحتوى في السجل حفاظًا على الخصوصية.';
+
+  @override
+  String get storage_reload => 'تحديث';
+
+  @override
+  String get storage_load_failed => 'تعذّر تحميل معلومات التخزين.';
+
+  @override
+  String get storage_filter => 'تصفية الملفات';
+
+  @override
+  String get storage_all_files => 'كل الملفات';
+
+  @override
+  String get storage_audio => 'الصوت';
+
+  @override
+  String get storage_no_files => 'لا توجد وسائط أو ملفات في هذه الفئة.';
+
+  @override
+  String get storage_local_missing => 'غير موجود على هذا الجهاز';
+
+  @override
+  String storage_delete_action(int arg1) {
+    return 'حذف المحدد ($arg1)';
+  }
+
+  @override
+  String storage_delete_selected(int arg1) {
+    return 'ستُحذف رسائل الوسائط والملفات المحددة وعددها $arg1 من هذا الجهاز فقط. ستبقى الرسائل النصية ونسخ الآخرين. لا يمكن التراجع عن ذلك.';
+  }
+
+  @override
+  String storage_cleanup_result(int arg1, String arg2) {
+    return 'حُذف $arg1 سجل · تم توفير $arg2';
+  }
+
+  @override
+  String storage_cleanup_failed(int arg1) {
+    return 'تعذّر حذف $arg1 سجل. تم تحديث الملفات الأخرى؛ يمكنك المحاولة مجددًا.';
+  }
 }

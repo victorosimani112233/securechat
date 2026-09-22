@@ -40,6 +40,7 @@ internal fun isPlaintextChatControlType(type: String?): Boolean =
 
 internal const val SERVICE_MESSAGE_ACK_TYPE = "message_ack"
 internal const val DELIVERY_TRANSPORT_ACK_TYPE = "delivery_transport_ack"
+internal const val CALL_CAPABILITY_HEADER = "X-SecureChat-Call-Capable"
 
 internal fun isServerOnlyFrameType(type: String?): Boolean =
     type == SERVICE_MESSAGE_ACK_TYPE
@@ -183,8 +184,16 @@ fun Application.configureWebSocket(
 
             // Auth basarili — userId yerine dogrulanmis tokenSub kullanilir
             val userId = tokenSub
+            val callCapable = when (call.request.headers[CALL_CAPABILITY_HEADER]) {
+                null, "true" -> true
+                "false" -> false
+                else -> {
+                    close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid call capability"))
+                    return@webSocket
+                }
+            }
             AuditLog.log(userId = userId, eventType = "WS_CONNECTION_ESTABLISHED", ipAddress = ip)
-            if (!connectionManager.addConnection(userId, this)) return@webSocket
+            if (!connectionManager.addConnection(userId, this, callCapable)) return@webSocket
 
             try {
                 for (frame in incoming) {
@@ -233,7 +242,9 @@ fun Application.configureWebSocket(
             } finally {
                 // Aktif grup aramalarinda participant ise digerlerine ayrildigini bildir.
                 // Kullanici explicit HANGUP gondermeden app'i kapatirsa peer'lar bu yolla temizlenir.
-                handleUserDisconnectFromGroupCalls(userId, connectionManager)
+                if (callCapable && connectionManager.connections()[userId] === this) {
+                    handleUserDisconnectFromGroupCalls(userId, connectionManager)
+                }
 
                 // Yalniz bu oturum map'te duruyorsa kaldirilir.
                 connectionManager.removeConnection(userId, this)

@@ -3,6 +3,7 @@ import 'dart:io';
 const _dartBridgeSources = [
   'lib/src/platform/native_bridge.dart',
   'lib/src/media/native_call_integration.dart',
+  'lib/src/media/call_tone_service.dart',
   'lib/src/diagnostics/crash_reporter.dart',
   'lib/src/storage/legacy_room_importer.dart',
 ];
@@ -39,8 +40,35 @@ const _backgroundIdentifiers = {
   'com.securechat.app.background.sender-key-rotation',
 };
 
-void main() {
+class IosReadinessResult {
+  const IosReadinessResult(this.failures, this.report);
+
+  final List<String> failures;
+  final String report;
+  bool get passed => failures.isEmpty;
+}
+
+void main(List<String> arguments) {
+  if (arguments.any((argument) => argument != '--check')) {
+    stderr.writeln('Usage: dart tool/audit_ios_readiness.dart [--check]');
+    exitCode = 64;
+    return;
+  }
   final root = Directory.current;
+  final result = auditIosReadiness(root);
+  if (!arguments.contains('--check')) {
+    File('${root.path}/docs/IOS_READINESS_AUDIT.md')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(result.report);
+  }
+  stdout.writeln('iOS readiness: ${result.passed ? 'PASS' : 'FAIL'}');
+  for (final failure in result.failures) {
+    stderr.writeln(failure);
+  }
+  if (!result.passed) exitCode = 1;
+}
+
+IosReadinessResult auditIosReadiness(Directory root) {
   final failures = <String>[];
   String read(String path) {
     final file = File('${root.path}/$path');
@@ -54,21 +82,14 @@ void main() {
   final dartMethods = <String>{};
   for (final path in _dartBridgeSources) {
     final source = read(path);
-    for (final match in RegExp(
-      r"(?:invoke(?:Map|List)?Method|_invoke)[\s\S]{0,100}?\(\s*'([^']+)'",
-    ).allMatches(source)) {
-      dartMethods.add(match[1]!);
-    }
+    dartMethods.addAll(dartChannelMethods(source));
   }
 
   final swift = read('ios/Runner/AppDelegate.swift');
   final kotlin = read(
     'android/app/src/main/kotlin/com/securechat/app/MainActivity.kt',
   );
-  final swiftMethods = RegExp(
-    r'^\s*case "([^"]+)":',
-    multiLine: true,
-  ).allMatches(swift).map((match) => match[1]!).toSet();
+  final swiftMethods = swiftChannelMethods(swift);
   final kotlinMethods = RegExp(
     r'^\s*"([^"]+)"\s*->',
     multiLine: true,
@@ -102,6 +123,15 @@ void main() {
   }
 
   final info = read('ios/Runner/Info.plist');
+  // CallKit rejects outgoing transactions as unentitled without voip, even
+  // when calls originate in the foreground and no PushKit delivery is used.
+  final backgroundModes = RegExp(
+    r'<key>UIBackgroundModes</key>\s*<array>([\s\S]*?)</array>',
+  ).firstMatch(info.replaceAll(RegExp(r'<!--[\s\S]*?-->'), ''))?.group(1);
+  if (backgroundModes == null ||
+      !RegExp(r'<string>\s*voip\s*</string>').hasMatch(backgroundModes)) {
+    failures.add('CallKit outgoing calls require UIBackgroundModes voip');
+  }
   for (final key in _requiredInfoPlistKeys) {
     if (!info.contains('<key>$key</key>')) {
       failures.add('Info.plist anahtari eksik: $key');
@@ -173,8 +203,9 @@ void main() {
   // veritabanini SIFRESIZ yazar. Calisma aninda `assertCipherAvailable`
   // bunu yakalayip depoyu acmiyor; buradaki denetimler ise durumun release
   // derlemesine hic girmemesi icin.
-  if (!File('${root.path}/ios/SQLCipher/Sources/CSQLCipher/sqlite3.c')
-      .existsSync()) {
+  if (!File(
+    '${root.path}/ios/SQLCipher/Sources/CSQLCipher/sqlite3.c',
+  ).existsSync()) {
     failures.add('Gomulu SQLCipher amalgamation dosyasi yok');
   }
   final cipherPackage = read('ios/SQLCipher/Package.swift');
@@ -250,7 +281,9 @@ void main() {
   final store = read('lib/src/storage/encrypted_record_store.dart');
   if (!store.contains('OperatingSystem.iOS') ||
       !store.contains('OperatingSystem.macOS')) {
-    failures.add('EncryptedRecordStore Apple platformlari icin override etmiyor');
+    failures.add(
+      'EncryptedRecordStore Apple platformlari icin override etmiyor',
+    );
   }
   if (!store.contains('PRAGMA cipher_version')) {
     failures.add('Depo acilisinda SQLCipher dogrulamasi yok');
@@ -259,14 +292,14 @@ void main() {
   // Xcode projesinde tanimsiz nesne kimligi kalmamali: pbxproj elle
   // duzenlendiginde en sik yapilan hata, listeye eklenip bolumu yazilmayan
   // (veya tersi) bir kimliktir ve Xcode projeyi hic acmaz.
-  final declared = RegExp(r'^\t\t([0-9A-F]{24}) /\*', multiLine: true)
-      .allMatches(project)
-      .map((match) => match[1]!)
-      .toSet();
-  final referenced = RegExp(r'^\t{3,4}([0-9A-F]{24}) /\*', multiLine: true)
-      .allMatches(project)
-      .map((match) => match[1]!)
-      .toSet();
+  final declared = RegExp(
+    r'^\t\t([0-9A-F]{24}) /\*',
+    multiLine: true,
+  ).allMatches(project).map((match) => match[1]!).toSet();
+  final referenced = RegExp(
+    r'^\t{3,4}([0-9A-F]{24}) /\*',
+    multiLine: true,
+  ).allMatches(project).map((match) => match[1]!).toSet();
   final dangling = referenced.difference(declared);
   if (dangling.isNotEmpty) {
     failures.add('project.pbxproj icinde tanimsiz nesne kimligi: $dangling');
@@ -305,10 +338,10 @@ void main() {
     ..writeln('- Statik readiness: **$result**')
     ..writeln('- Dart native method sayisi: ${dartMethods.length}')
     ..writeln(
-      '- iOS method eslesmesi: ${iosExpected.length}/${iosExpected.length}',
+      '- iOS method eslesmesi: ${iosExpected.length - iosMissing.length}/${iosExpected.length}',
     )
     ..writeln(
-      '- Android method eslesmesi: ${dartMethods.length}/${dartMethods.length}',
+      '- Android method eslesmesi: ${dartMethods.length - androidMissing.length}/${dartMethods.length}',
     )
     ..writeln('- Kayitli iOS plugin sayisi: ${plugins.length}')
     ..writeln('- Minimum deployment target: iOS 15.0')
@@ -392,15 +425,132 @@ void main() {
       failures.isEmpty ? '- Yok.' : failures.map((e) => '- $e').join('\n'),
     );
 
-  File('${root.path}/docs/IOS_READINESS_AUDIT.md')
-    ..createSync(recursive: true)
-    ..writeAsStringSync(report.toString());
+  return IosReadinessResult(List.unmodifiable(failures), report.toString());
+}
 
-  stdout.writeln('iOS readiness: $result');
-  if (failures.isNotEmpty) {
-    for (final failure in failures) {
-      stderr.writeln(failure);
+Set<String> dartChannelMethods(String source) {
+  final tokens = _sourceTokens(source);
+  final methods = <String>{};
+  const invocations = {
+    'invokeMethod',
+    'invokeMapMethod',
+    'invokeListMethod',
+    '_invoke',
+  };
+  for (var i = 0; i < tokens.length; i++) {
+    if (!invocations.contains(tokens[i])) continue;
+    var next = i + 1;
+    if (next < tokens.length && tokens[next] == '<') {
+      var depth = 0;
+      do {
+        if (tokens[next] == '<') depth++;
+        if (tokens[next] == '>') depth--;
+        next++;
+      } while (next < tokens.length && depth > 0);
     }
-    exitCode = 1;
+    if (next + 1 >= tokens.length || tokens[next] != '(') continue;
+    final literal = _stringValue(tokens[next + 1]);
+    if (literal != null) methods.add(literal);
   }
+  return methods;
+}
+
+Set<String> swiftChannelMethods(String source) {
+  final tokens = _sourceTokens(source);
+  final methods = <String>{};
+  for (var i = 0; i + 4 < tokens.length; i++) {
+    if (tokens[i] != 'switch' ||
+        tokens[i + 1] != 'call' ||
+        tokens[i + 2] != '.' ||
+        tokens[i + 3] != 'method' ||
+        tokens[i + 4] != '{')
+      continue;
+    var depth = 1;
+    for (i += 5; i < tokens.length && depth > 0; i++) {
+      if (tokens[i] == '{') depth++;
+      if (tokens[i] == '}') depth--;
+      if (depth != 1 || tokens[i] != 'case') continue;
+      // Only direct cases of switch call.method are channel methods. Nested
+      // cue switches and other native enums must not expand the contract.
+      for (var next = i + 1; next < tokens.length; next++) {
+        final value = _stringValue(tokens[next]);
+        if (value == null) break;
+        if (next + 1 >= tokens.length) break;
+        final separator = tokens[next + 1];
+        if (separator != ':' && separator != ',') break;
+        methods.add(value);
+        if (separator == ':') break;
+        next++;
+      }
+    }
+    i--;
+  }
+  return methods;
+}
+
+String? _stringValue(String token) {
+  if (token.startsWith('r')) token = token.substring(1);
+  if (token.startsWith('"') || token.startsWith("'")) {
+    return token.substring(1, token.length - 1);
+  }
+  return null;
+}
+
+// Small lexical scanner shared by the Dart and Swift contract checks. Keep
+// strings atomic and skip comments before interpreting braces or invocations.
+List<String> _sourceTokens(String source) {
+  final tokens = <String>[];
+  final identifier = RegExp(r'[a-zA-Z0-9_$]');
+  for (var i = 0; i < source.length;) {
+    final start = i;
+    if (source.startsWith('//', i)) {
+      final end = source.indexOf('\n', i);
+      i = end < 0 ? source.length : end;
+    } else if (source.startsWith('/*', i)) {
+      var depth = 1;
+      i += 2;
+      while (i < source.length && depth > 0) {
+        if (source.startsWith('/*', i)) {
+          depth++;
+          i += 2;
+        } else if (source.startsWith('*/', i)) {
+          depth--;
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+    } else if (source[i].trim().isEmpty) {
+      i++;
+    } else {
+      final raw =
+          source[i] == 'r' &&
+          i + 1 < source.length &&
+          (source[i + 1] == '"' || source[i + 1] == "'");
+      if (raw) i++;
+      if (source[i] == '"' || source[i] == "'") {
+        final quote = source[i];
+        final delimiter = source.startsWith(quote * 3, i) ? quote * 3 : quote;
+        i += delimiter.length;
+        while (i < source.length) {
+          if (!raw && source[i] == r'\') {
+            i = (i + 2).clamp(0, source.length);
+          } else if (source.startsWith(delimiter, i)) {
+            i += delimiter.length;
+            break;
+          } else {
+            i++;
+          }
+        }
+      } else if (identifier.hasMatch(source[i])) {
+        while (i < source.length && identifier.hasMatch(source[i])) {
+          i++;
+        }
+      } else {
+        i++;
+      }
+      tokens.add(source.substring(start, i));
+    }
+  }
+  return tokens;
 }

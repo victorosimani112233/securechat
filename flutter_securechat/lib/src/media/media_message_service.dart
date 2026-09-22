@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import '../core/models.dart';
+import '../contacts/phone_number_sharing_service.dart';
 import '../services/session_store.dart';
 import '../services/async_operation_tracker.dart';
 import '../storage/secure_chat_database.dart';
@@ -27,12 +28,14 @@ class MediaMessageService {
     StorageManagementService? storageManagement,
     NetworkKindProvider? networkKindProvider,
     AsyncOperationFailureHandler? onAsyncFailure,
+    PhoneNumberSharingService? phoneSharing,
   }) : _database = database,
        _transfers = transfers,
        _session = session,
        _localMediaDirectory = localMediaDirectory,
        _storageManagement = storageManagement,
        _networkKindProvider = networkKindProvider,
+       _phoneSharing = phoneSharing,
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
 
   final SecureChatDatabase _database;
@@ -41,6 +44,7 @@ class MediaMessageService {
   final Directory _localMediaDirectory;
   final StorageManagementService? _storageManagement;
   final NetworkKindProvider? _networkKindProvider;
+  final PhoneNumberSharingService? _phoneSharing;
   final AsyncOperationTracker _operations;
   final Random _random = Random.secure();
   StreamSubscription<ReceivedFile>? _receivedSubscription;
@@ -95,6 +99,7 @@ class MediaMessageService {
     if (voiceNote != null && attachments.length != 1) {
       throw ArgumentError('Sesli mesaj tek bir ses kaydı içermelidir.');
     }
+    if (!isGroup) await _phoneSharing?.shareWith(recipientId);
     final outcomes = <MediaSendOutcome>[];
     for (var index = 0; index < attachments.length; index++) {
       final attachment = attachments[index];

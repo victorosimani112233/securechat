@@ -415,10 +415,14 @@ class ScheduledMessageEntity {
     required this.minute,
     required this.recipientIds,
     required this.recipientNames,
+    List<String>? recipientDisplayNames,
     this.isEnabled = true,
     required this.nextTriggerTime,
     int? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+  }) : recipientDisplayNames = recipientDisplayNames == null
+           ? null
+           : List.unmodifiable(recipientDisplayNames),
+       createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
 
   final String id;
   final String messageContent;
@@ -428,6 +432,9 @@ class ScheduledMessageEntity {
   final int minute;
   final String recipientIds;
   final String recipientNames;
+  final List<String>? recipientDisplayNames;
+  List<String> get recipientNameList =>
+      recipientDisplayNames ?? recipientNames.split(',');
   final bool isEnabled;
   final int nextTriggerTime;
   final int createdAt;
@@ -442,6 +449,7 @@ class ScheduledMessageEntity {
         minute: minute,
         recipientIds: recipientIds,
         recipientNames: recipientNames,
+        recipientDisplayNames: recipientDisplayNames,
         isEnabled: isEnabled ?? this.isEnabled,
         nextTriggerTime: nextTriggerTime ?? this.nextTriggerTime,
         createdAt: createdAt,
@@ -457,6 +465,8 @@ class ScheduledMessageEntity {
         minute: (json['minute'] as num?)?.toInt() ?? 0,
         recipientIds: json['recipientIds'] as String? ?? '',
         recipientNames: json['recipientNames'] as String? ?? '',
+        recipientDisplayNames: (json['recipientDisplayNames'] as List?)
+            ?.cast<String>(),
         isEnabled: json['isEnabled'] as bool? ?? true,
         nextTriggerTime: (json['nextTriggerTime'] as num?)?.toInt() ?? 0,
         createdAt: (json['createdAt'] as num?)?.toInt(),
@@ -471,9 +481,125 @@ class ScheduledMessageEntity {
     'minute': minute,
     'recipientIds': recipientIds,
     'recipientNames': recipientNames,
+    if (recipientDisplayNames != null)
+      'recipientDisplayNames': recipientDisplayNames,
     'isEnabled': isEnabled,
     'nextTriggerTime': nextTriggerTime,
     'createdAt': createdAt,
+  };
+}
+
+enum ScheduledRecipientOutcome {
+  sent,
+  encryptionFailed,
+  deliveryFailed,
+  failed,
+}
+
+enum ScheduledHistoryStatus { sent, partialFailure, failed }
+
+class ScheduledMessageRecipientResult {
+  const ScheduledMessageRecipientResult({
+    required this.recipientId,
+    required this.recipientName,
+    required this.outcome,
+    this.wasLocked = false,
+  });
+
+  final String recipientId;
+  final String recipientName;
+  final ScheduledRecipientOutcome outcome;
+  final bool wasLocked;
+
+  factory ScheduledMessageRecipientResult.fromJson(Map<String, Object?> json) =>
+      ScheduledMessageRecipientResult(
+        recipientId: json['recipientId'] as String,
+        recipientName: json['recipientName'] as String,
+        outcome: ScheduledRecipientOutcome.values.firstWhere(
+          (value) => value.name == json['outcome'],
+          orElse: () => ScheduledRecipientOutcome.failed,
+        ),
+        wasLocked: json['wasLocked'] as bool? ?? false,
+      );
+
+  Map<String, Object?> toJson() => {
+    'recipientId': recipientId,
+    'recipientName': recipientName,
+    'outcome': outcome.name,
+    'wasLocked': wasLocked,
+  };
+}
+
+/// An execution snapshot, not a delivery receipt. Older sends are not inferred
+/// from chat messages because they cannot reliably be linked to a schedule.
+class ScheduledMessageHistoryEntity {
+  ScheduledMessageHistoryEntity({
+    required this.id,
+    required this.planId,
+    required this.messageContent,
+    this.contentRetained = true,
+    required this.repeatType,
+    this.repeatDays,
+    required this.scheduledAt,
+    required this.executedAt,
+    required this.completedAt,
+    required List<ScheduledMessageRecipientResult> recipients,
+  }) : recipients = List.unmodifiable(recipients);
+
+  final String id;
+  final String planId;
+  final String messageContent;
+  final bool contentRetained;
+  final String repeatType;
+  final String? repeatDays;
+  final int scheduledAt;
+  final int executedAt;
+  final int completedAt;
+  final List<ScheduledMessageRecipientResult> recipients;
+
+  ScheduledHistoryStatus get status {
+    final sent = recipients
+        .where(
+          (recipient) => recipient.outcome == ScheduledRecipientOutcome.sent,
+        )
+        .length;
+    if (sent == 0) return ScheduledHistoryStatus.failed;
+    return sent == recipients.length
+        ? ScheduledHistoryStatus.sent
+        : ScheduledHistoryStatus.partialFailure;
+  }
+
+  factory ScheduledMessageHistoryEntity.fromJson(Map<String, Object?> json) =>
+      ScheduledMessageHistoryEntity(
+        id: json['id'] as String,
+        planId: json['planId'] as String,
+        messageContent: json['messageContent'] as String,
+        contentRetained: json['contentRetained'] as bool? ?? true,
+        repeatType: json['repeatType'] as String,
+        repeatDays: json['repeatDays'] as String?,
+        scheduledAt: (json['scheduledAt'] as num).toInt(),
+        executedAt: (json['executedAt'] as num).toInt(),
+        completedAt: (json['completedAt'] as num).toInt(),
+        recipients: (json['recipients'] as List)
+            .map(
+              (value) => ScheduledMessageRecipientResult.fromJson(
+                (value as Map).cast<String, Object?>(),
+              ),
+            )
+            .toList(growable: false),
+      );
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'planId': planId,
+    'messageContent': messageContent,
+    'contentRetained': contentRetained,
+    'repeatType': repeatType,
+    'repeatDays': repeatDays,
+    'scheduledAt': scheduledAt,
+    'executedAt': executedAt,
+    'completedAt': completedAt,
+    'recipients': recipients.map((value) => value.toJson()).toList(),
   };
 }
 

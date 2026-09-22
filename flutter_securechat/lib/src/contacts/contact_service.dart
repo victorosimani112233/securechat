@@ -67,8 +67,8 @@ class ContactIdentity {
 /// The legacy Kotlin endpoint returned phone ciphertext encrypted with one
 /// application-wide embedded key. A reverse-engineered client could recover
 /// that key and decrypt every captured server row, so the Flutter privacy
-/// protocol deliberately performs no remote phone lookup. Unknown peers stay
-/// opaque until the user associates them with a local contact.
+/// protocol deliberately performs no UUID-to-phone lookup. Shared numbers are
+/// stored locally only after an encrypted introduction passes directory checks.
 class ContactIdentityResolver {
   ContactIdentityResolver({required SecureChatDatabase database})
     : _database = database;
@@ -77,12 +77,52 @@ class ContactIdentityResolver {
 
   Future<ContactIdentity> resolve(String userId) async {
     final local = await _database.contacts.getById(userId);
+    final conversation = await _database.conversations.getByPeerId(userId);
+    return _resolveLocal(userId, local, conversation);
+  }
+
+  Future<Map<String, ContactIdentity>> resolveMany(
+    Iterable<String> userIds,
+  ) async {
+    final ids = userIds.toSet();
+    if (ids.isEmpty) return const {};
+    final contacts = {
+      for (final contact in await _database.contacts.getAllOnce())
+        if (ids.contains(contact.id)) contact.id: contact,
+    };
+    final conversations = {
+      for (final conversation in await _database.conversations.getByPeerIds(
+        ids.toList(),
+      ))
+        if (!conversation.isGroup) conversation.peerId: conversation,
+    };
+    return {
+      for (final id in ids)
+        id: _resolveLocal(id, contacts[id], conversations[id]),
+    };
+  }
+
+  static ContactIdentity _resolveLocal(
+    String userId,
+    ContactEntity? local,
+    ConversationEntity? conversation,
+  ) {
     if (local != null && local.phoneNumber.isNotEmpty) {
       return ContactIdentity(
         displayName: local.displayName.isEmpty
             ? local.phoneNumber
             : local.displayName,
         phoneNumber: local.phoneNumber,
+      );
+    }
+    if (conversation != null &&
+        !conversation.isGroup &&
+        conversation.peerPhone.isNotEmpty) {
+      return ContactIdentity(
+        displayName: local?.displayName.isNotEmpty == true
+            ? local!.displayName
+            : conversation.peerPhone,
+        phoneNumber: conversation.peerPhone,
       );
     }
     return ContactIdentity(
@@ -155,6 +195,18 @@ class ContactService {
         .whereType<ContactEntity>()
         .toList(growable: false);
     await _database.contacts.insertAll(registered);
+    for (final contact in registered) {
+      final conversation = await _database.conversations.getByPeerId(
+        contact.id,
+      );
+      if (conversation != null && !conversation.isGroup) {
+        await _database.conversations.updatePeerIdentity(
+          conversation.id,
+          contact.displayName,
+          contact.phoneNumber,
+        );
+      }
+    }
 
     final deviceHashes = byHash.keys.toSet();
     for (final existing in await _database.contacts.getAllOnce()) {
@@ -187,7 +239,17 @@ class ContactService {
 
   Future<ConversationEntity> ensureConversation(ContactEntity contact) async {
     final existing = await _database.conversations.getByPeerId(contact.id);
-    if (existing != null) return existing;
+    if (existing != null) {
+      if (!existing.isGroup) {
+        await _database.conversations.updatePeerIdentity(
+          existing.id,
+          contact.displayName,
+          contact.phoneNumber,
+        );
+        return (await _database.conversations.getById(existing.id))!;
+      }
+      return existing;
+    }
     final conversation = ConversationEntity(
       id: contact.id,
       peerId: contact.id,

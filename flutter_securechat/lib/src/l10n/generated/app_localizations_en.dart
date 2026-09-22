@@ -644,6 +644,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settings_share_last_seen => 'Share last seen';
 
   @override
+  String get settings_share_phone_number => 'Share my phone number';
+
+  @override
+  String get settings_share_phone_number_desc =>
+      'Only with people I message directly, using end-to-end encryption. Previously shared numbers cannot be recalled.';
+
+  @override
   String get settings_screen_protection => 'Screen protection enabled';
 
   @override
@@ -1802,4 +1809,92 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get calls_empty_body =>
       'Calls you make and receive are listed here. Call content is never recorded.';
+
+  @override
+  String get group_unknown_member => 'Unknown member';
+
+  @override
+  String get backup_passwords_match => 'Passwords must match';
+
+  @override
+  String get sched_tab_history => 'History';
+
+  @override
+  String get sched_history_note =>
+      'Sent does not mean the recipient has received or read the message.';
+
+  @override
+  String get sched_history_empty => 'No send history yet.';
+
+  @override
+  String get sched_history_locked => 'Locked conversation content';
+
+  @override
+  String get sched_history_sent => 'Sent';
+
+  @override
+  String get sched_history_partial_failure => 'Partially failed';
+
+  @override
+  String get sched_history_failed => 'Failed to send';
+
+  @override
+  String get sched_history_encryption_failed => 'Encryption failed';
+
+  @override
+  String get sched_history_delivery_failed => 'Transmission failed';
+
+  @override
+  String get sched_history_details => 'Send details';
+
+  @override
+  String get sched_history_executed_at => 'Send time';
+
+  @override
+  String get sched_history_status => 'Status';
+
+  @override
+  String get sched_history_content_omitted =>
+      'Content was not saved to history for privacy.';
+
+  @override
+  String get storage_reload => 'Refresh';
+
+  @override
+  String get storage_load_failed => 'Storage information could not be loaded.';
+
+  @override
+  String get storage_filter => 'Filter files';
+
+  @override
+  String get storage_all_files => 'All files';
+
+  @override
+  String get storage_audio => 'Audio';
+
+  @override
+  String get storage_no_files => 'No media or files in this category.';
+
+  @override
+  String get storage_local_missing => 'Not on this device';
+
+  @override
+  String storage_delete_action(int arg1) {
+    return 'Delete selected ($arg1)';
+  }
+
+  @override
+  String storage_delete_selected(int arg1) {
+    return 'The selected $arg1 media/file messages will be removed only from this device. Text messages and copies held by others are kept. This cannot be undone.';
+  }
+
+  @override
+  String storage_cleanup_result(int arg1, String arg2) {
+    return '$arg1 records removed · $arg2 freed';
+  }
+
+  @override
+  String storage_cleanup_failed(int arg1) {
+    return '$arg1 records could not be removed. Other files were updated; you can retry.';
+  }
 }

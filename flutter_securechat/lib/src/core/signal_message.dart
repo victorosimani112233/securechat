@@ -47,6 +47,7 @@ sealed class SignalMessage {
       'presence_subscribe' => PresenceSubscribeSignal.fromJson(data),
       'presence_unsubscribe' => PresenceUnsubscribeSignal.fromJson(data),
       'disappearing_timer' => DisappearingTimerSignal.fromJson(data),
+      'shared_phone' => SharedPhoneSignal.fromJson(data),
       'call_control' => CallControlSignal.fromJson(data),
       'call_control_ack' => CallControlAckSignal.fromJson(data),
       'session_reset_request' => SessionResetRequestSignal.fromJson(data),
@@ -71,6 +72,32 @@ sealed class SignalMessage {
 
 DateTime _dt(Object? value) =>
     DateTime.fromMillisecondsSinceEpoch((value as num?)?.toInt() ?? 0);
+
+/// Accepted only inside an authenticated, encrypted private chat control.
+class SharedPhoneSignal extends SignalMessage {
+  const SharedPhoneSignal({
+    required super.senderId,
+    required super.recipientId,
+    required super.timestamp,
+    required this.phoneNumber,
+  });
+
+  final String phoneNumber;
+
+  @override
+  String get type => 'shared_phone';
+
+  factory SharedPhoneSignal.fromJson(Map<String, Object?> json) =>
+      SharedPhoneSignal(
+        senderId: json['senderId'] as String? ?? '',
+        recipientId: json['recipientId'] as String? ?? '',
+        timestamp: _dt(json['timestamp']),
+        phoneNumber: json['phoneNumber'] as String? ?? '',
+      );
+
+  @override
+  Map<String, Object?> toJson() => {..._base(this), 'phoneNumber': phoneNumber};
+}
 
 Map<String, Object?> _base(SignalMessage msg) => {
   'type': msg.type,

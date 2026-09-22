@@ -72,6 +72,7 @@ class AppSettingsState {
     required this.fullscreenMode,
     required this.scheduledMessagesEnabled,
     required this.shareLastSeen,
+    this.sharePhoneNumber = false,
     required this.profilePhotoPath,
   });
 
@@ -83,6 +84,7 @@ class AppSettingsState {
   final bool fullscreenMode;
   final bool scheduledMessagesEnabled;
   final bool shareLastSeen;
+  final bool sharePhoneNumber;
   final String? profilePhotoPath;
 }
 
@@ -152,6 +154,7 @@ class SettingsService {
     fullscreenMode: _session.fullscreenMode,
     scheduledMessagesEnabled: _session.scheduledMessagesEnabled,
     shareLastSeen: _session.shareLastSeen,
+    sharePhoneNumber: _session.sharePhoneNumber,
     profilePhotoPath: _session.profilePhotoUri,
   );
 
@@ -193,8 +196,8 @@ class SettingsService {
   ///
   /// Kanal kimligi burada hesaplaniyor, arayuzde degil: arayuzun bildirim
   /// altyapisini tanimasi gerekmiyor (bkz. architecture_boundaries_test).
-  Future<bool> openSystemSoundSettings() => _bridge
-      .openNotificationChannelSettings(
+  Future<bool> openSystemSoundSettings() =>
+      _bridge.openNotificationChannelSettings(
         PluginLocalNotificationPresenter.channelForSound(
           NotificationSoundPreference.fromStorage(
             _session.notificationSound,
@@ -240,6 +243,18 @@ class SettingsService {
           hideLastSeen: !value,
         ),
       );
+    }
+  }
+
+  Future<void> setSharePhoneNumber(bool value) async {
+    _session.sharePhoneNumber = value;
+    try {
+      await _persistAndEmit();
+    } catch (_) {
+      // A failed opt-in must not authorize disclosure in this process.
+      _session.sharePhoneNumber = false;
+      _emit();
+      rethrow;
     }
   }
 

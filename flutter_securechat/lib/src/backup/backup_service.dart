@@ -44,6 +44,7 @@ class BackupService {
 
   static const currentVersion = 3;
   static const maximumAttempts = 5;
+  static const minimumPasswordLength = 8;
   static const extension = 'elbk';
 
   final SecureChatDatabase _database;
@@ -232,7 +233,7 @@ class BackupService {
   }
 
   static void _validatePassword(String password) {
-    if (password.length < 8) {
+    if (password.length < minimumPasswordLength) {
       throw const FormatException('Yedek parolası en az 8 karakter olmalı');
     }
   }

@@ -159,10 +159,13 @@ class WebSocketSignalingService implements SignalingService {
     Random? random,
     HttpClient? httpClient,
     WebSocketTelemetry? telemetry,
+    bool callCapable = true,
   }) : _random = random ?? Random.secure(),
        _httpClient = httpClient,
+       _callCapable = callCapable,
        telemetry = telemetry ?? WebSocketTelemetry();
 
+  static const callCapabilityHeader = 'X-SecureChat-Call-Capable';
   static const initialReconnectDelay = Duration(seconds: 2);
   static const maximumReconnectDelay = Duration(seconds: 30);
   static const serverShutdownDelay = Duration(seconds: 5);
@@ -171,6 +174,8 @@ class WebSocketSignalingService implements SignalingService {
   final _statusController = StreamController<SignalingStatus>.broadcast();
   final Random _random;
   final HttpClient? _httpClient;
+  // A headless message drain has no CallManager and must not consume offers.
+  final bool _callCapable;
   final WebSocketTelemetry telemetry;
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
@@ -268,7 +273,10 @@ class WebSocketSignalingService implements SignalingService {
       );
       final channel = IOWebSocketChannel.connect(
         uri,
-        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
+        headers: {
+          HttpHeaders.authorizationHeader: 'Bearer $token',
+          callCapabilityHeader: _callCapable.toString(),
+        },
         pingInterval: const Duration(seconds: 20),
         connectTimeout: const Duration(seconds: 8),
         customClient: _httpClient,

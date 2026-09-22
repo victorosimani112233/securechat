@@ -11,6 +11,8 @@ import 'package:workmanager/workmanager.dart';
 import '../config/app_config.dart';
 import '../chat/private_chat_control.dart';
 import '../contacts/contact_service.dart';
+import '../contacts/private_contact_discovery.dart';
+import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
 import '../crypto/crypto_protocol_store.dart';
 import '../crypto/libsignal_protocol_store.dart';
@@ -107,6 +109,7 @@ class SecureChatBackgroundRuntime {
       resources.register('background-http-clients', httpClients.close);
       final signaling = WebSocketSignalingService(
         httpClient: httpClients.create(),
+        callCapable: false,
       );
       resources.register('background-signaling', signaling.dispose);
       final protocolStore = DatabaseCryptoProtocolStore(database);
@@ -127,6 +130,19 @@ class SecureChatBackgroundRuntime {
       final contactIdentityResolver = ContactIdentityResolver(
         database: database,
       );
+      final phoneSharing = PhoneNumberSharingService(
+        session: session,
+        crypto: crypto,
+        signaling: signaling,
+        database: database,
+        discovery: PrivateContactDiscoveryApi(
+          baseUrl: config.apiBaseUrl,
+          client: httpClients.create(),
+        ),
+        onAsyncFailure: (operation, error, stackTrace) async {
+          _logBackgroundFailure('BG-PHONE', operation, error, stackTrace);
+        },
+      );
       final serviceStrings = ServiceStrings(
         languageCode: () async => session.languagePreference,
       );
@@ -137,6 +153,7 @@ class SecureChatBackgroundRuntime {
         session: session,
         strings: serviceStrings,
         identityResolver: contactIdentityResolver,
+        phoneSharing: phoneSharing,
         onAsyncFailure: (operation, error, stackTrace) async {
           _logBackgroundFailure('BG-INCOMING', operation, error, stackTrace);
         },
@@ -168,6 +185,7 @@ class SecureChatBackgroundRuntime {
         signaling: signaling,
         session: session,
         crypto: crypto,
+        phoneSharing: phoneSharing,
       );
       const scheduler = WorkmanagerBackgroundScheduler(
         callbackDispatcher: secureChatBackgroundCallbackDispatcher,

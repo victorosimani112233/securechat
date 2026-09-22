@@ -52,6 +52,7 @@ class MessageTypesTest {
 
     @Test
     fun `pending call signals are the ones a caller can withdraw`() {
-        assertEquals(setOf("sdp_offer", "ice_candidate", "call_control"), MessageTypes.PENDING_CALL)
+        assertEquals(setOf("sdp_offer", "sdp_answer", "ice_candidate", "call_control"), MessageTypes.PENDING_CALL)
+        assertEquals(MessageTypes.PENDING_CALL + "group_call_invite", MessageTypes.REQUIRES_CALL_HANDLER)
     }
 }

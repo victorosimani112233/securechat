@@ -37,6 +37,7 @@ void main() {
     );
     expect(source, contains('required this.notifications'));
     expect(source, contains('PluginLocalNotificationPresenter()'));
+    expect(source, contains('callCapable: false'));
     expect(source, contains("'BG-INCOMING'"));
     expect(source, contains("'BG-NOTIF'"));
     expect(source, contains('onAsyncFailure:'));

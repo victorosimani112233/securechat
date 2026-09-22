@@ -353,16 +353,36 @@ class SettingsScreen extends StatelessWidget {
   ) => showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
+    isScrollControlled: true,
+    useSafeArea: true,
+    constraints: BoxConstraints(
+      maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+    ),
     builder: (sheetContext) => SafeArea(
       child: StreamBuilder<AppSettingsState>(
         stream: service.states,
         initialData: initial,
         builder: (context, snapshot) {
           final settings = snapshot.data ?? initial;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
+          return ListView(
+            shrinkWrap: true,
             children: [
               _SheetHeading(context.l10n.settings_privacy),
+              SwitchListTile(
+                key: const ValueKey('settings-share-phone-number'),
+                secondary: const Icon(Icons.phone_outlined),
+                title: Text(context.l10n.settings_share_phone_number),
+                value: settings.sharePhoneNumber,
+                onChanged: (value) =>
+                    _run(context, () => service.setSharePhoneNumber(value)),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Text(
+                  context.l10n.settings_share_phone_number_desc,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
               SwitchListTile(
                 secondary: const Icon(Icons.visibility_outlined),
                 title: Text(context.l10n.settings_show_message_preview),

@@ -9,6 +9,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/models.dart';
+import '../../contacts/contact_service.dart';
 import '../../l10n/l10n.dart';
 import '../../widgets/text_controller_scope.dart';
 import '../../chat/poll_service.dart';
@@ -73,6 +74,9 @@ class _ChatScreenState extends State<ChatScreen> {
   LocalMessage? _replying;
   AppNotificationRuntime? _notificationRuntime;
   Conversation? _conversation;
+  StreamSubscription<List<Conversation>>? _conversationSubscription;
+  StreamSubscription<Map<String, ContactIdentity>>? _groupIdentitySubscription;
+  Map<String, ContactIdentity> _groupIdentities = const {};
   bool _accessGranted = false;
   bool _accessChecking = false;
   bool _markedRead = false;
@@ -88,6 +92,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _conversationSubscription?.cancel();
+    _groupIdentitySubscription?.cancel();
     _notificationRuntime?.coordinator.setActiveConversation(null);
     final stopTyping = _stopTyping;
     if (stopTyping != null) unawaited(stopTyping());
@@ -116,6 +122,39 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_conversation?.id != routeConversation.id) {
       final container = AppContainerScope.of(context);
       _conversation = routeConversation;
+      _groupIdentitySubscription?.cancel();
+      _groupIdentities = const {};
+      _groupIdentitySubscription = routeConversation.isGroup
+          ? container.groupRuntime?.service
+                .watchMemberIdentities(routeConversation.id)
+                .listen((identities) {
+                  if (!mounted || _conversation?.id != routeConversation.id) {
+                    return;
+                  }
+                  setState(() => _groupIdentities = identities);
+                })
+          : null;
+      _conversationSubscription?.cancel();
+      _conversationSubscription = container.conversations
+          .watchConversations()
+          .listen((items) {
+            if (!mounted || _conversation?.id != routeConversation.id) return;
+            final updated = items
+                .where((item) => item.id == routeConversation.id)
+                .firstOrNull;
+            final current = _conversation!;
+            if (updated == null ||
+                (updated.peerName == current.peerName &&
+                    updated.peerPhone == current.peerPhone))
+              return;
+            setState(() {
+              // Refresh identity without changing the independently checked lock state.
+              _conversation = current.copyWith(
+                peerName: updated.peerName,
+                peerPhone: updated.peerPhone,
+              );
+            });
+          });
       _peerActivityStream = routeConversation.isGroup
           ? null
           : container.peerActivity?.watch(routeConversation.peerId);
@@ -450,9 +489,7 @@ class _ChatScreenState extends State<ChatScreen> {
             else if (_replying != null)
               _ReplyComposerPreview(
                 message: _replying!,
-                sender: _replying!.isOutgoing
-                    ? context.l10n.chat_you
-                    : conversation.peerName,
+                sender: _senderLabel(_replying!),
                 onClose: () => setState(() => _replying = null),
               ),
             if (_forwardSelection.isEmpty && _showAttachments)
@@ -702,15 +739,16 @@ class _ChatScreenState extends State<ChatScreen> {
     final canForward = _canForward(message);
     final bubble = _MessageBubble(
       message: message,
+      senderLabel: _conversation!.isGroup && !message.isOutgoing
+          ? _senderLabel(message)
+          : null,
       replyMessage: replyMessage,
       onReplyTap: replyMessage == null
           ? null
           : () => _scrollToMessage(replyMessage.id),
       replySenderLabel: replyMessage == null
           ? null
-          : replyMessage.isOutgoing
-          ? context.l10n.chat_you
-          : (_conversation?.peerName ?? replyMessage.senderId),
+          : _senderLabel(replyMessage),
       highlighted: _highlightedMessageId == message.id,
       searchQuery: _showSearch ? _search.text.trim() : '',
       onTap: selecting
@@ -750,6 +788,16 @@ class _ChatScreenState extends State<ChatScreen> {
       },
       child: selectable,
     );
+  }
+
+  String _senderLabel(LocalMessage message) {
+    if (message.isOutgoing) return context.l10n.chat_you;
+    if (_conversation?.isGroup != true) return _conversation!.peerName;
+    final identity = _groupIdentities[message.senderId];
+    final name = identity?.displayName.trim() ?? '';
+    if (name.isNotEmpty && name != message.senderId) return name;
+    final phone = identity?.phoneNumber.trim() ?? '';
+    return phone.isNotEmpty ? phone : context.l10n.group_unknown_member;
   }
 
   bool _canReply(LocalMessage message) =>

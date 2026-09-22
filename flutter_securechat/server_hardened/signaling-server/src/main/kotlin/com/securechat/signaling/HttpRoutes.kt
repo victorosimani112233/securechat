@@ -320,6 +320,13 @@ data class FcmRegisterRequest(
 )
 
 @Serializable
+data class FcmRegisterResponse(
+    val status: String,
+    val pushHintRegistered: Boolean,
+    val pushContract: String,
+)
+
+@Serializable
 data class FcmUnregisterRequest(val userId: String)
 
 @Serializable
@@ -1312,13 +1319,21 @@ fun Application.configureRoutes(
                 call.respond(HttpStatusCode.Forbidden, mapOf("error" to "userId token ile eslesmiyor"))
                 return@post
             }
-            fcmTokenStore.registerToken(
+            logger.info(
+                "[API] FCM kayit istegi; hint_key_field={}",
+                if (request.pushHintKey != null) "present" else "absent",
+            )
+            val hintRegistered = fcmTokenStore.registerToken(
                 authedUserId,
                 request.fcmToken,
                 request.pushHintKey,
             )
             logger.info("[API] FCM token kaydedildi")
-            call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+            logger.info("[API] FCM registration acknowledged; hint={}", hintRegistered)
+            call.respond(
+                HttpStatusCode.OK,
+                FcmRegisterResponse("ok", hintRegistered, FcmPushSender.PUSH_CONTRACT),
+            )
         }
 
         post("/api/v1/fcm/unregister") {

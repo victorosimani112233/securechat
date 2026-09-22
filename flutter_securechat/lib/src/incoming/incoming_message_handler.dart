@@ -9,6 +9,7 @@ import '../chat/message_interaction_service.dart';
 import '../chat/poll_service.dart';
 import '../chat/private_chat_control.dart';
 import '../contacts/contact_service.dart';
+import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
 import '../groups/private_group_control.dart';
@@ -96,6 +97,7 @@ class IncomingMessageHandler {
     required SecureChatDatabase database,
     required SessionStore session,
     ContactIdentityResolver? identityResolver,
+    PhoneNumberSharingService? phoneSharing,
     ServiceStrings? strings,
     CallMediaKeyReceiver? applyCallMediaKey,
     AsyncOperationFailureHandler? onAsyncFailure,
@@ -106,6 +108,7 @@ class IncomingMessageHandler {
        _session = session,
        _strings = strings ?? ServiceStrings.fixed('tr'),
        _identityResolver = identityResolver,
+       _phoneSharing = phoneSharing,
        _applyCallMediaKey = applyCallMediaKey,
        _onUndecryptableMessage = onUndecryptableMessage,
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
@@ -116,6 +119,7 @@ class IncomingMessageHandler {
   final SessionStore _session;
   final ServiceStrings _strings;
   final ContactIdentityResolver? _identityResolver;
+  final PhoneNumberSharingService? _phoneSharing;
   final CallMediaKeyReceiver? _applyCallMediaKey;
   final Future<void> Function(String conversationId)? _onUndecryptableMessage;
   final AsyncOperationTracker _operations;
@@ -235,6 +239,8 @@ class IncomingMessageHandler {
         await _timer(signal);
       case TypingIndicatorSignal() when privateChatControl:
         await _typingIfAllowed(signal);
+      case SharedPhoneSignal() when privateChatControl:
+        await _phoneSharing?.accept(signal);
       case PresenceUpdateSignal():
         _presenceSignal(signal);
       case AdminEncryptedLogSignal():
@@ -661,7 +667,7 @@ class IncomingMessageHandler {
     );
     final isMention = parsed.mentionedUserIds.contains(_session.userId);
     final title = isGroup
-        ? '${await _memberName(signal.senderId)} (${storedConversation?.peerName ?? conversationId})'
+        ? '${await _groupMemberName(signal.senderId)} (${storedConversation?.peerName ?? conversationId})'
         : (storedConversation?.peerName.isNotEmpty == true
               ? storedConversation!.peerName
               : signal.senderId);
@@ -814,7 +820,9 @@ class IncomingMessageHandler {
     final l10n = await _strings.load();
     final content = remoteDisappearingTimerNotice(
       l10n,
-      sender: await _memberName(signal.senderId),
+      sender: conversation?.isGroup == true
+          ? await _groupMemberName(signal.senderId)
+          : await _memberName(signal.senderId),
       durationMs: signal.durationMs,
     );
     final rawId =
@@ -980,7 +988,7 @@ class IncomingMessageHandler {
             peerName: signal.groupName,
             peerPhone: '',
             lastMessage:
-                '${await _memberName(signal.senderId)} grubu oluşturdu',
+                '${await _groupMemberName(signal.senderId)} grubu oluşturdu',
             lastMessageTimestamp: _boundedTimestamp(signal.timestamp),
             unreadCount: signal.senderId == localUserId ? 0 : 1,
             isGroup: true,
@@ -1030,8 +1038,8 @@ class IncomingMessageHandler {
         if (target != null) {
           await _systemMessage(
             signal,
-            '${await _memberName(signal.senderId)}, '
-            '${await _memberName(target)} adlı kişiyi gruba ekledi',
+            '${await _groupMemberName(signal.senderId)}, '
+            '${await _groupMemberName(target)} adlı kişiyi gruba ekledi',
           );
         }
       case 'REMOVE_MEMBER':
@@ -1052,8 +1060,8 @@ class IncomingMessageHandler {
         } else {
           await _systemMessage(
             signal,
-            '${await _memberName(signal.senderId)}, '
-            '${await _memberName(target)} adlı kişiyi gruptan çıkardı',
+            '${await _groupMemberName(signal.senderId)}, '
+            '${await _groupMemberName(target)} adlı kişiyi gruptan çıkardı',
           );
           await _database.senderKeys.deleteAllForGroup(signal.groupId);
         }
@@ -1071,7 +1079,7 @@ class IncomingMessageHandler {
         await _database.senderKeys.deleteAllForGroup(signal.groupId);
         await _systemMessage(
           signal,
-          '${await _memberName(signal.senderId)} gruptan ayrıldı',
+          '${await _groupMemberName(signal.senderId)} gruptan ayrıldı',
         );
       case 'UPDATE_ADMIN':
         if (target == null || !members.contains(target)) return;
@@ -1081,8 +1089,8 @@ class IncomingMessageHandler {
         );
         await _systemMessage(
           signal,
-          '${await _memberName(signal.senderId)}, '
-          '${await _memberName(target)} adlı kişiyi yönetici yaptı',
+          '${await _groupMemberName(signal.senderId)}, '
+          '${await _groupMemberName(target)} adlı kişiyi yönetici yaptı',
         );
       case 'UPDATE_NAME':
         if (signal.groupName.trim().isEmpty) return;
@@ -1093,7 +1101,7 @@ class IncomingMessageHandler {
         );
         await _systemMessage(
           signal,
-          '${await _memberName(signal.senderId)} grup adını '
+          '${await _groupMemberName(signal.senderId)} grup adını '
           '“$previous” → “${signal.groupName.trim()}” olarak değiştirdi',
         );
       case 'UPDATE_EXPORT_POLICY':
@@ -1105,7 +1113,7 @@ class IncomingMessageHandler {
         );
         await _systemMessage(
           signal,
-          '${await _memberName(signal.senderId)} sohbet dışa aktarmayı '
+          '${await _groupMemberName(signal.senderId)} sohbet dışa aktarmayı '
           '${enabled ? 'açtı' : 'kapattı'}',
         );
       case 'SET_READ_ONLY':
@@ -1115,8 +1123,8 @@ class IncomingMessageHandler {
         await _systemMessage(
           signal,
           enabled
-              ? '${await _memberName(signal.senderId)} grubu duyuru kanalına çevirdi'
-              : '${await _memberName(signal.senderId)} duyuru kanalı ayarını kapattı',
+              ? '${await _groupMemberName(signal.senderId)} grubu duyuru kanalına çevirdi'
+              : '${await _groupMemberName(signal.senderId)} duyuru kanalı ayarını kapattı',
         );
       default:
         return;
@@ -1182,6 +1190,19 @@ class IncomingMessageHandler {
     final local = await _database.contacts.getById(userId);
     if (local?.displayName.isNotEmpty == true) return local!.displayName;
     return _identityResolver?.resolveDisplayName(userId) ?? userId;
+  }
+
+  Future<String> _groupMemberName(String userId) async {
+    if (userId == _session.userId) return (await _strings.load()).you;
+    final resolver =
+        _identityResolver ?? ContactIdentityResolver(database: _database);
+    final identity = await resolver.resolve(userId);
+    final name = identity.displayName.trim();
+    if (name.isNotEmpty && name != userId) return name;
+    final phone = identity.phoneNumber.trim();
+    return phone.isNotEmpty
+        ? phone
+        : (await _strings.load()).group_unknown_member;
   }
 
   Future<void> _systemMessage(

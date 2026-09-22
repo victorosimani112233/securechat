@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../background/scheduled_message_service.dart';
@@ -7,6 +9,7 @@ import '../../widgets/avatar.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/chat_lock_dialog.dart';
 
 class ScheduledMessagesScreen extends StatefulWidget {
   const ScheduledMessagesScreen({super.key});
@@ -29,7 +32,7 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    _tabs = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -48,9 +51,11 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
           title: Text(context.l10n.sched_title),
           bottom: TabBar(
             controller: _tabs,
+            isScrollable: true,
             tabs: [
               Tab(text: context.l10n.sched_tab_create),
               Tab(text: context.l10n.sched_tab_existing),
+              Tab(text: context.l10n.sched_tab_history),
             ],
           ),
         ),
@@ -61,6 +66,7 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
                 children: [
                   _buildForm(runtime.scheduledMessages),
                   _buildList(runtime.scheduledMessages),
+                  _buildHistory(runtime.scheduledMessages),
                 ],
               ),
       ),
@@ -225,6 +231,92 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
     if (value != null && mounted) setState(() => _time = value);
   }
 
+  Widget _buildHistory(ScheduledMessageService service) {
+    return StreamBuilder<List<Conversation>>(
+      stream: AppContainerScope.of(context).conversations.watchConversations(),
+      builder: (context, conversations) =>
+          StreamBuilder<List<ScheduledMessageHistoryEntity>>(
+            stream: service.watchHistory(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError || conversations.hasError) {
+                return Center(child: Text(context.l10n.background_unavailable));
+              }
+              if (!snapshot.hasData || !conversations.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final items = snapshot.data!;
+              final byId = {
+                for (final conversation in conversations.data!)
+                  conversation.id: conversation,
+              };
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      context.l10n.sched_history_note,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  Expanded(
+                    child: items.isEmpty
+                        ? Center(child: Text(context.l10n.sched_history_empty))
+                        : ListView.separated(
+                            key: const ValueKey('scheduled-history-list'),
+                            itemCount: items.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final item = items[index];
+                              final locked = item.recipients.any(
+                                (recipient) => _historyNeedsAccess(
+                                  recipient,
+                                  byId[recipient.recipientId],
+                                ),
+                              );
+                              return ListTile(
+                                key: ValueKey('scheduled-history-${item.id}'),
+                                leading: Icon(
+                                  locked
+                                      ? Icons.lock_outline
+                                      : _historyIcon(item.status),
+                                ),
+                                title: Text(
+                                  locked
+                                      ? context.l10n.sched_history_locked
+                                      : item.contentRetained
+                                      ? item.messageContent
+                                      : context
+                                            .l10n
+                                            .sched_history_content_omitted,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  '${_historyTime(context, item.executedAt)}\n'
+                                  '${_historyStatus(context, item.status)}'
+                                  '${locked ? '' : '\n${item.recipients.map((r) => r.recipientName).join(', ')}'}',
+                                  maxLines: 4,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () => Navigator.of(context).push<void>(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        _ScheduledHistoryDetails(item: item),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
+  }
+
   Future<void> _pickRecipients() async {
     final conversations = AppContainerScope.of(context).conversations;
     await showDialog<void>(
@@ -344,7 +436,7 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
         ..addAll(ScheduledMessageService.parseDays(item.repeatDays));
       _selectedRecipients.clear();
       final ids = item.recipientIds.split(',');
-      final names = item.recipientNames.split(',');
+      final names = item.recipientNameList;
       for (var index = 0; index < ids.length; index++) {
         final id = ids[index].trim();
         if (id.isEmpty) continue;
@@ -393,6 +485,250 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
     final date = DateTime.fromMillisecondsSinceEpoch(milliseconds);
     return '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')} '
         '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+bool _historyNeedsAccess(
+  ScheduledMessageRecipientResult recipient,
+  Conversation? conversation,
+) => recipient.wasLocked || conversation == null || conversation.isLocked;
+
+String _historyStatus(BuildContext context, ScheduledHistoryStatus status) =>
+    switch (status) {
+      ScheduledHistoryStatus.sent => context.l10n.sched_history_sent,
+      ScheduledHistoryStatus.partialFailure =>
+        context.l10n.sched_history_partial_failure,
+      ScheduledHistoryStatus.failed => context.l10n.sched_history_failed,
+    };
+
+String _recipientStatus(
+  BuildContext context,
+  ScheduledRecipientOutcome outcome,
+) => switch (outcome) {
+  ScheduledRecipientOutcome.sent => context.l10n.sched_history_sent,
+  ScheduledRecipientOutcome.encryptionFailed =>
+    context.l10n.sched_history_encryption_failed,
+  ScheduledRecipientOutcome.deliveryFailed =>
+    context.l10n.sched_history_delivery_failed,
+  ScheduledRecipientOutcome.failed => context.l10n.sched_history_failed,
+};
+
+IconData _historyIcon(ScheduledHistoryStatus status) => switch (status) {
+  ScheduledHistoryStatus.sent => Icons.check_circle_outline,
+  ScheduledHistoryStatus.partialFailure => Icons.warning_amber_outlined,
+  ScheduledHistoryStatus.failed => Icons.error_outline,
+};
+
+String _historyTime(BuildContext context, int timestamp) {
+  final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+  final l10n = MaterialLocalizations.of(context);
+  return '${l10n.formatFullDate(date)} '
+      '${l10n.formatTimeOfDay(TimeOfDay.fromDateTime(date), alwaysUse24HourFormat: true)}'
+      ':${date.second.toString().padLeft(2, '0')}';
+}
+
+class _ScheduledHistoryDetails extends StatefulWidget {
+  const _ScheduledHistoryDetails({required this.item});
+
+  final ScheduledMessageHistoryEntity item;
+
+  @override
+  State<_ScheduledHistoryDetails> createState() =>
+      _ScheduledHistoryDetailsState();
+}
+
+class _ScheduledHistoryDetailsState extends State<_ScheduledHistoryDetails>
+    with WidgetsBindingObserver {
+  StreamSubscription<List<Conversation>>? _subscription;
+  Map<String, Conversation>? _conversations;
+  final _authorized = <String>{};
+  bool _checking = false;
+  bool _foreground = true;
+  bool _loadFailed = false;
+  int _accessRevision = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _subscription ??= AppContainerScope.of(context).conversations
+        .watchConversations()
+        .listen(
+          (items) {
+            if (!mounted) return;
+            final next = {for (final item in items) item.id: item};
+            setState(() {
+              for (final recipient in widget.item.recipients) {
+                final id = recipient.recipientId;
+                if (_conversations?[id]?.isLocked != next[id]?.isLocked) {
+                  _authorized.remove(id);
+                  _accessRevision++;
+                }
+              }
+              _conversations = next;
+              _loadFailed = false;
+            });
+          },
+          onError: (Object _) {
+            if (!mounted) return;
+            setState(() {
+              _conversations = null;
+              _authorized.clear();
+              _accessRevision++;
+              _loadFailed = true;
+            });
+          },
+        );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    setState(() {
+      _foreground = state == AppLifecycleState.resumed;
+      if (!_foreground) _authorized.clear();
+      if (state == AppLifecycleState.paused ||
+          state == AppLifecycleState.hidden) {
+        _accessRevision++;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  bool get _locked => widget.item.recipients.any(
+    (recipient) =>
+        _historyNeedsAccess(
+          recipient,
+          _conversations?[recipient.recipientId],
+        ) &&
+        !_authorized.contains(recipient.recipientId),
+  );
+
+  Future<void> _unlock() async {
+    if (_checking || _conversations == null) return;
+    final runtime = AppContainerScope.of(context).chatAccessRuntime;
+    final revision = _accessRevision;
+    setState(() => _checking = true);
+    final authorized = <String>{};
+    try {
+      for (final recipient in widget.item.recipients) {
+        final conversation = _conversations?[recipient.recipientId];
+        if (!_historyNeedsAccess(recipient, conversation)) continue;
+        final credentials = runtime.credentials;
+        final hasPassword =
+            credentials != null &&
+            await credentials.hasCredential(recipient.recipientId);
+        if (!mounted) return;
+        final allowed = hasPassword
+            ? await showVerifyChatPasswordDialog(
+                context,
+                chatName: recipient.recipientName,
+                verify: (password) =>
+                    credentials.verifyPassword(recipient.recipientId, password),
+              )
+            : await runtime.service.authorize(
+                Conversation(
+                  id: recipient.recipientId,
+                  peerId: recipient.recipientId,
+                  peerName: recipient.recipientName,
+                  peerPhone: '',
+                  isLocked: true,
+                ),
+              );
+        if (!mounted || !allowed) return;
+        authorized.add(recipient.recipientId);
+      }
+      if (mounted && revision == _accessRevision) {
+        setState(() => _authorized.addAll(authorized));
+      }
+    } catch (_) {
+      // Credential/plugin failures must leave the history content hidden.
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    return AzureBackdrop(
+      child: Scaffold(
+        appBar: AppBar(title: Text(context.l10n.sched_history_details)),
+        body: !_foreground
+            ? const SizedBox.shrink()
+            : _loadFailed
+            ? Center(child: Text(context.l10n.background_unavailable))
+            : _conversations == null
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Text(
+                    context.l10n.sched_history_executed_at,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  Text(_historyTime(context, item.executedAt)),
+                  const SizedBox(height: 16),
+                  Text(
+                    context.l10n.sched_history_status,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  Text(_historyStatus(context, item.status)),
+                  const Divider(height: 32),
+                  if (_locked) ...[
+                    Text(context.l10n.sched_history_locked),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: FilledButton.icon(
+                        key: const ValueKey('scheduled-history-unlock'),
+                        onPressed: _checking ? null : _unlock,
+                        icon: const Icon(Icons.lock_open),
+                        label: Text(context.l10n.chat_lock_unlock_action),
+                      ),
+                    ),
+                  ] else ...[
+                    Text(
+                      context.l10n.message_content,
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    if (item.contentRetained)
+                      SelectableText(item.messageContent)
+                    else
+                      Text(context.l10n.sched_history_content_omitted),
+                    const Divider(height: 32),
+                    Text(
+                      context.l10n.recipients,
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                    for (final recipient in item.recipients)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SelectableText(recipient.recipientName),
+                            SelectableText(recipient.recipientId),
+                            Text(_recipientStatus(context, recipient.outcome)),
+                          ],
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+      ),
+    );
   }
 }
 

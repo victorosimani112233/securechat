@@ -1,5 +1,6 @@
 package com.securechat.signaling
 
+import ch.qos.logback.classic.Level
 import com.securechat.signaling.db.Database
 import java.nio.file.Files
 import java.nio.file.Path
@@ -10,8 +11,10 @@ import java.util.Base64
 import java.util.UUID
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
@@ -225,6 +228,198 @@ class FcmTokenPrivacyIntegrationTest {
         assertNull(store.getToken(stagedUser.toString()))
         assertEquals(0, store.getTokenCount())
     }
+
+    @Test
+    @Order(4)
+    fun `token and hint key survive an encrypted store reload`() {
+        val user = UUID.randomUUID().toString()
+        val key = ByteArray(32) { (it + 1).toByte() }
+        store.registerToken(user, newToken, Base64.getUrlEncoder().withoutPadding().encodeToString(key))
+
+        val reloaded = reloadStore()
+        assertEquals(newToken, reloaded.getToken(user))
+        assertArrayEquals(key, reloaded.getPushHintKey(user))
+        reloaded.removeToken(user)
+        store.removeToken(user)
+    }
+
+    @Test
+    @Order(5)
+    fun `same token refresh without a key does not erase the registered hint`() {
+        val user = UUID.randomUUID().toString()
+        val key = ByteArray(32) { (it + 1).toByte() }
+        store.registerToken(user, newToken, Base64.getUrlEncoder().withoutPadding().encodeToString(key))
+        store.registerToken(user, newToken)
+
+        assertArrayEquals(key, store.getPushHintKey(user))
+        assertArrayEquals(key, reloadStore().getPushHintKey(user))
+        store.removeToken(user)
+    }
+
+    @Test
+    @Order(6)
+    fun `different token without a key never inherits another device hint key`() {
+        val user = UUID.randomUUID().toString()
+        val key = ByteArray(32) { (it + 1).toByte() }
+        store.registerToken(user, newToken, Base64.getUrlEncoder().withoutPadding().encodeToString(key))
+        store.registerToken(user, privateToken)
+
+        assertEquals(privateToken, store.getToken(user))
+        assertNull(store.getPushHintKey(user))
+        assertNull(reloadStore().getPushHintKey(user))
+        store.removeToken(user)
+    }
+
+    @Test
+    @Order(7)
+    fun `explicit key rotation replaces the hint and invalid keys leave it unchanged`() {
+        val user = UUID.randomUUID().toString()
+        val first = ByteArray(32) { 1 }
+        val replacement = ByteArray(32) { 2 }
+        val encoder = Base64.getUrlEncoder().withoutPadding()
+        store.registerToken(user, newToken, encoder.encodeToString(first))
+        store.registerToken(user, newToken, encoder.encodeToString(replacement))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            store.registerToken(user, privateToken, encoder.encodeToString(ByteArray(31)))
+        }
+        assertEquals(newToken, store.getToken(user))
+        assertArrayEquals(replacement, store.getPushHintKey(user))
+        assertArrayEquals(replacement, reloadStore().getPushHintKey(user))
+        store.removeToken(user)
+    }
+
+    @Test
+    @Order(8)
+    fun `registration snapshots remain paired and cannot mutate the cached key`() {
+        val user = UUID.randomUUID().toString()
+        val key = ByteArray(32) { (it + 1).toByte() }
+        store.registerToken(user, newToken, Base64.getUrlEncoder().withoutPadding().encodeToString(key))
+        val snapshot = store.getRegistration(user)!!
+        snapshot.pushHintKey!![0] = 99
+        assertArrayEquals(key, store.getPushHintKey(user))
+
+        val original = store.getRegistration(user)!!
+        store.registerToken(user, privateToken)
+        assertEquals(newToken, original.token)
+        assertArrayEquals(key, original.pushHintKey)
+        assertEquals(privateToken, store.getRegistration(user)!!.token)
+        assertNull(store.getRegistration(user)!!.pushHintKey)
+        store.removeToken(user)
+    }
+
+    @Test
+    @Order(9)
+    fun `expired and unregistered hint keys are not resurrected by token refresh`() {
+        val user = UUID.randomUUID().toString()
+        val key = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32) { 1 })
+        var clock = now
+        val expiring = FcmTokenStore(cipher, 1, { privacy.blindIndex("push-user", it) }, { clock })
+        try {
+            TestLogCapture("FcmTokenStore").use { logs ->
+                expiring.registerToken(user, newToken, key)
+                clock += MILLIS_PER_DAY
+                expiring.registerToken(user, newToken)
+                assertArrayEquals(ByteArray(32) { 1 }, expiring.getPushHintKey(user))
+
+                // Leave the expired entry in memory so compute sees the prior hinted token.
+                clock += MILLIS_PER_DAY + 1
+                expiring.registerToken(user, newToken)
+                assertEquals(newToken, expiring.getToken(user))
+                assertNull(expiring.getPushHintKey(user))
+                assertNull(reloadStore().getPushHintKey(user))
+
+                expiring.registerToken(user, newToken, key)
+                expiring.removeToken(user)
+                expiring.registerToken(user, newToken)
+                assertNull(expiring.getPushHintKey(user))
+                assertNull(reloadStore().getPushHintKey(user))
+                assertRegistrationLogs(logs, "received", "preserved", "dropped_expired", "received", "absent")
+                logs.assertNoSecrets(user, newToken, key)
+            }
+        } finally {
+            expiring.removeToken(user)
+        }
+    }
+
+    @Test
+    @Order(10)
+    fun `registration diagnostics describe key transitions across reloads without exposing secrets`() {
+        val user = UUID.randomUUID().toString()
+        val key = ByteArray(32) { (it + 1).toByte() }
+        val replacement = ByteArray(32) { (it + 41).toByte() }
+        val encoder = Base64.getUrlEncoder().withoutPadding()
+        val encodedKey = encoder.encodeToString(key)
+        val encodedReplacement = encoder.encodeToString(replacement)
+        try {
+            TestLogCapture("FcmTokenStore").use { logs ->
+                store.registerToken(user, newToken)
+                store.registerToken(user, privateToken)
+                assertNull(store.getPushHintKey(user))
+                assertNull(reloadStore().getPushHintKey(user))
+
+                store.registerToken(user, privateToken, encodedKey)
+                store.registerToken(user, privateToken, encodedKey)
+                store.registerToken(user, privateToken, encodedReplacement)
+                val reloaded = reloadStore()
+                assertArrayEquals(replacement, reloaded.getPushHintKey(user))
+                reloaded.registerToken(user, privateToken)
+                assertArrayEquals(replacement, reloaded.getPushHintKey(user))
+                assertArrayEquals(replacement, reloadStore().getPushHintKey(user))
+
+                reloaded.registerToken(user, newToken, encodedKey)
+                assertEquals(newToken, reloaded.getToken(user))
+                assertArrayEquals(key, reloaded.getPushHintKey(user))
+                assertArrayEquals(key, reloadStore().getPushHintKey(user))
+
+                reloaded.registerToken(user, privateToken)
+                assertEquals(privateToken, reloaded.getToken(user))
+                assertNull(reloaded.getPushHintKey(user))
+                assertNull(reloadStore().getPushHintKey(user))
+                reloaded.registerToken(user, privateToken)
+
+                val beforeInvalidKey = logs.events.size
+                assertThrows(IllegalArgumentException::class.java) {
+                    reloaded.registerToken(user, newToken, encoder.encodeToString(ByteArray(31)))
+                }
+                assertEquals(beforeInvalidKey, logs.events.size, "Rejected keys must not log registration success")
+                assertEquals(privateToken, reloaded.getToken(user))
+                assertRegistrationLogs(
+                    logs,
+                    "absent", "absent", "received", "received", "received", "preserved",
+                    "received", "dropped_token_changed", "absent",
+                )
+                logs.assertNoSecrets(
+                    user, newToken, privateToken, encodedKey, encodedReplacement,
+                    key.contentToString(), replacement.contentToString(),
+                )
+            }
+        } finally {
+            store.removeToken(user)
+        }
+    }
+
+    private fun assertRegistrationLogs(logs: TestLogCapture, vararg statuses: String) {
+        assertEquals(
+            statuses.map { Level.INFO to "[FCM] Token kaydedildi; hint_key=$it" },
+            logs.events.filter { it.message == "[FCM] Token kaydedildi; hint_key={}" }
+                .map { it.level to it.formattedMessage },
+        )
+        assertEquals(
+            statuses.map {
+                Level.INFO to "[FCM] Token kaydedildi; hint=${it == "received" || it == "preserved"}"
+            },
+            logs.events.filter { it.message == "[FCM] Token kaydedildi; hint={}" }
+                .map { it.level to it.formattedMessage },
+        )
+    }
+
+    private fun reloadStore() = FcmTokenStore(
+        cipher = cipher,
+        retentionDays = 90,
+        userIndexProvider = { privacy.blindIndex("push-user", it) },
+        nowMillis = { now },
+    )
 
     private fun applyMigration(
         connection: java.sql.Connection,

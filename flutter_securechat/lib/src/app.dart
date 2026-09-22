@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'features/auth/auth_screen.dart';
 import 'l10n/generated/app_localizations.dart';
+import 'media/call_models.dart';
 import 'features/backup/backup_screen.dart';
 import 'features/calls/call_screen.dart';
 import 'features/calls/call_readiness_screen.dart';
@@ -40,6 +41,7 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
   StreamSubscription<AppSettingsState>? _settingsSubscription;
   StreamSubscription<String>? _notificationTapSubscription;
   StreamSubscription<void>? _callOpenSubscription;
+  StreamSubscription<CallSession?>? _callSessionSubscription;
   late ThemeMode _themeMode;
   Locale? _locale;
   final _navigatorKey = GlobalKey<NavigatorState>();
@@ -47,6 +49,8 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
   String? _activeRoute;
   String? _pendingNotificationConversationId;
   bool _pendingCallOpen = false;
+  String? _pendingIncomingCallId;
+  bool _isForeground = true;
 
   @override
   void initState() {
@@ -75,6 +79,11 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
     );
     _callOpenSubscription = widget.container.mediaRuntime?.calls.openRequests
         .listen((_) => _openCallScreen());
+    final lifecycleState = WidgetsBinding.instance.lifecycleState;
+    _isForeground =
+        lifecycleState == null || lifecycleState == AppLifecycleState.resumed;
+    _callSessionSubscription = widget.container.mediaRuntime?.calls.sessions
+        .listen(_onCallSessionChanged);
     WidgetsBinding.instance.addObserver(this);
     final lifecycle = widget.container.lifecycleRuntime;
     if (lifecycle != null) {
@@ -92,6 +101,7 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
     _settingsSubscription?.cancel();
     _notificationTapSubscription?.cancel();
     _callOpenSubscription?.cancel();
+    _callSessionSubscription?.cancel();
     _navigatorObserver.dispose();
     _runLifecycle(widget.container.dispose());
     WidgetsBinding.instance.removeObserver(this);
@@ -101,6 +111,10 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _isForeground = true;
+      _onCallSessionChanged(
+        widget.container.mediaRuntime?.calls.currentSession,
+      );
       widget.container.notificationRuntime?.coordinator.setAppForeground(true);
       _runLifecycle(
         widget.container.lifecycleRuntime?.enterForeground() ?? Future.value(),
@@ -108,6 +122,7 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
+      _isForeground = false;
       widget.container.notificationRuntime?.coordinator.setAppForeground(false);
       _runLifecycle(
         widget.container.lifecycleRuntime?.enterBackground() ?? Future.value(),
@@ -215,8 +230,47 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
     _navigatorKey.currentState?.pushNamed('/calls');
   }
 
+  void _onCallSessionChanged(CallSession? session) {
+    _pendingIncomingCallId = _isIncomingRinging(session)
+        ? session!.callId
+        : null;
+    _scheduleIncomingCallOpen();
+  }
+
+  void _scheduleIncomingCallOpen() {
+    final callId = _pendingIncomingCallId;
+    if (callId == null || !_isForeground || _blocksIncomingCallRoute) return;
+    // Launch routing and native notification actions can complete in the same
+    // frame. Recheck the live session before navigating, never auto-answer.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !_isForeground ||
+          _blocksIncomingCallRoute ||
+          _pendingIncomingCallId != callId)
+        return;
+      final session = widget.container.mediaRuntime?.calls.currentSession;
+      if (!_isIncomingRinging(session) || session!.callId != callId) return;
+      _pendingIncomingCallId = null;
+      _openCallScreen();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  bool get _blocksIncomingCallRoute => const <String?>{
+    null,
+    '/launch',
+    '/onboarding',
+    '/permissions',
+    '/auth',
+  }.contains(_activeRoute);
+
+  bool _isIncomingRinging(CallSession? session) =>
+      session?.direction == CallDirection.incoming &&
+      session?.state == CallState.ringing;
+
   void _onRouteChanged(String? routeName) {
     _activeRoute = routeName;
+    _scheduleIncomingCallOpen();
     if (routeName == null || routeName == '/launch') return;
     final pending = _pendingNotificationConversationId;
     final openCall = _pendingCallOpen;

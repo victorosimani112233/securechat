@@ -54,19 +54,30 @@ class ScheduledMessageService {
   final BackgroundScheduler _scheduler;
   final DateTime Function() _now;
   final Random _random;
+  final _processing = <String>{};
 
   Stream<List<ScheduledMessageEntity>> watchAll() => _dao.getAll();
+  Stream<List<ScheduledMessageHistoryEntity>> watchHistory() =>
+      _dao.watchHistory();
 
   Future<ScheduledMessageEntity> save(
     ScheduledMessageDraft draft, {
     String? id,
   }) async {
     final content = draft.content.trim();
-    final recipients = draft.recipients
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .toSet()
-        .toList(growable: false);
+    final recipientNames = <String, String>{};
+    for (var index = 0; index < draft.recipients.length; index++) {
+      final recipient = draft.recipients[index].trim();
+      if (recipient.isEmpty) continue;
+      final name = index < draft.recipientNames.length
+          ? draft.recipientNames[index].trim()
+          : '';
+      recipientNames.putIfAbsent(
+        recipient,
+        () => name.isEmpty ? recipient : name,
+      );
+    }
+    final recipients = recipientNames.keys.toList(growable: false);
     if (content.isEmpty) throw ArgumentError.value(content, 'content');
     if (recipients.isEmpty) {
       throw ArgumentError.value(recipients, 'recipients');
@@ -94,7 +105,8 @@ class ScheduledMessageService {
       hour: draft.hour,
       minute: draft.minute,
       recipientIds: recipients.join(','),
-      recipientNames: draft.recipientNames.join(','),
+      recipientNames: recipientNames.values.join(','),
+      recipientDisplayNames: recipientNames.values.toList(growable: false),
       nextTriggerTime: calculateNextTrigger(
         hour: draft.hour,
         minute: draft.minute,
@@ -161,43 +173,102 @@ class ScheduledMessageService {
   }
 
   Future<bool> processPlan(String id) async {
+    if (!_session.scheduledMessagesEnabled || !_processing.add(id))
+      return false;
+    try {
+      return await _processPlan(id);
+    } finally {
+      _processing.remove(id);
+    }
+  }
+
+  Future<bool> _processPlan(String id) async {
     final plan = await _dao.getById(id);
     if (plan == null || !plan.isEnabled) return false;
     final recipients = _csv(plan.recipientIds);
-    if (recipients.isEmpty) {
-      await delete(id);
-      return true;
-    }
     if (!await _ensureConnected()) return false;
 
-    for (final recipient in recipients) {
+    final executedAt = _now().millisecondsSinceEpoch;
+    final results = <ScheduledMessageRecipientResult>[];
+    final names = plan.recipientNameList;
+    var retainContent = true;
+    for (var index = 0; index < recipients.length; index++) {
+      final recipient = recipients[index];
+      final conversation = await _dao.getRecipient(recipient);
+      if (conversation == null || conversation.disappearingDuration > 0) {
+        retainContent = false;
+      }
+      // Legacy plans used ambiguous CSV names. Prefer the current conversation
+      // name for those plans; new plans retain their exact structured names.
+      final name =
+          plan.recipientDisplayNames == null &&
+              conversation != null &&
+              conversation.peerName.trim().isNotEmpty
+          ? conversation.peerName
+          : index < names.length && names[index].trim().isNotEmpty
+          ? names[index]
+          : conversation?.peerName ?? recipient;
+      ScheduledRecipientOutcome outcome;
       try {
-        await _sender(
+        final sent = await _sender(
           SendMessageRequest(
             conversationId: recipient,
             content: plan.messageContent,
           ),
         );
+        outcome = switch (sent) {
+          SendMessageOutcome.sent => ScheduledRecipientOutcome.sent,
+          SendMessageOutcome.encryptionFailed =>
+            ScheduledRecipientOutcome.encryptionFailed,
+          SendMessageOutcome.deliveryFailed =>
+            ScheduledRecipientOutcome.deliveryFailed,
+        };
       } catch (_) {
-        // One recipient must not prevent the remaining fan-out. SendMessageUseCase
-        // persists its own FAILED state and never falls back to plaintext.
+        // Keep fan-out independent without storing exception text or plaintext
+        // diagnostics. An exception is never evidence of a successful send.
+        outcome = ScheduledRecipientOutcome.failed;
       }
+      results.add(
+        ScheduledMessageRecipientResult(
+          recipientId: recipient,
+          recipientName: name,
+          outcome: outcome,
+          wasLocked: conversation?.isLocked ?? false,
+        ),
+      );
     }
 
     final repeat = parseRepeat(plan.repeatType);
-    if (repeat == ScheduledRepeat.once) {
-      await delete(id);
+    final updated = repeat == ScheduledRepeat.once || recipients.isEmpty
+        ? null
+        : plan.copyWith(
+            nextTriggerTime: calculateNextTrigger(
+              hour: plan.hour,
+              minute: plan.minute,
+              repeat: repeat,
+              days: parseDays(plan.repeatDays),
+              now: _now(),
+            ).millisecondsSinceEpoch,
+          );
+    await _dao.completeRun(
+      ScheduledMessageHistoryEntity(
+        id: _newId(),
+        planId: plan.id,
+        // History must not keep a second, non-expiring copy of timed messages.
+        messageContent: retainContent ? plan.messageContent : '',
+        contentRetained: retainContent,
+        repeatType: plan.repeatType,
+        repeatDays: plan.repeatDays,
+        scheduledAt: plan.nextTriggerTime,
+        executedAt: executedAt,
+        completedAt: _now().millisecondsSinceEpoch,
+        recipients: results,
+      ),
+      nextPlan: updated,
+    );
+    if (updated == null) {
+      await _scheduler.cancelScheduledMessage(id);
     } else {
-      final updated = plan.copyWith(
-        nextTriggerTime: calculateNextTrigger(
-          hour: plan.hour,
-          minute: plan.minute,
-          repeat: repeat,
-          days: parseDays(plan.repeatDays),
-          now: _now(),
-        ).millisecondsSinceEpoch,
-      );
-      await _dao.update(updated);
       await _scheduler.scheduleMessage(updated);
     }
     return true;

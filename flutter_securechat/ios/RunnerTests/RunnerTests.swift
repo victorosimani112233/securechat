@@ -1,4 +1,5 @@
 import Flutter
+import CallKit
 import UIKit
 import XCTest
 @testable import Runner
@@ -51,6 +52,102 @@ class RunnerTests: XCTestCase {
     try FileManager.default.createSymbolicLink(at: link, withDestinationURL: secret)
 
     XCTAssertNil(SecureChatPrivateFilePolicy.validatedURL(path: link.path, homeURL: temporaryHome))
+  }
+
+  func testOutgoingCallKitCapabilityIsBundled() {
+    let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
+    XCTAssertTrue(modes?.contains("voip") == true)
+    XCTAssertNotNil(Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription"))
+  }
+
+  @MainActor
+  func testRejectedOutgoingCallCanBeCleanedUpAndRetried() async {
+    var transactions: [CXTransaction] = []
+    let rejected = NSError(
+      domain: CXErrorDomainRequestTransaction,
+      code: CXErrorCodeRequestTransactionError.Code.unentitled.rawValue
+    )
+    let calls = SecureChatCallKitIntegration { transaction, completion in
+      transactions.append(transaction)
+      completion(transactions.count == 1 ? rejected : nil)
+    }
+
+    let error = await reportOutgoing(calls)
+    XCTAssertEqual((error as NSError?)?.code, rejected.code)
+    let cleanupError = await end(calls)
+    XCTAssertNil(cleanupError)
+    XCTAssertEqual(transactions.count, 1, "Rejected calls must not submit an end transaction")
+
+    let retryError = await reportOutgoing(calls)
+    XCTAssertNil(retryError)
+    let first = transactions[0].actions[0] as! CXStartCallAction
+    let retry = transactions[1].actions[0] as! CXStartCallAction
+    XCTAssertNotEqual(first.callUUID, retry.callUUID)
+    let endError = await end(calls)
+    XCTAssertNil(endError)
+    let endAction = transactions[2].actions[0] as! CXEndCallAction
+    XCTAssertEqual(endAction.callUUID, retry.callUUID)
+  }
+
+  @MainActor
+  func testEndingAlreadyRemovedSystemCallIsIdempotent() async {
+    var requests = 0
+    let calls = SecureChatCallKitIntegration { transaction, completion in
+      requests += 1
+      completion(transaction.actions[0] is CXEndCallAction ? NSError(
+        domain: CXErrorDomainRequestTransaction,
+        code: CXErrorCodeRequestTransactionError.Code.unknownCallUUID.rawValue
+      ) : nil)
+    }
+    let startError = await reportOutgoing(calls)
+    XCTAssertNil(startError)
+    let endError = await end(calls)
+    XCTAssertNil(endError)
+    let repeatedEndError = await end(calls)
+    XCTAssertNil(repeatedEndError)
+    XCTAssertEqual(requests, 2)
+  }
+
+  @MainActor
+  func testEndPreservesOtherNativeFailuresForDiagnosisAndRetry() async {
+    var endRequests = 0
+    let failure = NSError(
+      domain: "test.other.domain",
+      code: CXErrorCodeRequestTransactionError.Code.unknownCallUUID.rawValue
+    )
+    let calls = SecureChatCallKitIntegration { transaction, completion in
+      if transaction.actions[0] is CXEndCallAction {
+        endRequests += 1
+        completion(endRequests == 1 ? failure : nil)
+      } else {
+        completion(nil)
+      }
+    }
+    let startError = await reportOutgoing(calls)
+    XCTAssertNil(startError)
+    let firstEndError = await end(calls)
+    XCTAssertEqual((firstEndError as NSError?)?.domain, failure.domain)
+    let retryError = await end(calls)
+    XCTAssertNil(retryError)
+    XCTAssertEqual(endRequests, 2)
+  }
+
+  @MainActor
+  private func reportOutgoing(_ calls: SecureChatCallKitIntegration) async -> Error? {
+    await withCheckedContinuation { continuation in
+      calls.reportOutgoing(callId: "test-call", peerName: "Private", hasVideo: false) { error in
+        continuation.resume(returning: error)
+      }
+    }
+  }
+
+  @MainActor
+  private func end(_ calls: SecureChatCallKitIntegration) async -> Error? {
+    await withCheckedContinuation { continuation in
+      calls.end(callId: "test-call") { error in
+        continuation.resume(returning: error)
+      }
+    }
   }
 
 }

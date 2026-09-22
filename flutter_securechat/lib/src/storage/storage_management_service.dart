@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../chat/conversation_preview.dart';
+import '../core/models.dart';
 import 'secure_chat_database.dart';
+import 'storage_entities.dart';
 
 enum MediaCategory { photo, video, document }
 
@@ -87,11 +90,80 @@ class ChatStorageBreakdown {
   final int totalBytes;
 }
 
+enum StorageFileCategory { photo, video, audio, document }
+
+class ChatStorageFile {
+  const ChatStorageFile({
+    required this.message,
+    required this.diskBytes,
+    required this.available,
+  });
+  final LocalMessage message;
+  final int diskBytes;
+  final bool available;
+  StorageFileCategory get category {
+    final mime = message.fileMimeType ?? '';
+    if (mime.startsWith('image/')) return StorageFileCategory.photo;
+    if (mime.startsWith('video/')) return StorageFileCategory.video;
+    if (mime.startsWith('audio/') ||
+        message.contentType == MessageContentType.voiceNote) {
+      return StorageFileCategory.audio;
+    }
+    return StorageFileCategory.document;
+  }
+}
+
+class StorageCleanupResult {
+  const StorageCleanupResult({
+    required this.deletedCount,
+    required this.freedBytes,
+    required this.failedIds,
+  });
+  final int deletedCount;
+  final int freedBytes;
+  final List<String> failedIds;
+}
+
 class StorageManagementService {
-  const StorageManagementService(this._database);
+  const StorageManagementService(this._database, {this.mediaDirectory});
   static const _policyKey = 'auto_download_policy_v1';
   static const textOverheadPerMessage = 256;
   final SecureChatDatabase _database;
+  final Directory? mediaDirectory;
+
+  Future<ConversationEntity?> getConversation(String id) =>
+      _database.conversations.getById(id);
+
+  Future<List<ChatStorageFile>> filesForChat(String conversationId) async {
+    final result = <ChatStorageFile>[];
+    for (final entity in await _database.messages.getMessagesImmediate(
+      conversationId,
+    )) {
+      final message = LocalMessage.fromJson(entity.toJson());
+      if (!message.isFileMessage) continue;
+      var bytes = 0;
+      var available = false;
+      final path = message.filePath;
+      if (path != null && path.isNotEmpty) {
+        try {
+          final file = File(path);
+          available = await file.exists();
+          if (available) bytes = await file.length();
+        } on FileSystemException {
+          available = false;
+        }
+      }
+      result.add(
+        ChatStorageFile(
+          message: message,
+          diskBytes: bytes,
+          available: available,
+        ),
+      );
+    }
+    result.sort((a, b) => b.diskBytes.compareTo(a.diskBytes));
+    return result;
+  }
 
   Future<AutoDownloadPolicy> loadPolicy() async {
     final raw = await _database.cryptoState.get(_policyKey);
@@ -163,25 +235,96 @@ class StorageManagementService {
   }
 
   Future<int> cleanFiles(String conversationId) async {
+    final files = await filesForChat(conversationId);
+    final result = await cleanSelectedFiles(
+      conversationId,
+      files.map((file) => file.message.id),
+    );
+    if (result.failedIds.isNotEmpty)
+      throw const FileSystemException('Some local media could not be removed');
+    return result.freedBytes;
+  }
+
+  Future<StorageCleanupResult> cleanSelectedFiles(
+    String conversationId,
+    Iterable<String> messageIds,
+  ) async {
+    final selected = messageIds.toSet();
     var freed = 0;
-    for (final content
-        in await _database.messages.getFileContentsByConversation(
-          conversationId,
-        )) {
-      final path = _parts(content).path;
-      if (path == null || path.isEmpty) continue;
-      final file = File(path);
+    var deleted = 0;
+    final failed = <String>[];
+    for (final id in selected) {
+      final entity = await _database.messages.getById(id);
+      if (entity == null || entity.conversationId != conversationId) continue;
+      final message = LocalMessage.fromJson(entity.toJson());
+      if (!message.isFileMessage) continue;
       try {
-        if (await file.exists()) {
-          freed += await file.length();
-          await file.delete();
+        final path = message.filePath;
+        if (path != null && path.isNotEmpty && await File(path).exists()) {
+          final root = mediaDirectory;
+          if (root == null)
+            throw const FileSystemException('Media directory unavailable');
+          final safeRoot = await root.resolveSymbolicLinks();
+          final file = File(await File(path).resolveSymbolicLinks());
+          if (!file.path.startsWith('$safeRoot${Platform.pathSeparator}')) {
+            throw const FileSystemException(
+              'Media path outside managed storage',
+            );
+          }
+          var shared = false;
+          for (final other in await _database.messages.getAllMessages()) {
+            if (other.id == id) continue;
+            final otherMessage = LocalMessage.fromJson(other.toJson());
+            final otherPath = otherMessage.filePath;
+            if (otherPath == null || otherPath.isEmpty) continue;
+            if (await File(otherPath).exists() &&
+                await File(otherPath).resolveSymbolicLinks() == file.path) {
+              shared = true;
+              break;
+            }
+          }
+          // The last local reference owns deletion, including shared/forwarded files.
+          if (!shared) {
+            final size = await file.length();
+            await file.delete();
+            freed += size;
+          }
         }
+        await _database.messages.delete(id);
+        deleted++;
       } on FileSystemException {
-        // Database cleanup still proceeds for stale/unreadable media paths.
+        failed.add(id);
       }
     }
-    await _database.messages.deleteMediaByConversation(conversationId);
-    return freed;
+    if (deleted > 0) {
+      final latest = await _database.messages.getMessagesPaginated(
+        conversationId,
+        1,
+        0,
+      );
+      if (latest.isEmpty) {
+        await _database.conversations.clearLastMessage(conversationId);
+      } else {
+        final message = latest.single;
+        await _database.conversations.updateLastMessageById(
+          conversationId,
+          conversationPreview(
+            content: message.content,
+            isViewOnce: message.isViewOnce,
+            contentType: message.contentType,
+          ),
+          message.timestamp,
+          type: message.contentType,
+          outgoing: message.isOutgoing,
+          status: message.status,
+        );
+      }
+    }
+    return StorageCleanupResult(
+      deletedCount: deleted,
+      freedBytes: freed,
+      failedIds: failed,
+    );
   }
 
   Future<int> _size(String content) async {
@@ -192,7 +335,7 @@ class StorageManagementService {
         if (await file.exists()) return file.length();
       } on FileSystemException {}
     }
-    return parts.declaredSize;
+    return 0;
   }
 
   static ({int declaredSize, String? path}) _parts(String content) {

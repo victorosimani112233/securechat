@@ -7,6 +7,7 @@ class _MessageBubble extends StatelessWidget {
     required this.onVote,
     required this.onLongPress,
     this.replyMessage,
+    this.senderLabel,
     this.replySenderLabel,
     this.onReplyTap,
     this.highlighted = false,
@@ -15,6 +16,7 @@ class _MessageBubble extends StatelessWidget {
 
   final LocalMessage message;
   final LocalMessage? replyMessage;
+  final String? senderLabel;
   final String? replySenderLabel;
   final VoidCallback? onReplyTap;
   final bool highlighted;
@@ -93,6 +95,20 @@ class _MessageBubble extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (senderLabel != null) ...[
+                          Text(
+                            senderLabel!,
+                            key: ValueKey('message-sender-${message.id}'),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: scheme.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                        ],
                         if (replyMessage != null)
                           _BubbleReplyPreview(
                             message: replyMessage!,

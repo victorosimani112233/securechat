@@ -59,6 +59,12 @@ void main() {
   test('all private control types have equal padded plaintext size', () {
     final now = DateTime.fromMillisecondsSinceEpoch(1);
     final controls = <SignalMessage>[
+      SharedPhoneSignal(
+        senderId: 'a',
+        recipientId: 'b',
+        timestamp: now,
+        phoneNumber: '+905551234567',
+      ),
       DeliveryReceiptSignal(
         senderId: 'a',
         recipientId: 'b',

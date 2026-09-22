@@ -232,6 +232,10 @@ void main() {
       request.headers.value(HttpHeaders.authorizationHeader),
       'Bearer access-1',
     );
+    expect(
+      request.headers.value(WebSocketSignalingService.callCapabilityHeader),
+      'true',
+    );
     expect(signaling.currentStatus.isConnected, isTrue);
     expect(telemetry.current.connects, 1);
     expect(await incoming, isA<PresenceUpdateSignal>());
@@ -252,6 +256,41 @@ void main() {
     expect(telemetry.current.lastWasNormalClose, isTrue);
     await serverSocket.close();
   });
+
+  test(
+    'headless message socket declares no call handler across reconnects',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final sockets = <WebSocket>[];
+      final headers = <String?>[];
+      server.listen((request) async {
+        headers.add(
+          request.headers.value(WebSocketSignalingService.callCapabilityHeader),
+        );
+        final socket = await WebSocketTransformer.upgrade(request);
+        sockets.add(socket);
+        socket.listen((_) {});
+      });
+      final signaling = WebSocketSignalingService(callCapable: false);
+      addTearDown(() async {
+        await signaling.dispose();
+        for (final socket in sockets) {
+          await socket.close();
+        }
+        await server.close(force: true);
+      });
+      for (var i = 0; i < 2; i++) {
+        await signaling.connect(
+          userId: 'me',
+          url: 'ws://${server.address.address}:${server.port}',
+          accessToken: 'background-token',
+        );
+        expect(signaling.currentStatus.isConnected, isTrue);
+        await signaling.disconnect();
+      }
+      expect(headers, ['false', 'false']);
+    },
+  );
 
   test(
     'signaling disposal cancels a pending reconnect without delay',

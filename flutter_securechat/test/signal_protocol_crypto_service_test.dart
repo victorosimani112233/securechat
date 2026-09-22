@@ -10,6 +10,9 @@ import 'package:flutter_securechat/src/crypto/libsignal_protocol_store.dart';
 import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
 import 'package:flutter_securechat/src/crypto/signal_protocol_crypto_service.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
+import 'package:flutter_securechat/src/chat/private_chat_control.dart';
+import 'package:flutter_securechat/src/contacts/contact_discovery_api.dart';
+import 'package:flutter_securechat/src/contacts/phone_number_sharing_service.dart';
 import 'package:flutter_securechat/src/domain/send_message_use_case.dart';
 import 'package:flutter_securechat/src/groups/private_group_control.dart';
 import 'package:flutter_securechat/src/groups/private_group_route.dart';
@@ -20,6 +23,73 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 
 void main() {
+  test(
+    'phone disclosure uses the production Signal ratchet without changing text',
+    () async {
+      final fixture = await _SignalFixture.open();
+      addTearDown(fixture.close);
+      final socket = InMemorySignalingService()..setConnected(true);
+      addTearDown(socket.dispose);
+      final session = SessionStore(
+        userId: 'alice',
+        accessToken: 'token',
+        phoneNumber: '+905551234567',
+        sharePhoneNumber: true,
+      );
+      final sharing = PhoneNumberSharingService(
+        session: session,
+        crypto: fixture.alice,
+        signaling: socket,
+        database: fixture.aliceDatabase,
+        discovery: _UnusedDirectory(),
+      );
+      final sender = SendMessageUseCase(
+        database: fixture.aliceDatabase,
+        signaling: socket,
+        session: session,
+        crypto: fixture.alice,
+        phoneSharing: sharing,
+      );
+      for (var i = 0; i < 2; i++) {
+        expect(
+          await sender(
+            const SendMessageRequest(
+              conversationId: 'bob',
+              content: 'private hello',
+            ),
+          ),
+          SendMessageOutcome.sent,
+        );
+      }
+      final wires = socket.sentMessages.cast<EncryptedSignalMessage>();
+      expect(wires, hasLength(4));
+      expect(wires[0].envelope, isNot(wires[2].envelope));
+      for (var i = 0; i < wires.length; i++) {
+        expect(wires[i].encode(), isNot(contains(session.phoneNumber!)));
+        final clear = await fixture.bob.decryptDirect(
+          senderId: 'alice',
+          envelope: wires[i].envelope,
+        );
+        if (i.isEven) {
+          final control =
+              decodePrivateChatControl(
+                    plaintext: clear,
+                    authenticatedSenderId: 'alice',
+                    localRecipientId: 'bob',
+                  )
+                  as SharedPhoneSignal;
+          expect(control.phoneNumber, session.phoneNumber);
+          expect(control.senderId, 'alice');
+          expect(control.recipientId, 'bob');
+        } else {
+          expect(clear, startsWith('MSGID:'));
+          expect(clear, endsWith(':private hello'));
+          expect(clear, isNot(contains(session.phoneNumber!)));
+        }
+      }
+    },
+  );
+
   test(
     'persistent Signal service ratchets direct messages both ways',
     () async {
@@ -383,6 +453,16 @@ class _MapBundleProvider implements PreKeyBundleProvider {
   @override
   Future<signal.PreKeyBundle?> fetch(String recipientId) async =>
       bundles[recipientId];
+}
+
+class _UnusedDirectory implements ContactDiscoveryApi {
+  @override
+  Future<List<RegisteredUserMatch>> checkUsers(
+    List<String> phoneHashes,
+    String accessToken, {
+    String? ownPhoneHash,
+    String? ownUserId,
+  }) async => throw StateError('Outgoing sharing must not query the directory');
 }
 
 signal.PreKeyBundle _toSignalBundle(SerializedPreKeyBundle bundle) {

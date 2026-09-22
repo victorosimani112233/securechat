@@ -15,6 +15,7 @@ class SessionStore {
     this.pushToken,
     this.profilePhotoUri,
     this.shareLastSeen = false,
+    this.sharePhoneNumber = false,
     this.themePreference = 'system',
     this.languagePreference = 'system',
     this.showNotificationContent = false,
@@ -32,6 +33,7 @@ class SessionStore {
   String? pushToken;
   String? profilePhotoUri;
   bool shareLastSeen;
+  bool sharePhoneNumber;
   String themePreference;
   String languagePreference;
   bool showNotificationContent;
@@ -50,6 +52,7 @@ class SessionStore {
     required String accessToken,
     required String refreshToken,
   }) {
+    if (this.userId != userId) sharePhoneNumber = false;
     this.userId = userId;
     this.displayName = displayName;
     this.phoneNumber = phoneNumber;
@@ -66,6 +69,7 @@ class SessionStore {
     pushToken = null;
     profilePhotoUri = null;
     shareLastSeen = false;
+    sharePhoneNumber = false;
     themePreference = 'system';
     languagePreference = 'system';
     showNotificationContent = false;
@@ -112,6 +116,7 @@ class SessionStore {
     required String phoneNumber,
     String? profilePhotoUri,
   }) async {
+    if (this.userId != userId) sharePhoneNumber = false;
     this.userId = userId;
     this.displayName = displayName;
     this.phoneNumber = phoneNumber;
@@ -127,6 +132,7 @@ class SessionStore {
     'pushToken': pushToken,
     'profilePhotoUri': profilePhotoUri,
     'shareLastSeen': shareLastSeen,
+    'sharePhoneNumber': sharePhoneNumber,
     'themePreference': themePreference,
     'languagePreference': languagePreference,
     'showNotificationContent': showNotificationContent,
@@ -145,6 +151,7 @@ class SessionStore {
     pushToken = json['pushToken'] as String?;
     profilePhotoUri = json['profilePhotoUri'] as String?;
     shareLastSeen = json['shareLastSeen'] as bool? ?? false;
+    sharePhoneNumber = json['sharePhoneNumber'] as bool? ?? false;
     themePreference = _allowed(json['themePreference'], const {
       'system',
       'light',

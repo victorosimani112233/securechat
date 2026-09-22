@@ -32,8 +32,7 @@ class FcmPushSender private constructor(
      * Bu sinifin token deposundan ihtiyaci olan tek yetenek. Dar kontrat,
      * push kapisinin veritabani olmadan da dogrulanabilmesini saglar.
      */
-    private val tokenLookup: (String) -> String?,
-    private val pushHintKeyLookup: (String) -> ByteArray?,
+    private val registrationLookup: (String) -> FcmTokenStore.DeviceRegistration?,
     /** Gecersiz oldugu FCM tarafindan bildirilen token'i siler. */
     private val tokenRemover: (String) -> Unit,
     /**
@@ -41,13 +40,13 @@ class FcmPushSender private constructor(
      * ancak bu deger disaridan verilebildiginde dogrulayabilir.
      */
     serviceAccountPath: String?,
+    private val messageSender: ((Message) -> Unit)? = null,
 ) {
     constructor(
         tokenStore: FcmTokenStore,
         serviceAccountPath: String? = System.getenv("FIREBASE_SERVICE_ACCOUNT_PATH"),
     ) : this(
-        { userId -> tokenStore.getToken(userId) },
-        { userId -> tokenStore.getPushHintKey(userId) },
+        { userId -> tokenStore.getRegistration(userId) },
         { userId -> tokenStore.removeToken(userId) },
         serviceAccountPath,
     )
@@ -64,6 +63,9 @@ class FcmPushSender private constructor(
     // SDP Offer push'u rate-limit'e takilip "incoming_call" yerine bildirim gosteriliyordu
     private val lastCallPushTime = ConcurrentHashMap<String, Long>()
 
+    // A control wake has an 'm' hint and must not suppress the next 'c' hint.
+    private val lastCallControlPushTime = ConcurrentHashMap<String, Long>()
+
     // Arama sinyali tipleri — kendi rate-limit map'ini kullanir
     // Push gonderilmemesi gereken gecici sinyal tipleri
     private val transientTypes = setOf(
@@ -77,7 +79,7 @@ class FcmPushSender private constructor(
     private fun pruneRateLimitMaps(now: Long) {
         if (now - lastPrune < PRUNE_INTERVAL_MS) return
         lastPrune = now
-        for (map in listOf(lastPushTime, lastCallPushTime)) {
+        for (map in listOf(lastPushTime, lastCallPushTime, lastCallControlPushTime)) {
             map.entries.removeIf { now - it.value > PRUNE_AFTER_MS }
         }
     }
@@ -97,7 +99,9 @@ class FcmPushSender private constructor(
 
     init {
         try {
-            if (serviceAccountPath != null) {
+            if (messageSender != null) {
+                initialized = true
+            } else if (serviceAccountPath != null) {
                 val options = FirebaseOptions.builder()
                     .setCredentials(GoogleCredentials.fromStream(FileInputStream(serviceAccountPath)))
                     .build()
@@ -139,17 +143,28 @@ class FcmPushSender private constructor(
         if (messageType in transientTypes) return false
         if (messageType in SELF_QUEUED_CALL_TYPES) return false
 
-        val rateLimitMap = if (messageType in CALL_SIGNAL_TYPES) lastCallPushTime else lastPushTime
+        val rateLimitMap = when {
+            messageType == "call_control" -> lastCallControlPushTime
+            messageType in CALL_SIGNAL_TYPES -> lastCallPushTime
+            else -> lastPushTime
+        }
         val rateKey = ServerPrivacy.blindIndex("push-rate", recipientId)
-        val lastTime = rateLimitMap[rateKey] ?: 0L
-        if (now - lastTime < RATE_LIMIT_MS) return false
-        rateLimitMap[rateKey] = now
+        var allowed = false
+        rateLimitMap.compute(rateKey) { _, lastTime ->
+            if (lastTime != null && now - lastTime < RATE_LIMIT_MS) {
+                lastTime
+            } else {
+                allowed = true
+                now
+            }
+        }
         pruneRateLimitMaps(now)
-        return true
+        return allowed
     }
 
     /** Yalniz test: zamanlama haritalarindaki girdi sayisi. */
-    internal fun rateMapSizes(): Pair<Int, Int> = lastPushTime.size to lastCallPushTime.size
+    internal fun rateMapSizes(): Pair<Int, Int> =
+        lastPushTime.size to (lastCallPushTime.size + lastCallControlPushTime.size)
 
     /**
      * Belirtilen kullaniciya wake-up push gonderir.
@@ -160,16 +175,43 @@ class FcmPushSender private constructor(
      * @return Push basariyla gonderildiyse true
      */
     suspend fun sendWakeUpPush(recipientId: String, messageType: String): Boolean {
-        if (!initialized) return false
+        if (!initialized) {
+            Metrics.recordPushDiagnostic(PushDiagnosticStage.NOT_OPERATIONAL)
+            log.warn("[FCM] Wake skipped; reason=sender_not_operational")
+            return false
+        }
+        if (messageType in transientTypes || messageType in SELF_QUEUED_CALL_TYPES) return false
+
+        val registration = try {
+            registrationLookup(recipientId)
+        } catch (error: Exception) {
+            Metrics.recordPushDiagnostic(PushDiagnosticStage.LOOKUP_FAILED)
+            log.warn("[FCM] Wake skipped; reason=registration_lookup_failed; error={}", error.javaClass.simpleName)
+            return false
+        }
+        if (registration == null) {
+            Metrics.recordPushDiagnostic(PushDiagnosticStage.REGISTRATION_UNAVAILABLE)
+            log.warn("[FCM] Wake skipped; reason=registration_missing_or_expired")
+            return false
+        }
 
         // Rate-limit: arama sinyalleri ve normal mesajlar AYRI map'ler kullanir
         // Boylece delivery_receipt/message_reaction gibi normal mesajlar
         // SDP Offer'in incoming_call push'unu bloklayamaz
-        if (!allowPush(recipientId, messageType)) return false
+        // A missing registration must not consume the next registered device's wake.
+        if (!allowPush(recipientId, messageType)) {
+            Metrics.recordPushDiagnostic(PushDiagnosticStage.RATE_LIMITED)
+            log.debug("[FCM] Wake skipped; reason=rate_limited")
+            return false
+        }
         val isCallSignal = messageType in CALL_SIGNAL_TYPES
 
-        val fcmToken = tokenLookup(recipientId) ?: return false
-        val pushHintKey = pushHintKeyLookup(recipientId)
+        val fcmToken = registration.token
+        val pushHintKey = registration.pushHintKey
+        if (pushHintKey == null) {
+            Metrics.recordPushDiagnostic(PushDiagnosticStage.HINT_MISSING)
+            log.warn("[FCM] Ipucu anahtari bulunamadi \u2014 push tursuz gidecek")
+        }
 
         // FCM priority: arama ve mesaj -> HIGH, diger -> NORMAL
         val priority = androidPriorityFor(messageType)
@@ -198,6 +240,7 @@ class FcmPushSender private constructor(
                             "k",
                             pushHintCipher.seal(pushHintKey, pushHintKind(messageType)),
                         )
+                        log.info("[FCM] Sifreli tur ipucu eklendi")
                     }
                 }
                 .setAndroidConfig(
@@ -243,14 +286,23 @@ class FcmPushSender private constructor(
             val message = messageBuilder.build()
 
             withContext(Dispatchers.IO) {
-                FirebaseMessaging.getInstance().send(message)
+                if (messageSender != null) messageSender.invoke(message)
+                else FirebaseMessaging.getInstance().send(message)
             }
-            log.info("[FCM] Generic wake push gonderildi")
+            log.info("[FCM] Generic wake push gonderildi; hint={}", pushHintKey != null)
+            Metrics.recordPushDiagnostic(
+                if (pushHintKey != null) PushDiagnosticStage.ACCEPTED_HINTED
+                else PushDiagnosticStage.ACCEPTED_KEYLESS,
+            )
             true
         } catch (e: Exception) {
+            Metrics.recordPushDiagnostic(PushDiagnosticStage.SEND_FAILED)
             log.info("[FCM] Push gonderilemedi: {}", e.javaClass.simpleName)
             // Gecersiz token ise kaldir
             val messagingCode = (e as? FirebaseMessagingException)?.messagingErrorCode
+            if (messagingCode != null) {
+                log.info("[FCM] Provider failure; code={}", messagingCode.name)
+            }
             if (messagingCode == MessagingErrorCode.UNREGISTERED ||
                 messagingCode == MessagingErrorCode.INVALID_ARGUMENT
             ) {
@@ -268,6 +320,8 @@ class FcmPushSender private constructor(
     fun extractMessageType(messageJson: String): String? = MessageTypes.extract(messageJson)
 
     companion object {
+        internal const val PUSH_CONTRACT = "encrypted-hint-v1"
+        internal const val DIAGNOSTIC_REVISION = "push-diag-20260922"
         private const val RATE_LIMIT_MS = 3000L
 
         /**
@@ -307,7 +361,13 @@ class FcmPushSender private constructor(
          * Kapi kararinin veritabanina bagimliligi yoktur.
          */
         internal fun forGateTest(serviceAccountPath: String? = null) =
-            FcmPushSender({ null }, { null }, {}, serviceAccountPath)
+            FcmPushSender({ null }, {}, serviceAccountPath)
+
+        /** Captures the real SDK message in tests without credentials or network access. */
+        internal fun forDeliveryTest(
+            registrationLookup: (String) -> FcmTokenStore.DeviceRegistration?,
+            messageSender: (Message) -> Unit,
+        ) = FcmPushSender(registrationLookup, {}, null, messageSender)
 
         internal fun pushHintKind(messageType: String): Char =
             if (messageType == "sdp_offer" || messageType == "group_call_invite") {

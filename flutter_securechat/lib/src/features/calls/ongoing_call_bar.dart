@@ -106,6 +106,10 @@ class _OngoingCallBarState extends State<OngoingCallBar> {
   Widget build(BuildContext context) {
     final session = widget.session;
     final status = switch (session.state) {
+      CallState.ringing =>
+        session.direction == CallDirection.incoming
+            ? context.l10n.incoming_call
+            : context.l10n.ringing,
       CallState.reconnecting => context.l10n.reconnecting,
       CallState.connecting => context.l10n.connecting,
       _ => _formatDuration(session.startTime),
@@ -207,6 +211,7 @@ const _routesWithoutBanner = <String?>{
 };
 
 bool _isOngoing(CallState state) => const {
+  CallState.ringing,
   CallState.connecting,
   CallState.active,
   CallState.reconnecting,

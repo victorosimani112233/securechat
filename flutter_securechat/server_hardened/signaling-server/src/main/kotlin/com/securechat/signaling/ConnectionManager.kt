@@ -39,6 +39,7 @@ class ConnectionManager(
 
     // userId -> aktif WebSocket session
     private val connections = ConcurrentHashMap<String, WebSocketSession>()
+    private val messageOnlySessions = ConcurrentHashMap.newKeySet<WebSocketSession>()
 
     private val mutex = Mutex()
 
@@ -58,32 +59,46 @@ class ConnectionManager(
      * es zamanli baglanti ayni "yer var" okumasini paylasip limiti birlikte
      * asabiliyordu. Ayni kullanicinin onceki oturumu varsa kapatilir.
      */
-    suspend fun addConnection(userId: String, session: WebSocketSession): Boolean {
+    suspend fun addConnection(
+        userId: String,
+        session: WebSocketSession,
+        callCapable: Boolean = true,
+    ): Boolean {
         // Shutdown sirasinda yeni baglanti kabul etme
         if (isShuttingDown.get()) {
             session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Sunucu kapatiliyor"))
             return false
         }
+        var capableSessionActive = false
         val previous = mutex.withLock {
+            val current = connections[userId]
             if (!connections.containsKey(userId) && connections.size >= MAX_CONNECTIONS) {
                 null to false
+            } else if (!callCapable && current != null && current !in messageOnlySessions) {
+                capableSessionActive = true
+                null to false
             } else {
+                if (!callCapable) messageOnlySessions.add(session)
                 val existing = connections.put(userId, session)
+                if (existing != null && existing !== session) messageOnlySessions.remove(existing)
                 log.info("[+] Kullanici baglandi (toplam: ${connections.size})")
                 existing to true
             }
         }
         if (!previous.second) {
             session.close(
-                CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Sunucu kapasitesi doldu"),
+                CloseReason(
+                    CloseReason.Codes.TRY_AGAIN_LATER,
+                    if (capableSessionActive) "Call-capable session active" else "Sunucu kapasitesi doldu",
+                ),
             )
-            log.warn("[!] Baglanti reddedildi — limit asildi")
+            log.info("[!] Connection admission refused")
             return false
         }
         previous.first?.close(CloseReason(CloseReason.Codes.NORMAL, "Yeni baglanti"))
         Metrics.wsConnections.increment()
         // Redis'ten offline mesajlari ilet
-        deliverOfflineMessages(userId, session)
+        deliverOfflineMessages(userId, session, callCapable)
         return true
     }
 
@@ -96,11 +111,17 @@ class ConnectionManager(
      *   cevrimdisi gorunurdu. Compare-and-remove bunu engeller.
      */
     suspend fun removeConnection(userId: String, session: WebSocketSession? = null) {
+        var removedCallCapable = false
         val removed = mutex.withLock {
             if (session == null) {
-                connections.remove(userId) != null
+                connections.remove(userId)?.let {
+                    removedCallCapable = !messageOnlySessions.remove(it)
+                    true
+                } ?: false
             } else {
-                connections.remove(userId, session)
+                connections.remove(userId, session).also { removed ->
+                    if (removed) removedCallCapable = !messageOnlySessions.remove(session)
+                }
             }
         }
         if (!removed) {
@@ -121,7 +142,7 @@ class ConnectionManager(
         cleanupSubscriptions(userId)
         // Bu kullaniciya ait active call session'lari temizle — orphan call'i engelle.
         // Network drop sirasinda HANGUP gonderememisse server burada zorla temizler.
-        clearAllCallSessionsFor(userId)
+        if (removedCallCapable) clearAllCallSessionsFor(userId)
     }
 
     // --- Presence Subscription ---
@@ -263,7 +284,14 @@ class ConnectionManager(
             return
         }
 
-        val recipientSession = connections[recipientId]
+        val (recipientSession, recipientCallCapable) = mutex.withLock {
+            val session = connections[recipientId]
+            session to (session != null && session !in messageOnlySessions)
+        }
+        if (recipientSession != null && !recipientCallCapable && messageType in MessageTypes.REQUIRES_CALL_HANDLER) {
+            queueAndNotify(recipientId, messageJson)
+            return
+        }
         if (recipientSession != null) {
             try {
                 recipientSession.send(Frame.Text(messageJson))
@@ -943,11 +971,15 @@ class ConnectionManager(
     /**
      * Kullanici baglandiginda Redis'ten tum offline mesajlari iletir ve siler.
      *
-     * Stale SDP Offer filtresi: 60sn'den eski sdp_offer mesajlari teslim EDILMEZ.
+     * Stale SDP Offer filtresi: 30sn'den eski sdp_offer mesajlari teslim EDILMEZ.
      * Sebep: Arayan vazgecmistir, eski offer ile arama baslatmak yanlis.
      * Diger mesaj tipleri (encrypted_message, file_transfer vb.) yas filtresi disinda.
      */
-    private suspend fun deliverOfflineMessages(userId: String, session: WebSocketSession) {
+    private suspend fun deliverOfflineMessages(
+        userId: String,
+        session: WebSocketSession,
+        callCapable: Boolean,
+    ) {
         try {
             deliverReliableMessages(userId, session)
             val queues = listOf(
@@ -982,6 +1014,7 @@ class ConnectionManager(
                             continue
                         }
                     }
+                    if (!callCapable && msgType in MessageTypes.REQUIRES_CALL_HANDLER) continue
                     try {
                         session.send(Frame.Text(message))
                         // Remove only after send. A crash between send/remove may
@@ -1050,9 +1083,10 @@ class ConnectionManager(
      */
     suspend fun closeUserSocket(userId: String) {
         mutex.withLock {
-            connections.remove(userId)?.close(
-                CloseReason(CloseReason.Codes.NORMAL, "Account deleted")
-            )
+            connections.remove(userId)?.let { session ->
+                messageOnlySessions.remove(session)
+                session.close(CloseReason(CloseReason.Codes.NORMAL, "Account deleted"))
+            }
         }
     }
 
@@ -1137,5 +1171,6 @@ class ConnectionManager(
         }
         log.info("[SHUTDOWN] ${connections.size} baglanti kapatildi")
         connections.clear()
+        messageOnlySessions.clear()
     }
 }

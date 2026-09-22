@@ -12,6 +12,8 @@ import 'package:flutter_securechat/src/services/signaling_service.dart';
 
 AppContainer createWidgetTestContainer({
   AppNotificationRuntime? notificationRuntime,
+  AppMediaRuntime? mediaRuntime,
+
   /// Uzun sohbet davranisini (kaydirma, sinir tahmini) sinamak isteyen
   /// testler kendi mesaj listesini verebilir.
   List<LocalMessage> Function(String conversationId)? messagesFor,
@@ -31,6 +33,7 @@ AppContainer createWidgetTestContainer({
     ),
     signaling: InMemorySignalingService(),
     notificationRuntime: notificationRuntime,
+    mediaRuntime: mediaRuntime,
     chatAccessRuntime: const AppChatAccessRuntime(
       service: ChatAccessService(
         authenticator: AlwaysAllowDeviceOwnerAuthenticator(),
@@ -40,9 +43,7 @@ AppContainer createWidgetTestContainer({
     // test kabinda kurulamiyor ve ekran "kullanilamiyor" yazisina dusuyordu.
     // Yani ekranin dar telefonda ve %200 metin olceginde bozulup bozulmadigi
     // HIC sinanmiyordu.
-    bulkRuntime: AppBulkRuntime(
-      service: _FakeBulkSender(conversations),
-    ),
+    bulkRuntime: AppBulkRuntime(service: _FakeBulkSender(conversations)),
     callReadinessRuntime: const AppCallReadinessRuntime(
       service: CallReadinessService(
         platform: NotApplicableCallReadinessPlatform(),
@@ -167,6 +168,8 @@ class _FakeBulkSender implements BulkMessageSender {
   ]);
 
   @override
-  Future<BulkSendResult> send(String content, Iterable<String> recipients) async =>
-      BulkSendResult(sent: recipients.length, failed: const {});
+  Future<BulkSendResult> send(
+    String content,
+    Iterable<String> recipients,
+  ) async => BulkSendResult(sent: recipients.length, failed: const {});
 }

@@ -644,6 +644,13 @@ class AppLocalizationsDe extends AppLocalizations {
   String get settings_share_last_seen => 'Zuletzt online teilen';
 
   @override
+  String get settings_share_phone_number => 'Meine Telefonnummer teilen';
+
+  @override
+  String get settings_share_phone_number_desc =>
+      'Nur mit Personen, denen ich direkt schreibe, Ende-zu-Ende verschlüsselt. Bereits geteilte Nummern können nicht zurückgerufen werden.';
+
+  @override
   String get settings_screen_protection => 'Bildschirmschutz aktiviert';
 
   @override
@@ -1807,4 +1814,95 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get calls_empty_body =>
       'Getätigte und empfangene Anrufe werden hier aufgelistet. Gesprächsinhalte werden nie aufgezeichnet.';
+
+  @override
+  String get group_unknown_member => 'Unbekanntes Mitglied';
+
+  @override
+  String get backup_passwords_match => 'Passwörter müssen übereinstimmen';
+
+  @override
+  String get sched_tab_history => 'Verlauf';
+
+  @override
+  String get sched_history_note =>
+      'Gesendet bedeutet nicht, dass die Nachricht empfangen oder gelesen wurde.';
+
+  @override
+  String get sched_history_empty => 'Noch kein Sendeverlauf.';
+
+  @override
+  String get sched_history_locked => 'Inhalt eines gesperrten Chats';
+
+  @override
+  String get sched_history_sent => 'Gesendet';
+
+  @override
+  String get sched_history_partial_failure => 'Teilweise fehlgeschlagen';
+
+  @override
+  String get sched_history_failed => 'Senden fehlgeschlagen';
+
+  @override
+  String get sched_history_encryption_failed =>
+      'Verschlüsselung fehlgeschlagen';
+
+  @override
+  String get sched_history_delivery_failed => 'Übertragung fehlgeschlagen';
+
+  @override
+  String get sched_history_details => 'Sendedetails';
+
+  @override
+  String get sched_history_executed_at => 'Sendezeit';
+
+  @override
+  String get sched_history_status => 'Status';
+
+  @override
+  String get sched_history_content_omitted =>
+      'Der Inhalt wurde aus Datenschutzgründen nicht im Verlauf gespeichert.';
+
+  @override
+  String get storage_reload => 'Aktualisieren';
+
+  @override
+  String get storage_load_failed =>
+      'Speicherinformationen konnten nicht geladen werden.';
+
+  @override
+  String get storage_filter => 'Dateien filtern';
+
+  @override
+  String get storage_all_files => 'Alle Dateien';
+
+  @override
+  String get storage_audio => 'Audio';
+
+  @override
+  String get storage_no_files =>
+      'Keine Medien oder Dateien in dieser Kategorie.';
+
+  @override
+  String get storage_local_missing => 'Nicht auf diesem Gerät';
+
+  @override
+  String storage_delete_action(int arg1) {
+    return 'Auswahl löschen ($arg1)';
+  }
+
+  @override
+  String storage_delete_selected(int arg1) {
+    return 'Die ausgewählten $arg1 Medien-/Dateinachrichten werden nur von diesem Gerät entfernt. Textnachrichten und Kopien anderer Personen bleiben erhalten. Dies kann nicht rückgängig gemacht werden.';
+  }
+
+  @override
+  String storage_cleanup_result(int arg1, String arg2) {
+    return '$arg1 Einträge entfernt · $arg2 freigegeben';
+  }
+
+  @override
+  String storage_cleanup_failed(int arg1) {
+    return '$arg1 Einträge konnten nicht entfernt werden. Andere Dateien wurden aktualisiert; bitte erneut versuchen.';
+  }
 }

@@ -645,6 +645,13 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settings_share_last_seen => 'Son görülmeyi paylaş';
 
   @override
+  String get settings_share_phone_number => 'Telefon numaramı paylaş';
+
+  @override
+  String get settings_share_phone_number_desc =>
+      'Yalnızca birebir mesaj gönderdiğim kişilerle, uçtan uca şifreli. Önceden paylaşılan numara geri alınamaz.';
+
+  @override
   String get settings_screen_protection => 'Ekran koruması etkin';
 
   @override
@@ -1804,4 +1811,92 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get calls_empty_body =>
       'Yaptığınız ve gelen aramalar burada listelenir. Arama içeriği hiçbir zaman kaydedilmez.';
+
+  @override
+  String get group_unknown_member => 'Bilinmeyen üye';
+
+  @override
+  String get backup_passwords_match => 'Parolalar eşleşmeli';
+
+  @override
+  String get sched_tab_history => 'Geçmiş';
+
+  @override
+  String get sched_history_note =>
+      'Gönderildi durumu, alıcının mesajı aldığı veya okuduğu anlamına gelmez.';
+
+  @override
+  String get sched_history_empty => 'Henüz gönderim geçmişi yok.';
+
+  @override
+  String get sched_history_locked => 'Kilitli sohbet içeriği';
+
+  @override
+  String get sched_history_sent => 'Gönderildi';
+
+  @override
+  String get sched_history_partial_failure => 'Kısmen başarısız';
+
+  @override
+  String get sched_history_failed => 'Gönderilemedi';
+
+  @override
+  String get sched_history_encryption_failed => 'Şifreleme başarısız';
+
+  @override
+  String get sched_history_delivery_failed => 'İletim başarısız';
+
+  @override
+  String get sched_history_details => 'Gönderim ayrıntıları';
+
+  @override
+  String get sched_history_executed_at => 'Gönderim zamanı';
+
+  @override
+  String get sched_history_status => 'Durum';
+
+  @override
+  String get sched_history_content_omitted =>
+      'Gizlilik nedeniyle içerik geçmişe kaydedilmedi.';
+
+  @override
+  String get storage_reload => 'Yenile';
+
+  @override
+  String get storage_load_failed => 'Depolama bilgisi yüklenemedi.';
+
+  @override
+  String get storage_filter => 'Dosyaları filtrele';
+
+  @override
+  String get storage_all_files => 'Tüm dosyalar';
+
+  @override
+  String get storage_audio => 'Sesler';
+
+  @override
+  String get storage_no_files => 'Bu kategoride medya veya dosya yok.';
+
+  @override
+  String get storage_local_missing => 'Bu cihazda bulunmuyor';
+
+  @override
+  String storage_delete_action(int arg1) {
+    return 'Seçilenleri sil ($arg1)';
+  }
+
+  @override
+  String storage_delete_selected(int arg1) {
+    return 'Seçilen $arg1 medya/dosya mesajı yalnızca bu cihazdan silinecek. Metin mesajları ve diğer kişilerin kopyaları korunur. Bu işlem geri alınamaz.';
+  }
+
+  @override
+  String storage_cleanup_result(int arg1, String arg2) {
+    return '$arg1 kayıt silindi · $arg2 alan boşaltıldı';
+  }
+
+  @override
+  String storage_cleanup_failed(int arg1) {
+    return '$arg1 kayıt silinemedi. Diğer dosyalar güncellendi; yeniden deneyebilirsiniz.';
+  }
 }

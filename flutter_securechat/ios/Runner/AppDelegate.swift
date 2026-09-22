@@ -8,6 +8,7 @@ import firebase_messaging
 import LocalAuthentication
 import SQLCipher
 import UserNotifications
+import WebRTC
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -214,7 +215,12 @@ import UserNotifications
     } else {
       callIntegration.reportOutgoing(callId: callId, peerName: systemPeerName, hasVideo: hasVideo) { error in
         if let error = error {
-          result(FlutterError(code: "CALLKIT_OUTGOING_FAILED", message: error.localizedDescription, details: nil))
+          let nativeError = error as NSError
+          result(FlutterError(
+            code: "CALLKIT_OUTGOING_FAILED",
+            message: error.localizedDescription,
+            details: ["domain": nativeError.domain, "code": nativeError.code]
+          ))
         } else {
           result(nil)
         }
@@ -494,11 +500,21 @@ final class SecureChatCallTonePlayer: NSObject, AVAudioPlayerDelegate {
 }
 
 final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
+  typealias TransactionRequester = (CXTransaction, @escaping (Error?) -> Void) -> Void
+
   var onAction: ((String, String) -> Void)?
   private var provider: CXProvider?
-  private let controller = CXCallController()
+  private let requestTransaction: TransactionRequester
   private var uuidByCallId: [String: UUID] = [:]
   private var callIdByUuid: [UUID: String] = [:]
+
+  init(requestTransaction: TransactionRequester? = nil) {
+    let controller = CXCallController()
+    self.requestTransaction = requestTransaction ?? { transaction, completion in
+      controller.request(transaction, completion: completion)
+    }
+    super.init()
+  }
 
   func initialize() {
     guard provider == nil else { return }
@@ -525,7 +541,12 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
     update.remoteHandle = CXHandle(type: .generic, value: peerName)
     update.localizedCallerName = peerName
     update.hasVideo = hasVideo
-    provider?.reportNewIncomingCall(with: uuid, update: update, completion: completion)
+    provider?.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
+      DispatchQueue.main.async {
+        if error != nil { self?.forget(uuid: uuid) }
+        completion(error)
+      }
+    }
   }
 
   func reportOutgoing(
@@ -539,7 +560,14 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
     let handle = CXHandle(type: .generic, value: peerName)
     let action = CXStartCallAction(call: uuid, handle: handle)
     action.isVideo = hasVideo
-    controller.request(CXTransaction(action: action), completion: completion)
+    requestTransaction(CXTransaction(action: action)) { [weak self] error in
+      DispatchQueue.main.async {
+        // A rejected start never created a system call. Forget it before Dart
+        // runs cleanup, or CXEndCallAction fails with unknownCallUUID as well.
+        if error != nil { self?.forget(uuid: uuid) }
+        completion(error)
+      }
+    }
   }
 
   func setActive(callId: String) {
@@ -552,9 +580,14 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
       completion(nil)
       return
     }
-    controller.request(CXTransaction(action: CXEndCallAction(call: uuid))) { [weak self] error in
-      if error == nil { self?.forget(uuid: uuid) }
-      completion(error)
+    requestTransaction(CXTransaction(action: CXEndCallAction(call: uuid))) { [weak self] error in
+      DispatchQueue.main.async {
+        let nativeError = error as NSError?
+        let alreadyEnded = nativeError?.domain == CXErrorDomainRequestTransaction &&
+          nativeError?.code == CXErrorCodeRequestTransactionError.Code.unknownCallUUID.rawValue
+        if error == nil || alreadyEnded { self?.forget(uuid: uuid) }
+        completion(alreadyEnded ? nil : error)
+      }
     }
   }
 
@@ -564,6 +597,10 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   }
 
   func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+    guard configureCallAudio() else {
+      action.fail()
+      return
+    }
     if let callId = callIdByUuid[action.callUUID] { onAction?("answer", callId) }
     action.fulfill()
   }
@@ -582,8 +619,36 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   }
 
   func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
+    guard configureCallAudio() else {
+      action.fail()
+      if let callId = callIdByUuid[action.callUUID] { onAction?("end", callId) }
+      forget(uuid: action.callUUID)
+      return
+    }
     provider.reportOutgoingCall(with: action.callUUID, startedConnectingAt: Date())
     action.fulfill()
+  }
+
+  private func configureCallAudio() -> Bool {
+    let audio = RTCAudioSession.sharedInstance()
+    audio.lockForConfiguration()
+    defer { audio.unlockForConfiguration() }
+    do {
+      // Configure only; CallKit activates the session at elevated priority.
+      try audio.setCategory(.playAndRecord, with: [.allowBluetooth])
+      try audio.setMode(.voiceChat)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
+    RTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession)
+  }
+
+  func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
+    RTCAudioSession.sharedInstance().audioSessionDidDeactivate(audioSession)
   }
 
   private func remember(callId: String) -> UUID {
