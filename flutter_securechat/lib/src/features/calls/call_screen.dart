@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
+import '../../contacts/contact_service.dart';
 import '../../media/call_manager.dart';
 import '../../media/call_models.dart';
 import '../../services/app_container.dart';
@@ -38,6 +41,8 @@ class _CallScreenState extends State<CallScreen> {
   Timer? _ticker;
   CallSession? _session;
   bool _started = false;
+  String? _identityGroupId;
+  Stream<Map<String, ContactIdentity>>? _memberIdentities;
 
   @override
   void didChangeDependencies() {
@@ -102,194 +107,375 @@ class _CallScreenState extends State<CallScreen> {
     final isIncomingRinging =
         session.direction == CallDirection.incoming &&
         session.state == CallState.ringing;
-    return Scaffold(
-      backgroundColor: const Color(0xFF0D1014),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
+    final video = session.callType == CallType.video;
+    final showMedia = !session.isTerminal && !isIncomingRinging;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: const Color(0xFF101214),
       ),
-      body: SafeArea(
-        child: Stack(
+      child: Scaffold(
+        backgroundColor: const Color(0xFF101214),
+        body: Stack(
           fit: StackFit.expand,
           children: [
-            if (session.isGroupCall && session.callType == CallType.video)
-              _groupVideoGrid(session, calls)
-            else if (session.callType == CallType.video &&
+            if (video &&
+                !session.isGroupCall &&
+                showMedia &&
                 session.isRemoteCameraEnabled)
-              VideoStreamView(renderer: calls.media.remoteRenderer),
-            Column(
-              children: [
-                const Spacer(),
-                if ((session.callType == CallType.voice ||
-                        !session.isRemoteCameraEnabled) &&
-                    !session.isGroupCall)
-                  GeneratedAvatar(name: session.peerName, size: 104),
-                const SizedBox(height: 24),
-                Text(
-                  session.peerName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
+              VideoStreamView(
+                key: const ValueKey('call-remote-video'),
+                renderer: calls.media.remoteRenderer,
+                placeholder: const SizedBox.expand(),
+              ),
+            SafeArea(
+              child: Column(
+                children: [
+                  _header(session, calls),
+                  if (session.state == CallState.reconnecting)
+                    _reconnectionNotice(session, calls),
+                  Expanded(
+                    key: const ValueKey('call-content'),
+                    child: session.isGroupCall && video && showMedia
+                        ? _groupVideoGrid(session, calls)
+                        : _previewArea(session, calls, showMedia: showMedia),
                   ),
-                ),
-                if (session.isGroupCall)
-                  Text(
-                    '${context.l10n.participant_count(session.connectedPeerIds.length + 1)} · '
-                    '${session.isSfuMode ? 'SFU' : 'mesh'}',
-                    style: const TextStyle(color: Color(0xFFCDD3DB)),
+                  ColoredBox(
+                    key: const ValueKey('call-controls'),
+                    color: const Color(0xE6101214),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: session.isTerminal
+                          ? Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Center(
+                                child: _round(
+                                  Icons.close,
+                                  Colors.white24,
+                                  Colors.white,
+                                  label: context.l10n.action_close,
+                                  onTap: () => Navigator.of(context).maybePop(),
+                                ),
+                              ),
+                            )
+                          : isIncomingRinging
+                          ? _incomingControls(calls)
+                          : _activeControls(session, calls),
+                    ),
                   ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CallQualityIndicator(quality: session.state.callQuality),
-                    const SizedBox(width: 8),
-                    Text(
-                      _status(context, session, calls.currentDuration),
-                      style: const TextStyle(color: Color(0xFFCDD3DB)),
-                    ),
-                  ],
-                ),
-                const Spacer(),
-                if (isIncomingRinging)
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _round(
-                          Icons.call_end,
-                          const Color(0xFFFF5E87),
-                          Colors.white,
-                          label: context.l10n.reject,
-                          onTap: calls.rejectCall,
-                        ),
-                        _round(
-                          Icons.call,
-                          const Color(0xFF36B37E),
-                          Colors.white,
-                          label: context.l10n.answer,
-                          onTap: calls.acceptCall,
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  _activeControls(session, calls),
-              ],
+                ],
+              ),
             ),
-            if (!session.isGroupCall &&
-                session.callType == CallType.video &&
-                session.isCameraEnabled)
-              Positioned(
-                right: 16,
-                top: session.state == CallState.reconnecting ? 132 : 16,
-                width: 112,
-                height: 168,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: VideoStreamView(
-                    renderer: calls.media.localRenderer,
-                    mirror: session.isUsingFrontCamera,
-                  ),
-                ),
-              ),
-            if (session.state == CallState.reconnecting)
-              Positioned(
-                left: 16,
-                right: 16,
-                top: 8,
-                child: ReconnectingBanner(
-                  label: context.l10n.reconnecting,
-                  disableVideoLabel:
-                      session.callType == CallType.video &&
-                          session.isCameraEnabled
-                      ? context.l10n.weak_connection_disable_video
-                      : null,
-                  onDisableVideo:
-                      session.callType == CallType.video &&
-                          session.isCameraEnabled
-                      ? () => _runCallAction(calls.toggleCamera)
-                      : null,
-                ),
-              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _groupVideoGrid(CallSession session, CallManager calls) {
-    final groupMedia = calls.groupMedia;
-    if (groupMedia == null) return const SizedBox.shrink();
-    final entries = groupMedia.remoteRenderers.entries.toList();
-    final renderers = [
-      if (session.isCameraEnabled)
-        (context.l10n.you, groupMedia.localRenderer, true),
-      ...entries.map(
-        (entry) => (
-          entry.key.startsWith('sfu:') ? entry.key.substring(4) : entry.key,
-          entry.value,
-          false,
-        ),
-      ),
-    ];
-    if (renderers.isEmpty) return const SizedBox.shrink();
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 72, 12, 190),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: renderers.length == 1 ? 1 : 2,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 0.78,
-      ),
-      itemCount: renderers.length,
-      itemBuilder: (context, index) {
-        final entry = renderers[index];
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              VideoStreamView(
-                renderer: entry.$2,
-                mirror: entry.$3 && session.isUsingFrontCamera,
-              ),
-              Positioned(
-                left: 10,
-                bottom: 8,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(12),
+  Widget _avatar(CallSession session) => Center(
+    child: LayoutBuilder(
+      builder: (context, constraints) => constraints.maxHeight < 80
+          ? const SizedBox.expand()
+          : GeneratedAvatar(
+              name: session.peerName,
+              isGroup: session.isGroupCall,
+              size: math.min(104, constraints.maxHeight * .6),
+            ),
+    ),
+  );
+
+  Widget _header(CallSession session, CallManager calls) => ColoredBox(
+    key: const ValueKey('call-header'),
+    color: const Color(0xD9101214),
+    child: Padding(
+      padding: const EdgeInsetsDirectional.fromSTEB(4, 8, 16, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const BackButton(color: Colors.white),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  session.peerName,
+                  key: const ValueKey('call-peer-name'),
+                  maxLines: MediaQuery.sizeOf(context).height < 400 ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    if (session.state == CallState.active ||
+                        session.state == CallState.reconnecting) ...[
+                      CallQualityIndicator(quality: session.state.callQuality),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        _status(context, session, calls.currentDuration),
+                        key: const ValueKey('call-status'),
+                        maxLines: MediaQuery.sizeOf(context).height < 400
+                            ? 1
+                            : 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFFCDD3DB),
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
-                    child: Text(
-                      entry.$1,
-                      style: const TextStyle(color: Colors.white),
+                  ],
+                ),
+                if (session.isGroupCall)
+                  Text(
+                    context.l10n.participant_count(
+                      session.connectedPeerIds.length + 1,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFFCDD3DB),
+                      fontSize: 13,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _reconnectionNotice(CallSession session, CallManager calls) =>
+      ColoredBox(
+        key: const ValueKey('call-reconnection-notice'),
+        color: const Color(0xFF633B16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: session.callType == CallType.video && session.isCameraEnabled
+              ? TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  icon: const Icon(Icons.videocam_off_outlined, size: 20),
+                  onPressed: () => _runCallAction(calls.toggleCamera),
+                  label: Text(
+                    context.l10n.weak_connection_disable_video,
+                    maxLines: MediaQuery.sizeOf(context).height < 400 ? 1 : 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )
+              : const SizedBox(width: double.infinity, height: 2),
+        ),
+      );
+
+  Widget _previewArea(
+    CallSession session,
+    CallManager calls, {
+    required bool showMedia,
+  }) {
+    final video = session.callType == CallType.video;
+    final showPreview =
+        showMedia && !session.isGroupCall && video && session.isCameraEnabled;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = math.min(
+          160.0,
+          math.max(0.0, constraints.maxHeight - 16),
+        );
+        final width = math.min(104.0, height * 2 / 3);
+        final fallback = showPreview && height >= 48
+            ? Padding(
+                padding: EdgeInsets.only(top: height + 16),
+                child: _avatar(session),
+              )
+            : _avatar(session);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (showMedia &&
+                !session.isGroupCall &&
+                video &&
+                session.isRemoteCameraEnabled)
+              ValueListenableBuilder(
+                valueListenable: calls.media.remoteRenderer,
+                builder: (context, value, _) =>
+                    calls.media.remoteRenderer.hasVideoFrame
+                    ? const SizedBox.expand()
+                    : fallback,
+              )
+            else
+              fallback,
+            if (showPreview && height >= 48)
+              Align(
+                alignment: AlignmentDirectional.topEnd,
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.only(top: 8, end: 12),
+                  child: SizedBox(
+                    key: const ValueKey('call-local-preview'),
+                    width: width,
+                    height: height,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: ColoredBox(
+                        color: const Color(0xFF292D31),
+                        child: VideoStreamView(
+                          renderer: calls.media.localRenderer,
+                          mirror: session.isUsingFrontCamera,
+                          placeholder: const Center(
+                            child: Icon(
+                              Icons.videocam_outlined,
+                              color: Colors.white54,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+          ],
         );
       },
     );
   }
 
+  Widget _incomingControls(CallManager calls) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _round(
+          Icons.call_end,
+          const Color(0xFFD93951),
+          Colors.white,
+          label: context.l10n.reject,
+          onTap: calls.rejectCall,
+        ),
+        _round(
+          Icons.call,
+          const Color(0xFF168754),
+          Colors.white,
+          label: context.l10n.answer,
+          onTap: calls.acceptCall,
+        ),
+      ],
+    ),
+  );
+
+  Widget _groupVideoGrid(CallSession session, CallManager calls) {
+    final groupMedia = calls.groupMedia;
+    if (groupMedia == null) return _avatar(session);
+    final entries = groupMedia.remoteRenderers.entries
+        .take(maxGroupCallParticipants - 1)
+        .toList();
+    final renderers = [
+      (context.l10n.you, groupMedia.localRenderer, true),
+      ...entries.map((entry) => (entry.key, entry.value, false)),
+    ];
+    if (_identityGroupId != session.groupId) {
+      _identityGroupId = session.groupId;
+      _memberIdentities = session.groupId == null
+          ? null
+          : AppContainerScope.of(
+              context,
+            ).groupRuntime?.service.watchMemberIdentities(session.groupId!);
+    }
+    return StreamBuilder<Map<String, ContactIdentity>>(
+      stream: _memberIdentities,
+      builder: (context, snapshot) => LayoutBuilder(
+        builder: (context, constraints) => GridView.builder(
+          key: const ValueKey('call-group-grid'),
+          padding: const EdgeInsets.all(8),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: renderers.length == 1
+                ? 1
+                : constraints.maxWidth >= 600
+                ? 3
+                : 2,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: 0.78,
+          ),
+          itemCount: renderers.length,
+          itemBuilder: (context, index) {
+            final entry = renderers[index];
+            final identity = snapshot.data?[entry.$1];
+            final name = entry.$3
+                ? context.l10n.you
+                : identity?.displayName.isNotEmpty == true &&
+                      identity!.displayName != entry.$1
+                ? identity.displayName
+                : context.l10n.group_unknown_member;
+            return ClipRRect(
+              key: ValueKey('call-participant-$index'),
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (!entry.$3 || session.isCameraEnabled)
+                    VideoStreamView(
+                      renderer: entry.$2,
+                      mirror: entry.$3 && session.isUsingFrontCamera,
+                      placeholder: ColoredBox(
+                        color: const Color(0xFF292D31),
+                        child: Center(
+                          child: GeneratedAvatar(name: name, size: 48),
+                        ),
+                      ),
+                    )
+                  else
+                    ColoredBox(
+                      color: const Color(0xFF292D31),
+                      child: Center(
+                        child: GeneratedAvatar(name: name, size: 48),
+                      ),
+                    ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(color: Color(0xCC101214)),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _activeControls(CallSession session, CallManager calls) {
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       child: Wrap(
         alignment: WrapAlignment.center,
-        spacing: 22,
-        runSpacing: 18,
+        spacing: 8,
+        runSpacing: 8,
         children: [
           _round(
             session.isMuted ? Icons.mic_off : Icons.mic,
@@ -325,12 +511,12 @@ class _CallScreenState extends State<CallScreen> {
               Colors.white12,
               Colors.white,
               label: context.l10n.flip_camera,
-              onTap: calls.switchCamera,
+              onTap: session.isCameraEnabled ? calls.switchCamera : null,
               haptic: true,
             ),
           _round(
             Icons.call_end,
-            const Color(0xFFFF5E87),
+            const Color(0xFFD93951),
             Colors.white,
             label: context.l10n.end_call,
             onTap: calls.endCall,
@@ -346,26 +532,39 @@ class _CallScreenState extends State<CallScreen> {
     Color bg,
     Color fg, {
     required String label,
-    required FutureOr<void> Function() onTap,
+    required FutureOr<void> Function()? onTap,
     bool haptic = false,
     bool? toggled,
   }) {
+    final VoidCallback? press = onTap == null
+        ? null
+        : () {
+            if (haptic) unawaited(SecureChatHaptics.longPress());
+            _runCallAction(onTap);
+          };
     return Semantics(
       button: true,
+      enabled: onTap != null,
       label: label,
       // Ac/kapa kontrolleri durumlarini da bildirmeli: yalniz ikon degisimi
       // TalkBack kullanicisina hicbir sey soylemiyor, ayrica erisilebilirlik
       // agacinda durum gorunmedigi icin otomatik testle de dogrulanamiyordu.
       toggled: toggled,
-      child: InkResponse(
-        onTap: () {
-          if (haptic) unawaited(SecureChatHaptics.longPress());
-          _runCallAction(onTap);
-        },
-        child: CircleAvatar(
-          radius: 30,
-          backgroundColor: bg,
-          child: Icon(icon, color: fg),
+      excludeSemantics: true,
+      onTap: press,
+      child: Tooltip(
+        message: label,
+        child: IconButton(
+          onPressed: press,
+          style: IconButton.styleFrom(
+            backgroundColor: bg,
+            foregroundColor: fg,
+            fixedSize: const Size(52, 52),
+            minimumSize: const Size(52, 52),
+            maximumSize: const Size(52, 52),
+            padding: EdgeInsets.zero,
+          ),
+          icon: Icon(icon),
         ),
       ),
     );

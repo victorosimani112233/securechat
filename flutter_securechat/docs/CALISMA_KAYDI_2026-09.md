@@ -591,3 +591,21 @@ bağlı cihaz kapalı süreç canlı FCM tanısı                     wake_no_hi
 - `1.0.79+79` APK mevcut cihaz test imzasıyla bağlı Samsung'a `adb install -r`
   ile yüklendi; sürüm doğrulandı, soğuk açılış başarılı ve push kaydı yeniden
   gönderildi. Veri silinmedi. Yeni iki telefonlu arama denemesi henüz yapılmadı.
+
+### 22 Eylül arama ekranlarının yerleşim incelemesi
+
+- Görüntünün ortasına çizilen kişi adı ve süre üst banda taşındı. Kontroller
+  alt güvenli alana, kamera önizlemesi bu iki alanın arasına yerleştirildi.
+- Dar/yatay ekran, yüzde 200 yazı, bağlantı yenileme, kamera kapalı, gelen ve
+  bitmiş arama durumları düzenlendi. Kamera kapatılınca düğmeler kaymıyor;
+  gelen görüntülü aramada cevap verilmeden önizleme gösterilmiyor.
+- Grup görüntüleri kontrollerin altında kalmadan kaydırılıyor; etiketler
+  sınırlandırıldı, teknik mesh/SFU bilgisi ve ham yönlendirme kimlikleri kaldırıldı.
+- 17 yeni UI testi ve isteğe bağlı ekran görüntüsü çıktısı eklendi. Test
+  görüntüleri gerçek kamera akışı kanıtı değildir; iOS native derlemesi bu
+  Linux ortamında yapılmadı. Değişiklikler, gerekçeler ve sınırlar:
+  [CALL_SCREEN_LAYOUT_2026-09-22.md](CALL_SCREEN_LAYOUT_2026-09-22.md).
+- Son kaynakla 578 Flutter testi geçti; statik analiz temiz. `1.0.80+80`
+  Android release derlemesi mevcut cihaz test imzasıyla doğrulandı ve bağlı
+  Samsung'a veriler korunarak yüklendi. Gerçek iki cihazlı görüntülü arama
+  denemesi ve native iOS derlemesi bu doğrulamanın parçası değildir.
