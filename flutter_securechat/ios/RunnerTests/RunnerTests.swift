@@ -7,6 +7,41 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testProximityFollowsVoiceAudioRouteAndEndsWithCall() {
+    var receiver = true
+    var transitions: [Bool] = []
+    let proximity = SecureChatProximityController(
+      setMonitoring: { transitions.append($0) }, isReceiver: { receiver }
+    )
+    let call = UUID()
+    proximity.start(call, hasVideo: false)
+    XCTAssertTrue(transitions.isEmpty)
+    proximity.setAudioActive(true)
+    proximity.refresh()
+    receiver = false
+    proximity.refresh()
+    receiver = true
+    proximity.refresh()
+    proximity.end(call)
+    proximity.reset()
+    XCTAssertEqual(transitions, [true, false, true, false])
+  }
+
+  func testVideoAndInactiveAudioNeverEnableProximity() {
+    var transitions: [Bool] = []
+    let proximity = SecureChatProximityController(
+      setMonitoring: { transitions.append($0) }, isReceiver: { true }
+    )
+    let video = UUID()
+    proximity.start(video, hasVideo: true)
+    proximity.setAudioActive(true)
+    XCTAssertTrue(transitions.isEmpty)
+    proximity.end(video)
+    proximity.start(UUID(), hasVideo: false)
+    proximity.setAudioActive(false)
+    XCTAssertEqual(transitions, [true, false])
+  }
+
   func testContactsFetchIncludesFormatterDescriptorAndPhoneNumbers() {
     let formatterKeys = CNContactFormatter.descriptorForRequiredKeys(for: .fullName)
     XCTAssertTrue(SecureChatContactsAccess.keysToFetch.contains { $0.isEqual(formatterKeys) })

@@ -247,7 +247,6 @@ fun Application.configureWebSocket(
                                 text,
                                 connectionManager,
                                 userRegistry,
-                                byteSize,
                                 if (isServiceAccount) this else null,
                             )
                         }
@@ -411,13 +410,6 @@ private suspend fun handleMessage(
     rawMessageJson: String,
     connectionManager: ConnectionManager,
     userRegistry: UserRegistry,
-    /**
-     * Cerceve boyutu UTF-8 byte cinsindendir ve frame okunurken zaten
-     * hesaplanmistir. String uzunlugu kullanmak cok byte'li karakterlerde
-     * gercek boyutu oldugundan kucuk gosterir; byte kotasi bu yuzden
-     * asilabiliyordu.
-     */
-    frameByteSize: Int = rawMessageJson.toByteArray(Charsets.UTF_8).size,
     /**
      * Yalniz servis hesabi baglantilarinda doludur. Bot kuyrugunu ancak
      * mesajin sunucu tarafindan gercekten kabul edildigi bilgisiyle
@@ -761,19 +753,6 @@ private suspend fun handleMessage(
         if (recipientId == "broadcast") {
             logger.warn("[!] Disabled broadcast attempt")
             return
-        }
-
-        // GUVENLIK: file_transfer chunk'lari icin byte-rate limit (5 MB/dk per user).
-        // Buyuk dosya gondermede mesaj boyutunu sayar; pencerede 5MB'i asarsa drop edilir.
-        // Mesh modda fan-out sirasinda her chunk N kere bandwidth tuketir, bu yuzden kritik.
-        if (type == "file_transfer") {
-            val chunkSize = frameByteSize
-            if (!RateLimiter.allowBytes("file_chunk_bytes", senderId, chunkSize)) {
-                AuditLog.log(userId = senderId, eventType = "FILE_BYTE_RATE_LIMIT",
-                    metadata = mapOf("chunk_bytes" to chunkSize.toString()))
-                logger.warn("[!] File byte rate limit asildi: chunk=$chunkSize")
-                return
-            }
         }
 
         // Alici gercek bir hesap olmali. Aksi halde uydurulmus UUID'ler icin

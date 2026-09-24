@@ -86,6 +86,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("androidx.core:core:1.18.0")
     implementation("androidx.biometric:biometric:1.1.0")

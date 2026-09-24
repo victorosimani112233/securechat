@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:flutter_securechat/src/core/signal_message.dart';
@@ -6,6 +8,62 @@ import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
 
 void main() {
+  test('screen lock retains call transport until the call ends', () async {
+    final signaling = InMemorySignalingService();
+    final calls = StreamController<bool>();
+    final lifecycle = AppLifecycleCoordinator(
+      session: SessionStore(userId: 'me', accessToken: 'access'),
+      signaling: signaling,
+      signalingUrl: 'wss://test.invalid',
+      foregroundMaintenance: () async {},
+      refreshPushRegistration: () async {},
+      callActivity: calls.stream,
+    );
+    addTearDown(signaling.dispose);
+    addTearDown(calls.close);
+    addTearDown(lifecycle.dispose);
+    await lifecycle.enterForeground();
+    calls.add(true);
+    await Future<void>.delayed(Duration.zero);
+    await lifecycle.enterBackground();
+    await lifecycle.enterBackground();
+    expect(lifecycle.isForeground, isFalse);
+    expect(signaling.currentStatus.isConnected, isTrue);
+    expect(
+      signaling.sentMessages.whereType<PresenceUpdateSignal>().last.isOnline,
+      isFalse,
+    );
+    await lifecycle.enterForeground();
+    expect(signaling.currentStatus.isConnected, isTrue);
+    await lifecycle.enterBackground();
+    calls.add(false);
+    await Future<void>.delayed(Duration.zero);
+    expect(signaling.currentStatus.isConnected, isFalse);
+  });
+
+  test('disposal releases transport even with a background call', () async {
+    final signaling = InMemorySignalingService();
+    final calls = StreamController<bool>();
+    final lifecycle = AppLifecycleCoordinator(
+      session: SessionStore(userId: 'me', accessToken: 'access'),
+      signaling: signaling,
+      signalingUrl: 'wss://test.invalid',
+      foregroundMaintenance: () async {},
+      refreshPushRegistration: () async {},
+      callActivity: calls.stream,
+    );
+    addTearDown(signaling.dispose);
+    addTearDown(calls.close);
+    addTearDown(lifecycle.dispose);
+    await lifecycle.enterForeground();
+    calls.add(true);
+    await Future<void>.delayed(Duration.zero);
+    await lifecycle.enterBackground();
+    expect(signaling.currentStatus.isConnected, isTrue);
+    await lifecycle.dispose();
+    expect(signaling.currentStatus.isConnected, isFalse);
+  });
+
   test(
     'resume refreshes external state before opening socket or maintenance',
     () async {

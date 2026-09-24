@@ -18,6 +18,47 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'background call keeps network monitoring and releases it on hangup',
+    () async {
+      final gateway = _FakeConnectivityGateway([NetworkTransport.wifi]);
+      final monitor = SystemNetworkMonitor(gateway: gateway);
+      final signaling = InMemorySignalingService();
+      final calls = StreamController<bool>();
+      final lifecycle = AppLifecycleCoordinator(
+        session: SessionStore(userId: 'me', accessToken: 'access'),
+        signaling: signaling,
+        signalingUrl: 'wss://test.invalid',
+        foregroundMaintenance: () async {},
+        refreshPushRegistration: () async {},
+        networkMonitor: monitor,
+        callActivity: calls.stream,
+      );
+      addTearDown(signaling.dispose);
+      addTearDown(monitor.dispose);
+      addTearDown(calls.close);
+      addTearDown(lifecycle.dispose);
+      await lifecycle.enterForeground();
+      calls.add(true);
+      await _eventLoop();
+      await lifecycle.enterBackground();
+      gateway.emit([NetworkTransport.none]);
+      await _eventLoop();
+      expect(signaling.currentStatus.isConnected, isFalse);
+      expect(signaling.currentUserId, 'me');
+      gateway.emit([NetworkTransport.cellular]);
+      await _eventLoop();
+      expect(signaling.currentStatus.isConnected, isTrue);
+      calls.add(false);
+      await _eventLoop();
+      expect(signaling.currentStatus.isConnected, isFalse);
+      final changes = List<bool>.of(signaling.networkChanges);
+      gateway.emit([NetworkTransport.wifi]);
+      await _eventLoop();
+      expect(signaling.networkChanges, changes);
+    },
+  );
+
+  test(
     'system monitor reports network kind and suppresses duplicate events',
     () async {
       final gateway = _FakeConnectivityGateway([NetworkTransport.wifi]);

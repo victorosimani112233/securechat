@@ -487,27 +487,33 @@ class WebSocketRoutingE2ETest {
     // ---------------- Kota ----------------
 
     @Test
-    fun `file transfer chunks are charged against the byte quota`() = e2e {
+    fun `file transfers exceed five MiB per minute without losing chunks`() = e2e {
         val (sender, senderToken) = newAccount()
         val (receiver, _) = newAccount()
         val session = connect(sender, senderToken)
 
-        // 5 MB/dk kotasi: 128 KB'lik chunk'lardan 40'tan fazlasi gecmemeli.
-        val chunk = "A".repeat(120 * 1024)
-        repeat(60) {
+        // Six MiB exceeds the removed byte quota, but fits the separate
+        // offline queue. Pace frames below the general message flood limit.
+        val chunk = "A".repeat(128 * 1024)
+        repeat(48) {
             session.send(
                 Frame.Text(
                     """{"type":"file_transfer","recipientId":"$receiver",""" +
                         """"messageId":"${UUID.randomUUID()}","ciphertext":"$chunk"}""",
                 ),
             )
+            delay(60)
         }
-        delay(1_500)
+        withTimeoutOrNull(4_000) {
+            while ((RedisManager.use { it.zcard(ServerPrivacy.queueKey("file", receiver)) } ?: 0L) != 48L) {
+                delay(50)
+            }
+        }
 
         val queued = RedisManager.use { jedis ->
             jedis.zcard(ServerPrivacy.queueKey("file", receiver))
         } ?: 0L
-        assertTrue(queued in 1..45, "kuyruga giren chunk sayisi: $queued")
+        assertEquals(48L, queued, "all chunks must pass the former five MiB quota")
         runCatching { session.close() }
     }
 

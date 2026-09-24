@@ -42,7 +42,6 @@ object RateLimiter {
         "sealed_relay_ip" to RateLimit(600, 60),      // anonymous ingress flood bound
         "ws_message" to RateLimit(50, 1),             // 50 msg/sn per userId (DoS koruma)
         "ws_connect" to RateLimit(10, 1),             // 10 yeni WS baglanti/sn per IP
-        "file_chunk_bytes" to RateLimit(5_242_880, 60), // 5 MB/dk per userId (bytes window)
         "otp_request" to RateLimit(5, 600),           // 5 req/10dk per IP (OTP istegi)
         "otp_verify" to RateLimit(20, 600),        // 20 req/10dk per IP (brute force korumasi zaten OTP servisinde)
         "presence_subscribe" to RateLimit(120, 60)
@@ -85,7 +84,7 @@ object RateLimiter {
     private val memberRandom = java.security.SecureRandom()
 
     /**
-     * Byte-tabanli rate limit — file transfer chunk'larinda kullanilir.
+     * Agirlikli rate limit; yalniz LIMITS icinde tanimli politikalara uygulanir.
      * Her cagride byteSize kadar quota dusurur; pencerede toplam asarsa false.
      */
     fun allowBytes(endpoint: String, identifier: String, byteSize: Int): Boolean =

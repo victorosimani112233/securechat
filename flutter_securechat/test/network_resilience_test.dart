@@ -14,6 +14,75 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/storage_at_rest.dart';
 
 void main() {
+  test('bulk frames are paced without delaying interactive signals', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    final events = <SignalMessage>[];
+    final allReceived = Completer<void>();
+    server.listen((request) async {
+      final socket = await WebSocketTransformer.upgrade(request);
+      addTearDown(socket.close);
+      socket.listen((event) {
+        events.add(SignalMessage.decode(event as String));
+        if (events.length == 7 && !allReceived.isCompleted) {
+          allReceived.complete();
+        }
+      });
+    });
+    final signaling = WebSocketSignalingService();
+    addTearDown(signaling.dispose);
+    await signaling.connect(
+      userId: 'me',
+      url: 'ws://${server.address.address}:${server.port}',
+      accessToken: 'token',
+    );
+    FileTransferSignal chunk(int index, {String data = 'opaque'}) =>
+        FileTransferSignal(
+          senderId: 'me',
+          recipientId: 'peer',
+          timestamp: DateTime.now(),
+          fileName: 'attachment.bin',
+          mimeType: 'application/octet-stream',
+          fileSize: 6,
+          data: data,
+          transferId: 'transfer',
+          chunkIndex: index,
+          totalChunks: 6,
+        );
+    final clock = Stopwatch()..start();
+    final pending = List.generate(6, (index) => signaling.send(chunk(index)));
+    expect(
+      await signaling.send(
+        TypingIndicatorSignal(
+          senderId: 'me',
+          recipientId: 'peer',
+          timestamp: DateTime.now(),
+          isTyping: true,
+        ),
+      ),
+      isTrue,
+    );
+    expect(await Future.wait(pending), everyElement(isTrue));
+    expect(clock.elapsedMilliseconds, greaterThanOrEqualTo(240));
+    await allReceived.future.timeout(const Duration(seconds: 5));
+    expect(
+      events.indexWhere((event) => event is TypingIndicatorSignal),
+      lessThan(5),
+    );
+    expect(
+      events.whereType<FileTransferSignal>().map((event) => event.chunkIndex),
+      [0, 1, 2, 3, 4, 5],
+    );
+    expect(
+      await signaling.send(chunk(0, data: 'x' * SignalMessage.maxEncodedBytes)),
+      isFalse,
+    );
+    final stale = signaling.send(chunk(0));
+    await signaling.disconnect();
+    expect(await stale, isFalse);
+    expect(events, hasLength(7));
+  });
+
   test(
     'offline queue persists encrypted signals and flushes in order',
     () async {

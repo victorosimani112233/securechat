@@ -759,6 +759,9 @@ class AppContainer {
         session: session,
         signaling: signaling,
         signalingUrl: config.signalingUrl,
+        callActivity: callManager.sessions.map(
+          (call) => call != null && !call.isTerminal,
+        ),
         foregroundMaintenance: backgroundRuntime.runForegroundMaintenance,
         refreshLocalState: database.refreshFromDisk,
         refreshPushRegistration: () async {

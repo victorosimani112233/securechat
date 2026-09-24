@@ -8,10 +8,8 @@ import org.junit.jupiter.api.Test
 /**
  * Boyut muhasebesi.
  *
- * Iki ayri bulgu: HTTP govdeleri tavansiz okunuyordu ve WebSocket byte
- * kotasi karakter sayiyordu. Cok byte'li karakterlerde `String.length`
- * gercek boyutun dortte birine kadar dusuk kalir, yani 5 MB/dk kotasi
- * pratikte 20 MB/dk olabiliyordu.
+ * HTTP govdeleri ve WebSocket cerceveleri UTF-8 byte olarak sinirlanir.
+ * Dosyalar parcali aktarilir; dakikalik dosya byte kotasi uygulanmaz.
  *
  * Bu yollar Ktor `ApplicationCall` gerektirdigi ve `ktor-server-test-host`
  * offline aynada bulunmadigi icin burada kaynak duzeyinde sabitlenir;
@@ -57,14 +55,13 @@ class RequestSizeAccountingTest {
     }
 
     @Test
-    fun `the file transfer quota charges the frame byte size`() {
+    fun `file transfers have no per minute byte quota but retain frame and message limits`() {
         val websocket = source("WebSocketRoutes.kt")
-
-        assertTrue(websocket.contains("val chunkSize = frameByteSize"))
-        assertTrue(
-            websocket.contains("""allowBytes("file_chunk_bytes", senderId, chunkSize)"""),
-            "chunk kotasi byte cinsinden dusulmeli",
-        )
+        assertTrue("file_chunk_bytes" !in RateLimiter.LIMITS)
+        assertTrue(!websocket.contains("FILE_BYTE_RATE_LIMIT"))
+        assertTrue(!websocket.contains("file_chunk_bytes"))
+        assertTrue(websocket.contains("byteSize > MAX_MESSAGE_BYTES"))
+        assertTrue(websocket.contains("""RateLimiter.allow("ws_message", userId)"""))
     }
 
     @Test

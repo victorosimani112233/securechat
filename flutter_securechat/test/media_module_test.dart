@@ -680,7 +680,7 @@ void main() {
     expect(signal.encryption, FileTransferManager.groupWireVersion);
     expect(signal.groupId, isNull);
     expect(signal.groupName, isNull);
-    expect(signal.fileSize, manager.chunkSize);
+    expect(signal.fileSize, FileTransferManager.maximumGroupChunkSize);
     expect(signal.fileSize, isNot(4));
     expect(wire, isNot(contains(groupId)));
     expect(wire, isNot(contains('yonetim-plani')));

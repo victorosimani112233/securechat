@@ -93,8 +93,8 @@ class RateLimiterAtomicityIntegrationTest {
     }
 
     @Test
-    fun `byte quota accumulates the transferred size`() {
-        val endpoint = "file_chunk_bytes"
+    fun `weighted quota accumulates cost`() {
+        val endpoint = "ws_message"
         val maxBytes = RateLimiter.LIMITS.getValue(endpoint).maxRequests
         val identifier = identity()
         val chunk = maxBytes / 4
@@ -105,7 +105,7 @@ class RateLimiterAtomicityIntegrationTest {
 
     @Test
     fun `a single oversized transfer is refused without consuming the window`() {
-        val endpoint = "file_chunk_bytes"
+        val endpoint = "ws_message"
         val maxBytes = RateLimiter.LIMITS.getValue(endpoint).maxRequests
         val identifier = identity()
 

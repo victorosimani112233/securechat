@@ -78,14 +78,6 @@ class SettingsScreen extends StatelessWidget {
             ),
             const Divider(),
             _tile(
-              Icons.palette_outlined,
-              l10n.settings_chat_theme,
-              _themeLabel(context, settings?.theme),
-              onTap: service == null
-                  ? null
-                  : () => _showThemeDialog(context, service, settings!.theme),
-            ),
-            _tile(
               Icons.language_outlined,
               l10n.settings_language,
               _languageLabel(settings?.language),
@@ -105,23 +97,14 @@ class SettingsScreen extends StatelessWidget {
                   ? null
                   : () => _showNotificationSheet(context, service, settings!),
             ),
+            const Divider(),
             _tile(
-              Icons.lock_outline,
-              l10n.settings_privacy,
-              _privacySummary(context, settings),
+              Icons.palette_outlined,
+              l10n.settings_chat_theme,
+              _themeLabel(context, settings?.theme),
               onTap: service == null
                   ? null
-                  : () => _showPrivacySheet(context, service, settings!),
-            ),
-            _tile(
-              Icons.alternate_email,
-              l10n.recovery_email_title,
-              l10n.recovery_email_settings,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const RecoveryEnrollmentScreen(),
-                ),
-              ),
+                  : () => _showThemeDialog(context, service, settings!.theme),
             ),
             if (settings != null && service != null) ...[
               SwitchListTile(
@@ -144,17 +127,26 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (value) =>
                     _run(context, () => service.setFullscreenMode(value)),
               ),
-              SwitchListTile(
-                secondary: const Icon(Icons.schedule_send_outlined),
-                title: Text(l10n.settings_scheduled_messages),
-                subtitle: Text(l10n.settings_scheduled_enabled_desc),
-                value: settings.scheduledMessagesEnabled,
-                onChanged: (value) => _run(
-                  context,
-                  () => service.setScheduledMessagesEnabled(value),
+            ],
+            const Divider(),
+            _tile(
+              Icons.lock_outline,
+              l10n.settings_privacy,
+              _privacySummary(context, settings),
+              onTap: service == null
+                  ? null
+                  : () => _showPrivacySheet(context, service, settings!),
+            ),
+            _tile(
+              Icons.alternate_email,
+              l10n.recovery_email_title,
+              l10n.recovery_email_settings,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const RecoveryEnrollmentScreen(),
                 ),
               ),
-            ],
+            ),
             _tile(
               Icons.download_outlined,
               l10n.settings_auto_download,
@@ -167,12 +159,14 @@ class SettingsScreen extends StatelessWidget {
               l10n.settings_call_readiness_desc,
               onTap: () => Navigator.pushNamed(context, '/call-readiness'),
             ),
+            const Divider(),
             _tile(
               Icons.schedule_send_outlined,
               l10n.settings_manage_scheduled,
               l10n.settings_manage_scheduled_desc,
               onTap: () => Navigator.pushNamed(context, '/scheduled-messages'),
             ),
+            const Divider(),
             _tile(
               Icons.sd_storage_outlined,
               l10n.settings_storage_usage,

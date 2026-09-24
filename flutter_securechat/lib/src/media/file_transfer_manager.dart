@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 
@@ -90,7 +91,7 @@ class FileTransferManager {
     required CryptoService crypto,
     required Directory filesDirectory,
     this.chunkSize = 128 * 1024,
-    this.maximumFileSize = 1024 * 1024 * 1024,
+    this.maximumFileSize = 100 * 1024 * 1024,
     this.staleTransferAge = const Duration(minutes: 10),
     GroupRoutingResolver? groupRoutingResolver,
     LocalAeadCryptoService? metadataCrypto,
@@ -142,12 +143,17 @@ class FileTransferManager {
   /// v4 zarfi oldugu gibi tasir. Eski gonderenlerle uyum icin v2/v3
   /// cozumu korunur.
   static const directWireVersion = 'flutter-file-v4-direct';
-  static const groupWireVersion = 'flutter-file-v4-group';
+  // Recipient-specific group routing adds two more encoding layers. Reserve
+  // room for the last chunk's encrypted manifest, including a full caption.
+  static const maximumGroupChunkSize = 48 * 1024;
+  static const groupWireVersion = 'flutter-file-v5-group';
 
   static bool _isRawEnvelopeWire(String? encryption) =>
-      encryption != null && encryption.startsWith('flutter-file-v4-');
+      encryption != null &&
+      (encryption.startsWith('flutter-file-v4-') ||
+          encryption == groupWireVersion);
 
-  /// Tel alanindan sifreli zarfi cikarir. v4 ham, oncesi base64.
+  /// Tel alanindan sifreli zarfi cikarir. v4/v5 ham, oncesi base64.
   static String _decodeEnvelopeField(String value, String? encryption) =>
       _isRawEnvelopeWire(encryption) ? value : utf8.decode(base64Decode(value));
 
@@ -254,8 +260,14 @@ class FileTransferManager {
       return const FileTransferFailure('Signaling baglantisi kurulamadi');
     }
     final transferId = _newId();
-    final totalChunks = max(1, (fileSize + chunkSize - 1) ~/ chunkSize);
-    final reader = _ChunkReader(stream, chunkSize);
+    final transferChunkSize = isGroup
+        ? min(chunkSize, maximumGroupChunkSize)
+        : chunkSize;
+    final totalChunks = max(
+      1,
+      (fileSize + transferChunkSize - 1) ~/ transferChunkSize,
+    );
+    final reader = _ChunkReader(stream, transferChunkSize);
     final safeFileName = sanitizeFileName(fileName);
     final safeMimeType = _normalizeMimeType(mimeType);
     final privateManifest = jsonEncode(
@@ -287,7 +299,7 @@ class FileTransferManager {
       }
       for (var index = 0; index < totalChunks; index++) {
         final bytes = await reader.nextChunk();
-        if (index < totalChunks - 1 && bytes.length != chunkSize) {
+        if (index < totalChunks - 1 && bytes.length != transferChunkSize) {
           return const FileTransferFailure('Dosya beklenenden erken sonlandi');
         }
         bytesSent += bytes.length;
@@ -351,7 +363,7 @@ class FileTransferManager {
             mimeType: 'application/octet-stream',
             // Exact size is authenticated inside the encrypted v2 manifest.
             // The wire exposes only a chunk-aligned upper bound.
-            fileSize: totalChunks * chunkSize,
+            fileSize: totalChunks * transferChunkSize,
             // v4: zarf ham tasiniyor. Zaten ASCII oldugu icin ek base64
             // katmani yalnizca sisme uretiyordu (bkz directWireVersion).
             data: routedEnvelope,
@@ -430,7 +442,11 @@ class FileTransferManager {
     final privateWire =
         signal.encryption?.startsWith('flutter-file-v2-') == true ||
         signal.encryption?.startsWith('flutter-file-v3-') == true ||
-        signal.encryption?.startsWith('flutter-file-v4-') == true;
+        signal.encryption?.startsWith('flutter-file-v4-') == true ||
+        signal.encryption == groupWireVersion;
+    final transferChunkSize = signal.encryption == groupWireVersion
+        ? min(chunkSize, maximumGroupChunkSize)
+        : chunkSize;
     final maximumWireSize = privateWire
         ? maximumFileSize + chunkSize - 1
         : maximumFileSize;
@@ -440,7 +456,8 @@ class FileTransferManager {
         signal.chunkIndex >= signal.totalChunks) {
       return null;
     }
-    if (privateWire && signal.fileSize != signal.totalChunks * chunkSize) {
+    if (privateWire &&
+        signal.fileSize != signal.totalChunks * transferChunkSize) {
       return null;
     }
     final partDirectory = Directory(
@@ -482,6 +499,7 @@ class FileTransferManager {
       // zarfin tasinma bicimi farklidir.
       final privateGroupV3 =
           stored.encryption == 'flutter-file-v3-group' ||
+          stored.encryption == 'flutter-file-v4-group' ||
           stored.encryption == groupWireVersion;
       var resolvedGroupId = signal.groupId;
       var groupEnvelope = envelope;
@@ -519,9 +537,9 @@ class FileTransferManager {
               envelope: groupEnvelope,
             );
       final bytes = base64Decode(plaintext);
-      if (bytes.length > chunkSize ||
+      if (bytes.length > transferChunkSize ||
           (signal.chunkIndex < signal.totalChunks - 1 &&
-              bytes.length != chunkSize)) {
+              bytes.length != transferChunkSize)) {
         await partDirectory.delete(recursive: true);
         return null;
       }
@@ -695,6 +713,11 @@ class FileTransferManager {
   }
 
   Future<bool> _sendWithRetry(FileTransferSignal signal) async {
+    // A successful socket write is not a successful server decode. Never
+    // emit a frame known to be rejected by both server and recipient.
+    if (utf8.encode(signal.encode()).length > SignalMessage.maxEncodedBytes) {
+      return false;
+    }
     for (var attempt = 0; attempt < 4; attempt++) {
       if (attempt > 0) {
         await _signaling.ensureConnected(timeout: const Duration(seconds: 3));
@@ -788,53 +811,41 @@ LocalAeadCryptoService _requireMetadataCrypto(
 }
 
 class _ChunkReader {
-  _ChunkReader(Stream<List<int>> source, this.chunkSize) {
-    _subscription = source.listen(
-      (data) {
-        _pending.addAll(data);
-        _drain();
-      },
-      onError: (Object error, StackTrace stack) {
-        _error = AsyncError(error, stack);
-        _done = true;
-        _drain();
-      },
-      onDone: () {
-        _done = true;
-        _drain();
-      },
-    );
-  }
+  _ChunkReader(Stream<List<int>> source, this.chunkSize)
+    : _source = StreamIterator(source);
 
   final int chunkSize;
-  final List<int> _pending = [];
-  final List<Completer<List<int>>> _waiters = [];
-  late final StreamSubscription<List<int>> _subscription;
-  AsyncError? _error;
+  final StreamIterator<List<int>> _source;
+  List<int> _current = const [];
+  int _offset = 0;
   bool _done = false;
 
-  Future<List<int>> nextChunk() {
-    final completer = Completer<List<int>>();
-    _waiters.add(completer);
-    _drain();
-    return completer.future;
-  }
-
-  void _drain() {
-    while (_waiters.isNotEmpty && (_pending.length >= chunkSize || _done)) {
-      final waiter = _waiters.removeAt(0);
-      final error = _error;
-      if (error != null) {
-        waiter.completeError(error.error, error.stackTrace);
-        continue;
+  Future<List<int>> nextChunk() async {
+    final bytes = Uint8List(chunkSize);
+    var written = 0;
+    // StreamIterator pauses the source between reads, so a slow network
+    // cannot turn a large file into an unbounded in-memory integer list.
+    while (written < chunkSize) {
+      if (_offset == _current.length) {
+        _current = const [];
+        _offset = 0;
+        if (_done || !await _source.moveNext()) {
+          _done = true;
+          break;
+        }
+        _current = _source.current;
       }
-      final take = min(chunkSize, _pending.length);
-      waiter.complete(_pending.sublist(0, take));
-      _pending.removeRange(0, take);
+      final count = min(chunkSize - written, _current.length - _offset);
+      bytes.setRange(written, written + count, _current, _offset);
+      written += count;
+      _offset += count;
     }
+    return written == bytes.length
+        ? bytes
+        : Uint8List.sublistView(bytes, 0, written);
   }
 
-  Future<void> close() => _subscription.cancel();
+  Future<void> close() => _source.cancel();
 }
 
 class _TransferMetadata {

@@ -11,7 +11,7 @@ fi
 cd /root/securechat
 jar=kaynak/server_hardened/signaling-server/build/libs/signaling-server-all.jar
 incoming=signaling-server-all.jar.new
-expected=7a15cfe4d0b1d89ba96bd360549b42669a124d707cf020e79af3ca17ebc5f343
+expected=e96a71b3c8a47f040779ab47928417006e2552ccb8e78c589c1910f838f539d6
 
 for command in java curl python3 sha256sum pgrep flock nohup; do
   command -v "$command" >/dev/null
@@ -72,7 +72,7 @@ for ((i = 0; i < 60; i++)); do
   fi
   if curl --fail --silent --noproxy '*' --max-time 2 \
     "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
-    echo 'HTTP health: OK. Beklenen build: d511597-dirty-group-calls-20260924'
+    echo 'HTTP health: OK. Beklenen build: 403b85c-dirty-media-transfer-20260924'
     if ! python3 collect_push_diagnostics.py; then
       echo 'Saglik kontrolu gecti, tani kontrolu basarisiz. Ciktiyi paylasin.' >&2
       exit 1

@@ -569,6 +569,53 @@ final class SecureChatCallTonePlayer: NSObject, AVAudioPlayerDelegate {
   }
 }
 
+final class SecureChatProximityController {
+  private let setMonitoring: (Bool) -> Void
+  private let isReceiver: () -> Bool
+  private var calls: [UUID: Bool] = [:]
+  private var audioActive = false
+  private var enabled = false
+
+  init(
+    setMonitoring: @escaping (Bool) -> Void = { UIDevice.current.isProximityMonitoringEnabled = $0 },
+    isReceiver: @escaping () -> Bool = {
+      AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInReceiver }
+    }
+  ) {
+    self.setMonitoring = setMonitoring
+    self.isReceiver = isReceiver
+  }
+
+  func start(_ uuid: UUID, hasVideo: Bool) {
+    calls[uuid] = hasVideo
+    refresh()
+  }
+
+  func end(_ uuid: UUID) {
+    calls.removeValue(forKey: uuid)
+    refresh()
+  }
+
+  func setAudioActive(_ active: Bool) {
+    audioActive = active
+    refresh()
+  }
+
+  func refresh() {
+    let next = audioActive && calls.values.contains(false) &&
+      !calls.values.contains(true) && isReceiver()
+    guard next != enabled else { return }
+    setMonitoring(next)
+    enabled = next
+  }
+
+  func reset() {
+    calls.removeAll()
+    audioActive = false
+    refresh()
+  }
+}
+
 final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   typealias TransactionRequester = (CXTransaction, @escaping (Error?) -> Void) -> Void
 
@@ -578,6 +625,9 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   private var uuidByCallId: [String: UUID] = [:]
   private var callIdByUuid: [UUID: String] = [:]
   private var answerCompletions: [UUID: (Error?) -> Void] = [:]
+  private var videoByUuid: [UUID: Bool] = [:]
+  private let proximity = SecureChatProximityController()
+  private var audioRouteObserver: NSObjectProtocol?
 
   init(requestTransaction: TransactionRequester? = nil) {
     let controller = CXCallController()
@@ -585,6 +635,16 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
       controller.request(transaction, completion: completion)
     }
     super.init()
+    audioRouteObserver = NotificationCenter.default.addObserver(
+      forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      self?.proximity.refresh()
+    }
+  }
+
+  deinit {
+    if let observer = audioRouteObserver { NotificationCenter.default.removeObserver(observer) }
+    proximity.reset()
   }
 
   func initialize() {
@@ -608,6 +668,7 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   ) {
     initialize()
     let uuid = remember(callId: callId)
+    videoByUuid[uuid] = hasVideo
     let update = CXCallUpdate()
     update.remoteHandle = CXHandle(type: .generic, value: peerName)
     update.localizedCallerName = peerName
@@ -628,6 +689,7 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   ) {
     initialize()
     let uuid = remember(callId: callId)
+    videoByUuid[uuid] = hasVideo
     let handle = CXHandle(type: .generic, value: peerName)
     let action = CXStartCallAction(call: uuid, handle: handle)
     action.isVideo = hasVideo
@@ -679,6 +741,8 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   }
 
   func providerDidReset(_ provider: CXProvider) {
+    proximity.reset()
+    videoByUuid.removeAll()
     for uuid in Array(answerCompletions.keys) {
       completeAnswer(uuid: uuid, error: answerUnavailable())
     }
@@ -693,6 +757,7 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
       return
     }
     if let callId = callIdByUuid[action.callUUID] { onAction?("answer", callId) }
+    proximity.start(action.callUUID, hasVideo: videoByUuid[action.callUUID] ?? true)
     action.fulfill()
     completeAnswer(uuid: action.callUUID, error: nil)
   }
@@ -732,6 +797,7 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
       forget(uuid: action.callUUID)
       return
     }
+    proximity.start(action.callUUID, hasVideo: action.isVideo)
     provider.reportOutgoingCall(with: action.callUUID, startedConnectingAt: Date())
     action.fulfill()
   }
@@ -752,9 +818,11 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
 
   func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
     RTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession)
+    proximity.setAudioActive(true)
   }
 
   func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
+    proximity.setAudioActive(false)
     RTCAudioSession.sharedInstance().audioSessionDidDeactivate(audioSession)
   }
 
@@ -767,6 +835,8 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   }
 
   private func forget(uuid: UUID) {
+    proximity.end(uuid)
+    videoByUuid.removeValue(forKey: uuid)
     completeAnswer(uuid: uuid, error: answerUnavailable())
     guard let callId = callIdByUuid.removeValue(forKey: uuid) else { return }
     uuidByCallId.removeValue(forKey: callId)

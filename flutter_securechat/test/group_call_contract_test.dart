@@ -23,6 +23,79 @@ const carol = '00000000-0000-4000-8000-000000000003';
 
 void main() {
   test(
+    'an established group call survives without further media state events',
+    () async {
+      final f = await _Network.open(ringTimeout: const Duration(seconds: 1));
+      addTearDown(f.dispose);
+      await f.start(peers: [bob]);
+      await _until(() => f.nodes[bob]!.manager.currentSession != null);
+      await f.nodes[bob]!.manager.acceptCall();
+      await _until(() => f.nodes[alice]!.media.remoteSdp.contains(bob));
+      f.nodes[alice]!.media.states.add(
+        const GroupPeerState(bob, MediaConnectionState.connected),
+      );
+      f.nodes[bob]!.media.states.add(
+        const GroupPeerState(alice, MediaConnectionState.connected),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      expect(f.nodes[alice]!.manager.currentSession!.state, CallState.active);
+      expect(f.nodes[bob]!.manager.currentSession!.state, CallState.active);
+      expect(f.failures, isEmpty);
+    },
+  );
+
+  test('incoming rekey waits for departing peer cleanup', () async {
+    final f = await _Network.open();
+    addTearDown(f.dispose);
+    await f.start();
+    await _until(
+      () =>
+          f.nodes[bob]!.manager.currentSession != null &&
+          f.nodes[carol]!.manager.currentSession != null,
+    );
+    await f.nodes[bob]!.manager.acceptCall();
+    await f.nodes[carol]!.manager.acceptCall();
+    await _until(
+      () => f.nodes.values.every((n) => n.media.remoteSdp.length == 2),
+    );
+    final receiver = f.nodes[bob]!;
+    receiver.media.states.add(
+      const GroupPeerState(alice, MediaConnectionState.connected),
+    );
+    await _until(
+      () => receiver.manager.currentSession!.state == CallState.active,
+    );
+    final gate = Completer<void>();
+    receiver.media.removalGate = gate;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    f.deliver(
+      GroupCallMemberLeftSignal(
+        senderId: 'server',
+        recipientId: bob,
+        timestamp: DateTime.now(),
+        groupCallId: receiver.manager.currentSession!.callId,
+        groupId: f.token,
+        leftMemberId: carol,
+      ),
+    );
+    await _until(() => receiver.media.removalInProgress);
+    final next = receiver.media.key!.rotate();
+    final applied = receiver.manager.applyIncomingMediaKey(
+      senderId: alice,
+      payload: next.encode(),
+    );
+    await _settle();
+    gate.complete();
+    expect(await applied, isTrue);
+    expect(receiver.manager.currentSession!.state, CallState.active);
+    expect(receiver.manager.currentSession!.peerIds, [alice]);
+    expect(receiver.media.key, next);
+    expect(f.failures, isEmpty);
+  });
+
+  test(
     'app answer activates native call once even when system echoes answer',
     () async {
       final f = await _Network.open(nativeAnswer: true);
@@ -44,6 +117,111 @@ void main() {
   );
 
   for (final type in CallType.values) {
+    for (final departing in [alice, carol]) {
+      test(
+        '${type.name}: leaving ${departing == alice ? 'coordinator' : 'member'} preserves the remaining call',
+        () async {
+          final f = await _Network.open();
+          addTearDown(f.dispose);
+          await f.start(type: type);
+          await _until(
+            () =>
+                f.nodes[bob]!.manager.currentSession != null &&
+                f.nodes[carol]!.manager.currentSession != null,
+          );
+          await f.nodes[bob]!.manager.acceptCall();
+          await f.nodes[carol]!.manager.acceptCall();
+          await _until(
+            () => f.nodes.values.every((n) => n.media.remoteSdp.length == 2),
+          );
+          for (final entry in f.nodes.entries) {
+            for (final peer in f.nodes.keys.where((id) => id != entry.key)) {
+              entry.value.media.states.add(
+                GroupPeerState(peer, MediaConnectionState.connected),
+              );
+            }
+          }
+          await _until(
+            () => f.nodes.values.every(
+              (n) => n.manager.currentSession!.state == CallState.active,
+            ),
+          );
+          final callId = f.nodes[alice]!.manager.currentSession!.callId;
+          final prior = f.nodes[alice]!.media.key!;
+          final remaining = f.nodes.keys
+              .where((id) => id != departing)
+              .toList();
+          await f.nodes[departing]!.manager.endCall();
+          for (final recipient in remaining) {
+            f.deliver(
+              GroupCallMemberLeftSignal(
+                senderId: 'server',
+                recipientId: recipient,
+                timestamp: DateTime.now(),
+                groupCallId: callId,
+                groupId: f.token,
+                leftMemberId: departing,
+              ),
+            );
+          }
+          if (departing == alice) {
+            // Let the new key overtake the server handoff on the other socket.
+            f.deliver(
+              GroupCallCoordinatorChangedSignal(
+                senderId: 'server',
+                recipientId: bob,
+                timestamp: DateTime.now(),
+                groupCallId: callId,
+                groupId: f.token,
+                previousCoordinatorId: alice,
+                newCoordinatorId: bob,
+              ),
+            );
+            await _until(() => f.nodes[bob]!.media.key!.epoch > prior.epoch);
+            f.deliver(
+              GroupCallCoordinatorChangedSignal(
+                senderId: 'server',
+                recipientId: carol,
+                timestamp: DateTime.now(),
+                groupCallId: callId,
+                groupId: f.token,
+                previousCoordinatorId: alice,
+                newCoordinatorId: bob,
+              ),
+            );
+          }
+          await _until(
+            () => remaining.every(
+              (id) =>
+                  f.nodes[id]!.media.key!.epoch > prior.epoch &&
+                  f.nodes[id]!.manager.currentSession!.peerIds.length == 1,
+            ),
+          );
+          await _settle();
+          for (final id in remaining) {
+            final node = f.nodes[id]!;
+            expect(node.manager.currentSession!.state, CallState.active);
+            expect(
+              node.manager.currentSession!.connectedPeerIds,
+              remaining.where((peer) => peer != id).toList(),
+            );
+            expect(
+              node.media.meshPeers,
+              remaining.where((peer) => peer != id).toSet(),
+            );
+            expect(node.media.key, f.nodes[remaining.first]!.media.key);
+            expect(node.manager.mediaEncryptionActive, isTrue);
+          }
+          expect(f.failures, isEmpty);
+          expect(
+            f.frames.whereType<CallControlSignal>().where(
+              (s) => s.action == 'HANGUP' && remaining.contains(s.senderId),
+            ),
+            isEmpty,
+          );
+        },
+      );
+    }
     test(
       '${type.name}: declined member rejoins active call with a fresh media key',
       () async {
@@ -470,6 +648,7 @@ class _Network {
     bool encrypted = true,
     bool nativeAnswer = false,
     Duration keyTimeout = const Duration(seconds: 1),
+    Duration ringTimeout = const Duration(seconds: 60),
     Duration terminalVisibility = const Duration(minutes: 1),
   }) async {
     final root = await Directory.systemTemp.createTemp('group_contract_');
@@ -490,6 +669,7 @@ class _Network {
         callLogs: db.callLogs,
         terminalVisibility: terminalVisibility,
         mediaKeyTimeout: keyTimeout,
+        ringTimeout: ringTimeout,
         groupLocalIdResolver: (token) async =>
             token == f.token ? 'local-group' : null,
         groupCallTokens: (_) async => [f.token],
@@ -694,6 +874,8 @@ class _GroupMedia implements GroupMediaEngine {
   final meshPeers = <String>{};
   int meshOperations = 0;
   Completer<void>? publisherGate;
+  Completer<void>? removalGate;
+  bool removalInProgress = false;
   bool publisherStarted = false;
   CallMediaKey? key;
   bool initialized = false;
@@ -711,6 +893,7 @@ class _GroupMedia implements GroupMediaEngine {
 
   @override
   Future<void> rotateMediaKey(CallMediaKey mediaKey) async {
+    if (removalInProgress) throw StateError('Cryptor is being disposed');
     key = mediaKey;
   }
 
@@ -790,8 +973,14 @@ class _GroupMedia implements GroupMediaEngine {
   Future<void> applySfuPublisherAnswer(String answerSdp) async {}
   @override
   Future<void> removePeer(String peerId) async {
-    remoteSdp.remove(peerId);
-    meshPeers.remove(peerId);
+    removalInProgress = true;
+    try {
+      await removalGate?.future;
+      remoteSdp.remove(peerId);
+      meshPeers.remove(peerId);
+    } finally {
+      removalInProgress = false;
+    }
   }
 
   @override

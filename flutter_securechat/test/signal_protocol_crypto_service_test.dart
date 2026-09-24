@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +29,89 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 
 void main() {
+  for (final mode in [
+    (false, false),
+    (false, true),
+    (true, false),
+    (true, true),
+  ]) {
+    final isGroup = mode.$1;
+    final viewOnce = mode.$2;
+    test(
+      'production-sized media fits frames and decrypts (group=$isGroup, viewOnce=$viewOnce)',
+      () async {
+        final f = await _SignalFixture.open();
+        addTearDown(f.close);
+        final sender = InMemorySignalingService()..setConnected(true);
+        final receiver = InMemorySignalingService();
+        final incoming = IncomingMessageHandler(
+          signaling: receiver,
+          crypto: f.bob,
+          database: f.bobDatabase,
+          session: SessionStore(userId: 'bob'),
+        )..start();
+        final outgoing = FileTransferManager(
+          signaling: sender,
+          crypto: f.alice,
+          filesDirectory: Directory('${f.directory.path}/send'),
+          metadataCrypto: LocalAeadCryptoService(SecretKey(List.filled(32, 8))),
+        );
+        final receiving = FileTransferManager(
+          signaling: receiver,
+          crypto: f.bob,
+          filesDirectory: Directory('${f.directory.path}/receive'),
+          metadataCrypto: LocalAeadCryptoService(SecretKey(List.filled(32, 9))),
+          beforeReceive: incoming.waitForIdle,
+        );
+        addTearDown(() async {
+          await outgoing.dispose();
+          await receiving.dispose();
+          await incoming.close();
+          await sender.dispose();
+          await receiver.dispose();
+        });
+        final payload = Uint8List.fromList(
+          List.generate(600 * 1024, (i) => i % 251),
+        );
+        final caption = List.filled(4096, isGroup ? '\u0000' : '\u0800').join();
+        final result = await outgoing.sendStream(
+          localUserId: 'alice',
+          recipientId: isGroup ? 'photo-group' : 'bob',
+          stream: Stream.value(payload),
+          fileSize: payload.length,
+          fileName: 'photo.jpg',
+          mimeType: 'image/jpeg',
+          isGroup: isGroup,
+          groupMembers: ['alice', 'bob'],
+          caption: caption,
+          isViewOnce: viewOnce,
+          originalMessageId: 'photo-message',
+        );
+        expect(result, isA<FileTransferSuccess>());
+        final chunks = sender.sentMessages
+            .whereType<FileTransferSignal>()
+            .toList();
+        for (final frame in chunks) {
+          expect(
+            utf8.encode(frame.encode()).length,
+            lessThanOrEqualTo(SignalMessage.maxEncodedBytes),
+            reason: 'Group envelope exceeds the production server frame limit',
+          );
+        }
+        final completed = receiving.receivedFiles.first;
+        for (final frame in sender.sentMessages) {
+          receiver.addIncoming(SignalMessage.decode(frame.encode()));
+        }
+        final file = await completed.timeout(const Duration(seconds: 15));
+        expect(await file.file.readAsBytes(), payload);
+        expect(file.groupId, isGroup ? 'photo-group' : null);
+        expect(file.isViewOnce, viewOnce);
+        expect(file.caption, caption);
+        expect(file.originalMessageId, 'photo-message');
+      },
+    );
+  }
+
   test(
     'missing group recipient key sends no media and commits no partial group',
     () async {

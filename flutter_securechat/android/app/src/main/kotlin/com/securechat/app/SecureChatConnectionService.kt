@@ -34,6 +34,11 @@ class SecureChatConnectionService : ConnectionService() {
         callNotifications.ensureChannels()
     }
 
+    override fun onDestroy() {
+        allConnections.filterIsInstance<SecureChatConnection>().forEach { it.releaseProximity() }
+        super.onDestroy()
+    }
+
     override fun onCreateIncomingConnection(
         connectionManagerPhoneAccount: android.telecom.PhoneAccountHandle?,
         request: ConnectionRequest
@@ -64,7 +69,9 @@ class SecureChatConnectionService : ConnectionService() {
         }
         val info = NativeCallInfo(callId, peerId, peerName, hasVideo, redactIdentity)
         NativeCallRegistry.remember(callId, peerId, peerName, hasVideo, redactIdentity)
-        val connection = SecureChatConnection(info, callNotifications).apply {
+        val connection = SecureChatConnection(
+            info, callNotifications, SecureChatProximityController.create(applicationContext)
+        ).apply {
             connectionProperties = Connection.PROPERTY_SELF_MANAGED
             connectionCapabilities = Connection.CAPABILITY_MUTE
             setAddress(
@@ -91,10 +98,12 @@ class SecureChatConnectionService : ConnectionService() {
 
 internal class SecureChatConnection(
     initialInfo: NativeCallInfo,
-    private val notifications: SecureChatCallNotificationManager
+    private val notifications: SecureChatCallNotificationManager,
+    private val proximity: SecureChatProximityController
 ) : Connection() {
     private var info = initialInfo
     private var availableEndpoints: List<CallEndpoint> = emptyList()
+    private var isEarpiece = false
 
     init {
         setAudioModeIsVoip(true)
@@ -120,8 +129,24 @@ internal class SecureChatConnection(
 
     override fun onAbort() = onDisconnect()
 
+    override fun onStateChanged(state: Int) {
+        updateProximity()
+    }
+
+    private fun updateProximity() {
+        proximity.update(
+            isVoiceCall = !info.hasVideo,
+            isCallActive = state == STATE_ACTIVE || state == STATE_DIALING,
+            isEarpiece = isEarpiece
+        )
+    }
+
+    fun releaseProximity() = proximity.close()
+
     override fun onCallAudioStateChanged(state: android.telecom.CallAudioState?) {
         if (state != null) {
+            isEarpiece = state.route == CallAudioState.ROUTE_EARPIECE
+            updateProximity()
             NativeCallRegistry.emit(if (state.isMuted) "mute" else "unmute", info.callId)
             NativeCallRegistry.emit(
                 if (state.route and CallAudioState.ROUTE_SPEAKER != 0) "speakerOn"
@@ -136,6 +161,8 @@ internal class SecureChatConnection(
     }
 
     override fun onCallEndpointChanged(endpoint: CallEndpoint) {
+        isEarpiece = endpoint.endpointType == CallEndpoint.TYPE_EARPIECE
+        updateProximity()
         NativeCallRegistry.emit(
             if (endpoint.endpointType == CallEndpoint.TYPE_SPEAKER) "speakerOn"
             else "speakerOff",
@@ -201,6 +228,7 @@ internal class SecureChatConnection(
 
     fun promote(replacement: NativeCallInfo) {
         info = replacement
+        updateProximity()
         setAddress(
             Uri.fromParts(
                 "securechat",
@@ -223,6 +251,7 @@ internal class SecureChatConnection(
     }
 
     fun disconnect(cause: Int) {
+        releaseProximity()
         notifications.cancel()
         setDisconnected(DisconnectCause(cause))
         destroy()

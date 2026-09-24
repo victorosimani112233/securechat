@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -193,6 +194,9 @@ class WebSocketSignalingService implements SignalingService {
   bool _disposed = false;
   Future<void>? _disposeTask;
   Future<void>? _refreshTask;
+  final _fileFrameClock = Stopwatch()..start();
+  Future<void> _fileSendTail = Future.value();
+  int _lastFileFrameMicros = -50000;
   int _generation = 0;
   SignalingStatus _status = const SignalingStatus(
     SignalingConnectionState.disconnected,
@@ -437,11 +441,38 @@ class WebSocketSignalingService implements SignalingService {
 
   @override
   Future<bool> send(SignalMessage message) async {
+    if (message is FileTransferSignal) {
+      final generation = _generation;
+      final pending = _fileSendTail.then((_) async {
+        // Keep bulk media below the shared 50-message/second abuse ceiling,
+        // leaving capacity for keys, call signaling and ordinary messages.
+        final remaining =
+            50000 -
+            (_fileFrameClock.elapsedMicroseconds - _lastFileFrameMicros);
+        if (remaining > 0) {
+          await Future<void>.delayed(Duration(microseconds: remaining));
+        }
+        if (_disposed || generation != _generation) return false;
+        final sent = _sendNow(message);
+        _lastFileFrameMicros = _fileFrameClock.elapsedMicroseconds;
+        return sent;
+      });
+      _fileSendTail = pending.then<void>((_) {}, onError: (_, _) {});
+      return pending;
+    }
+    return _sendNow(message);
+  }
+
+  bool _sendNow(SignalMessage message) {
     if (_disposed) return false;
     final channel = _channel;
     if (channel == null || !_status.isConnected) return false;
     try {
-      channel.sink.add(message.encode());
+      final encoded = message.encode();
+      if (utf8.encode(encoded).length > SignalMessage.maxEncodedBytes) {
+        return false;
+      }
+      channel.sink.add(encoded);
       return true;
     } catch (error) {
       _setStatus(error, SignalingConnectionState.error);

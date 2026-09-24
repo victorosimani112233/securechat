@@ -626,55 +626,59 @@ void main() {
     }
   });
 
-  test('Flutter group file and push senders default to private v3 wire', () {
-    final groupCrypto = source(
-      'lib/src/crypto/signal_protocol_crypto_service.dart',
-    );
-    expect(groupCrypto, contains("return 'GROUPSK:v2:"));
-    expect(groupCrypto, isNot(contains("return 'GROUPSK:v1:")));
+  test(
+    'Flutter group files and push senders keep routing and metadata private',
+    () {
+      final groupCrypto = source(
+        'lib/src/crypto/signal_protocol_crypto_service.dart',
+      );
+      expect(groupCrypto, contains("return 'GROUPSK:v2:"));
+      expect(groupCrypto, isNot(contains("return 'GROUPSK:v1:")));
 
-    final files = source('lib/src/media/file_transfer_manager.dart');
-    expect(files, contains("fileName: 'attachment.bin'"));
-    expect(files, contains("mimeType: 'application/octet-stream'"));
-    expect(files, contains("'flutter-file-v3-group'"));
-    expect(files, contains('_PrivateFileManifest'));
-    expect(files, contains('fileSize: totalChunks * chunkSize'));
-    expect(files, contains("'size': fileSize"));
-    expect(files, contains('metadata.secure'));
-    expect(files, isNot(contains('groupName: isGroup')));
+      final files = source('lib/src/media/file_transfer_manager.dart');
+      expect(files, contains("fileName: 'attachment.bin'"));
+      expect(files, contains("mimeType: 'application/octet-stream'"));
+      expect(files, contains("'flutter-file-v3-group'"));
+      expect(files, contains('_PrivateFileManifest'));
+      expect(files, contains("groupWireVersion = 'flutter-file-v5-group'"));
+      expect(files, contains('fileSize: totalChunks * transferChunkSize'));
+      expect(files, contains("'size': fileSize"));
+      expect(files, contains('metadata.secure'));
+      expect(files, isNot(contains('groupName: isGroup')));
 
-    final sender = source('lib/src/domain/send_message_use_case.dart');
-    expect(sender, contains('encodePrivateGroupRoute'));
-    expect(sender, isNot(contains('GroupMessageFanoutSignal(')));
-    final route = source('lib/src/groups/private_group_route.dart');
-    expect(
-      route,
-      contains("const _privateGroupRoutePrefix = 'GROUPROUTE:v3:'"),
-    );
-    expect(route, contains('Private group route binding mismatch'));
+      final sender = source('lib/src/domain/send_message_use_case.dart');
+      expect(sender, contains('encodePrivateGroupRoute'));
+      expect(sender, isNot(contains('GroupMessageFanoutSignal(')));
+      final route = source('lib/src/groups/private_group_route.dart');
+      expect(
+        route,
+        contains("const _privateGroupRoutePrefix = 'GROUPROUTE:v3:'"),
+      );
+      expect(route, contains('Private group route binding mismatch'));
 
-    final hardenedWs = source(
-      'server_hardened/signaling-server/src/main/kotlin/'
-      'com/securechat/signaling/WebSocketRoutes.kt',
-    );
-    expect(hardenedWs, contains('Linkable group_message_fanout reddedildi'));
-    final hardenedConnections = source(
-      'server_hardened/signaling-server/src/main/kotlin/'
-      'com/securechat/signaling/ConnectionManager.kt',
-    );
-    expect(hardenedConnections, isNot(contains('handleGroupMessageFanout')));
+      final hardenedWs = source(
+        'server_hardened/signaling-server/src/main/kotlin/'
+        'com/securechat/signaling/WebSocketRoutes.kt',
+      );
+      expect(hardenedWs, contains('Linkable group_message_fanout reddedildi'));
+      final hardenedConnections = source(
+        'server_hardened/signaling-server/src/main/kotlin/'
+        'com/securechat/signaling/ConnectionManager.kt',
+      );
+      expect(hardenedConnections, isNot(contains('handleGroupMessageFanout')));
 
-    final calls = source('lib/src/media/call_manager.dart');
-    expect(calls, contains('participants: const []'));
-    final app = source('lib/src/services/app_container.dart');
-    expect(app, contains('newOpaqueRoutingNonce()'));
-    expect(app, contains('privateGroupCallPreparationAction'));
+      final calls = source('lib/src/media/call_manager.dart');
+      expect(calls, contains('participants: const []'));
+      final app = source('lib/src/services/app_container.dart');
+      expect(app, contains('newOpaqueRoutingNonce()'));
+      expect(app, contains('privateGroupCallPreparationAction'));
 
-    final push = source('lib/src/push/push_service.dart');
-    expect(push, contains("type == 'securechat_wake_v2'"));
-    expect(push, isNot(contains('final String senderId;')));
-    expect(push, isNot(contains('final String messageType;')));
-  });
+      final push = source('lib/src/push/push_service.dart');
+      expect(push, contains("type == 'securechat_wake_v2'"));
+      expect(push, isNot(contains('final String senderId;')));
+      expect(push, isNot(contains('final String messageType;')));
+    },
+  );
 
   test(
     'behavioral chat controls use padded E2EE and plaintext is rejected',

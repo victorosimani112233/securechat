@@ -322,6 +322,23 @@ class CallManager {
     required String senderId,
     required String payload,
   }) async {
+    // Incoming encrypted messages have a separate async pipeline. Serialize
+    // key installation with membership cleanup so cryptors are not updated
+    // while their peer connections are being disposed.
+    var applied = false;
+    await _queueGroupSignal(() async {
+      applied = await _applyIncomingMediaKey(
+        senderId: senderId,
+        payload: payload,
+      );
+    });
+    return applied;
+  }
+
+  Future<bool> _applyIncomingMediaKey({
+    required String senderId,
+    required String payload,
+  }) async {
     final groupMedia = _groupMedia;
     if (groupMedia == null) return false;
     final mediaKey = CallMediaKey.tryParse(payload);
@@ -1294,7 +1311,7 @@ class CallManager {
     if (_lateJoining) _dropPendingMediaKeysForCall(signal.callId);
     final pending = _takePendingMediaKey(signal.callId, signal.senderId);
     if (_mediaEncryptionRequired && pending != null) {
-      await applyIncomingMediaKey(
+      await _applyIncomingMediaKey(
         senderId: pending.senderId,
         payload: pending.mediaKey.encode(),
       );
@@ -1569,7 +1586,7 @@ class CallManager {
       signal.newCoordinatorId,
     );
     if (pending != null) {
-      await applyIncomingMediaKey(
+      await _applyIncomingMediaKey(
         senderId: pending.senderId,
         payload: pending.mediaKey.encode(),
       );

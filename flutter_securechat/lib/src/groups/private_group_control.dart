@@ -49,6 +49,13 @@ class PrivateGroupControlSender {
         .where((id) => id.isNotEmpty && id != senderId)
         .toSet()
         .toList(growable: false);
+    if (targets.isNotEmpty &&
+        sendSignal == null &&
+        !await _signaling.ensureConnected(
+          timeout: const Duration(seconds: 8),
+        )) {
+      throw StateError('Private group control connection is unavailable');
+    }
     final sentAt = timestamp ?? DateTime.now();
     final groupToken = await groupRoutingToken(groupId);
     final payload = _PrivateGroupControlPayload(

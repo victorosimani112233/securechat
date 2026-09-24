@@ -1,7 +1,11 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_securechat/src/features/scheduled/scheduled_messages_screen.dart';
 import 'package:flutter_securechat/src/features/settings/settings_screen.dart';
 import 'package:flutter_securechat/src/l10n/generated/app_localizations.dart';
 import 'package:flutter_securechat/src/security/chat_access_service.dart';
@@ -19,9 +23,167 @@ import 'package:flutter_securechat/src/services/signaling_service.dart';
 import 'package:flutter_securechat/src/settings/settings_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
+import 'package:flutter_securechat/src/theme/secure_chat_theme.dart';
+import 'package:flutter_securechat/src/widgets/azure_surface.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  setUpAll(() async {
+    for (final entry in {
+      'Inter': 'assets/fonts/inter_regular.ttf',
+      'SpaceGrotesk': 'assets/fonts/space_grotesk_semibold.ttf',
+      'MaterialIcons': 'fonts/MaterialIcons-Regular.otf',
+    }.entries) {
+      await (FontLoader(
+        entry.key,
+      )..addFont(rootBundle.load(entry.value))).load();
+    }
+  });
+
+  for (final width in [320.0, 390.0, 768.0]) {
+    testWidgets('settings groups and scheduled master switch at width $width', (
+      tester,
+    ) async {
+      final fixture = (await tester.runAsync(_SettingsFixture.open))!;
+      addTearDown(fixture.close);
+      tester.view.physicalSize = Size(width, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final container = AppContainer.testing(
+        session: fixture.session,
+        conversations: InMemoryConversationRepository(
+          conversations: [],
+          messages: {},
+        ),
+        crypto: fixture.crypto,
+        signaling: fixture.signaling,
+        settingsRuntime: AppSettingsRuntime(service: fixture.settings),
+        backgroundRuntime: _SettingsBackgroundRuntime(
+          fixture.scheduledMessages,
+        ),
+        callReadinessRuntime: const AppCallReadinessRuntime(
+          service: CallReadinessService(
+            platform: NotApplicableCallReadinessPlatform(),
+          ),
+        ),
+        chatAccessRuntime: const AppChatAccessRuntime(
+          service: ChatAccessService(
+            authenticator: AlwaysAllowDeviceOwnerAuthenticator(),
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        AppContainerScope(
+          container: container,
+          child: MaterialApp(
+            theme: width == 390
+                ? SecureChatTheme.dark()
+                : SecureChatTheme.light(),
+            locale: const Locale('tr'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(width == 320 ? 1.4 : 1),
+                padding: const EdgeInsets.only(top: 24, bottom: 34),
+              ),
+              child: RepaintBoundary(
+                key: const ValueKey('settings-capture'),
+                child: child!,
+              ),
+            ),
+            home: const SettingsScreen(),
+            routes: {
+              '/scheduled-messages': (_) => const ScheduledMessagesScreen(),
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final list = tester.widget<ListView>(
+        find.byKey(const ValueKey('settings-list')),
+      );
+      final groups = (list.childrenDelegate as SliverChildListDelegate).children
+          .whereType<AzureSurface>()
+          .map(
+            (group) => (group.child as Column).children.map((row) {
+              final title = row is ListTile
+                  ? row.title
+                  : (row as SwitchListTile).title;
+              return (title as Text).data;
+            }).toList(),
+          )
+          .toList();
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SettingsScreen)),
+      );
+      expect(groups.sublist(1, 6), [
+        [l10n.settings_language, l10n.settings_notification_sound],
+        [
+          l10n.settings_chat_theme,
+          l10n.settings_backdrop,
+          l10n.settings_fullscreen,
+        ],
+        [
+          l10n.settings_privacy,
+          l10n.recovery_email_title,
+          l10n.settings_auto_download,
+          l10n.settings_call_readiness,
+        ],
+        [l10n.settings_manage_scheduled],
+        [
+          l10n.settings_storage_usage,
+          l10n.settings_backup,
+          l10n.settings_about,
+        ],
+      ]);
+      expect(
+        groups.expand((group) => group),
+        isNot(contains(l10n.settings_scheduled_messages)),
+      );
+      await _settingsScreenshot(tester, 'settings-$width');
+      await tester.scrollUntilVisible(
+        find.text(l10n.settings_manage_scheduled),
+        200,
+      );
+      await tester.pumpAndSettle();
+      await _settingsScreenshot(tester, 'settings-lower-$width');
+      await tester.tap(find.text(l10n.settings_manage_scheduled));
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const ValueKey('scheduled-messages-enabled'));
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      await _settingsScreenshot(tester, 'scheduled-$width');
+      for (final enabled in [false, true]) {
+        await tester.runAsync(() async {
+          await tester.tap(toggle);
+          // Flush the asynchronous preference write before inspecting UI.
+          await fixture.session.persist();
+        });
+        await tester.pumpAndSettle();
+        expect(tester.widget<SwitchListTile>(toggle).value, enabled);
+        expect(fixture.session.scheduledMessagesEnabled, enabled);
+      }
+      await tester.ensureVisible(find.text(l10n.sched_tab_history));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.sched_tab_history));
+      await tester.pumpAndSettle();
+      expect(toggle, findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(
+        find.byTooltip(
+          MaterialLocalizations.of(tester.element(toggle)).backButtonTooltip,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.settings_manage_scheduled));
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    });
+  }
+
   testWidgets(
     'phone privacy switch is reachable and persists on a narrow screen',
     (tester) async {
@@ -69,7 +231,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Gizlilik'), 200);
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Gizlilik'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Gizlilik'));
       await tester.pumpAndSettle();
       final toggle = find.byKey(const ValueKey('settings-share-phone-number'));
@@ -267,6 +432,7 @@ class _SettingsFixture {
     required this.scheduler,
     required this.fullscreen,
     required this.settings,
+    required this.scheduledMessages,
   });
 
   final Directory directory;
@@ -279,6 +445,7 @@ class _SettingsFixture {
   final _FakeScheduler scheduler;
   final _FakeFullscreenController fullscreen;
   final SettingsService settings;
+  final ScheduledMessageService scheduledMessages;
 
   static Future<_SettingsFixture> open({bool connected = false}) async {
     final directory = await Directory.systemTemp.createTemp('settings_test_');
@@ -344,6 +511,7 @@ class _SettingsFixture {
       scheduler: scheduler,
       fullscreen: fullscreen,
       settings: settings,
+      scheduledMessages: scheduledMessages,
     );
   }
 
@@ -354,6 +522,31 @@ class _SettingsFixture {
     await signaling.dispose();
     await directory.delete(recursive: true);
   }
+}
+
+class _SettingsBackgroundRuntime implements AppBackgroundRuntime {
+  _SettingsBackgroundRuntime(this.scheduledMessages);
+  @override
+  final ScheduledMessageService scheduledMessages;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+Future<void> _settingsScreenshot(WidgetTester tester, String name) async {
+  final path = Platform.environment['SETTINGS_UI_SCREENSHOTS'];
+  if (path == null) return;
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find.byKey(const ValueKey('settings-capture')),
+  );
+  await tester.runAsync(() async {
+    final image = await boundary.toImage(pixelRatio: 1);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    final directory = Directory(path)..createSync(recursive: true);
+    await File(
+      '${directory.path}/$name.png',
+    ).writeAsBytes(bytes!.buffer.asUint8List());
+    image.dispose();
+  });
 }
 
 class _FakeScheduler implements BackgroundScheduler {

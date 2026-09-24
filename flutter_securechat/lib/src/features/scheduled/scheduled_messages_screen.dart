@@ -7,6 +7,7 @@ import '../../core/models.dart';
 import '../../l10n/l10n.dart';
 import '../../widgets/avatar.dart';
 import '../../services/app_container.dart';
+import '../../settings/settings_service.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/chat_lock_dialog.dart';
@@ -28,6 +29,7 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
   TimeOfDay _time = const TimeOfDay(hour: 9, minute: 0);
   ScheduledRepeat _repeat = ScheduledRepeat.once;
   String? _editingId;
+  bool _savingEnabled = false;
 
   @override
   void initState() {
@@ -44,7 +46,9 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
 
   @override
   Widget build(BuildContext context) {
-    final runtime = AppContainerScope.of(context).backgroundRuntime;
+    final container = AppContainerScope.of(context);
+    final runtime = container.backgroundRuntime;
+    final settings = container.settingsRuntime?.service;
     return AzureBackdrop(
       child: Scaffold(
         appBar: AppBar(
@@ -59,18 +63,60 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
             ],
           ),
         ),
-        body: runtime == null
-            ? Center(child: Text(context.l10n.background_unavailable))
-            : TabBarView(
-                controller: _tabs,
-                children: [
-                  _buildForm(runtime.scheduledMessages),
-                  _buildList(runtime.scheduledMessages),
-                  _buildHistory(runtime.scheduledMessages),
-                ],
+        body: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              if (settings != null)
+                StreamBuilder<AppSettingsState>(
+                  stream: settings.states,
+                  initialData: settings.current,
+                  builder: (context, snapshot) => SwitchListTile(
+                    key: const ValueKey('scheduled-messages-enabled'),
+                    tileColor: Theme.of(context).colorScheme.surface,
+                    secondary: const Icon(Icons.schedule_send_outlined),
+                    title: Text(context.l10n.settings_scheduled_messages),
+                    subtitle: Text(
+                      context.l10n.settings_scheduled_enabled_desc,
+                    ),
+                    value: (snapshot.data ?? settings.current)
+                        .scheduledMessagesEnabled,
+                    onChanged: _savingEnabled
+                        ? null
+                        : (value) => _setEnabled(settings, value),
+                  ),
+                ),
+              Expanded(
+                child: runtime == null
+                    ? Center(child: Text(context.l10n.background_unavailable))
+                    : TabBarView(
+                        controller: _tabs,
+                        children: [
+                          _buildForm(runtime.scheduledMessages),
+                          _buildList(runtime.scheduledMessages),
+                          _buildHistory(runtime.scheduledMessages),
+                        ],
+                      ),
               ),
+            ],
+          ),
+        ),
       ),
     );
+  }
+
+  Future<void> _setEnabled(SettingsService service, bool value) async {
+    setState(() => _savingEnabled = true);
+    try {
+      await service.setScheduledMessagesEnabled(value);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _savingEnabled = false);
+    }
   }
 
   Widget _buildForm(ScheduledMessageService service) {
