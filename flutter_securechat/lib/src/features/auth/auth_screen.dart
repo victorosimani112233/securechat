@@ -7,6 +7,7 @@ import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../theme/secure_chat_theme.dart';
 import '../../widgets/azure_backdrop.dart';
+import 'recovery_login_screen.dart';
 
 enum _AuthStep { details, email, otp }
 
@@ -79,6 +80,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       setState(() => _countryCodeError = null),
                   onPhoneChanged: (_) => setState(() => _phoneError = null),
                   onContinue: _continueToEmail,
+                  onLogin: _openRecovery,
                 )
               : _EmailStep(
                   key: ValueKey('auth-${_step.name}'),
@@ -88,6 +90,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   busy: _busy,
                   error: _error,
                   onChanged: () => setState(() => _error = null),
+                  onLogin: _busy ? null : _openRecovery,
                   onSubmit: _step == _AuthStep.email
                       ? _requestOtp
                       : _verifyAndRegister,
@@ -103,6 +106,14 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     ),
   );
+
+  void _openRecovery() {
+    if (_busy) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const RecoveryLoginScreen()),
+    );
+  }
 
   void _goBack() {
     if (_busy) return;
@@ -144,6 +155,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _requestOtp() async {
+    if (_busy) return;
     final email = _email.text.trim();
     if (!RegExp(
       r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$',
@@ -166,7 +178,10 @@ class _AuthScreenState extends State<AuthScreen> {
       if (!mounted) return;
       switch (result.status) {
         case OtpRequestStatus.sent:
-          setState(() => _step = _AuthStep.otp);
+          setState(() {
+            _otp.clear();
+            _step = _AuthStep.otp;
+          });
         case OtpRequestStatus.smtpDisabled:
           setState(() => _error = context.l10n.email_otp_smtp_disabled);
         case OtpRequestStatus.rateLimited:
@@ -176,7 +191,11 @@ class _AuthScreenState extends State<AuthScreen> {
             );
           });
       }
-    } catch (error) {
+    } catch (error, stackTrace) {
+      if (mounted) {
+        await AppContainerScope.of(context).diagnosticsRuntime?.reporter
+            .recordException(error, stackTrace, context: 'auth.request-code');
+      }
       if (mounted) {
         setState(() => _error = _presentAuthError(error, verifying: false));
       }
@@ -186,6 +205,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _verifyAndRegister() async {
+    if (_busy) return;
     if (!RegExp(r'^\d{6}$').hasMatch(_otp.text.trim())) {
       setState(() => _error = context.l10n.email_otp_incomplete);
       return;
@@ -197,17 +217,42 @@ class _AuthScreenState extends State<AuthScreen> {
       _busy = true;
       _error = null;
     });
+    var verified = false;
     try {
       final token = await auth.verifyOtp(_email.text, _otp.text);
+      verified = true;
       await auth.registerAndLogin(
         displayName: _name.text,
         phoneNumber: '${_countryCode.text}${_phone.text}',
         registrationToken: token,
       );
       if (mounted) Navigator.of(context).pushReplacementNamed('/');
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (mounted) {
-        setState(() => _error = _presentAuthError(error, verifying: true));
+        await AppContainerScope.of(
+          context,
+        ).diagnosticsRuntime?.reporter.recordException(
+          error,
+          stackTrace,
+          context: verified ? 'auth.setup-after-code' : 'auth.verify-code',
+        );
+      }
+      if (mounted) {
+        setState(() {
+          if (error is ExistingAccountLoginRequired) {
+            _step = _AuthStep.email;
+            _otp.clear();
+            _error = _presentAuthError(error, verifying: true);
+          } else if (verified) {
+            // Verification consumes the code; registration may also have
+            // consumed its grant. Never silently retry with either credential.
+            _step = _AuthStep.email;
+            _otp.clear();
+            _error = context.l10n.auth_setup_failed;
+          } else {
+            _error = _presentAuthError(error, verifying: true);
+          }
+        });
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -216,13 +261,13 @@ class _AuthScreenState extends State<AuthScreen> {
 
   String _presentAuthError(Object error, {required bool verifying}) {
     return switch (classifyAuthError(error, duringVerification: verifying)) {
+      AuthErrorPresentation.loginRequired =>
+        context.l10n.recovery_registration_existing,
       AuthErrorPresentation.connection => context.l10n.connection_failed,
       AuthErrorPresentation.verificationRejected =>
         context.l10n.email_otp_verify_failed,
       AuthErrorPresentation.requestRejected =>
-        context.l10n.email_otp_send_error(
-          error is AuthApiException ? error.message : context.l10n.failed,
-        ),
+        context.l10n.email_otp_send_error(context.l10n.failed),
     };
   }
 }
@@ -240,6 +285,7 @@ class _DetailsStep extends StatelessWidget {
     required this.onCountryChanged,
     required this.onPhoneChanged,
     required this.onContinue,
+    required this.onLogin,
   });
 
   final TextEditingController name;
@@ -252,6 +298,7 @@ class _DetailsStep extends StatelessWidget {
   final ValueChanged<String> onCountryChanged;
   final ValueChanged<String> onPhoneChanged;
   final VoidCallback onContinue;
+  final VoidCallback onLogin;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -310,7 +357,13 @@ class _DetailsStep extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 48),
+            TextButton.icon(
+              key: const ValueKey('auth-existing-account'),
+              onPressed: onLogin,
+              icon: const Icon(Icons.login),
+              label: Text(context.l10n.recovery_login_title),
+            ),
+            const SizedBox(height: 24),
             AzureGlassPanel(
               key: const ValueKey('auth-details-panel'),
               strong: true,
@@ -424,6 +477,7 @@ class _EmailStep extends StatelessWidget {
     required this.onChanged,
     required this.onSubmit,
     required this.onChangeEmail,
+    required this.onLogin,
   });
 
   final _AuthStep step;
@@ -434,12 +488,19 @@ class _EmailStep extends StatelessWidget {
   final VoidCallback onChanged;
   final VoidCallback onSubmit;
   final VoidCallback? onChangeEmail;
+  final VoidCallback? onLogin;
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
     padding: const EdgeInsets.symmetric(horizontal: 24),
     child: Column(
       children: [
+        TextButton.icon(
+          key: const ValueKey('auth-existing-account'),
+          onPressed: onLogin,
+          icon: const Icon(Icons.login),
+          label: Text(context.l10n.recovery_login_title),
+        ),
         const SizedBox(height: 48),
         Container(
           width: 112,
@@ -492,7 +553,7 @@ class _EmailStep extends StatelessWidget {
                   onSubmitted: (_) => onSubmit(),
                   decoration: InputDecoration(
                     labelText: context.l10n.email_otp_email_label,
-                    errorText: error,
+                    error: error == null ? null : Text(error!),
                   ),
                 )
               else

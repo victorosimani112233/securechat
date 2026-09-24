@@ -121,16 +121,18 @@ class ModernPreKeyStoreIntegrationTest {
     }
 
     @Test
-    fun `identity rotation deletes old PQXDH pairs atomically`() {
+    fun `ordinary identity rotation is rejected atomically`() {
         val user = account()
         upload(user, identitySeed = 1, ids = 1..4)
 
-        upload(user, identitySeed = 40, ids = 90..90)
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+            upload(user, identitySeed = 40, ids = 90..90)
+        }
 
         val bundle = ModernPreKeyStore.fetchBundle(user)!!
-        assertTrue(bundle.identityKey.publicKey.contentEquals(key(40, 33)))
-        assertEquals(90, bundle.oneTimePreKey!!.keyId)
-        assertEquals(0, ModernPreKeyStore.unconsumedCount(user))
+        assertTrue(bundle.identityKey.publicKey.contentEquals(key(1, 33)))
+        assertEquals(1, bundle.oneTimePreKey!!.keyId)
+        assertEquals(3, ModernPreKeyStore.unconsumedCount(user))
     }
 
     @Test

@@ -71,6 +71,7 @@ class CallManager {
     this.ringTimeout = const Duration(seconds: 60),
     this.reconnectTimeout = const Duration(seconds: 15),
     this.terminalVisibility = const Duration(milliseconds: 900),
+    this.mediaKeyTimeout = const Duration(seconds: 8),
     AsyncOperationFailureHandler? onAsyncFailure,
   }) : _session = session,
        _signaling = signaling,
@@ -216,7 +217,8 @@ class CallManager {
     final mediaKey = CallMediaKey.tryParse(payload);
     if (mediaKey == null) return false;
     final session = _current;
-    if (session == null) {
+    if (session == null ||
+        (session.isTerminal && session.callId != mediaKey.callId)) {
       _stageIncomingMediaKey(senderId, mediaKey);
       return true;
     }
@@ -259,6 +261,7 @@ class CallManager {
     }
     _mediaKey = mediaKey;
     _mediaEncryptionActive = true;
+    if (!_mediaKeyReady.isCompleted) _mediaKeyReady.complete();
     return true;
   }
 
@@ -300,6 +303,7 @@ class CallManager {
   final Duration ringTimeout;
   final Duration reconnectTimeout;
   final Duration terminalVisibility;
+  final Duration mediaKeyTimeout;
   final _sessions = StreamController<CallSession?>.broadcast();
   final _secondarySessions = StreamController<CallSession?>.broadcast();
   final _openRequests = StreamController<void>.broadcast();
@@ -326,6 +330,13 @@ class CallManager {
   final Map<String, String> _pendingGroupOffers = {};
   final Map<String, List<IceCandidateSignal>> _pendingGroupIce = {};
   final Map<int, String> _sfuFeedPeers = {};
+  final Set<String> _joinedGroupPeers = {};
+  final Set<String> _offeredGroupPeers = {};
+  Future<void> _groupSignalTail = Future<void>.value();
+  Completer<void> _mediaKeyReady = Completer<void>();
+  bool _groupMediaReady = false;
+  bool _sfuBinding = false;
+  (int, String)? _pendingSfuRoom;
   JanusClient? _janus;
   bool _disposed = false;
   Future<void>? _disposeTask;
@@ -460,6 +471,7 @@ class CallManager {
     }
     _terminating = false;
     _isGroupCoordinator = true;
+    _resetGroupSetup();
     _mediaKey = null;
     _mediaEncryptionActive = false;
     _mediaEncryptionRequired = false;
@@ -471,7 +483,6 @@ class CallManager {
       direction: CallDirection.outgoing,
       state: CallState.initiating,
       createdAt: DateTime.now(),
-      startTime: DateTime.now(),
       isSpeakerOn: true,
       isGroupCall: true,
       groupId: groupId,
@@ -479,6 +490,13 @@ class CallManager {
     );
     _setSession(session);
     try {
+      await _nativeCalls?.reportOutgoing(session);
+      // Privacy preparation sends encrypted control messages and needs a socket.
+      if (!await _signaling.ensureConnected(
+        timeout: const Duration(seconds: 8),
+      )) {
+        throw StateError('Signaling connection is unavailable');
+      }
       final routingToken = _preparePrivateGroupCall == null
           ? await groupRoutingToken(groupId)
           : await _preparePrivateGroupCall(
@@ -486,6 +504,7 @@ class CallManager {
               groupName: groupName,
               peerIds: [...recipients, userId],
             );
+      if (!_isCurrentGroupCall(session.callId)) return false;
       _currentGroupRoutingToken = routingToken;
       if (!await _signaling.ensureConnected(
         timeout: const Duration(seconds: 8),
@@ -496,6 +515,10 @@ class CallManager {
         video: callType == CallType.video,
         iceServers: await _iceServers.fetch(),
       );
+      if (!_isCurrentGroupCall(session.callId)) {
+        if (_current?.callId == session.callId) await groupMedia.close();
+        return false;
+      }
       // Medya anahtari baglantilar kurulmadan once hazir olmali; sonra
       // acilirsa ilk frame'ler sifresiz giderdi. Platform destegi yoksa
       // veya anahtar bir aliciya ulasmazsa sifreleme kapali kalir ve
@@ -506,6 +529,8 @@ class CallManager {
         recipients: recipients,
       );
       _mediaEncryptionRequired = mediaKey != null;
+      if (!_isCurrentGroupCall(session.callId)) return false;
+      _groupMediaReady = true;
       var allSent = true;
       for (final peerId in recipients) {
         final sent = await _signaling.send(
@@ -525,7 +550,12 @@ class CallManager {
         allSent = allSent && sent;
       }
       if (!allSent) throw StateError('One or more group invites failed');
-      _setSession(session.copyWith(state: CallState.active));
+      if (!_isCurrentGroupCall(session.callId)) return false;
+      if (_current!.state == CallState.initiating) {
+        _setSession(_current!.copyWith(state: CallState.ringing));
+        _startRingTimeout();
+      }
+      await _bindPendingSfu();
       return true;
     } catch (error, stackTrace) {
       _reportCallFailure('initiate-group-call', error, stackTrace);
@@ -586,14 +616,33 @@ class CallManager {
     if (groupMedia == null) return false;
     _ringTimer?.cancel();
     _missedCalls?.cancel(session.callId);
+    _setSession(session.copyWith(state: CallState.connecting));
+    _startRingTimeout();
     try {
+      if (!await _signaling.ensureConnected(
+        timeout: const Duration(seconds: 8),
+      )) {
+        throw StateError('Signaling connection is unavailable');
+      }
       await groupMedia.initialize(
         video: session.callType == CallType.video,
         iceServers: await _iceServers.fetch(),
       );
-      if (_mediaEncryptionRequired && !_mediaEncryptionActive) {
-        throw StateError('Required media encryption key is unavailable');
+      if (!_isCurrentGroupCall(session.callId)) {
+        if (_current?.callId == session.callId) await groupMedia.close();
+        return false;
       }
+      if (_mediaEncryptionRequired && !_mediaEncryptionActive) {
+        await _mediaKeyReady.future.timeout(mediaKeyTimeout);
+      }
+      if (!_isCurrentGroupCall(session.callId)) return false;
+      // initialize closes the previous engine session, including its key ring.
+      if (_mediaEncryptionRequired) {
+        final key = _mediaKey;
+        if (key == null) throw StateError('Required media key is unavailable');
+        await groupMedia.enableMediaEncryption(key);
+      }
+      _groupMediaReady = true;
       final userId = _requireUserId();
       final capabilitySent = await _signaling.send(
         GroupCallJoinRequestSignal(
@@ -615,14 +664,21 @@ class CallManager {
         reliable: false,
         groupId: _currentGroupRoutingToken,
       );
-      _setSession(
-        session.copyWith(state: CallState.active, startTime: DateTime.now()),
-      );
-      final offers = Map<String, String>.from(_pendingGroupOffers);
-      _pendingGroupOffers.clear();
-      for (final entry in offers.entries) {
-        await _acceptGroupPeerOffer(entry.key, entry.value);
-      }
+      await _queueGroupSignal(() async {
+        final offers = Map<String, String>.from(_pendingGroupOffers);
+        _pendingGroupOffers.clear();
+        for (final entry in offers.entries) {
+          if (_current!.peerIds.contains(entry.key)) {
+            await _acceptGroupPeerOffer(entry.key, entry.value);
+          } else {
+            _pendingGroupOffers[entry.key] = entry.value;
+          }
+        }
+        for (final peer in _joinedGroupPeers.toList()) {
+          if (userId.compareTo(peer) < 0) await _offerToGroupPeer(peer);
+        }
+      });
+      await _bindPendingSfu();
       return true;
     } catch (error, stackTrace) {
       _reportCallFailure('accept-group-call', error, stackTrace);
@@ -724,6 +780,43 @@ class CallManager {
 
   bool get _hasLiveCall => _current != null && !_current!.isTerminal;
 
+  bool _isCurrentGroupCall(String callId) =>
+      !_disposed &&
+      !_terminating &&
+      _current?.callId == callId &&
+      _current?.isGroupCall == true &&
+      _current?.isTerminal == false;
+
+  void _resetGroupSetup() {
+    _terminalTimer?.cancel();
+    _pendingGroupOffers.clear();
+    _pendingGroupIce.clear();
+    _joinedGroupPeers.clear();
+    _offeredGroupPeers.clear();
+    _groupMediaReady = false;
+    _pendingSfuRoom = null;
+    _mediaKeyReady = Completer<void>();
+  }
+
+  // Membership/key rotations and SDP must not race duplicate ACCEPT/join frames.
+  Future<void> _queueGroupSignal(Future<void> Function() operation) {
+    final callId = _current?.callId;
+    final task = _groupSignalTail.then((_) async {
+      if (_disposed || (callId != null && _current?.callId != callId)) return;
+      try {
+        await operation();
+      } catch (error, stack) {
+        _reportCallFailure('group-signal', error, stack);
+        if (_current?.isGroupCall == true) {
+          await _finish(CallState.failed, notifyPeer: true);
+        }
+      }
+    });
+    _groupSignalTail = task;
+    _track(task);
+    return task;
+  }
+
   void _handleSignal(SignalMessage signal) {
     if (_disposed) return;
     final userId = _session.userId;
@@ -733,27 +826,47 @@ class CallManager {
     }
     switch (signal) {
       case SdpOfferSignal():
-        _track(_handleOffer(signal));
+        if (_current?.isGroupCall == true) {
+          _queueGroupSignal(() => _handleOffer(signal));
+        } else {
+          _track(_handleOffer(signal));
+        }
       case SdpAnswerSignal():
-        _track(_handleAnswer(signal));
+        if (_current?.isGroupCall == true) {
+          _queueGroupSignal(() => _handleAnswer(signal));
+        } else {
+          _track(_handleAnswer(signal));
+        }
       case IceCandidateSignal():
-        _track(_handleIce(signal));
+        if (_current?.isGroupCall == true) {
+          _queueGroupSignal(() => _handleIce(signal));
+        } else {
+          _track(_handleIce(signal));
+        }
       case CallControlSignal():
-        _track(_handleControl(signal));
+        if (_current?.isGroupCall == true) {
+          _queueGroupSignal(() => _handleControl(signal));
+        } else {
+          _track(_handleControl(signal));
+        }
       case CallControlAckSignal():
         _controlAcks.remove(signal.messageId)?.complete();
       case GroupCallInviteSignal():
-        _track(_handleGroupInvite(signal));
+        _queueGroupSignal(() => _handleGroupInvite(signal));
+      case GroupCallJoinRequestSignal():
+        _queueGroupSignal(() => _handleGroupJoinRequest(signal));
+      case GroupCallErrorSignal():
+        _queueGroupSignal(() => _handleGroupError(signal));
       case GroupCallMemberJoinedSignal():
-        _track(_handleGroupMemberJoined(signal));
+        _queueGroupSignal(() => _handleGroupMemberJoined(signal));
       case GroupCallMemberLeftSignal():
-        _track(_handleGroupMemberLeft(signal));
+        _queueGroupSignal(() => _handleGroupMemberLeft(signal));
       case GroupCallCoordinatorChangedSignal():
-        _track(_handleCoordinatorChanged(signal));
+        _queueGroupSignal(() => _handleCoordinatorChanged(signal));
       case SfuRoomCreatedSignal():
-        _track(_bindSfuRoom(signal));
+        _queueGroupSignal(() => _bindSfuRoom(signal));
       case GroupCallStatusResponseSignal():
-        _track(_handleGroupStatus(signal));
+        _queueGroupSignal(() => _handleGroupStatus(signal));
       default:
         break;
     }
@@ -761,11 +874,17 @@ class CallManager {
 
   Future<void> _handleOffer(SdpOfferSignal signal) async {
     final current = _current;
-    if (current?.isGroupCall == true &&
-        current!.peerIds.contains(signal.senderId)) {
-      if (current.state == CallState.ringing) {
-        _pendingGroupOffers[signal.senderId] = signal.sdp;
-      } else if (current.state == CallState.active) {
+    if (current?.isGroupCall == true) {
+      if (!_isCurrentGroupCall(current!.callId) ||
+          current.isSfuMode ||
+          _sfuBinding)
+        return;
+      if (!_groupMediaReady || !current.peerIds.contains(signal.senderId)) {
+        // SDP may overtake the coordinator's membership announcement.
+        if (_pendingGroupOffers.length < maxGroupCallParticipants - 1) {
+          _pendingGroupOffers[signal.senderId] = signal.sdp;
+        }
+      } else {
         await _acceptGroupPeerOffer(signal.senderId, signal.sdp);
       }
       return;
@@ -807,14 +926,20 @@ class CallManager {
   Future<void> _handleAnswer(SdpAnswerSignal signal) async {
     final session = _current;
     if (session?.isGroupCall == true) {
+      if (!_isCurrentGroupCall(session!.callId) ||
+          session.isSfuMode ||
+          _sfuBinding ||
+          !session.peerIds.contains(signal.senderId))
+        return;
       try {
         await _groupMedia?.applyAnswer(
           peerId: signal.senderId,
           answerSdp: signal.sdp,
         );
         await _replayGroupIce(signal.senderId);
-      } catch (_) {
-        // A late answer from a peer already removed is safely ignored.
+      } catch (error, stack) {
+        _reportCallFailure('group-answer', error, stack);
+        await _finish(CallState.failed, notifyPeer: true);
       }
       return;
     }
@@ -838,6 +963,10 @@ class CallManager {
     final session = _current;
     if (session == null) return;
     if (session.isGroupCall) {
+      if (!_isCurrentGroupCall(session.callId) ||
+          session.isSfuMode ||
+          _sfuBinding)
+        return;
       try {
         await _groupMedia?.addIceCandidate(
           peerId: signal.senderId,
@@ -846,7 +975,14 @@ class CallManager {
           sdpMLineIndex: signal.sdpMLineIndex,
         );
       } catch (_) {
-        _pendingGroupIce.putIfAbsent(signal.senderId, () => []).add(signal);
+        if (_pendingGroupIce.length < maxGroupCallParticipants - 1 ||
+            _pendingGroupIce.containsKey(signal.senderId)) {
+          final pending = _pendingGroupIce.putIfAbsent(
+            signal.senderId,
+            () => [],
+          );
+          if (pending.length < 64) pending.add(signal);
+        }
       }
       return;
     }
@@ -887,6 +1023,7 @@ class CallManager {
     final session = _current;
     if (session == null) return;
     if (session.isGroupCall) {
+      if (!_isCurrentGroupCall(session.callId)) return;
       if (signal.groupId == null ||
           signal.groupId != _currentGroupRoutingToken) {
         return;
@@ -894,14 +1031,14 @@ class CallManager {
       switch (signal.action.toUpperCase()) {
         case 'ACCEPT':
           if (_isGroupCoordinator &&
+              !_mediaEncryptionRequired &&
               session.peerIds.contains(signal.senderId)) {
             await _connectNewGroupMember(signal.senderId);
           }
         case 'REJECT' || 'BUSY':
           await _removeGroupPeer(signal.senderId);
         case 'HANGUP':
-          if (signal.senderId == 'server' ||
-              signal.senderId == session.peerId) {
+          if (signal.senderId == 'server') {
             await _finish(CallState.ended, notifyPeer: false);
           } else {
             await _removeGroupPeer(signal.senderId);
@@ -934,6 +1071,11 @@ class CallManager {
   }
 
   Future<void> _handleGroupInvite(GroupCallInviteSignal signal) async {
+    if (_current?.callId == signal.callId &&
+        _currentGroupRoutingToken == signal.groupId &&
+        _current?.peerId == signal.senderId &&
+        _hasLiveCall)
+      return;
     final localGroupId = await _groupLocalIdResolver(signal.groupId);
     if (localGroupId == null || localGroupId.isEmpty) {
       await _sendControl(
@@ -962,6 +1104,7 @@ class CallManager {
     final userId = _requireUserId();
     _terminating = false;
     _isGroupCoordinator = false;
+    _resetGroupSetup();
     _mediaKey = null;
     _mediaEncryptionActive = false;
     _mediaEncryptionRequired = signal.mediaE2ee;
@@ -1003,23 +1146,70 @@ class CallManager {
     _startRingTimeout();
   }
 
+  Future<void> _handleGroupError(GroupCallErrorSignal signal) async {
+    final session = _current;
+    if (session == null ||
+        !_isCurrentGroupCall(session.callId) ||
+        signal.senderId != 'server' ||
+        signal.groupId != _currentGroupRoutingToken ||
+        signal.callId != session.callId)
+      return;
+    _reportCallFailure(
+      'group-rejected',
+      StateError('Server rejected the group call'),
+      StackTrace.current,
+    );
+    await _finish(CallState.failed, notifyPeer: true);
+  }
+
+  Future<void> _handleGroupJoinRequest(
+    GroupCallJoinRequestSignal signal,
+  ) async {
+    final session = _current;
+    if (session == null ||
+        !_isCurrentGroupCall(session.callId) ||
+        !_isGroupCoordinator ||
+        signal.groupId != _currentGroupRoutingToken ||
+        signal.callId != session.callId ||
+        signal.callType.toUpperCase() != session.callType.name.toUpperCase() ||
+        !session.peerIds.contains(signal.senderId))
+      return;
+    if (_mediaEncryptionRequired && !signal.mediaE2ee) {
+      throw StateError('Joining peer cannot decrypt required group media');
+    }
+    await _connectNewGroupMember(signal.senderId);
+  }
+
   Future<void> _connectNewGroupMember(String memberId) async {
     final session = _current;
     final userId = _requireUserId();
-    if (session == null || !session.isGroupCall || _groupMedia == null) return;
-    for (final peerId in session.connectedPeerIds) {
-      if (peerId == memberId || peerId.startsWith('sfu:')) continue;
-      await _signaling.send(
-        GroupCallMemberJoinedSignal(
-          senderId: userId,
-          recipientId: peerId,
-          timestamp: DateTime.now(),
-          groupCallId: session.callId,
-          joinedMemberId: memberId,
-        ),
-      );
+    if (session == null ||
+        !_isCurrentGroupCall(session.callId) ||
+        _groupMedia == null ||
+        !_joinedGroupPeers.add(memberId))
+      return;
+    if (!await _rotateMediaKey(session.peerIds)) {
+      throw StateError('Group membership media key rotation failed');
     }
-    await _offerToGroupPeer(memberId);
+    // Announce both directions even when the older peer is still negotiating.
+    // Each pair uses a stable offerer to avoid simultaneous SDP offers.
+    for (final peerId in _joinedGroupPeers.toList()) {
+      if (peerId == memberId) continue;
+      for (final pair in [(memberId, peerId), (peerId, memberId)]) {
+        if (!await _signaling.send(
+          GroupCallMemberJoinedSignal(
+            senderId: userId,
+            recipientId: pair.$1,
+            timestamp: DateTime.now(),
+            groupCallId: session.callId,
+            joinedMemberId: pair.$2,
+          ),
+        ))
+          throw StateError('Group membership announcement failed');
+      }
+    }
+    if (_current?.isSfuMode != true && !_sfuBinding)
+      await _offerToGroupPeer(memberId);
   }
 
   Future<void> _handleGroupMemberJoined(
@@ -1028,6 +1218,9 @@ class CallManager {
     final session = _current;
     if (session == null ||
         !session.isGroupCall ||
+        !_isCurrentGroupCall(session.callId) ||
+        _isGroupCoordinator ||
+        signal.senderId != session.peerId ||
         session.callId != signal.groupCallId ||
         signal.joinedMemberId == _session.userId) {
       return;
@@ -1038,21 +1231,28 @@ class CallManager {
         session.copyWith(peerIds: [...session.peerIds, signal.joinedMemberId]),
       );
     }
-    // Yeni kusak, katilan uye medya almadan once dagitilir; aksi halde o uye
-    // katilmadan onceki frame'leri de cozebilirdi.
-    if (_isGroupCoordinator &&
-        !await _rotateMediaKey(_current?.peerIds ?? const [])) {
-      await _finish(CallState.failed, notifyPeer: true);
-      return;
+    if (!_joinedGroupPeers.add(signal.joinedMemberId)) return;
+    if (!_groupMediaReady || session.isSfuMode || _sfuBinding) return;
+    final pending = _pendingGroupOffers.remove(signal.joinedMemberId);
+    if (pending != null) {
+      await _acceptGroupPeerOffer(signal.joinedMemberId, pending);
+    } else if (_requireUserId().compareTo(signal.joinedMemberId) < 0) {
+      await _offerToGroupPeer(signal.joinedMemberId);
     }
-    await _offerToGroupPeer(signal.joinedMemberId);
   }
 
   Future<void> _offerToGroupPeer(String peerId) async {
     final groupMedia = _groupMedia;
     final session = _current;
     final userId = _requireUserId();
-    if (groupMedia == null || session == null || !session.isGroupCall) return;
+    if (groupMedia == null ||
+        session == null ||
+        !_isCurrentGroupCall(session.callId) ||
+        !_groupMediaReady ||
+        session.isSfuMode ||
+        _sfuBinding ||
+        !_offeredGroupPeers.add(peerId))
+      return;
     final offer = await groupMedia.createOffer(
       peerId: peerId,
       onIceCandidate: (candidate, mid, line) => _sendIce(
@@ -1063,7 +1263,7 @@ class CallManager {
         sdpMLineIndex: line,
       ),
     );
-    await _signaling.send(
+    final sent = await _signaling.send(
       SdpOfferSignal(
         senderId: userId,
         recipientId: peerId,
@@ -1072,6 +1272,7 @@ class CallManager {
         callType: session.callType.name.toUpperCase(),
       ),
     );
+    if (!sent) throw StateError('Group SDP offer could not be delivered');
     await _replayGroupIce(peerId);
   }
 
@@ -1079,7 +1280,13 @@ class CallManager {
     final groupMedia = _groupMedia;
     final session = _current;
     final userId = _requireUserId();
-    if (groupMedia == null || session == null || !session.isGroupCall) return;
+    if (groupMedia == null ||
+        session == null ||
+        !session.isGroupCall ||
+        session.isSfuMode ||
+        _sfuBinding)
+      return;
+    _offeredGroupPeers.add(peerId);
     final answer = await groupMedia.acceptOffer(
       peerId: peerId,
       offerSdp: offerSdp,
@@ -1091,7 +1298,7 @@ class CallManager {
         sdpMLineIndex: line,
       ),
     );
-    await _signaling.send(
+    final sent = await _signaling.send(
       SdpAnswerSignal(
         senderId: userId,
         recipientId: peerId,
@@ -1099,10 +1306,12 @@ class CallManager {
         sdp: answer,
       ),
     );
+    if (!sent) throw StateError('Group SDP answer could not be delivered');
     await _replayGroupIce(peerId);
   }
 
   Future<void> _replayGroupIce(String peerId) async {
+    if (_current?.isSfuMode == true || _sfuBinding) return;
     final buffered = _pendingGroupIce.remove(peerId) ?? const [];
     for (final signal in buffered) {
       try {
@@ -1131,7 +1340,12 @@ class CallManager {
 
   Future<void> _removeGroupPeer(String peerId) async {
     final session = _current;
-    if (session == null || !session.isGroupCall) return;
+    if (session == null ||
+        !session.isGroupCall ||
+        !session.peerIds.contains(peerId))
+      return;
+    _joinedGroupPeers.remove(peerId);
+    _offeredGroupPeers.remove(peerId);
     await _groupMedia?.removePeer(peerId);
     _pendingGroupOffers.remove(peerId);
     _pendingGroupIce.remove(peerId);
@@ -1192,7 +1406,11 @@ class CallManager {
 
   void _handleGroupPeerState(GroupPeerState update) {
     final session = _current;
-    if (session == null || !session.isGroupCall || session.isTerminal) return;
+    if (session == null ||
+        !session.isGroupCall ||
+        session.isTerminal ||
+        _terminating)
+      return;
     final connected = session.connectedPeerIds.toSet();
     switch (update.state) {
       case MediaConnectionState.connected:
@@ -1204,7 +1422,23 @@ class CallManager {
           MediaConnectionState.disconnected:
         break;
     }
-    _setSession(session.copyWith(connectedPeerIds: connected.toList()));
+    final mediaConnected = update.state == MediaConnectionState.connected;
+    if (mediaConnected) {
+      _ringTimer?.cancel();
+      if (session.state != CallState.active) {
+        final operation = _nativeCalls?.setActive(session.callId);
+        if (operation != null) _track(operation);
+      }
+    }
+    _setSession(
+      session.copyWith(
+        connectedPeerIds: connected.toList(),
+        state: mediaConnected ? CallState.active : session.state,
+        startTime: mediaConnected
+            ? session.startTime ?? DateTime.now()
+            : session.startTime,
+      ),
+    );
   }
 
   Future<void> _handleGroupStatus(GroupCallStatusResponseSignal signal) async {
@@ -1218,6 +1452,7 @@ class CallManager {
       await _finish(CallState.ended, notifyPeer: false);
       return;
     }
+    if (signal.callId != session.callId) return;
     if (signal.mode?.toUpperCase() == 'SFU' &&
         signal.sfuRoomId != null &&
         signal.janusWsUrl != null) {
@@ -1246,9 +1481,23 @@ class CallManager {
     if (session == null ||
         groupMedia == null ||
         token == null ||
-        session.isSfuMode) {
+        !_isCurrentGroupCall(session.callId) ||
+        session.isSfuMode ||
+        _sfuBinding) {
       return;
     }
+    _pendingSfuRoom = (roomId, janusWsUrl);
+    // Never let a server policy/announcement downgrade media to plaintext SFU,
+    // or start publishing while an incoming call is still ringing.
+    if (!_groupMediaReady ||
+        !_mediaEncryptionRequired ||
+        !_mediaEncryptionActive ||
+        !groupMedia.mediaEncryptionEnabled)
+      return;
+    _pendingSfuRoom = null;
+    _sfuBinding = true;
+    _pendingGroupOffers.clear();
+    _pendingGroupIce.clear();
     final janus = _janusClientFactory();
     try {
       if (!await janus.connect(url: janusWsUrl, accessToken: token)) {
@@ -1260,6 +1509,14 @@ class CallManager {
         roomId: roomId,
         displayName: userId,
       );
+      if (!_isCurrentGroupCall(session.callId)) {
+        await janus.dispose();
+        return;
+      }
+      await _janus?.dispose();
+      await _janusSubscription?.cancel();
+      _janus = janus;
+      _janusSubscription = janus.events.listen(_handleJanusEvent);
       for (final peer in session.peerIds) {
         await groupMedia.removePeer(peer);
       }
@@ -1272,23 +1529,37 @@ class CallManager {
         ),
       );
       await groupMedia.applySfuPublisherAnswer(await janus.publishSdp(offer));
-      await _janus?.dispose();
-      await _janusSubscription?.cancel();
-      _janus = janus;
-      _janusSubscription = janus.events.listen(_handleJanusEvent);
+      if (!_isCurrentGroupCall(session.callId)) {
+        await janus.dispose();
+        return;
+      }
       for (final publisher in publishers) {
         await _subscribeToSfuFeed(publisher.$1, publisher.$2);
       }
       _setSession(
-        session.copyWith(
+        _current!.copyWith(
           isSfuMode: true,
           sfuRoomId: roomId,
           connectedPeerIds: const [],
         ),
       );
-    } catch (_) {
+    } catch (error, stack) {
+      _reportCallFailure('bind-sfu', error, stack);
       await janus.dispose();
-      await _finish(CallState.failed, notifyPeer: true);
+      if (_isCurrentGroupCall(session.callId)) {
+        await _finish(CallState.failed, notifyPeer: true);
+      }
+    } finally {
+      _sfuBinding = false;
+    }
+  }
+
+  Future<void> _bindPendingSfu() async {
+    final pending = _pendingSfuRoom;
+    if (pending != null) {
+      await _queueGroupSignal(
+        () => _bindSfu(roomId: pending.$1, janusWsUrl: pending.$2),
+      );
     }
   }
 
@@ -1311,7 +1582,10 @@ class CallManager {
 
   Future<void> _subscribeToSfuFeed(int feedId, String? displayName) async {
     final janus = _janus;
-    if (janus == null || _groupMedia == null) return;
+    if (janus == null ||
+        _groupMedia == null ||
+        _sfuFeedPeers.containsKey(feedId))
+      return;
     _sfuFeedPeers[feedId] = displayName ?? 'feed_$feedId';
     await _answerSfuOffer(feedId, await janus.subscribeToFeed(feedId));
   }
@@ -1383,12 +1657,18 @@ class CallManager {
     final session = _current;
     if (session == null || _terminating) return;
     _terminating = true;
+    _groupMediaReady = false;
+    _pendingSfuRoom = null;
+    if (!_mediaKeyReady.isCompleted) _mediaKeyReady.complete();
     // Medya anahtari cagriyla birlikte biter; bellekte kalici tutulmaz.
     _dropPendingMediaKeysForCall(session.callId);
     _mediaKey = null;
     _mediaEncryptionActive = false;
     _mediaEncryptionRequired = false;
     _ringTimer?.cancel();
+    // Stop frames immediately, especially on failed membership-key rotation.
+    // Reliable control delivery can wait several seconds for ACKs.
+    if (session.isGroupCall) await _groupMedia?.close();
     if (session.direction == CallDirection.incoming &&
         session.state == CallState.ringing &&
         finalState != CallState.rejected &&
@@ -1409,7 +1689,7 @@ class CallManager {
       }
       await _sendControl(
         'server',
-        action ?? 'HANGUP',
+        'HANGUP',
         reliable: false,
         groupId: _currentGroupRoutingToken,
       );
@@ -1426,7 +1706,6 @@ class CallManager {
       await _janus?.dispose();
       _janus = null;
       _sfuFeedPeers.clear();
-      await _groupMedia?.close();
     } else {
       await _media.close();
     }
@@ -1599,6 +1878,7 @@ class CallManager {
   }
 
   Future<void> _dispose() async {
+    if (!_mediaKeyReady.isCompleted) _mediaKeyReady.complete();
     _ringTimer?.cancel();
     _reconnectTimer?.cancel();
     _terminalTimer?.cancel();

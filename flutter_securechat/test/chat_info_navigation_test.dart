@@ -46,6 +46,49 @@ void main() {
   });
 
   for (final isGroup in [false, true]) {
+    testWidgets(
+      '${isGroup ? 'group' : 'contact'} shared content returns to message',
+      (tester) async {
+        final now = DateTime.now();
+        await tester.pumpWidget(
+          SecureChatFlutterApp(
+            container: createWidgetTestContainer(
+              messagesFor: (id) => List.generate(
+                40,
+                (index) => LocalMessage(
+                  id: 'shared-$index',
+                  conversationId: id,
+                  senderId: 'me',
+                  peerId: id,
+                  content: 'Shared history $index',
+                  contentType: MessageContentType.text,
+                  timestamp: now.subtract(Duration(minutes: 40 - index)),
+                  status: MessageStatus.delivered,
+                  isOutgoing: true,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final name = isGroup ? 'Operasyon Ekibi' : 'Ayse Demir';
+        await tester.tap(find.text(name).first);
+        await tester.pumpAndSettle();
+        expect(find.text('Shared history 0').hitTestable(), findsNothing);
+        await tester.tap(find.text(name));
+        await tester.pumpAndSettle();
+        Navigator.of(
+          tester.element(
+            find.byType(isGroup ? GroupInfoScreen : ChatInfoScreen),
+          ),
+        ).pop(const ChatInfoResult.focusMessage('shared-0'));
+        await tester.pumpAndSettle();
+        expect(find.text('Shared history 0').hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pump(const Duration(seconds: 2));
+      },
+    );
+
     for (final useMenu in [false, true]) {
       testWidgets('${isGroup ? 'group' : 'contact'} info opens from '
           '${useMenu ? 'overflow menu' : 'chat header'} and returns to chat', (

@@ -12,6 +12,7 @@ import '../../widgets/azure_backdrop.dart';
 import '../../widgets/azure_options.dart';
 import '../../widgets/notification_sound_picker.dart';
 import '../../widgets/azure_surface.dart';
+import '../auth/recovery_enrollment_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -111,6 +112,16 @@ class SettingsScreen extends StatelessWidget {
               onTap: service == null
                   ? null
                   : () => _showPrivacySheet(context, service, settings!),
+            ),
+            _tile(
+              Icons.alternate_email,
+              l10n.recovery_email_title,
+              l10n.recovery_email_settings,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const RecoveryEnrollmentScreen(),
+                ),
+              ),
             ),
             if (settings != null && service != null) ...[
               SwitchListTile(

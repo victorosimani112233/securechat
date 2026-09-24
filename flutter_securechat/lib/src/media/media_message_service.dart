@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import '../core/models.dart';
+import '../chat/conversation_preview.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../services/session_store.dart';
 import '../services/async_operation_tracker.dart';
@@ -99,25 +100,34 @@ class MediaMessageService {
     if (voiceNote != null && attachments.length != 1) {
       throw ArgumentError('Sesli mesaj tek bir ses kaydı içermelidir.');
     }
+    final conversation = await _database.conversations.getById(conversationId);
+    if (conversation != null && conversation.isGroup != isGroup) {
+      throw StateError('Conversation type changed; reopen the conversation');
+    }
     if (!isGroup) await _phoneSharing?.shareWith(recipientId);
     final outcomes = <MediaSendOutcome>[];
     for (var index = 0; index < attachments.length; index++) {
+      var recipients = groupMembers;
+      if (isGroup) {
+        final group = await _database.conversations.getById(conversationId);
+        final members = (group?.groupMembers ?? '')
+            .split(',')
+            .where((id) => id.isNotEmpty)
+            .toList();
+        if (group?.isGroup != true ||
+            !members.contains(localUserId) ||
+            recipientId != conversationId) {
+          throw StateError('Group membership is required to send media');
+        }
+        // A picker can stay open while a member leaves. Never use its stale
+        // recipient list to distribute new media keys to departed members.
+        recipients = members;
+      }
       final attachment = attachments[index];
       final messageId = _newId('media');
       final retained = await _retain(attachment, messageId);
       final itemCaption = index == 0 ? _cleanCaption(caption) : null;
       final wireCaption = voiceNote?.encode() ?? itemCaption;
-      final result = await _transfers.sendFile(
-        localUserId: localUserId,
-        recipientId: recipientId,
-        file: retained,
-        mimeType: attachment.mimeType,
-        isGroup: isGroup,
-        groupMembers: groupMembers,
-        caption: wireCaption,
-        isViewOnce: isViewOnce,
-        originalMessageId: messageId,
-      );
       await _persistOutgoing(
         messageId: messageId,
         conversationId: conversationId,
@@ -127,7 +137,34 @@ class MediaMessageService {
         caption: itemCaption,
         isViewOnce: isViewOnce,
         voiceNote: voiceNote,
-        result: result,
+        status: StorageMessageStatus.sending,
+      );
+      late final FileTransferResult result;
+      try {
+        result = await _transfers.sendFile(
+          localUserId: localUserId,
+          recipientId: recipientId,
+          file: retained,
+          mimeType: attachment.mimeType,
+          isGroup: isGroup,
+          groupMembers: recipients,
+          caption: wireCaption,
+          isViewOnce: isViewOnce,
+          originalMessageId: messageId,
+        );
+      } catch (_) {
+        await _database.messages.updateStatusIfSending(
+          messageId,
+          StorageMessageStatus.failed,
+        );
+        rethrow;
+      }
+      // Persist before transfer so a fast delivery receipt cannot be lost.
+      await _database.messages.updateStatusIfSending(
+        messageId,
+        result is FileTransferSuccess
+            ? StorageMessageStatus.sent
+            : StorageMessageStatus.failed,
       );
       outcomes.add(MediaSendOutcome(attachment: attachment, result: result));
     }
@@ -181,12 +218,9 @@ class MediaMessageService {
     required String? caption,
     required bool isViewOnce,
     required VoiceNoteMetadata? voiceNote,
-    required FileTransferResult result,
+    required StorageMessageStatus status,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final status = result is FileTransferSuccess
-        ? StorageMessageStatus.sent
-        : StorageMessageStatus.failed;
     final content = voiceNote == null
         ? LocalMessage.buildFileContent(
             fileName: attachment.fileName,
@@ -226,11 +260,12 @@ class MediaMessageService {
         caption,
         attachment.fileName,
         isVoiceNote: voiceNote != null,
+        isViewOnce: isViewOnce,
       ),
       now,
       type: _contentType(attachment.mimeType, isVoiceNote: voiceNote != null),
       outgoing: true,
-      status: StorageMessageStatus.sending,
+      status: status,
     );
   }
 
@@ -253,8 +288,13 @@ class MediaMessageService {
       await _database.conversations.insert(conversation);
     }
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final voiceNote = VoiceNoteMetadata.tryDecode(received.caption);
-    final filePath = await _retainedIncomingPath(received);
+    final voiceNote = received.mimeType.startsWith('audio/')
+        ? VoiceNoteMetadata.tryDecode(received.caption)
+        : null;
+    final filePath = await _retainedIncomingPath(
+      received,
+      isVoiceNote: voiceNote != null,
+    );
     final content = voiceNote == null
         ? LocalMessage.buildFileContent(
             fileName: sanitizeMediaFileName(received.fileName),
@@ -295,6 +335,7 @@ class MediaMessageService {
         voiceNote == null ? received.caption : null,
         received.fileName,
         isVoiceNote: voiceNote != null,
+        isViewOnce: received.isViewOnce,
       ),
       timestamp,
       type: _contentType(received.mimeType, isVoiceNote: voiceNote != null),
@@ -303,7 +344,13 @@ class MediaMessageService {
     await _database.conversations.incrementUnreadCount(conversationId);
   }
 
-  Future<String> _retainedIncomingPath(ReceivedFile received) async {
+  Future<String> _retainedIncomingPath(
+    ReceivedFile received, {
+    required bool isVoiceNote,
+  }) async {
+    // Voice messages have already passed encrypted transfer validation. The
+    // document auto-download preference must not delete their only local copy.
+    if (isVoiceNote) return received.file.absolute.path;
     final storage = _storageManagement;
     final network = _networkKindProvider;
     if (storage == null || network == null) return received.file.absolute.path;
@@ -352,7 +399,9 @@ String _preview(
   String? caption,
   String fileName, {
   bool isVoiceNote = false,
+  bool isViewOnce = false,
 }) {
+  if (isViewOnce) return viewOncePreviewLabel;
   if (isVoiceNote) return 'Sesli mesaj';
   final clean = _cleanCaption(caption);
   if (mimeType.startsWith('image/')) {

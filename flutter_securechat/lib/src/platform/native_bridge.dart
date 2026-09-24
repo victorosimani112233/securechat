@@ -7,6 +7,32 @@ class NativeBridge {
   final MethodChannel? _instanceChannel;
   MethodChannel get _methods => _instanceChannel ?? _channel;
 
+  static const videoThumbnailMaxSize = 320;
+
+  /// Returns an in-memory JPEG only for ordinary retained local media.
+  Future<Uint8List?> localVideoThumbnail({
+    required String path,
+    required bool isViewOnce,
+    int maxSize = videoThumbnailMaxSize,
+  }) async {
+    if (isViewOnce || path.trim().isEmpty) return null;
+    try {
+      final bytes = await _methods
+          .invokeMethod<Uint8List>('localVideoThumbnail', {
+            'path': path,
+            'isViewOnce': false,
+            'maxSize': maxSize.clamp(1, videoThumbnailMaxSize),
+          });
+      return bytes == null || bytes.isEmpty || bytes.length > 512 * 1024
+          ? null
+          : bytes;
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   Future<void> enableScreenProtection() {
     return _methods.invokeMethod<void>('enableScreenProtection');
   }

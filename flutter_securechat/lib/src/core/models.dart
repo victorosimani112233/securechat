@@ -1,3 +1,5 @@
+import '../chat/message_search.dart';
+
 enum MessageContentType { text, image, file, voiceNote, system, deleted, poll }
 
 enum MessageStatus { sending, sent, delivered, read, failed }
@@ -58,9 +60,18 @@ class Conversation {
 
   bool get hasUnread => unreadCount > 0 || manuallyUnread;
 
+  bool hasLeftGroup(String? userId) =>
+      isGroup &&
+      userId != null &&
+      userId.isNotEmpty &&
+      !groupMembers.contains(userId);
+
   Conversation copyWith({
+    bool clearLastMessage = false,
     String? peerName,
     String? peerPhone,
+    List<String>? groupMembers,
+    List<String>? groupAdmins,
     String? lastMessage,
     DateTime? lastMessageTimestamp,
     int? unreadCount,
@@ -79,14 +90,19 @@ class Conversation {
       peerId: peerId,
       peerName: peerName ?? this.peerName,
       peerPhone: peerPhone ?? this.peerPhone,
-      lastMessage: lastMessage ?? this.lastMessage,
-      lastMessageTimestamp: lastMessageTimestamp ?? this.lastMessageTimestamp,
+      lastMessage: clearLastMessage ? null : lastMessage ?? this.lastMessage,
+      lastMessageTimestamp: clearLastMessage
+          ? null
+          : lastMessageTimestamp ?? this.lastMessageTimestamp,
+      lastMessageType: clearLastMessage ? null : lastMessageType,
+      lastMessageOutgoing: !clearLastMessage && lastMessageOutgoing,
+      lastMessageStatus: clearLastMessage ? null : lastMessageStatus,
       unreadCount: unreadCount ?? this.unreadCount,
       isMuted: isMuted ?? this.isMuted,
       isPinned: isPinned ?? this.isPinned,
       isGroup: isGroup,
-      groupMembers: groupMembers,
-      groupAdmins: groupAdmins,
+      groupMembers: groupMembers ?? this.groupMembers,
+      groupAdmins: groupAdmins ?? this.groupAdmins,
       isArchived: isArchived ?? this.isArchived,
       disappearingDuration: disappearingDuration ?? this.disappearingDuration,
       isFavorite: isFavorite ?? this.isFavorite,
@@ -223,6 +239,7 @@ class LocalMessage {
       return 'Tek gösterimlik fotoğraf';
     if (isViewOnce && contentType == MessageContentType.text)
       return 'Tek gösterimlik mesaj';
+    if (isViewOnce) return 'Tek gösterimlik mesaj';
     if (contentType == MessageContentType.image)
       return cap?.isNotEmpty == true ? 'Fotoğraf · $cap' : 'Fotoğraf';
     if (contentType == MessageContentType.file)
@@ -230,6 +247,16 @@ class LocalMessage {
     if (contentType == MessageContentType.voiceNote) return 'Sesli mesaj';
     if (contentType == MessageContentType.poll) return 'Anket';
     return content;
+  }
+
+  String get searchText {
+    if (expiresAt != null && !expiresAt!.isAfter(DateTime.now())) return '';
+    return messageSearchText(
+      content: content,
+      contentType: contentType.name,
+      isViewOnce: isViewOnce,
+      caption: caption,
+    );
   }
 
   static String buildFileContent({

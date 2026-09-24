@@ -32,6 +32,7 @@ object ModernPreKeyStore {
         signedPreKey: SignedPreKey,
         oneTimePreKeys: List<OneTimePreKeyPair>,
         lastResortKyberPreKey: KyberPreKey,
+        expectedEpoch: String? = null,
     ) {
         Database.getConnection().use { connection ->
             connection.autoCommit = false
@@ -44,6 +45,7 @@ object ModernPreKeyStore {
                         check(rows.next()) { "Unknown account cannot upload modern prekeys" }
                     }
                 }
+                PreKeyIdentityGuard.check(connection, userId, identityPublicKey, expectedEpoch)
                 val oldIdentity = connection.prepareStatement(
                     "SELECT identity_public_key FROM modern_prekey_bundles WHERE user_id = ?::uuid",
                 ).use { statement ->
@@ -52,13 +54,9 @@ object ModernPreKeyStore {
                         if (rows.next()) rows.getBytes(1) else null
                     }
                 }
-                if (oldIdentity != null && !oldIdentity.contentEquals(identityPublicKey)) {
-                    connection.prepareStatement(
-                        "DELETE FROM modern_one_time_prekeys WHERE user_id = ?::uuid",
-                    ).use { statement ->
-                        statement.setString(1, userId)
-                        statement.executeUpdate()
-                    }
+                check(oldIdentity == null || oldIdentity.contentEquals(identityPublicKey)) { "Explicit identity recovery required" }
+                if (oldIdentity == null) {
+                    PreKeyIdentityGuard.checkOtherNamespace(connection, userId, identityPublicKey, "users")
                 }
                 connection.prepareStatement(
                     """INSERT INTO modern_prekey_bundles (
@@ -108,11 +106,12 @@ object ModernPreKeyStore {
         }
     }
 
-    fun addOneTimePreKeys(userId: String, keys: List<OneTimePreKeyPair>) {
+    fun addOneTimePreKeys(userId: String, keys: List<OneTimePreKeyPair>, expectedEpoch: String? = null) {
         if (keys.isEmpty()) return
         Database.getConnection().use { connection ->
             connection.autoCommit = false
             try {
+                PreKeyIdentityGuard.check(connection, userId, expectedEpoch = expectedEpoch)
                 connection.prepareStatement(
                     "SELECT user_id FROM modern_prekey_bundles WHERE user_id = ?::uuid FOR UPDATE",
                 ).use { statement ->

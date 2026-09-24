@@ -102,6 +102,282 @@ abstract class AppLocalizations {
     Locale('tr'),
   ];
 
+  /// No description provided for @identity_review_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify identity'**
+  String get identity_review_title;
+
+  /// No description provided for @identity_review_warning.
+  ///
+  /// In en, this message translates to:
+  /// **'A changed identity may mean account recovery, a new device, or an attack. Before approving, compare the current SHA-256 fingerprint with this person in person or through a trusted independent channel. Do not rely on a message in this chat. They can compare your fingerprint on their device too.'**
+  String get identity_review_warning;
+
+  /// No description provided for @identity_review_previous.
+  ///
+  /// In en, this message translates to:
+  /// **'Previously trusted fingerprint (SHA-256)'**
+  String get identity_review_previous;
+
+  /// No description provided for @identity_review_current.
+  ///
+  /// In en, this message translates to:
+  /// **'Current peer fingerprint (SHA-256)'**
+  String get identity_review_current;
+
+  /// No description provided for @identity_review_local.
+  ///
+  /// In en, this message translates to:
+  /// **'Your fingerprint (SHA-256)'**
+  String get identity_review_local;
+
+  /// No description provided for @identity_review_no_previous.
+  ///
+  /// In en, this message translates to:
+  /// **'No previously trusted identity'**
+  String get identity_review_no_previous;
+
+  /// No description provided for @identity_review_unchanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The current identity matches the saved identity.'**
+  String get identity_review_unchanged;
+
+  /// No description provided for @identity_review_confirm.
+  ///
+  /// In en, this message translates to:
+  /// **'I compared this fingerprint through a trusted independent channel.'**
+  String get identity_review_confirm;
+
+  /// No description provided for @identity_review_approve.
+  ///
+  /// In en, this message translates to:
+  /// **'Approve this identity'**
+  String get identity_review_approve;
+
+  /// No description provided for @identity_review_approved.
+  ///
+  /// In en, this message translates to:
+  /// **'Identity approved. You can return to the conversation.'**
+  String get identity_review_approved;
+
+  /// No description provided for @identity_review_stale.
+  ///
+  /// In en, this message translates to:
+  /// **'The identity changed during review. Reload and verify again.'**
+  String get identity_review_stale;
+
+  /// No description provided for @identity_review_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Identity could not be verified. No new identity was approved.'**
+  String get identity_review_failed;
+
+  /// No description provided for @identity_review_retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Reload identity'**
+  String get identity_review_retry;
+
+  /// No description provided for @recovery_error_expired.
+  ///
+  /// In en, this message translates to:
+  /// **'This verification has expired. Request a new code or start a new verification.'**
+  String get recovery_error_expired;
+
+  /// No description provided for @recovery_error_trusted_device.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery email enrollment requires your trusted, signed-in device. Check your session before trying again.'**
+  String get recovery_error_trusted_device;
+
+  /// No description provided for @recovery_error_signed_in.
+  ///
+  /// In en, this message translates to:
+  /// **'This device is already signed in. Return to your account instead of starting another verification.'**
+  String get recovery_error_signed_in;
+
+  /// No description provided for @recovery_restart.
+  ///
+  /// In en, this message translates to:
+  /// **'Start a new verification'**
+  String get recovery_restart;
+
+  /// No description provided for @recovery_restart_warning.
+  ///
+  /// In en, this message translates to:
+  /// **'The previous login may already have changed your Signal identity and revoked old sessions. Restart only if retry cannot finish. A new email code and explicit identity approval will be required. If the prior login was confirmed, its identity will be retained.'**
+  String get recovery_restart_warning;
+
+  /// No description provided for @recovery_login_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Log in to an existing account'**
+  String get recovery_login_title;
+
+  /// No description provided for @recovery_email_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery email'**
+  String get recovery_email_title;
+
+  /// No description provided for @recovery_email_settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage account recovery on this signed-in device.'**
+  String get recovery_email_settings;
+
+  /// No description provided for @recovery_login_description.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the recovery email previously verified on your signed-in device.'**
+  String get recovery_login_description;
+
+  /// No description provided for @recovery_enrollment_description.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify a recovery email from this trusted, signed-in device. Only the first email can be bound; it cannot be viewed or replaced here.'**
+  String get recovery_enrollment_description;
+
+  /// No description provided for @recovery_request_sent.
+  ///
+  /// In en, this message translates to:
+  /// **'If this request is eligible, a six-digit code will be sent. Check your email.'**
+  String get recovery_request_sent;
+
+  /// No description provided for @recovery_send_code.
+  ///
+  /// In en, this message translates to:
+  /// **'Send code'**
+  String get recovery_send_code;
+
+  /// No description provided for @recovery_verify.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify code'**
+  String get recovery_verify;
+
+  /// No description provided for @recovery_change_email.
+  ///
+  /// In en, this message translates to:
+  /// **'Use another email or request a new code'**
+  String get recovery_change_email;
+
+  /// No description provided for @recovery_checking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking recovery status…'**
+  String get recovery_checking;
+
+  /// No description provided for @recovery_retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get recovery_retry;
+
+  /// No description provided for @recovery_email_bound.
+  ///
+  /// In en, this message translates to:
+  /// **'A recovery email is verified for this account. Its address is not shown and cannot be changed here.'**
+  String get recovery_email_bound;
+
+  /// No description provided for @recovery_approval_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Approve account login'**
+  String get recovery_approval_title;
+
+  /// No description provided for @recovery_identity_warning.
+  ///
+  /// In en, this message translates to:
+  /// **'This login creates a new Signal identity for your account. Your security number will change. Contacts should verify it again.'**
+  String get recovery_identity_warning;
+
+  /// No description provided for @recovery_sessions_warning.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous account sessions will be revoked.'**
+  String get recovery_sessions_warning;
+
+  /// No description provided for @recovery_history_warning.
+  ///
+  /// In en, this message translates to:
+  /// **'Account recovery does not restore messages. Chat history can only be restored from an existing backup.'**
+  String get recovery_history_warning;
+
+  /// No description provided for @recovery_identity_accept.
+  ///
+  /// In en, this message translates to:
+  /// **'I approve a new Signal identity and revocation of previous sessions.'**
+  String get recovery_identity_accept;
+
+  /// No description provided for @recovery_login_accept.
+  ///
+  /// In en, this message translates to:
+  /// **'I approve this login and revocation of previous sessions.'**
+  String get recovery_login_accept;
+
+  /// No description provided for @recovery_complete.
+  ///
+  /// In en, this message translates to:
+  /// **'Approve and log in'**
+  String get recovery_complete;
+
+  /// No description provided for @recovery_pending_description.
+  ///
+  /// In en, this message translates to:
+  /// **'A previously approved login is being completed. Retrying resumes that same login without creating another identity.'**
+  String get recovery_pending_description;
+
+  /// No description provided for @recovery_resume_unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The pending login could not be resumed. Keep the data on this device and try again or contact support.'**
+  String get recovery_resume_unavailable;
+
+  /// No description provided for @recovery_error_rate_limit.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many attempts. Please wait before trying again.'**
+  String get recovery_error_rate_limit;
+
+  /// No description provided for @recovery_error_rejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery could not be verified. Check your details or request a new code.'**
+  String get recovery_error_rejected;
+
+  /// No description provided for @recovery_error_generic.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery could not be completed. Please try again.'**
+  String get recovery_error_generic;
+
+  /// No description provided for @recovery_registration_existing.
+  ///
+  /// In en, this message translates to:
+  /// **'This account already exists. Use existing-account login with your verified recovery email. Keep your signed-in device.'**
+  String get recovery_registration_existing;
+
+  /// No description provided for @auth_login_unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'An existing account cannot be accessed through registration. Existing-account login is not available yet. Keep your signed-in device and contact your administrator.'**
+  String get auth_login_unavailable;
+
+  /// No description provided for @auth_setup_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Account setup did not complete. Contact your administrator before registering again. A new attempt requires a new email code.'**
+  String get auth_setup_failed;
+
+  /// Private notification summary containing only total message and distinct conversation counts.
+  ///
+  /// In en, this message translates to:
+  /// **'{messageCount, plural, one{1 message} other{{messageCount} messages}} from {chatCount, plural, one{1 chat} other{{chatCount} chats}}'**
+  String notification_private_summary(int messageCount, int chatCount);
+
   /// No description provided for @app_name.
   ///
   /// In en, this message translates to:
@@ -947,6 +1223,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Leave Group'**
   String get group_leave;
+
+  /// No description provided for @group_not_member.
+  ///
+  /// In en, this message translates to:
+  /// **'You are no longer a member of this group.'**
+  String get group_not_member;
+
+  /// No description provided for @group_leave_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not send the leave notification. Check your connection and try again.'**
+  String get group_leave_failed;
 
   /// No description provided for @chat_search_in_chat.
   ///
@@ -2519,6 +2807,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'All messages on this device will be permanently deleted.'**
   String get clear_chat_body;
+
+  /// No description provided for @clear_group_history_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Only this group\'s messages on this device will be deleted. The group and your membership will remain. Other members\' messages will not be changed.'**
+  String get clear_group_history_body;
 
   /// No description provided for @voice_message.
   ///

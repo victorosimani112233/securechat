@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart' as signal;
 
 import 'crypto_protocol_store.dart';
+import '../services/peer_identity_review_service.dart';
 
 /// Persistent adapter between libsignal's typed store contracts and the
 /// encrypted application database. Record bytes remain in libsignal's own
@@ -49,7 +50,31 @@ class PersistentSignalProtocolStore extends signal.SignalProtocolStore
     signal.IdentityKey? identityKey,
   ) async {
     if (identityKey == null) return false;
+    if (!await _store.isTrustedIdentity(
+      address.getName(),
+      identityKey.serialize(),
+    )) {
+      throw signal.UntrustedIdentityException(address.getName(), identityKey);
+    }
     return _store.storeIdentity(address.getName(), identityKey.serialize());
+  }
+
+  /// Caller must hold the live crypto service's direct-peer mutex. Sessions
+  /// are removed before replacing the pin, so interruption never opens TOFU.
+  Future<void> approveIdentity({
+    required String peerId,
+    required List<int>? expectedIdentity,
+    required List<int> approvedIdentity,
+    required List<int> expectedLocalIdentityRecord,
+  }) async {
+    if (!await _store.approvePeerIdentity(
+      peerId: peerId,
+      expectedIdentity: expectedIdentity,
+      approvedIdentity: approvedIdentity,
+      expectedLocalIdentityRecord: expectedLocalIdentityRecord,
+    )) {
+      throw const PeerIdentityReviewStaleException();
+    }
   }
 
   @override

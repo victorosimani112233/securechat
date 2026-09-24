@@ -171,6 +171,7 @@ class SecureChatBackgroundRuntime {
         incomingMessages: incomingMessages.acceptedMessages,
         session: session,
         presenter: notificationPresenter,
+        unreadCounts: database.conversations.unreadCounts,
         onAsyncFailure: (operation, error, stackTrace) async {
           _logBackgroundFailure('BG-NOTIF', operation, error, stackTrace);
         },
@@ -186,6 +187,9 @@ class SecureChatBackgroundRuntime {
         session: session,
         crypto: crypto,
         phoneSharing: phoneSharing,
+        onAsyncFailure: (operation, error, stackTrace) async {
+          _logBackgroundFailure('BG-SEND', operation, error, stackTrace);
+        },
       );
       const scheduler = WorkmanagerBackgroundScheduler(
         callbackDispatcher: secureChatBackgroundCallbackDispatcher,

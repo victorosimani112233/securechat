@@ -7,6 +7,68 @@ import 'package:flutter_securechat/src/services/signaling_service.dart';
 
 void main() {
   test(
+    'resume refreshes external state before opening socket or maintenance',
+    () async {
+      final signaling = InMemorySignalingService();
+      final session = SessionStore();
+      var refreshes = 0;
+      final lifecycle = AppLifecycleCoordinator(
+        session: session,
+        signaling: signaling,
+        signalingUrl: 'wss://test.invalid',
+        refreshLocalState: () async {
+          expect(signaling.currentStatus.isConnected, isFalse);
+          refreshes++;
+          session.login(
+            userId: 'me',
+            displayName: 'A',
+            phoneNumber: '',
+            accessToken: 'access',
+            refreshToken: 'refresh',
+          );
+        },
+        foregroundMaintenance: () async => expect(refreshes, greaterThan(0)),
+        refreshPushRegistration: () async {},
+      );
+      addTearDown(signaling.dispose);
+      addTearDown(lifecycle.dispose);
+      await lifecycle.enterForeground();
+      expect(signaling.currentStatus.isConnected, isTrue);
+      await lifecycle.enterForeground();
+      expect(refreshes, 1);
+      await lifecycle.enterBackground();
+      await lifecycle.enterForeground();
+      expect(refreshes, 2);
+    },
+  );
+
+  test(
+    'failed refresh does not open stale socket and next resume can retry',
+    () async {
+      final signaling = InMemorySignalingService();
+      var fail = true;
+      final lifecycle = AppLifecycleCoordinator(
+        session: SessionStore(userId: 'me', accessToken: 'access'),
+        signaling: signaling,
+        signalingUrl: 'wss://test.invalid',
+        refreshLocalState: () async {
+          if (fail) throw StateError('unreadable storage');
+        },
+        foregroundMaintenance: () async {},
+        refreshPushRegistration: () async {},
+      );
+      addTearDown(signaling.dispose);
+      addTearDown(lifecycle.dispose);
+      await expectLater(lifecycle.enterForeground(), throwsStateError);
+      expect(lifecycle.isForeground, isFalse);
+      expect(signaling.currentStatus.isConnected, isFalse);
+      fail = false;
+      await lifecycle.enterForeground();
+      expect(signaling.currentStatus.isConnected, isTrue);
+    },
+  );
+
+  test(
     'foreground connects, publishes presence and refreshes maintenance',
     () async {
       final signaling = InMemorySignalingService();

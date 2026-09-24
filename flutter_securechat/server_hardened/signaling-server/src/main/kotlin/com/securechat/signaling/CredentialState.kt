@@ -183,18 +183,19 @@ object CredentialState {
         }
 
     /** Hesabin butun token'larini gecersiz kilar; yeni epoch degerini doner. */
-    fun rotateCredentialEpoch(userId: String): String? {
+    fun rotateCredentialEpoch(userId: String, expectedEpoch: String? = null): String? {
         val next = newValue()
         return Database.getConnection().use { connection ->
             connection.prepareStatement(
                 """UPDATE users
                    SET credential_epoch = ?, refresh_generation = ?
-                   WHERE user_id = ?::uuid
+                   WHERE user_id = ?::uuid AND credential_epoch = COALESCE(?, credential_epoch)
                    RETURNING credential_epoch""",
             ).use { statement ->
                 statement.setString(1, next)
                 statement.setString(2, newValue())
                 statement.setString(3, userId)
+                statement.setString(4, expectedEpoch)
                 statement.executeQuery().use { rows ->
                     if (rows.next()) rows.getString("credential_epoch") else null
                 }.also { invalidateEverywhere(userId) }

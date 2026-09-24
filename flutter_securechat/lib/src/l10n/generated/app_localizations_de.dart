@@ -9,6 +9,190 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get identity_review_title => 'Identität prüfen';
+
+  @override
+  String get identity_review_warning =>
+      'Eine geänderte Identität kann auf eine Kontowiederherstellung, ein neues Gerät oder einen Angriff hinweisen. Vergleiche vor der Bestätigung den aktuellen SHA-256-Fingerabdruck persönlich oder über einen vertrauenswürdigen, unabhängigen Kanal mit dieser Person. Verlasse dich nicht auf eine Nachricht in diesem Chat. Die andere Person kann deinen Fingerabdruck ebenfalls auf ihrem Gerät vergleichen.';
+
+  @override
+  String get identity_review_previous =>
+      'Bisher vertrauenswürdiger Fingerabdruck (SHA-256)';
+
+  @override
+  String get identity_review_current =>
+      'Aktueller Fingerabdruck des Kontakts (SHA-256)';
+
+  @override
+  String get identity_review_local => 'Dein Fingerabdruck (SHA-256)';
+
+  @override
+  String get identity_review_no_previous =>
+      'Keine bisher vertrauenswürdige Identität';
+
+  @override
+  String get identity_review_unchanged =>
+      'Die aktuelle Identität stimmt mit der gespeicherten Identität überein.';
+
+  @override
+  String get identity_review_confirm =>
+      'Ich habe diesen Fingerabdruck über einen vertrauenswürdigen, unabhängigen Kanal verglichen.';
+
+  @override
+  String get identity_review_approve => 'Diese Identität bestätigen';
+
+  @override
+  String get identity_review_approved =>
+      'Identität bestätigt. Du kannst zum Gespräch zurückkehren.';
+
+  @override
+  String get identity_review_stale =>
+      'Die Identität hat sich während der Prüfung geändert. Lade sie neu und prüfe sie erneut.';
+
+  @override
+  String get identity_review_failed =>
+      'Die Identität konnte nicht geprüft werden. Es wurde keine neue Identität bestätigt.';
+
+  @override
+  String get identity_review_retry => 'Identität neu laden';
+
+  @override
+  String get recovery_error_expired =>
+      'Diese Verifizierung ist abgelaufen. Fordere einen neuen Code an oder starte eine neue Verifizierung.';
+
+  @override
+  String get recovery_error_trusted_device =>
+      'Zum Einrichten einer Wiederherstellungs-E-Mail ist dein vertrauenswürdiges, angemeldetes Gerät erforderlich. Prüfe vor einem erneuten Versuch deine Sitzung.';
+
+  @override
+  String get recovery_error_signed_in =>
+      'Dieses Gerät ist bereits angemeldet. Kehre zu deinem Konto zurück, statt eine weitere Verifizierung zu starten.';
+
+  @override
+  String get recovery_restart => 'Neue Verifizierung starten';
+
+  @override
+  String get recovery_restart_warning =>
+      'Die vorherige Anmeldung hat möglicherweise bereits deine Signal-Identität geändert und alte Sitzungen widerrufen. Starte nur neu, wenn ein erneuter Versuch nicht abgeschlossen werden kann. Ein neuer E-Mail-Code und eine ausdrückliche Identitätsbestätigung sind erforderlich. Wenn die vorherige Anmeldung bestätigt wurde, bleibt ihre Identität erhalten.';
+
+  @override
+  String get recovery_login_title => 'Bei bestehendem Konto anmelden';
+
+  @override
+  String get recovery_email_title => 'Wiederherstellungs-E-Mail';
+
+  @override
+  String get recovery_email_settings =>
+      'Kontowiederherstellung auf diesem angemeldeten Gerät verwalten.';
+
+  @override
+  String get recovery_login_description =>
+      'Gib die zuvor auf deinem angemeldeten Gerät bestätigte Wiederherstellungs-E-Mail ein.';
+
+  @override
+  String get recovery_enrollment_description =>
+      'Bestätige eine Wiederherstellungs-E-Mail auf diesem vertrauenswürdigen, angemeldeten Gerät. Nur die erste Adresse kann verknüpft werden; sie kann hier weder angezeigt noch ersetzt werden.';
+
+  @override
+  String get recovery_request_sent =>
+      'Wenn diese Anfrage berechtigt ist, wird ein sechsstelliger Code gesendet. Prüfe deine E-Mails.';
+
+  @override
+  String get recovery_send_code => 'Code senden';
+
+  @override
+  String get recovery_verify => 'Code bestätigen';
+
+  @override
+  String get recovery_change_email =>
+      'Andere E-Mail verwenden oder neuen Code anfordern';
+
+  @override
+  String get recovery_checking => 'Wiederherstellungsstatus wird geprüft…';
+
+  @override
+  String get recovery_retry => 'Erneut versuchen';
+
+  @override
+  String get recovery_email_bound =>
+      'Für dieses Konto ist eine Wiederherstellungs-E-Mail bestätigt. Die Adresse wird nicht angezeigt und kann hier nicht geändert werden.';
+
+  @override
+  String get recovery_approval_title => 'Kontoanmeldung bestätigen';
+
+  @override
+  String get recovery_identity_warning =>
+      'Diese Anmeldung erstellt eine neue Signal-Identität für dein Konto. Deine Sicherheitsnummer ändert sich. Kontakte sollten sie erneut prüfen.';
+
+  @override
+  String get recovery_sessions_warning =>
+      'Bisherige Kontositzungen werden widerrufen.';
+
+  @override
+  String get recovery_history_warning =>
+      'Die Kontowiederherstellung stellt keine Nachrichten wieder her. Chatverläufe können nur aus einer vorhandenen Sicherung wiederhergestellt werden.';
+
+  @override
+  String get recovery_identity_accept =>
+      'Ich stimme einer neuen Signal-Identität und dem Widerruf bisheriger Sitzungen zu.';
+
+  @override
+  String get recovery_login_accept =>
+      'Ich stimme dieser Anmeldung und dem Widerruf bisheriger Sitzungen zu.';
+
+  @override
+  String get recovery_complete => 'Bestätigen und anmelden';
+
+  @override
+  String get recovery_pending_description =>
+      'Eine zuvor bestätigte Anmeldung wird abgeschlossen. Ein erneuter Versuch setzt dieselbe Anmeldung fort, ohne eine weitere Identität zu erstellen.';
+
+  @override
+  String get recovery_resume_unavailable =>
+      'Die ausstehende Anmeldung konnte nicht fortgesetzt werden. Behalte die Daten dieses Geräts und versuche es erneut oder kontaktiere den Support.';
+
+  @override
+  String get recovery_error_rate_limit =>
+      'Zu viele Versuche. Bitte warte vor einem erneuten Versuch.';
+
+  @override
+  String get recovery_error_rejected =>
+      'Die Wiederherstellung konnte nicht bestätigt werden. Prüfe deine Angaben oder fordere einen neuen Code an.';
+
+  @override
+  String get recovery_error_generic =>
+      'Die Wiederherstellung konnte nicht abgeschlossen werden. Bitte versuche es erneut.';
+
+  @override
+  String get recovery_registration_existing =>
+      'Dieses Konto besteht bereits. Melde dich mit deiner bestätigten Wiederherstellungs-E-Mail beim bestehenden Konto an. Behalte dein angemeldetes Gerät.';
+
+  @override
+  String get auth_login_unavailable =>
+      'Eine Registrierung ermöglicht keinen Zugriff auf ein bestehendes Konto. Die Anmeldung bei bestehenden Konten ist noch nicht verfügbar. Behalten Sie Ihr angemeldetes Gerät und wenden Sie sich an Ihren Administrator.';
+
+  @override
+  String get auth_setup_failed =>
+      'Die Kontoeinrichtung wurde nicht abgeschlossen. Wenden Sie sich vor einer erneuten Registrierung an Ihren Administrator. Ein neuer Versuch erfordert einen neuen E-Mail-Code.';
+
+  @override
+  String notification_private_summary(int messageCount, int chatCount) {
+    String _temp0 = intl.Intl.pluralLogic(
+      messageCount,
+      locale: localeName,
+      other: '$messageCount Nachrichten',
+      one: '1 Nachricht',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      chatCount,
+      locale: localeName,
+      other: '$chatCount Chats',
+      one: '1 Chat',
+    );
+    return '$_temp0 aus $_temp1';
+  }
+
+  @override
   String get app_name => 'ELÇİM';
 
   @override
@@ -459,7 +643,14 @@ class AppLocalizationsDe extends AppLocalizations {
   String get group_view_profile => 'View Profile';
 
   @override
-  String get group_leave => 'Leave Group';
+  String get group_leave => 'Gruppe verlassen';
+
+  @override
+  String get group_not_member => 'Du bist kein Mitglied dieser Gruppe mehr.';
+
+  @override
+  String get group_leave_failed =>
+      'Die Austrittsnachricht konnte nicht gesendet werden. Prüfe deine Verbindung und versuche es erneut.';
 
   @override
   String get chat_search_in_chat => 'Search in Chat';
@@ -1318,6 +1509,10 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get clear_chat_body =>
       'All messages on this device will be permanently deleted.';
+
+  @override
+  String get clear_group_history_body =>
+      'Nur die Nachrichten dieser Gruppe auf diesem Gerät werden gelöscht. Die Gruppe und Ihre Mitgliedschaft bleiben erhalten. Nachrichten anderer Mitglieder bleiben unverändert.';
 
   @override
   String get voice_message => 'Voice message';

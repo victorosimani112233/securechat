@@ -45,6 +45,9 @@ class FakeJanusServer(private val port: Int = 18188) {
     /** `message` isteklerinde dondurulecek oda kimligi; null ise istekteki deger. */
     @Volatile
     var roomIdOverride: Long? = null
+    @Volatile var rejectRoomCreation = false
+    @Volatile var rejectRoomDestruction = false
+    @Volatile var acknowledgeBeforeReply = false
 
     fun start() {
         engine = embeddedServer(Netty, host = "127.0.0.1", port = port) {
@@ -58,6 +61,9 @@ class FakeJanusServer(private val port: Int = 18188) {
                         }.getOrNull() ?: continue
                         received += request
                         if (silent) continue
+                        if (acknowledgeBeforeReply && request["janus"]?.jsonPrimitive?.content == "message") {
+                            send(Frame.Text("""{"janus":"ack","transaction":${request["transaction"]}}"""))
+                        }
                         reply(request)?.let { send(Frame.Text(it)) }
                     }
                 }
@@ -92,11 +98,18 @@ class FakeJanusServer(private val port: Int = 18188) {
             "attach" -> """{"janus":"success","transaction":"$transaction","data":{"id":${handleIds.incrementAndGet()}}}"""
             "message" -> {
                 val body = request["body"]?.jsonObject
+                if (rejectRoomCreation && body?.get("request")?.jsonPrimitive?.content == "create") {
+                    return """{"janus":"success","transaction":"$transaction","plugindata":{"data":{"error_code":499,"error":"test refusal"}}}"""
+                }
+                if (rejectRoomDestruction && body?.get("request")?.jsonPrimitive?.content == "destroy") {
+                    return """{"janus":"success","transaction":"$transaction","plugindata":{"data":{"error_code":499,"error":"test refusal"}}}"""
+                }
+                val event = if (body?.get("request")?.jsonPrimitive?.content == "destroy") "destroyed" else "created"
                 val room = roomIdOverride
                     ?: body?.get("room")?.jsonPrimitive?.content?.toLongOrNull()
                     ?: 0L
                 """{"janus":"success","transaction":"$transaction",""" +
-                    """"plugindata":{"plugin":"janus.plugin.videoroom","data":{"room":$room}}}"""
+                    """"plugindata":{"plugin":"janus.plugin.videoroom","data":{"videoroom":"$event","room":$room}}}"""
             }
             "keepalive" -> """{"janus":"ack","transaction":"$transaction"}"""
             "destroy" -> """{"janus":"success","transaction":"$transaction"}"""

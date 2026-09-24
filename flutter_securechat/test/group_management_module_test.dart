@@ -121,10 +121,90 @@ void main() {
     final group = (await f.database.conversations.getById('g1'))!;
     expect(group.groupMembers, 'member');
     expect(group.isArchived, isTrue);
+    expect(group.groupAdmins, isEmpty);
+    expect(f.groups.isLocalMember(group), isFalse);
+    expect(f.groups.isLocalAdmin(group), isFalse);
+    await f.groups.leaveGroup('g1');
+    await expectLater(
+      f.groups.updateName('g1', 'stale admin'),
+      throwsA(isA<GroupManagementException>()),
+    );
     expect(
       (await _outboundControls(f, action: 'LEAVE_GROUP')).single.action,
       'LEAVE_GROUP',
     );
+  });
+
+  test(
+    'concurrent leave sends one control and stale admin is not privileged',
+    () async {
+      final f = await _fixture();
+      addTearDown(f.close);
+      final first = f.groups.leaveGroup('g1');
+      final second = f.groups.leaveGroup('g1');
+      expect(identical(first, second), isTrue);
+      await Future.wait([first, second]);
+      expect(await _outboundControls(f, action: 'LEAVE_GROUP'), hasLength(1));
+      final left = (await f.database.conversations.getById('g1'))!;
+      await f.database.conversations.update(left.copyWith(groupAdmins: 'me'));
+      expect(f.groups.isLocalAdmin(left.copyWith(groupAdmins: 'me')), isFalse);
+      await expectLater(
+        f.groups.updateName('g1', 'not permitted'),
+        throwsA(isA<GroupManagementException>()),
+      );
+    },
+  );
+
+  test('offline leave preserves membership and can be retried', () async {
+    final f = await _fixture();
+    addTearDown(f.close);
+    f.signaling.setConnected(false);
+    await expectLater(
+      f.groups.leaveGroup('g1'),
+      throwsA(isA<GroupLeaveDeliveryException>()),
+    );
+    final unchanged = (await f.database.conversations.getById('g1'))!;
+    expect(unchanged.groupMembers, 'me,member');
+    expect(unchanged.groupAdmins, 'me');
+    expect(unchanged.isArchived, isFalse);
+    expect(f.signaling.sentMessages, isEmpty);
+    f.signaling.setConnected(true);
+    await f.groups.leaveGroup('g1');
+    expect(
+      (await f.database.conversations.getById('g1'))!.groupMembers,
+      'member',
+    );
+  });
+
+  test(
+    'leave reconnects first and retries the same envelope after socket failure',
+    () async {
+      final signaling = _ReconnectingSignaling();
+      final f = await _fixture(signalingOverride: signaling);
+      addTearDown(f.close);
+      signaling.setConnected(false);
+      await f.groups.leaveGroup('g1');
+      expect(signaling.connections, 2);
+      expect(signaling.attempts, hasLength(2));
+      expect(identical(signaling.attempts[0], signaling.attempts[1]), isTrue);
+      expect(
+        (await f.database.conversations.getById('g1'))!.isArchived,
+        isTrue,
+      );
+    },
+  );
+
+  test('last member can leave without a network connection', () async {
+    final f = await _fixture();
+    addTearDown(f.close);
+    await f.database.conversations.updateGroupMembers('g1', 'me');
+    f.signaling.setConnected(false);
+    await f.groups.leaveGroup('g1');
+    final left = (await f.database.conversations.getById('g1'))!;
+    expect(left.groupMembers, isEmpty);
+    expect(left.groupAdmins, isEmpty);
+    expect(left.isArchived, isTrue);
+    expect(f.signaling.sentMessages, isEmpty);
   });
 
   test(
@@ -199,12 +279,16 @@ class _Fixture {
   final GroupManagementService groups;
 
   Future<void> close() async {
+    await signaling.dispose();
     await database.close();
     await root.delete(recursive: true);
   }
 }
 
-Future<_Fixture> _fixture({String userId = 'me'}) async {
+Future<_Fixture> _fixture({
+  String userId = 'me',
+  InMemorySignalingService? signalingOverride,
+}) async {
   final root = await Directory.systemTemp.createTemp('securechat_group_');
   final crypto = LocalAeadCryptoService(
     SecretKey(List<int>.generate(32, (index) => index + 4)),
@@ -225,7 +309,7 @@ Future<_Fixture> _fixture({String userId = 'me'}) async {
     ),
   );
   final session = SessionStore(userId: userId, displayName: userId);
-  final signaling = InMemorySignalingService();
+  final signaling = signalingOverride ?? InMemorySignalingService();
   await signaling.connect(userId: userId, url: 'ws://test', accessToken: 'x');
   return _Fixture(
     root: root,
@@ -240,6 +324,30 @@ Future<_Fixture> _fixture({String userId = 'me'}) async {
       crypto: crypto,
     ),
   );
+}
+
+class _ReconnectingSignaling extends InMemorySignalingService {
+  int connections = 0;
+  final attempts = <SignalMessage>[];
+
+  @override
+  Future<bool> ensureConnected({
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    connections++;
+    setConnected(true);
+    return true;
+  }
+
+  @override
+  Future<bool> send(SignalMessage message) async {
+    attempts.add(message);
+    if (attempts.length == 1) {
+      setConnected(false);
+      return false;
+    }
+    return super.send(message);
+  }
 }
 
 Future<List<GroupNotificationSignal>> _outboundControls(

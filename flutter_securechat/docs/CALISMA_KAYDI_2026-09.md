@@ -639,3 +639,55 @@ bağlı cihaz kapalı süreç canlı FCM tanısı                     wake_no_hi
 - Tüm Flutter test grubunda 596 test geçti; statik analiz temiz.
 - `1.0.82+82` mevcut test imzasıyla bağlı Samsung'a veriler korunarak
   yüklendi; sürüm ve soğuk açılış doğrulandı. Gerçek arama testi yapılmadı.
+
+### 22 Eylül mesaj, bildirim ve grup kontrolleri
+
+- Görünür sohbet dışında bildirim, sohbet sekmesinde okunmamış toplamı,
+  gizli bildirimde farklı sohbet/mesaj toplamı düzeltildi. Ana ve arka plan
+  toplamları mevcut yerel okunmamış kayıtlardan gelir; yeni sunucu tablosu yok.
+- Tek kullanıcı/mesaj için tek tepki; tek gösterimlik açıklamanın yalnızca
+  medya içinde gösterilmesi; arama ve listelerde gizli içeriğin dışlanması;
+  sesli mesajın gönderim/teslim durumunun listeye yansıması testlerle düzeltildi.
+- Kişi/grup ortak medya görünümü, fotoğraf/video önizlemeleri ve mesaja dönme
+  eklendi. Grup geçmişini temizleme üyeliği/grubu korur ve açık onay ister.
+- Gecikmiş eski tarihli mesaj, örtülü sohbet, arka plan, çok hızlı ACK ve
+  sıralı bildirim/temizleme yarışları için regresyon testleri eklendi.
+- Son istemci turunda 705 test geçti; statik analiz temiz. `1.0.83+83`
+  mevcut cihaz test imzasıyla bağlı Samsung'a veriler korunarak yüklendi.
+  Cihaz kilitli olduğundan canlı ekran ve iki cihazlı arama testi tamamlanmadı.
+- Mevcut hesaba giriş tamamlanmış değildir: sunucuda güvenli e-posta/hesap
+  kurtarma bağı yok. Yanıltıcı giriş düğmesi eklenmedi; karar ve sınırlar
+  `AUTH_EXISTING_ACCOUNT_LOGIN.md` içinde. Grup sunucusu ayrı güvenlik ve
+  sözleşme kontrollerinden geçiyor; canlı sunucuya yükleme yapılmadı.
+- Dosya bazlı kayıt ve test sınırları:
+  [MESSAGE_GROUP_QA_2026-09-22.md](MESSAGE_GROUP_QA_2026-09-22.md).
+- Son grup mesh/SFU geçiş koruması ile 706 test geçti. Galeri fotoğraf
+  önizlemesi bellek sınırı sonrasında ilgili 22 test tekrar geçti; analiz temiz.
+  Son aday `1.0.84+84` aynı telefona veriler korunarak kuruldu. 83 ara sürümdür.
+- Sunucu tam turunda 57 test grubunda 1.250 test geçti; son HttpClient
+  düzeltmesinden sonra 78 odaklı test yeniden geçti. JAR hazırlandı, hash ve
+  test sınırları yukarıdaki rapora eklendi. Canlı sunucuya yüklenmedi;
+  bu çalışma için henüz commit/push yapılmadı.
+
+### 23 Eylül güvenli hesap kurtarma ve cihaz bildirimi
+
+- Kullanıcı onayıyla, güvenilir cihazdan e-posta bağlama ve mevcut hesaba
+  e-posta koduyla giriş eklendi. Yeni Signal kimliği açık onay ister;
+  eski sohbetler yalnızca yedekten gelir. Önceki bölümdeki eksik kurtarma
+  kaydı artık uygulanmıştır, fakat canlı sunucuya henüz yüklenmemiştir.
+- V23 korumalı kurtarma kayıtları, süreli/tek kullanımlık yetkiler, kayıp
+  yanıtın aynı istekle tekrar alınması ve eski oturumları iptal etme eklendi.
+  Yedek sahipliği, yerel anahtarları koruma ve değişen kişi kimliğinin açık
+  doğrulaması birlikte test edildi. E-posta/hesap bağı E2EE değildir.
+- Bağlı telefonda farklı sohbetler için gizli bildirim toplamı doğrulandı.
+  Arka plan mesajı sonrasında rozetin eski kalması üzerine yerel veritabanı
+  yenileme ve eşzamanlı yazma koruması eklendi; sunucu sorgusu eklenmedi.
+- Son tam Flutter turunda 829 test geçti. Son statik analiz ve üç sunucu
+  gateway testi bu bilgisayarın inotify/açık dosya limitine takıldı; tüm
+  sunucu paketinin geçtiği iddia edilmiyor. Yeni JAR yerelde derlendi.
+- Ayrıntılar, dağıtım gereksinimleri ve cihaz doğrulama sınırları:
+  [ACCOUNT_RECOVERY_2026-09-23.md](ACCOUNT_RECOVERY_2026-09-23.md).
+- 1.0.85+85 aynı telefona veriler korunarak kuruldu. Soğuk açılışta iki
+  sohbetin toplam okunmamış rozeti 2 olarak doğrulandı; arka planda yeni
+  mesaj ve ön plana dönüş testi için kullanıcıdan bir mesaj daha istendi.
+  Geçici USB ekranı açık tutma ayarı önceki kapalı durumuna geri getirildi.

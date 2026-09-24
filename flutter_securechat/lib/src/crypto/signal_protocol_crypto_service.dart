@@ -6,6 +6,7 @@ import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart' as signal;
 
 import '../services/crypto_service.dart';
 import 'libsignal_protocol_store.dart';
+import '../services/peer_identity_review_service.dart';
 
 abstract interface class PreKeyBundleProvider {
   Future<signal.PreKeyBundle?> fetch(String recipientId);
@@ -93,7 +94,7 @@ class HttpPreKeyBundleProvider implements PreKeyBundleProvider {
 /// remains in [LocalAeadCryptoService]; this class is only for peer/group wire
 /// messages and implements Signal Protocol V3 Double Ratchet + SenderKey.
 class SignalProtocolCryptoService
-    implements CryptoService, PeerSessionRecovery {
+    implements CryptoService, PeerSessionRecovery, PeerIdentityReviewService {
   SignalProtocolCryptoService({
     required PersistentSignalProtocolStore store,
     required PreKeyBundleProvider preKeyBundles,
@@ -107,6 +108,79 @@ class SignalProtocolCryptoService
   final PreKeyBundleProvider _preKeyBundles;
   final PeerIdentityRotationHandler? _onPeerIdentityRotated;
   final _operations = _AsyncKeyedMutex();
+  final _issuedReviews = Expando<bool>();
+
+  @override
+  Future<PeerIdentityReview> reviewPeerIdentity(String peerId) =>
+      _operations.protect('direct:$peerId', () async {
+        final bundle = await _fetchReviewBundle(peerId);
+        final previous = await _store.getIdentity(
+          signal.SignalProtocolAddress(peerId, deviceId),
+        );
+        final local = await _store.getIdentityKeyPair();
+        final review = PeerIdentityReview(
+          peerId: peerId,
+          previousIdentity: previous?.serialize(),
+          currentIdentity: bundle.getIdentityKey().serialize(),
+          localIdentity: local.getPublicKey().serialize(),
+        );
+        _issuedReviews[review] = true;
+        return review;
+      });
+
+  @override
+  Future<void> approvePeerIdentity(PeerIdentityReview review) =>
+      _operations.protect('direct:${review.peerId}', () async {
+        // Only snapshots issued by this instance can authorize a change.
+        if (_issuedReviews[review] != true) {
+          throw const PeerIdentityReviewStaleException();
+        }
+        _issuedReviews[review] = null;
+        final bundle = await _fetchReviewBundle(review.peerId);
+        final local = await _store.getIdentityKeyPair();
+        final previous = await _store.getIdentity(
+          signal.SignalProtocolAddress(review.peerId, deviceId),
+        );
+        if (!identityBytesEqual(
+              bundle.getIdentityKey().serialize(),
+              review.currentIdentity,
+            ) ||
+            !identityBytesEqual(
+              previous?.serialize(),
+              review.previousIdentity,
+            ) ||
+            !identityBytesEqual(
+              local.getPublicKey().serialize(),
+              review.localIdentity,
+            )) {
+          throw const PeerIdentityReviewStaleException();
+        }
+        await _store.approveIdentity(
+          peerId: review.peerId,
+          expectedIdentity: review.previousIdentity,
+          approvedIdentity: review.currentIdentity,
+          expectedLocalIdentityRecord: local.serialize(),
+        );
+      });
+
+  Future<signal.PreKeyBundle> _fetchReviewBundle(String peerId) async {
+    final bundle = await _preKeyBundles.fetch(peerId);
+    if (bundle == null) throw StateError('Peer prekeys are unavailable');
+    final signed = bundle.getSignedPreKey();
+    final signature = bundle.getSignedPreKeySignature();
+    if (bundle.getDeviceId() != deviceId ||
+        signed == null ||
+        signature == null ||
+        !signal.Curve.verifySignature(
+          bundle.getIdentityKey().publicKey,
+          signed.serialize(),
+          // libsignal 0.8.2 clears the sign bit in its signature argument.
+          Uint8List.fromList(signature),
+        )) {
+      throw signal.InvalidKeyException('Invalid signed prekey for review');
+    }
+    return bundle;
+  }
 
   /// [force] verilirse mevcut oturum kaydi gecerli sayilmaz: once silinir,
   /// sonra taze bir prekey bundle ile X3DH bastan kurulur. Bozuk oturumdan
@@ -184,10 +258,16 @@ class SignalProtocolCryptoService
       throw StateError('Signal session could not be established: $recipientId');
     }
     final address = signal.SignalProtocolAddress(recipientId, deviceId);
-    final message = await signal.SessionCipher.fromStore(
-      _store,
-      address,
-    ).encrypt(Uint8List.fromList(utf8.encode(plaintext)));
+    final signal.CiphertextMessage message;
+    try {
+      message = await signal.SessionCipher.fromStore(
+        _store,
+        address,
+      ).encrypt(Uint8List.fromList(utf8.encode(plaintext)));
+    } on signal.UntrustedIdentityException {
+      await _onPeerIdentityRotated?.call(recipientId);
+      rethrow;
+    }
     final type = message.getType() == signal.CiphertextMessage.prekeyType
         ? 'PREKEY'
         : 'SIGNAL';
@@ -225,6 +305,9 @@ class SignalProtocolCryptoService
       // Oturum olu: bir daha kullanilmasin diye hemen silinir, boylece
       // sonraki gonderim taze bir prekey bundle ile X3DH'i bastan kurar.
       await _resetPeerSessionUnlocked(senderId);
+      if (error is signal.UntrustedIdentityException) {
+        await _onPeerIdentityRotated?.call(senderId);
+      }
       throw SignalSessionUnusableException(peerId: senderId, cause: error);
     }
     return utf8.decode(plaintext);

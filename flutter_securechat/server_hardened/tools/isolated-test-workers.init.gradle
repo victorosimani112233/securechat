@@ -1,0 +1,8 @@
+// Isolate the stateful Lincheck/JaCoCo test instrumentation between classes.
+// This does not skip tests or disable the configured coverage agent.
+allprojects {
+    tasks.withType(Test).configureEach {
+        maxHeapSize = '2g'
+        forkEvery = 1
+    }
+}

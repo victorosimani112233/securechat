@@ -7,6 +7,10 @@ import '../services/signaling_service.dart';
 import '../storage/secure_chat_database.dart';
 import '../storage/storage_entities.dart';
 import 'private_chat_control.dart';
+import 'message_reactions.dart';
+import 'conversation_preview.dart';
+
+export 'message_reactions.dart' show parseReactions, allowedMessageReactions;
 
 class MessageInteractionService {
   MessageInteractionService({
@@ -23,6 +27,7 @@ class MessageInteractionService {
   final SignalingService _signaling;
   final SessionStore _session;
   final CryptoService _crypto;
+  final _reactionTails = <String, Future<void>>{};
 
   Future<void> setStarred(String messageId, bool value) =>
       _database.messages.updateStarred(messageId, value);
@@ -91,7 +96,21 @@ class MessageInteractionService {
     return true;
   }
 
-  Future<bool> toggleReaction(String messageId, String emoji) async {
+  Future<bool> toggleReaction(String messageId, String emoji) {
+    final previous = _reactionTails[messageId] ?? Future<void>.value();
+    final result = previous.then((_) => _toggleReaction(messageId, emoji));
+    final tail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _reactionTails[messageId] = tail;
+    return result.whenComplete(() {
+      if (identical(_reactionTails[messageId], tail))
+        _reactionTails.remove(messageId);
+    });
+  }
+
+  Future<bool> _toggleReaction(String messageId, String emoji) async {
     if (!allowedMessageReactions.contains(emoji)) return false;
     final context = await _context(messageId);
     if (context == null ||
@@ -99,12 +118,7 @@ class MessageInteractionService {
       return false;
     }
     final reactions = parseReactions(context.message.reactions);
-    final voters = reactions.putIfAbsent(emoji, () => <String>{});
-    final removing = !voters.add(context.userId);
-    if (removing) {
-      voters.remove(context.userId);
-      if (voters.isEmpty) reactions.remove(emoji);
-    }
+    final removing = reactions[emoji]?.contains(context.userId) ?? false;
     final sent = await _fanout(
       context,
       (recipient) => MessageReactionSignal(
@@ -117,14 +131,11 @@ class MessageInteractionService {
       ),
     );
     if (!sent) return false;
-    await _database.messages.updateReactions(
+    await _database.messages.applyReaction(
       messageId,
-      reactions.isEmpty
-          ? null
-          : jsonEncode({
-              for (final entry in reactions.entries)
-                entry.key: entry.value.toList(growable: false),
-            }),
+      userId: context.userId,
+      emoji: emoji,
+      remove: removing,
     );
     return true;
   }
@@ -210,27 +221,16 @@ class MessageInteractionService {
       conversationId,
       message.contentType == StorageMessageContentType.deleted
           ? 'Bu mesaj silindi'
-          : message.content,
+          : conversationPreview(
+              content: message.content,
+              isViewOnce: message.isViewOnce,
+              contentType: message.contentType,
+            ),
       message.timestamp,
+      type: message.contentType,
+      outgoing: message.isOutgoing,
+      status: message.status,
     );
-  }
-}
-
-Map<String, Set<String>> parseReactions(String? raw) {
-  if (raw == null || raw.isEmpty) return {};
-  try {
-    final decoded = jsonDecode(raw);
-    if (decoded is! Map) return {};
-    return {
-      for (final entry in decoded.entries)
-        if (entry.value is List)
-          entry.key.toString(): (entry.value as List)
-              .whereType<String>()
-              .where((id) => id.isNotEmpty)
-              .toSet(),
-    };
-  } catch (_) {
-    return {};
   }
 }
 
@@ -248,5 +248,3 @@ Set<String> _csv(String? raw) => raw == null
           .map((value) => value.trim())
           .where((value) => value.isNotEmpty)
           .toSet();
-
-const allowedMessageReactions = {'👍', '❤️', '😂', '😮', '😢', '🙏'};

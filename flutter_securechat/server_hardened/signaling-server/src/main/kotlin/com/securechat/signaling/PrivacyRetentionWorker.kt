@@ -95,6 +95,7 @@ object PrivacyRetentionWorker {
         return Database.getConnection().use { connection ->
             connection.autoCommit = false
             try {
+                AccountRecovery.purgeExpired(connection)
                 val botPreKeys = connection.prepareStatement(
                     "DELETE FROM bot_one_time_prekey WHERE consumed_at IS NOT NULL " +
                         "AND consumed_at < NOW() - (? * INTERVAL '1 hour')",

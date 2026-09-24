@@ -9,6 +9,187 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get identity_review_title => 'Verify identity';
+
+  @override
+  String get identity_review_warning =>
+      'A changed identity may mean account recovery, a new device, or an attack. Before approving, compare the current SHA-256 fingerprint with this person in person or through a trusted independent channel. Do not rely on a message in this chat. They can compare your fingerprint on their device too.';
+
+  @override
+  String get identity_review_previous =>
+      'Previously trusted fingerprint (SHA-256)';
+
+  @override
+  String get identity_review_current => 'Current peer fingerprint (SHA-256)';
+
+  @override
+  String get identity_review_local => 'Your fingerprint (SHA-256)';
+
+  @override
+  String get identity_review_no_previous => 'No previously trusted identity';
+
+  @override
+  String get identity_review_unchanged =>
+      'The current identity matches the saved identity.';
+
+  @override
+  String get identity_review_confirm =>
+      'I compared this fingerprint through a trusted independent channel.';
+
+  @override
+  String get identity_review_approve => 'Approve this identity';
+
+  @override
+  String get identity_review_approved =>
+      'Identity approved. You can return to the conversation.';
+
+  @override
+  String get identity_review_stale =>
+      'The identity changed during review. Reload and verify again.';
+
+  @override
+  String get identity_review_failed =>
+      'Identity could not be verified. No new identity was approved.';
+
+  @override
+  String get identity_review_retry => 'Reload identity';
+
+  @override
+  String get recovery_error_expired =>
+      'This verification has expired. Request a new code or start a new verification.';
+
+  @override
+  String get recovery_error_trusted_device =>
+      'Recovery email enrollment requires your trusted, signed-in device. Check your session before trying again.';
+
+  @override
+  String get recovery_error_signed_in =>
+      'This device is already signed in. Return to your account instead of starting another verification.';
+
+  @override
+  String get recovery_restart => 'Start a new verification';
+
+  @override
+  String get recovery_restart_warning =>
+      'The previous login may already have changed your Signal identity and revoked old sessions. Restart only if retry cannot finish. A new email code and explicit identity approval will be required. If the prior login was confirmed, its identity will be retained.';
+
+  @override
+  String get recovery_login_title => 'Log in to an existing account';
+
+  @override
+  String get recovery_email_title => 'Recovery email';
+
+  @override
+  String get recovery_email_settings =>
+      'Manage account recovery on this signed-in device.';
+
+  @override
+  String get recovery_login_description =>
+      'Enter the recovery email previously verified on your signed-in device.';
+
+  @override
+  String get recovery_enrollment_description =>
+      'Verify a recovery email from this trusted, signed-in device. Only the first email can be bound; it cannot be viewed or replaced here.';
+
+  @override
+  String get recovery_request_sent =>
+      'If this request is eligible, a six-digit code will be sent. Check your email.';
+
+  @override
+  String get recovery_send_code => 'Send code';
+
+  @override
+  String get recovery_verify => 'Verify code';
+
+  @override
+  String get recovery_change_email => 'Use another email or request a new code';
+
+  @override
+  String get recovery_checking => 'Checking recovery status…';
+
+  @override
+  String get recovery_retry => 'Retry';
+
+  @override
+  String get recovery_email_bound =>
+      'A recovery email is verified for this account. Its address is not shown and cannot be changed here.';
+
+  @override
+  String get recovery_approval_title => 'Approve account login';
+
+  @override
+  String get recovery_identity_warning =>
+      'This login creates a new Signal identity for your account. Your security number will change. Contacts should verify it again.';
+
+  @override
+  String get recovery_sessions_warning =>
+      'Previous account sessions will be revoked.';
+
+  @override
+  String get recovery_history_warning =>
+      'Account recovery does not restore messages. Chat history can only be restored from an existing backup.';
+
+  @override
+  String get recovery_identity_accept =>
+      'I approve a new Signal identity and revocation of previous sessions.';
+
+  @override
+  String get recovery_login_accept =>
+      'I approve this login and revocation of previous sessions.';
+
+  @override
+  String get recovery_complete => 'Approve and log in';
+
+  @override
+  String get recovery_pending_description =>
+      'A previously approved login is being completed. Retrying resumes that same login without creating another identity.';
+
+  @override
+  String get recovery_resume_unavailable =>
+      'The pending login could not be resumed. Keep the data on this device and try again or contact support.';
+
+  @override
+  String get recovery_error_rate_limit =>
+      'Too many attempts. Please wait before trying again.';
+
+  @override
+  String get recovery_error_rejected =>
+      'Recovery could not be verified. Check your details or request a new code.';
+
+  @override
+  String get recovery_error_generic =>
+      'Recovery could not be completed. Please try again.';
+
+  @override
+  String get recovery_registration_existing =>
+      'This account already exists. Use existing-account login with your verified recovery email. Keep your signed-in device.';
+
+  @override
+  String get auth_login_unavailable =>
+      'An existing account cannot be accessed through registration. Existing-account login is not available yet. Keep your signed-in device and contact your administrator.';
+
+  @override
+  String get auth_setup_failed =>
+      'Account setup did not complete. Contact your administrator before registering again. A new attempt requires a new email code.';
+
+  @override
+  String notification_private_summary(int messageCount, int chatCount) {
+    String _temp0 = intl.Intl.pluralLogic(
+      messageCount,
+      locale: localeName,
+      other: '$messageCount messages',
+      one: '1 message',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      chatCount,
+      locale: localeName,
+      other: '$chatCount chats',
+      one: '1 chat',
+    );
+    return '$_temp0 from $_temp1';
+  }
+
+  @override
   String get app_name => 'ELÇİM';
 
   @override
@@ -460,6 +641,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get group_leave => 'Leave Group';
+
+  @override
+  String get group_not_member => 'You are no longer a member of this group.';
+
+  @override
+  String get group_leave_failed =>
+      'Could not send the leave notification. Check your connection and try again.';
 
   @override
   String get chat_search_in_chat => 'Search in Chat';
@@ -1318,6 +1506,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get clear_chat_body =>
       'All messages on this device will be permanently deleted.';
+
+  @override
+  String get clear_group_history_body =>
+      'Only this groups messages on this device will be deleted. The group and your membership will remain. Other members messages will not be changed.';
 
   @override
   String get voice_message => 'Voice message';

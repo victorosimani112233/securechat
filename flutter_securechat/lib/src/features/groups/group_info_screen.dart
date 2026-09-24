@@ -11,6 +11,8 @@ import '../../storage/storage_entities.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/chat_lock_dialog.dart';
+import '../chat/chat_info_screen.dart';
+import '../chat/shared_content_browser.dart';
 
 class GroupInfoScreen extends StatelessWidget {
   const GroupInfoScreen({super.key});
@@ -75,6 +77,7 @@ class _GroupInfoBody extends StatelessWidget {
     final members = _split(group.groupMembers);
     final admins = _split(group.groupAdmins).toSet();
     final isAdmin = groups.isLocalAdmin(group);
+    final chatInfo = AppContainerScope.of(context).chatInfoRuntime?.service;
     return AzureBackdrop(
       child: Scaffold(
         appBar: AppBar(title: Text(context.l10n.group_info)),
@@ -112,6 +115,29 @@ class _GroupInfoBody extends StatelessWidget {
                   Text(context.l10n.members_count(members.length)),
                 ],
               ),
+            ),
+            const Divider(),
+            SharedContentEntries(
+              onSelected: chatInfo == null
+                  ? null
+                  : (section) async {
+                      final messageId = await Navigator.push<String>(
+                        context,
+                        MaterialPageRoute<String>(
+                          builder: (_) => SharedContentBrowser(
+                            service: chatInfo,
+                            conversationId: group.id,
+                            section: section,
+                          ),
+                        ),
+                      );
+                      if (context.mounted && messageId != null) {
+                        Navigator.pop(
+                          context,
+                          ChatInfoResult.focusMessage(messageId),
+                        );
+                      }
+                    },
             ),
             const Divider(),
             SwitchListTile(
@@ -210,17 +236,23 @@ class _GroupInfoBody extends StatelessWidget {
                     : null,
               ),
             const Divider(),
-            ListTile(
-              leading: Icon(
-                Icons.exit_to_app,
-                color: Theme.of(context).colorScheme.error,
+            if (groups.isLocalMember(group))
+              ListTile(
+                leading: Icon(
+                  Icons.exit_to_app,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                title: Text(
+                  context.l10n.group_leave,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+                onTap: () => _leave(context),
               ),
-              title: Text(
-                context.l10n.group_leave,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+            if (!groups.isLocalMember(group))
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: Text(context.l10n.group_not_member),
               ),
-              onTap: () => _leave(context),
-            ),
           ],
         ),
       ),
@@ -394,7 +426,7 @@ class _GroupInfoBody extends StatelessWidget {
       if (context.mounted)
         Navigator.popUntil(context, ModalRoute.withName('/'));
     } catch (error) {
-      if (context.mounted) _notice(context, '$error');
+      if (context.mounted) _notice(context, context.l10n.group_leave_failed);
     }
   }
 

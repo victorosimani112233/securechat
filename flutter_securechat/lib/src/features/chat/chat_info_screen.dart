@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../chat/chat_info_service.dart';
 import '../../core/models.dart';
+import '../../services/peer_identity_review_service.dart';
 import '../../l10n/l10n.dart';
 import '../../widgets/azure_options.dart';
 import '../../settings/settings_service.dart';
@@ -12,8 +13,8 @@ import '../../storage/storage_entities.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/chat_lock_dialog.dart';
-
-enum _InfoTab { main, search, starred, media, documents }
+import 'shared_content_browser.dart';
+import 'peer_identity_review_screen.dart';
 
 class ChatInfoResult {
   const ChatInfoResult.focusMessage(this.messageId) : lockEnabled = false;
@@ -24,14 +25,17 @@ class ChatInfoResult {
 }
 
 class ChatInfoScreen extends StatefulWidget {
-  const ChatInfoScreen({super.key});
+  const ChatInfoScreen({
+    super.key,
+    this.identityReviewStrings = const PeerIdentityReviewStrings(),
+  });
+
+  final PeerIdentityReviewStrings identityReviewStrings;
   @override
   State<ChatInfoScreen> createState() => _ChatInfoScreenState();
 }
 
 class _ChatInfoScreenState extends State<ChatInfoScreen> {
-  var _tab = _InfoTab.main;
-  var _query = '';
   var _changingLock = false;
 
   @override
@@ -52,63 +56,32 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
         }
         return AzureBackdrop(
           child: Scaffold(
-            appBar: AppBar(
-              leading: BackButton(
-                onPressed: _tab == _InfoTab.main
-                    ? null
-                    : () => setState(() {
-                        _tab = _InfoTab.main;
-                        _query = '';
-                      }),
-              ),
-              title: Text(_title(context)),
-            ),
-            body: _body(service, conversation),
+            appBar: AppBar(title: Text(context.l10n.contact_info)),
+            body: _main(service, conversation),
           ),
         );
       },
     );
   }
 
-  String _title(BuildContext context) => switch (_tab) {
-    _InfoTab.main => context.l10n.contact_info,
-    _InfoTab.search => context.l10n.chat_search_in_chat,
-    _InfoTab.starred => context.l10n.starred_messages,
-    _InfoTab.media => context.l10n.media,
-    _InfoTab.documents => context.l10n.documents,
-  };
-
-  Widget _body(ChatInfoService service, ConversationEntity conversation) {
-    return switch (_tab) {
-      _InfoTab.main => _main(service, conversation),
-      _InfoTab.search => Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              autofocus: true,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: context.l10n.chat_info_search_placeholder,
-              ),
-              onChanged: (value) => setState(() => _query = value),
-            ),
-          ),
-          Expanded(
-            child: _messageList(
-              _query.isEmpty
-                  ? const Stream.empty()
-                  : service.search(conversation.id, _query),
-            ),
-          ),
-        ],
+  Future<void> _browse(
+    ChatInfoService service,
+    String conversationId,
+    SharedContentSection section,
+  ) async {
+    final messageId = await Navigator.push<String>(
+      context,
+      MaterialPageRoute<String>(
+        builder: (_) => SharedContentBrowser(
+          service: service,
+          conversationId: conversationId,
+          section: section,
+        ),
       ),
-      _InfoTab.starred => _messageList(service.watchStarred(conversation.id)),
-      _InfoTab.media => _messageList(service.watchMedia(conversation.id)),
-      _InfoTab.documents => _messageList(
-        service.watchDocuments(conversation.id),
-      ),
-    };
+    );
+    if (mounted && messageId != null) {
+      Navigator.pop(context, ChatInfoResult.focusMessage(messageId));
+    }
   }
 
   Widget _main(ChatInfoService service, ConversationEntity c) => ListView(
@@ -124,27 +97,29 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
           ],
         ),
       ),
-      _tile(
-        Icons.search,
-        context.l10n.chat_search_in_chat,
-        () => setState(() => _tab = _InfoTab.search),
-      ),
-      _tile(
-        Icons.image_outlined,
-        context.l10n.media,
-        () => setState(() => _tab = _InfoTab.media),
-      ),
-      _tile(
-        Icons.description_outlined,
-        context.l10n.documents,
-        () => setState(() => _tab = _InfoTab.documents),
-      ),
-      _tile(
-        Icons.star_outline,
-        context.l10n.starred_messages,
-        () => setState(() => _tab = _InfoTab.starred),
+      SharedContentEntries(
+        onSelected: (section) => _browse(service, c.id, section),
       ),
       const Divider(),
+      if (!c.isGroup &&
+          AppContainerScope.of(context).crypto is PeerIdentityReviewService)
+        ListTile(
+          leading: const Icon(Icons.verified_user_outlined),
+          title: Text(widget.identityReviewStrings.title),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push<void>(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => PeerIdentityReviewScreen(
+                service: AppContainerScope.of(context).crypto
+                    as PeerIdentityReviewService,
+                peerId: c.peerId,
+                peerName: c.peerName,
+                strings: widget.identityReviewStrings,
+              ),
+            ),
+          ),
+        ),
       ListTile(
         leading: const Icon(Icons.schedule),
         title: Text(context.l10n.disappearing_messages),
@@ -222,50 +197,6 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
           },
         ),
       );
-
-  Widget _tile(IconData icon, String title, VoidCallback onTap) => ListTile(
-    leading: Icon(icon),
-    title: Text(title),
-    trailing: const Icon(Icons.chevron_right),
-    onTap: onTap,
-  );
-
-  Widget _messageList(
-    Stream<List<MessageEntity>> stream,
-  ) => StreamBuilder<List<MessageEntity>>(
-    stream: stream,
-    builder: (context, snapshot) {
-      final messages = snapshot.data ?? const [];
-      if (messages.isEmpty) return Center(child: Text(context.l10n.no_records));
-      return ListView.builder(
-        itemCount: messages.length,
-        itemBuilder: (_, index) {
-          final message = messages[index];
-          return ListTile(
-            key: ValueKey('chat-info-message-${message.id}'),
-            leading: Icon(switch (message.contentType) {
-              StorageMessageContentType.image => Icons.image_outlined,
-              StorageMessageContentType.file => Icons.description_outlined,
-              _ => Icons.chat_bubble_outline,
-            }),
-            title: Text(
-              message.content,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              DateTime.fromMillisecondsSinceEpoch(
-                message.timestamp,
-              ).toLocal().toString(),
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () =>
-                Navigator.pop(context, ChatInfoResult.focusMessage(message.id)),
-          );
-        },
-      );
-    },
-  );
 
   Future<void> _noteDialog(
     ChatInfoService service,

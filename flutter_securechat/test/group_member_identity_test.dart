@@ -37,6 +37,69 @@ const _group = Conversation(
 );
 
 void main() {
+  testWidgets('open chat loses composer and calls when membership changes', (
+    tester,
+  ) async {
+    final f = (await tester.runAsync(_Fixture.open))!;
+    addTearDown(f.close);
+    final conversations = [_group];
+    final repo = InMemoryConversationRepository(
+      conversations: conversations,
+      messages: {},
+      session: f.session,
+    );
+    await tester.pumpWidget(f.app(const ChatScreen(), repository: repo));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    conversations[0] = _group.copyWith(
+      groupMembers: [_saved, _shared, _unknown],
+    );
+    await repo.setArchived(_group.id, true);
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+    expect(
+      find.text('You are no longer a member of this group.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
+    await tester.pumpAndSettle();
+    final calls = tester
+        .widgetList<PopupMenuItem<String>>(find.byType(PopupMenuItem<String>))
+        .where(
+          (item) => item.value == 'voice_call' || item.value == 'video_call',
+        );
+    expect(calls, hasLength(2));
+    expect(calls.every((item) => !item.enabled), isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('departed group hides leave and stale admin actions', (
+    tester,
+  ) async {
+    final f = (await tester.runAsync(_Fixture.open))!;
+    addTearDown(f.close);
+    await tester.runAsync(
+      () => f.database.conversations.updateGroupMembers(
+        _group.id,
+        [_saved, _shared, _unknown].join(','),
+      ),
+    );
+    await tester.pumpWidget(f.app(const GroupInfoScreen()));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('You are no longer a member of this group.'),
+      200,
+    );
+    expect(find.text('Leave Group'), findsNothing);
+    expect(find.byIcon(Icons.person_add_outlined), findsNothing);
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   test(
     'batch identity uses local names and verified direct phone only',
     () async {
@@ -368,7 +431,11 @@ class _Fixture {
     );
   }
 
-  Widget app(Widget screen, {double textScale = 1}) {
+  Widget app(
+    Widget screen, {
+    double textScale = 1,
+    ConversationRepository? repository,
+  }) {
     final defaults = createWidgetTestContainer();
     final now = DateTime.now();
     LocalMessage message(String id, String sender, {String? replyTo}) =>
@@ -386,16 +453,18 @@ class _Fixture {
         );
     final container = AppContainer.testing(
       session: session,
-      conversations: InMemoryConversationRepository(
-        conversations: [_group],
-        messages: {
-          _group.id: [
-            message('saved-message', _saved),
-            message('shared-message', _shared, replyTo: 'saved-message'),
-            message('unknown-message', _unknown),
-          ],
-        },
-      ),
+      conversations:
+          repository ??
+          InMemoryConversationRepository(
+            conversations: [_group],
+            messages: {
+              _group.id: [
+                message('saved-message', _saved),
+                message('shared-message', _shared, replyTo: 'saved-message'),
+                message('unknown-message', _unknown),
+              ],
+            },
+          ),
       crypto: crypto,
       signaling: signaling,
       groupRuntime: AppGroupRuntime(service: groups),

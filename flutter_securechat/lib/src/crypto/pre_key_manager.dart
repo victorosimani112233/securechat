@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart' as signal;
 
 import 'crypto_protocol_store.dart';
+import '../storage/storage_entities.dart';
 
 class SerializedOneTimePreKey {
   const SerializedOneTimePreKey({required this.keyId, required this.publicKey});
@@ -66,6 +67,73 @@ class PreKeyManager {
   /// durumunu atomik olarak siler. Aksi halde ayni cihazdaki sonraki hesap
   /// onceki hesabin identity anahtarini yeniden kullanir.
   Future<void> clearProtocolState() => _store.clearProtocolState();
+
+  Future<String?> localIdentityPublicKey() async {
+    final bytes = await _store.getIdentityKeyPair();
+    if (bytes == null) return null;
+    return base64Encode(
+      signal.IdentityKeyPair.fromSerialized(
+        Uint8List.fromList(bytes),
+      ).getPublicKey().serialize(),
+    );
+  }
+
+  Future<int> localRegistrationId() => _store.getLocalRegistrationId();
+
+  Future<String> signRecoveryProof(String message) async {
+    final bytes = await _store.getIdentityKeyPair();
+    if (bytes == null) throw StateError('Trusted device identity required');
+    final identity = signal.IdentityKeyPair.fromSerialized(
+      Uint8List.fromList(bytes),
+    );
+    return base64Encode(
+      signal.Curve.calculateSignature(
+        identity.getPrivateKey(),
+        Uint8List.fromList(utf8.encode(message)),
+      ),
+    );
+  }
+
+  Future<String?> readPendingRecovery() => _store.readPendingRecovery();
+  Future<void> writePendingRecovery(String record) =>
+      _store.writePendingRecovery(record);
+  Future<void> clearPendingRecovery() => _store.clearPendingRecovery();
+
+  /// Generates in memory only. Callers must persist the entire material in the
+  /// encrypted pending record before sending its public bundle to the server.
+  RecoveryKeyMaterial createRecoveryKeyMaterial() {
+    final identity = signal.generateIdentityKeyPair();
+    final signed = signal.generateSignedPreKey(identity, 0);
+    final keys = signal.generatePreKeys(0, batchSize);
+    return RecoveryKeyMaterial(
+      identity: identity.serialize(),
+      registrationId: signal.generateRegistrationId(false),
+      signedPreKey: signed.serialize(),
+      preKeys: keys.map((key) => key.serialize()).toList(),
+    );
+  }
+
+  Future<void> installRecoveryKeyMaterial(
+    RecoveryKeyMaterial material,
+    String expectedPendingRecord,
+  ) => _store.installRecoveryIdentity(
+    expectedPendingRecord: expectedPendingRecord,
+    identityKeyPair: material.identity,
+    registrationId: material.registrationId,
+    preKeys: material.preKeys.map((bytes) {
+      final key = signal.PreKeyRecord.fromBuffer(Uint8List.fromList(bytes));
+      return PreKeyEntity(id: key.id, record: bytes);
+    }).toList(),
+    signedPreKeys: [
+      SignedPreKeyEntity(
+        id: signal.SignedPreKeyRecord.fromSerialized(
+          Uint8List.fromList(material.signedPreKey),
+        ).id,
+        record: material.signedPreKey,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    ],
+  );
 
   Future<SerializedPreKeyBundle> generateAndSerializeInitialBundle() async {
     var existing = await _store.getIdentityKeyPair();
@@ -218,5 +286,84 @@ class PreKeyManager {
     } catch (_) {
       return false;
     }
+  }
+}
+
+class RecoveryKeyMaterial {
+  const RecoveryKeyMaterial({
+    required this.identity,
+    required this.registrationId,
+    required this.signedPreKey,
+    required this.preKeys,
+  });
+
+  final List<int> identity;
+  final int registrationId;
+  final List<int> signedPreKey;
+  final List<List<int>> preKeys;
+
+  String sign(String message) => base64Encode(
+    signal.Curve.calculateSignature(
+      signal.IdentityKeyPair.fromSerialized(
+        Uint8List.fromList(identity),
+      ).getPrivateKey(),
+      Uint8List.fromList(utf8.encode(message)),
+    ),
+  );
+
+  SerializedPreKeyBundle get bundle {
+    final pair = signal.IdentityKeyPair.fromSerialized(
+      Uint8List.fromList(identity),
+    );
+    final signed = signal.SignedPreKeyRecord.fromSerialized(
+      Uint8List.fromList(signedPreKey),
+    );
+    return SerializedPreKeyBundle(
+      identityPublicKey: pair.getPublicKey().serialize(),
+      registrationId: registrationId,
+      signedPreKeyId: signed.id,
+      signedPreKey: signed.getKeyPair().publicKey.serialize(),
+      signedPreKeySignature: signed.signature,
+      oneTimePreKeys: preKeys.map((bytes) {
+        final key = signal.PreKeyRecord.fromBuffer(Uint8List.fromList(bytes));
+        return SerializedOneTimePreKey(
+          keyId: key.id,
+          publicKey: key.getKeyPair().publicKey.serialize(),
+        );
+      }).toList(),
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'identity': base64Encode(identity),
+    'registrationId': registrationId,
+    'signedPreKey': base64Encode(signedPreKey),
+    'preKeys': preKeys.map(base64Encode).toList(),
+  };
+
+  factory RecoveryKeyMaterial.fromJson(Map<String, Object?> json) {
+    final material = RecoveryKeyMaterial(
+      identity: base64Decode(json['identity'] as String),
+      registrationId: json['registrationId'] as int,
+      signedPreKey: base64Decode(json['signedPreKey'] as String),
+      preKeys: (json['preKeys'] as List)
+          .map((key) => base64Decode(key as String))
+          .toList(),
+    );
+    // Parse all records before any database mutation.
+    final bundle = material.bundle;
+    if (material.registrationId < 1 ||
+        material.registrationId > 16383 ||
+        !signal.Curve.verifySignature(
+          signal.IdentityKey.fromBytes(
+            Uint8List.fromList(bundle.identityPublicKey),
+            0,
+          ).publicKey,
+          Uint8List.fromList(bundle.signedPreKey),
+          Uint8List.fromList(bundle.signedPreKeySignature),
+        )) {
+      throw const FormatException('Invalid staged recovery keys');
+    }
+    return material;
   }
 }

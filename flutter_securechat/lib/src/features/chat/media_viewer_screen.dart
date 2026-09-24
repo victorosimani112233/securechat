@@ -22,6 +22,7 @@ class MediaViewerScreen extends StatelessWidget {
     final mime = message.fileMimeType ?? 'application/octet-stream';
     final isImage = mime.startsWith('image/');
     final exists = path != null && fileActions.exists(path);
+    final caption = message.caption?.trim() ?? '';
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -46,23 +47,47 @@ class MediaViewerScreen extends StatelessWidget {
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: message.isViewOnce ? () => Navigator.pop(context) : null,
-        child: Center(
-          child: !exists
-              ? const _UnavailableMedia()
-              : isImage
-              ? InteractiveViewer(
-                  minScale: 0.5,
-                  maxScale: 5,
-                  child: LocalImageView(
-                    path: path,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, _, _) => const _UnavailableMedia(),
-                  ),
-                )
-              : _DocumentViewer(
-                  message: message,
-                  onOpen: () => _open(context, path, mime),
+        child: LayoutBuilder(
+          builder: (context, constraints) => Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: !exists
+                      ? const _UnavailableMedia()
+                      : isImage
+                      ? InteractiveViewer(
+                          minScale: 0.5,
+                          maxScale: 5,
+                          child: LocalImageView(
+                            path: path,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, _, _) =>
+                                const _UnavailableMedia(),
+                          ),
+                        )
+                      : _DocumentViewer(
+                          message: message,
+                          onOpen: () => _open(context, path, mime),
+                        ),
                 ),
+              ),
+              if (exists && caption.isNotEmpty)
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: constraints.maxHeight * .35,
+                  ),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                    child: Text(
+                      caption,
+                      key: const ValueKey('media-viewer-caption'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: message.isViewOnce

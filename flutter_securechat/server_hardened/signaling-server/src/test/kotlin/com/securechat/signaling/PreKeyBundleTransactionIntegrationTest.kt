@@ -146,18 +146,20 @@ class PreKeyBundleTransactionIntegrationTest {
     }
 
     @Test
-    fun `an identity rotation clears the previous one time keys in the same step`() {
+    fun `an ordinary identity rotation is rejected atomically`() {
         val userId = newAccount()
         PreKeyStore.uploadBundle(userId, ByteArray(33) { 3 }, 3, signedPreKey(3), oneTimeKeys(1, 8))
         assertEquals(8, countOneTime(userId))
 
-        PreKeyStore.uploadBundle(userId, ByteArray(33) { 4 }, 4, signedPreKey(4), oneTimeKeys(50, 6))
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+            PreKeyStore.uploadBundle(userId, ByteArray(33) { 4 }, 4, signedPreKey(4), oneTimeKeys(50, 6))
+        }
 
         // Eski identity'nin anahtarlari kalmamali, yalniz yeni set olmali.
-        assertEquals(6, countOneTime(userId))
+        assertEquals(8, countOneTime(userId))
         val bundle = PreKeyStore.fetchBundle(userId)
         assertNotNull(bundle)
-        assertTrue(bundle!!.oneTimePreKey!!.keyId >= 50)
+        assertTrue(bundle!!.oneTimePreKey!!.keyId < 50)
     }
 
     @Test

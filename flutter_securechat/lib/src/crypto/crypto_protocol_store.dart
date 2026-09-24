@@ -71,6 +71,43 @@ class DatabaseCryptoProtocolStore
 
   Future<void> clearProtocolState() => _database.clearCryptoProtocolState();
 
+  static const recoveryPendingKey = 'account_recovery_pending_v1';
+
+  Future<String?> readPendingRecovery() =>
+      _database.cryptoState.get(recoveryPendingKey);
+
+  Future<void> writePendingRecovery(String record) =>
+      _database.cryptoState.put(recoveryPendingKey, record);
+
+  Future<void> clearPendingRecovery() =>
+      _database.cryptoState.delete(recoveryPendingKey);
+
+  Future<bool> approvePeerIdentity({
+    required String peerId,
+    required List<int>? expectedIdentity,
+    required List<int> approvedIdentity,
+    required List<int> expectedLocalIdentityRecord,
+  }) => _database.approvePeerIdentity(
+    peerId: peerId,
+    expectedIdentity: expectedIdentity,
+    approvedIdentity: approvedIdentity,
+    expectedLocalIdentityRecord: expectedLocalIdentityRecord,
+  );
+
+  Future<void> installRecoveryIdentity({
+    required String expectedPendingRecord,
+    required List<int> identityKeyPair,
+    required int registrationId,
+    required List<PreKeyEntity> preKeys,
+    required List<SignedPreKeyEntity> signedPreKeys,
+  }) => _database.installRecoveryIdentity(
+    expectedPendingRecord: expectedPendingRecord,
+    identityKeyPair: identityKeyPair,
+    registrationId: registrationId,
+    preKeys: preKeys,
+    signedPreKeys: signedPreKeys,
+  );
+
   @override
   Future<List<int>?> loadIdentity(String name) async =>
       (await _database.identities.get(name))?.identityKey;
@@ -82,7 +119,11 @@ class DatabaseCryptoProtocolStore
       IdentityEntity(
         addressName: name,
         identityKey: List<int>.from(identityKey),
-        trustLevel: TrustLevel.trustedUnverified,
+        trustLevel:
+            existing != null &&
+                _constantTimeEquals(existing.identityKey, identityKey)
+            ? existing.trustLevel
+            : TrustLevel.trustedUnverified,
       ),
     );
     return existing != null &&

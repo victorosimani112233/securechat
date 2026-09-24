@@ -58,9 +58,8 @@ class GroupCallCapacityTest {
     }
 
     @Test
-    fun `voice calls carry a higher ceiling than video`() {
-        assertTrue(SfuPolicy.meshCapacity("VOICE") > SfuPolicy.meshCapacity("VIDEO"))
-        assertEquals(6, SfuPolicy.meshCapacity("VIDEO"))
+    fun `voice and video both admit eight independent of promotion threshold`() {
+        assertEquals(8, SfuPolicy.meshCapacity("VIDEO"))
         assertEquals(8, SfuPolicy.meshCapacity("VOICE"))
         assertEquals(8, SfuPolicy.MAX_PARTICIPANTS)
     }
@@ -120,7 +119,7 @@ class GroupCallCapacityTest {
     }
 
     @Test
-    fun `promotion without media encryption needs an explicit acknowledgement`() {
+    fun `no operator acknowledgement permits promotion without media encryption`() {
         val enabled = mapOf(
             "JANUS_WS_URL" to "ws://janus:8188",
             "SFU_ENABLED" to "true",
@@ -128,7 +127,7 @@ class GroupCallCapacityTest {
         )
         // Medya Janus'ta acik: kabul beyani olmadan gecilemez.
         assertFalse(SfuPolicy.canPromote(mediaEndToEndEncrypted = false, environment = enabled))
-        assertTrue(
+        assertFalse(
             SfuPolicy.canPromote(
                 mediaEndToEndEncrypted = false,
                 environment = enabled +

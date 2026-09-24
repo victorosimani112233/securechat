@@ -60,6 +60,9 @@ class JanusControlPlaneTest {
     fun clearRequests() {
         janus.clear()
         janus.silent = false
+        janus.rejectRoomCreation = false
+        janus.rejectRoomDestruction = false
+        janus.acknowledgeBeforeReply = false
     }
 
     @Test
@@ -110,6 +113,8 @@ class JanusControlPlaneTest {
         // Kayit acik olsaydi medya sunucu diskine yazilirdi.
         assertEquals("false", body["record"]!!.jsonPrimitive.content)
         assertEquals("8", body["publishers"]!!.jsonPrimitive.content)
+        assertEquals("true", body["require_e2ee"]!!.jsonPrimitive.content)
+        assertEquals("true", body["is_private"]!!.jsonPrimitive.content)
         JanusOrchestrator.destroyVideoRoom(group)
     }
 
@@ -125,6 +130,35 @@ class JanusControlPlaneTest {
         // Ikinci cagri hicbir istek uretmemeli.
         assertTrue(janus.received.isEmpty(), janus.received.toString())
         JanusOrchestrator.destroyVideoRoom(group)
+    }
+
+    @Test
+    fun `replacement call gets fresh room and late old teardown cannot destroy it`() = runBlocking {
+        val group = groupId()
+        val first = JanusOrchestrator.createVideoRoom(group, "instance-A")
+        val second = JanusOrchestrator.createVideoRoom(group, "instance-B")
+        assertFalse(first == second)
+        assertNull(JanusOrchestrator.getRoomInfo(group, "instance-A"))
+        janus.clear()
+        JanusOrchestrator.destroyVideoRoom(group, first, "instance-A")
+        assertTrue(janus.received.isEmpty())
+        assertEquals(second, JanusOrchestrator.getRoomInfo(group, "instance-B")?.roomId)
+        JanusOrchestrator.destroyVideoRoom(group, second, "instance-B")
+    }
+
+    @Test
+    fun `failed disposal retains ownership for retry and prevents old room reuse`() = runBlocking {
+        val group = groupId()
+        val first = JanusOrchestrator.createVideoRoom(group, "instance-A")
+        janus.rejectRoomDestruction = true
+        var rejected = false
+        try { JanusOrchestrator.createVideoRoom(group, "instance-B") } catch (_: IllegalStateException) { rejected = true }
+        assertTrue(rejected)
+        assertNull(JanusOrchestrator.getRoomInfo(group))
+        janus.rejectRoomDestruction = false
+        val second = JanusOrchestrator.createVideoRoom(group, "instance-B")
+        assertFalse(first == second)
+        JanusOrchestrator.destroyVideoRoom(group, second, "instance-B")
     }
 
     @Test
@@ -158,6 +192,27 @@ class JanusControlPlaneTest {
     fun `an unknown group has no room`() {
         assertNull(JanusOrchestrator.getRoomInfo(groupId()))
         assertFalse(JanusOrchestrator.hasActiveRoom(groupId()))
+    }
+
+    @Test
+    fun `ACK does not complete room creation before its final response`() = runBlocking {
+        janus.acknowledgeBeforeReply = true
+        val group = groupId()
+        val room = JanusOrchestrator.createVideoRoom(group)
+        assertEquals(room, JanusOrchestrator.getRoomInfo(group)?.roomId)
+        JanusOrchestrator.destroyVideoRoom(group)
+    }
+
+    @Test
+    fun `plugin error never advertises a phantom room and cleans the temporary session`() = runBlocking {
+        janus.rejectRoomCreation = true
+        val group = groupId()
+        var failed = false
+        try { JanusOrchestrator.createVideoRoom(group) } catch (_: IllegalStateException) { failed = true }
+        assertTrue(failed)
+        assertFalse(JanusOrchestrator.hasActiveRoom(group))
+        assertTrue(janus.received.any { it["janus"]?.jsonPrimitive?.content == "destroy" })
+        assertEquals(0, JanusOrchestrator.pendingRequestCount())
     }
 
     @Test

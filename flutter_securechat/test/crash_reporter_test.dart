@@ -2,10 +2,57 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_securechat/src/diagnostics/crash_reporter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'opt-in device logs exclude message, credentials and user metadata',
+    () async {
+      final root = await Directory.systemTemp.createTemp('diagnostic_console_');
+      addTearDown(() => root.delete(recursive: true));
+      final lines = <String>[];
+      final previous = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message != null) lines.add(message);
+      };
+      addTearDown(() => debugPrint = previous);
+      final reporter = await PrivacyCrashReporter.open(
+        directory: root,
+        platform: _FakeDiagnosticsPlatformGateway(),
+      );
+      reporter.setUserId('private-user-id');
+      await reporter.recordException(
+        StateError('private-message access-secret +905551112233'),
+        StackTrace.fromString(
+          '#0 send (file:///Users/private/source/send.dart:1:2)',
+        ),
+        context: 'message.prepare-encrypted',
+        metadata: {'token': 'access-secret'},
+      );
+      final output = lines.join('\n');
+      for (final secret in [
+        'private-message',
+        'access-secret',
+        '+905551112233',
+        'private-user-id',
+        '/Users/private',
+        sha256ForTest('private-user-id'),
+      ]) {
+        expect(output, isNot(contains(secret)));
+      }
+      if (const bool.fromEnvironment('SECURECHAT_LOCAL_DIAGNOSTICS')) {
+        expect(
+          output,
+          contains('SC-DIAG message.prepare-encrypted StateError'),
+        );
+      } else {
+        expect(lines, isEmpty);
+      }
+    },
+  );
+
   test(
     'crash report is private, bounded and strips content and credentials',
     () async {

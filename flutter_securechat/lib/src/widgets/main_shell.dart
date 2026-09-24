@@ -5,6 +5,8 @@ import '../features/contacts/contacts_screen.dart';
 import '../features/conversations/conversations_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../l10n/l10n.dart';
+import '../services/app_container.dart';
+import '../services/conversation_repository.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -16,6 +18,8 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
   late final PageController _pages;
+  ConversationRepository? _repository;
+  Stream<int>? _unreadCounts;
   int? _swipePointer;
   Offset? _swipeOrigin;
   int _swipeOriginPage = 0;
@@ -31,6 +35,20 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _pages = PageController();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final repository = AppContainerScope.of(context).conversations;
+    if (identical(repository, _repository)) return;
+    _repository = repository;
+    _unreadCounts = repository.watchConversations().map((conversations) {
+      return conversations.fold<int>(
+        0,
+        (total, conversation) => total + conversation.unreadCount,
+      );
+    }).distinct();
   }
 
   @override
@@ -119,31 +137,42 @@ class _MainShellState extends State<MainShell> {
             itemBuilder: (_, index) => _KeepAlivePage(child: _screens[index]),
           ),
         ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: _select,
-          destinations: [
-            NavigationDestination(
-              icon: const Icon(Icons.chat_bubble_outline),
-              selectedIcon: const Icon(Icons.chat_bubble),
-              label: context.l10n.nav_chats,
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.call_outlined),
-              selectedIcon: const Icon(Icons.call),
-              label: context.l10n.nav_calls,
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.contacts_outlined),
-              selectedIcon: const Icon(Icons.contacts),
-              label: context.l10n.nav_contacts,
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.settings_outlined),
-              selectedIcon: const Icon(Icons.settings),
-              label: context.l10n.settings_title,
-            ),
-          ],
+        bottomNavigationBar: StreamBuilder<int>(
+          stream: _unreadCounts,
+          builder: (context, snapshot) {
+            final unreadCount = snapshot.data ?? 0;
+            Widget chatsIcon(IconData icon) => Badge(
+              label: Text('$unreadCount'),
+              isLabelVisible: unreadCount > 0,
+              child: Icon(icon),
+            );
+            return NavigationBar(
+              selectedIndex: _index,
+              onDestinationSelected: _select,
+              destinations: [
+                NavigationDestination(
+                  icon: chatsIcon(Icons.chat_bubble_outline),
+                  selectedIcon: chatsIcon(Icons.chat_bubble),
+                  label: context.l10n.nav_chats,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.call_outlined),
+                  selectedIcon: const Icon(Icons.call),
+                  label: context.l10n.nav_calls,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.contacts_outlined),
+                  selectedIcon: const Icon(Icons.contacts),
+                  label: context.l10n.nav_contacts,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.settings_outlined),
+                  selectedIcon: const Icon(Icons.settings),
+                  label: context.l10n.settings_title,
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

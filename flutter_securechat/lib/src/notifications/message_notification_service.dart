@@ -355,10 +355,16 @@ class MessageNotificationCoordinator {
     required Stream<IncomingMessageEvent> incomingMessages,
     required SessionStore session,
     required LocalNotificationPresenter presenter,
+    ServiceStrings? strings,
+    Future<Map<String, int>> Function()? unreadCounts,
     AsyncOperationFailureHandler? onAsyncFailure,
   }) : _incomingMessages = incomingMessages,
        _session = session,
        _presenter = presenter,
+       _unreadCounts = unreadCounts,
+       _strings =
+           strings ??
+           ServiceStrings(languageCode: () async => session.languagePreference),
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
 
   static const privacyNotificationId = 104729;
@@ -366,12 +372,16 @@ class MessageNotificationCoordinator {
   final Stream<IncomingMessageEvent> _incomingMessages;
   final SessionStore _session;
   final LocalNotificationPresenter _presenter;
+  final ServiceStrings _strings;
+  final Future<Map<String, int>> Function()? _unreadCounts;
   final AsyncOperationTracker _operations;
+  Future<void> _operationTail = Future<void>.value();
   final _counts = <String, int>{};
   StreamSubscription<IncomingMessageEvent>? _messageSubscription;
   StreamSubscription<NotificationDismissal>? _dismissSubscription;
   bool _isForeground = true;
   String? _activeConversationId;
+  Object? _activeConversationOwner;
   bool _disposed = false;
 
   Stream<String> get taps => _presenter.taps;
@@ -383,28 +393,50 @@ class MessageNotificationCoordinator {
     await _presenter.initialize();
     _dismissSubscription ??= _presenter.dismissals.listen(_onDismissed);
     _messageSubscription ??= _incomingMessages.listen((event) {
-      _operations.run('notification.present-message', _onMessage(event));
+      // Visibility belongs to arrival time, not the time a queued show runs.
+      if (_isForeground && _activeConversationId == event.conversationId)
+        return;
+      _enqueue('notification.present-message', () => _onMessage(event));
     });
   }
 
   void setAppForeground(bool foreground) {
     _isForeground = foreground;
     if (foreground && !_disposed) {
-      _operations.run(
+      _enqueue(
         'notification.reconcile-dismissals',
-        _presenter.reconcileDismissals(),
+        _presenter.reconcileDismissals,
       );
     }
   }
 
-  void setActiveConversation(String? conversationId) {
+  void setActiveConversation(String? conversationId, {Object? owner}) {
     _activeConversationId = conversationId;
+    _activeConversationOwner = owner;
+  }
+
+  void clearActiveConversation(Object owner) {
+    if (!identical(_activeConversationOwner, owner)) return;
+    _activeConversationId = null;
+    _activeConversationOwner = null;
   }
 
   Future<void> _onMessage(IncomingMessageEvent event) async {
-    if (_isForeground && _activeConversationId == event.conversationId) return;
-    _counts[event.conversationId] = (_counts[event.conversationId] ?? 0) + 1;
+    final unreadCounts = _unreadCounts;
+    if (unreadCounts != null) {
+      // Background isolates are recreated between pushes; their counters cannot
+      // be the source of truth for an aggregate across different conversations.
+      final unread = await unreadCounts();
+      _counts
+        ..clear()
+        ..addEntries(unread.entries.where((entry) => entry.value > 0));
+      if (!_counts.containsKey(event.conversationId)) return;
+    } else {
+      _counts[event.conversationId] = (_counts[event.conversationId] ?? 0) + 1;
+    }
+    final conversationCount = _counts[event.conversationId]!;
     final total = _counts.values.fold<int>(0, (sum, value) => sum + value);
+    final chatCount = _counts.length;
     final privacy = !_session.showNotificationContent;
     final conversationSilent = event.isMuted && !event.isMention;
     // Sohbete ozel ses, uygulama genelindeki ayari EZER. Sessize alinmis bir
@@ -414,20 +446,20 @@ class MessageNotificationCoordinator {
         ? NotificationSoundPreference.fromStorage(_session.notificationSound)
         : NotificationSoundPreference.fromStorage(custom);
     final silent =
-        conversationSilent ||
-        preference == NotificationSoundPreference.silent;
+        conversationSilent || preference == NotificationSoundPreference.silent;
+    final body = privacy
+        ? (await _strings.load()).notification_private_summary(total, chatCount)
+        : event.preview;
     await _presenter.show(
       LocalMessageNotification(
         id: privacy ? privacyNotificationId : _stableId(event.conversationId),
         title: privacy ? 'Elçim' : event.title,
-        body: privacy
-            ? (_counts.length > 1
-                  ? '${_counts.length} sohbetten $total yeni mesaj'
-                  : '$total yeni mesaj')
-            : event.preview,
+        body: body,
         payload: privacy ? null : event.conversationId,
-        conversationId: event.conversationId,
-        count: privacy ? total : _counts[event.conversationId]!,
+        conversationId: privacy
+            ? PluginLocalNotificationPresenter.groupKey
+            : event.conversationId,
+        count: privacy ? total : conversationCount,
         silent: silent,
         hideOnLockScreen: privacy,
         sound: preference.asset,
@@ -436,8 +468,24 @@ class MessageNotificationCoordinator {
   }
 
   Future<void> clear() async {
-    _counts.clear();
-    await _presenter.cancelAll();
+    await _enqueue('notification.clear', () async {
+      _counts.clear();
+      await _presenter.cancelAll();
+    });
+  }
+
+  Future<void> _enqueue(String name, FutureOr<void> Function() action) {
+    if (_disposed) {
+      throw StateError('Message notification coordinator is disposed');
+    }
+    final operation = _operationTail.then<void>((_) => action());
+    // Keep the queue usable after a failure; the tracker owns its reporting.
+    _operationTail = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _operations.run(name, operation);
+    return operation;
   }
 
   /// Waits until notification work already accepted from the message stream

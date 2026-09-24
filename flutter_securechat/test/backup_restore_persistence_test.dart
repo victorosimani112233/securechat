@@ -71,7 +71,10 @@ void main() {
       );
       final service = BackupService(
         database: database,
-        session: SessionStore(userId: 'me', phoneNumber: '+905550000000'),
+        session: SessionStore(
+          userId: '11111111-1111-4111-8111-111111111111',
+          phoneNumber: '+905550000000',
+        ),
         backupDirectory: Directory('${root.path}/backups'),
       );
       final backup = await service.createBackup('correct-password');
@@ -101,7 +104,7 @@ void main() {
       expect(await database.conversations.getById('stale'), isNull);
       expect(
         await database.cryptoState.get('local_identity_key_pair_v1'),
-        isNull,
+        'old-key',
       );
       expect(jsonDecode(await database.exportPortableJson()), expected);
       expect(await backup.readAsBytes(), originalBackup);

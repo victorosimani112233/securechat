@@ -46,13 +46,15 @@ class GroupCallSessionPrivacyTest {
             callId = "call-sfu",
             coordinatorId = "123e4567-e89b-42d3-a456-426614174000",
             callType = "VIDEO",
-            participants = listOf("123e4567-e89b-42d3-a456-426614174000"),
+            participants = (0..6).map { "member-$it" },
+            mediaE2eeParticipants = (0..6).map { "member-$it" }.toSet(),
             mode = "MESH",
         )
-        assertTrue(GroupCallSessionStore.promoteToSfu(callToken))
-        assertFalse(GroupCallSessionStore.promoteToSfu(callToken))
+        val environment = mapOf("SFU_ENABLED" to "true", "JANUS_WS_URL" to "ws://localhost:8188")
+        val pending = requireNotNull(GroupCallSessionStore.claimSfuPromotion(callToken, environment))
+        assertNull(GroupCallSessionStore.claimSfuPromotion(callToken, environment))
         assertEquals("SFU_PENDING", GroupCallSessionStore.get(callToken)?.mode)
-        GroupCallSessionStore.cancelSfuPromotion(callToken)
+        GroupCallSessionStore.cancelSfuPromotion(pending)
         assertEquals("MESH", GroupCallSessionStore.get(callToken)?.mode)
     }
 }

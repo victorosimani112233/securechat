@@ -294,7 +294,7 @@ void main() {
         isTrue,
       );
       expect(manager.currentSession?.isGroupCall, isTrue);
-      expect(manager.currentSession?.state, CallState.active);
+      expect(manager.currentSession?.state, CallState.ringing);
       final groupInvites = signaling.sentMessages
           .whereType<GroupCallInviteSignal>()
           .toList();
@@ -1184,7 +1184,7 @@ void main() {
     test('a partial rotation failure terminates the encrypted call', () async {
       final undeliverable = <String>{};
       final call = await openCall(
-        peerIds: ['peer-a'],
+        peerIds: ['peer-a', 'peer-b'],
         undeliverable: undeliverable,
       );
       addTearDown(call.dispose);
@@ -1192,12 +1192,17 @@ void main() {
       undeliverable.add('peer-b');
 
       call.signaling.addIncoming(
-        GroupCallMemberJoinedSignal(
-          senderId: 'peer-a',
+        GroupCallJoinRequestSignal(
+          senderId: 'peer-b',
           recipientId: 'me',
           timestamp: DateTime.now(),
-          groupCallId: call.manager.currentSession!.callId,
-          joinedMemberId: 'peer-b',
+          callId: call.manager.currentSession!.callId,
+          groupId: call.signaling.sentMessages
+              .whereType<GroupCallInviteSignal>()
+              .first
+              .groupId,
+          callType: 'VIDEO',
+          mediaE2ee: true,
         ),
       );
       final acknowledged = <String>{};

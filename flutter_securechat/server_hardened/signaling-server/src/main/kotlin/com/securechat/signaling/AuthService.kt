@@ -30,6 +30,7 @@ private val log = LoggerFactory.getLogger("AuthService")
  * `JWT_SECRET` girdisinden alinir.
  */
 object AuthService {
+    data class AccessClaims(val userId: String, val epoch: String)
 
     /** Access token gecerlilik suresi — 1 saat (refresh ile yenilenir) */
     private val ACCESS_TOKEN_TTL_MS = TimeUnit.HOURS.toMillis(1)
@@ -192,8 +193,8 @@ object AuthService {
      * gecerli hale geliyordu. Epoch rotasyonu ayni sonucu PostgreSQL'de
      * kalici olarak verir.
      */
-    fun revokeAllTokens(userId: String): Boolean =
-        CredentialState.rotateCredentialEpoch(userId) != null
+    fun revokeAllTokens(userId: String, expectedEpoch: String? = null): Boolean =
+        CredentialState.rotateCredentialEpoch(userId, expectedEpoch) != null
 
     /**
      * Access token'i dogrular ve userId'yi (sub claim) doner.
@@ -203,7 +204,9 @@ object AuthService {
      * Eski legacy "null typ" kabulu kaldirildi — refresh token'in access olarak
      * kullanilmasini engeller. Eski APK'lar /auth/refresh ile yeni token alir.
      */
-    fun verifyToken(token: String): String? {
+    fun verifyToken(token: String): String? = accessClaims(token)?.userId
+
+    fun accessClaims(token: String): AccessClaims? {
         return try {
             val decoded = verifier.verify(token)
             // ZORUNLU: typ claim'i "access" olmali. null, "refresh", "registration" REDDEDILIR.
@@ -220,7 +223,7 @@ object AuthService {
                 log.warn("[Auth] Superseded credential epoch reddedildi")
                 return null
             }
-            subject
+            AccessClaims(subject, state.credentialEpoch)
         } catch (e: JWTVerificationException) {
             null
         } catch (e: Exception) {

@@ -5,6 +5,8 @@ import '../crypto/pre_key_manager.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import 'auth_api.dart';
+import 'account_recovery_coordinator.dart';
+import 'secure_account_recovery_coordinator.dart';
 import 'phone_privacy.dart';
 
 class AuthCoordinator {
@@ -16,13 +18,25 @@ class AuthCoordinator {
     required String signalingUrl,
     ContactDiscoveryApi? privateDirectory,
     Random? random,
+    AccountRecoveryCoordinator? recovery,
   }) : _api = api,
        _session = session,
        _preKeys = preKeys,
        _signaling = signaling,
        _signalingUrl = signalingUrl,
        _privateDirectory = privateDirectory,
-       _random = random ?? Random.secure();
+       _random = random ?? Random.secure() {
+    this.recovery =
+        recovery ??
+        SecureAccountRecoveryCoordinator(
+          api: api,
+          session: session,
+          preKeys: preKeys,
+          signaling: signaling,
+          signalingUrl: signalingUrl,
+          refreshAccessToken: refreshAccessToken,
+        );
+  }
 
   final AuthApi _api;
   final SessionStore _session;
@@ -31,6 +45,7 @@ class AuthCoordinator {
   final String _signalingUrl;
   final ContactDiscoveryApi? _privateDirectory;
   final Random _random;
+  late final AccountRecoveryCoordinator recovery;
 
   Future<OtpRequestResult> requestOtp(String email) =>
       _api.requestOtp(email.trim().toLowerCase());
@@ -41,20 +56,24 @@ class AuthCoordinator {
   Future<void> registerAndLogin({
     required String displayName,
     required String phoneNumber,
-    String? registrationToken,
+    required String registrationToken,
   }) async {
+    // A restored profile is still an existing identity even without tokens.
+    // A generic registration grant must not replace it with a new UUID.
+    if (_session.userId != null ||
+        await _preKeys.readPendingRecovery() != null) {
+      throw const ExistingAccountLoginRequired();
+    }
     final normalized = normalizePhoneDigits(phoneNumber);
+    final userId = _uuidV4();
     final result = await _api.register(
-      userId: _uuidV4(),
+      userId: userId,
       registrationToken: registrationToken,
     );
-    await _session.loginAndPersist(
-      userId: result.userId,
-      displayName: _sanitizeName(displayName),
-      phoneNumber: '+$normalized',
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-    );
+    if (!result.isNew) throw const ExistingAccountLoginRequired();
+    if (result.userId != userId) {
+      throw const AuthApiException.invalidResponse();
+    }
 
     await _privateDirectory?.checkUsers(
       const [],
@@ -63,6 +82,16 @@ class AuthCoordinator {
       ownUserId: result.userId,
     );
 
+    // Directory rejection must not establish a local session. Once it succeeds,
+    // retain credentials before fallible key setup so upload errors cannot
+    // strand the account that now owns this directory identity.
+    await _session.loginAndPersist(
+      userId: result.userId,
+      displayName: _sanitizeName(displayName),
+      phoneNumber: '+$normalized',
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+    );
     final bundle = await _preKeys.generateAndSerializeInitialBundle();
     await _api.uploadPreKeys(bundle, result.accessToken);
     await _signaling.connect(

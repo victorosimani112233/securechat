@@ -84,6 +84,7 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
           .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
           .join();
       database.execute('PRAGMA key = "x\'$hex\'";');
+      database.execute('PRAGMA busy_timeout = 5000;');
       // Anahtarin dogrulugunu hemen dogrula: yanlis anahtarla ilk gercek
       // sorguya kadar hata gorunmezdi.
       database.select('SELECT count(*) FROM sqlite_master;');
@@ -149,10 +150,9 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
       ..overrideFor(
         sqlite_open.OperatingSystem.linux,
         // Dagitim paketi; testler bu yolda kosuyor.
-        () => _openFirst(_hostCandidates(const [
-          'libsqlcipher.so.0',
-          'libsqlcipher.so',
-        ])),
+        () => _openFirst(
+          _hostCandidates(const ['libsqlcipher.so.0', 'libsqlcipher.so']),
+        ),
       )
       ..overrideFor(
         sqlite_open.OperatingSystem.iOS,
@@ -167,13 +167,15 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
         // Homebrew iki farkli one ek kullanir (Apple Silicon /opt/homebrew,
         // Intel /usr/local) ve ikisi de dyld'nin varsayilan arama yolunda
         // DEGILDIR — bu yuzden tam yollar denenir.
-        () => _openFirst(_hostCandidates(const [
-          'libsqlcipher.dylib',
-          '/opt/homebrew/lib/libsqlcipher.dylib',
-          '/opt/homebrew/opt/sqlcipher/lib/libsqlcipher.dylib',
-          '/usr/local/lib/libsqlcipher.dylib',
-          '/usr/local/opt/sqlcipher/lib/libsqlcipher.dylib',
-        ])),
+        () => _openFirst(
+          _hostCandidates(const [
+            'libsqlcipher.dylib',
+            '/opt/homebrew/lib/libsqlcipher.dylib',
+            '/opt/homebrew/opt/sqlcipher/lib/libsqlcipher.dylib',
+            '/usr/local/lib/libsqlcipher.dylib',
+            '/usr/local/opt/sqlcipher/lib/libsqlcipher.dylib',
+          ]),
+        ),
       );
   }
 
@@ -191,10 +193,7 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
   /// Once degiskenin gosterdigi yol, sonra platformun alisildik yerleri.
   static List<String> _hostCandidates(List<String> defaults) {
     final override = Platform.environment[libraryPathVariable];
-    return [
-      if (override != null && override.isNotEmpty) override,
-      ...defaults,
-    ];
+    return [if (override != null && override.isNotEmpty) override, ...defaults];
   }
 
   /// Adaylari sirayla dener, ilk acilani dondurur.
@@ -225,9 +224,56 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
     );
     return {
       for (final row in rows)
-        row['id'] as String:
-            (jsonDecode(row['data'] as String) as Map).cast<String, Object?>(),
+        row['id'] as String: (jsonDecode(row['data'] as String) as Map)
+            .cast<String, Object?>(),
     };
+  }
+
+  /// Connection-local counter: only commits from OTHER connections change it.
+  int get dataVersion =>
+      _database.select('PRAGMA data_version;').first.values.first as int;
+
+  /// Pins one WAL snapshot for all collection reads and the version check.
+  /// Callbacks must be synchronous; never hold a native lock across an await.
+  T readTransaction<T>(T Function() read) {
+    if (!_database.autocommit) return read();
+    _database.execute('BEGIN;');
+    try {
+      // BEGIN alone is deferred; establish the snapshot before data_version.
+      _database.select('SELECT id FROM records LIMIT 1;');
+      final result = read();
+      _database.execute('COMMIT;');
+      return result;
+    } catch (_) {
+      if (!_database.autocommit) _database.execute('ROLLBACK;');
+      rethrow;
+    }
+  }
+
+  int _savepointId = 0;
+
+  /// Serializes read-modify-write across runtimes, not just persistence.
+  /// Nested applyChanges calls use a savepoint and cannot commit the caller.
+  /// Callbacks must be synchronous.
+  T writeTransaction<T>(T Function() write) {
+    final nested = !_database.autocommit;
+    final savepoint = 'record_store_${_savepointId++}';
+    _database.execute(nested ? 'SAVEPOINT $savepoint;' : 'BEGIN IMMEDIATE;');
+    try {
+      final result = write();
+      _database.execute(nested ? 'RELEASE $savepoint;' : 'COMMIT;');
+      return result;
+    } catch (_) {
+      if (!_database.autocommit) {
+        if (nested) {
+          _database.execute('ROLLBACK TO $savepoint;');
+          _database.execute('RELEASE $savepoint;');
+        } else {
+          _database.execute('ROLLBACK;');
+        }
+      }
+      rethrow;
+    }
   }
 
   /// Degisen kayitlari tek islemde yazar.
@@ -244,8 +290,7 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
     bool clearFirst = false,
   }) {
     if (upserts.isEmpty && deletions.isEmpty && !clearFirst) return;
-    _database.execute('BEGIN IMMEDIATE;');
-    try {
+    writeTransaction(() {
       if (clearFirst) _database.execute('DELETE FROM records;');
       // `INSERT OR REPLACE`, `ON CONFLICT ... DO UPDATE` yerine bilerek
       // kullanilir: UPSERT sozdizimi SQLite 3.24+ gerektirir ve test
@@ -277,11 +322,7 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
         insert.dispose();
         delete.dispose();
       }
-      _database.execute('COMMIT;');
-    } catch (_) {
-      _database.execute('ROLLBACK;');
-      rethrow;
-    }
+    });
   }
 
   /// Gecis dogrulamasi icin toplam kayit sayisi.

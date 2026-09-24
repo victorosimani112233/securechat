@@ -59,6 +59,7 @@ sealed class SignalMessage {
       'group_call_coordinator_changed' =>
         GroupCallCoordinatorChangedSignal.fromJson(data),
       'group_call_join_request' => GroupCallJoinRequestSignal.fromJson(data),
+      'group_call_error' => GroupCallErrorSignal.fromJson(data),
       'group_call_status_query' => GroupCallStatusQuerySignal.fromJson(data),
       'group_call_status_response' => GroupCallStatusResponseSignal.fromJson(
         data,
@@ -1119,6 +1120,42 @@ class GroupCallJoinRequestSignal extends SignalMessage {
     'callId': callId,
     'callType': callType,
     'mediaE2ee': mediaE2ee,
+  };
+}
+
+class GroupCallErrorSignal extends SignalMessage {
+  const GroupCallErrorSignal({
+    required super.senderId,
+    required super.recipientId,
+    required super.timestamp,
+    required this.groupId,
+    required this.callId,
+    required this.code,
+  });
+
+  final String groupId;
+  final String callId;
+  final String code;
+
+  @override
+  String get type => 'group_call_error';
+
+  factory GroupCallErrorSignal.fromJson(Map<String, Object?> json) =>
+      GroupCallErrorSignal(
+        senderId: json['senderId'] as String? ?? '',
+        recipientId: json['recipientId'] as String? ?? '',
+        timestamp: _dt(json['timestamp']),
+        groupId: json['groupId'] as String? ?? '',
+        callId: json['callId'] as String? ?? '',
+        code: json['code'] as String? ?? '',
+      );
+
+  @override
+  Map<String, Object?> toJson() => {
+    ..._base(this),
+    'groupId': groupId,
+    'callId': callId,
+    'code': code,
   };
 }
 

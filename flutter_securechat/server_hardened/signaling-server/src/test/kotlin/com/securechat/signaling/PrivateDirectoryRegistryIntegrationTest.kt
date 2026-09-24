@@ -135,7 +135,7 @@ class PrivateDirectoryRegistryIntegrationTest {
     }
 
     @Test
-    fun `v22 final schema structurally forbids legacy social and identity links`() {
+    fun `v23 schema allows protected recovery but forbids legacy social and plaintext identity links`() {
         Database.getConnection().use { connection ->
             val tables = connection.prepareStatement(
                 """SELECT table_name FROM information_schema.tables
@@ -170,6 +170,10 @@ class PrivateDirectoryRegistryIntegrationTest {
                     // erme zamani; hesap bagi tasimadigi icin sosyal grafik
                     // yuzeyi olusturmaz.
                     "sealed_sender_retired_mailboxes",
+                    "account_recovery_bindings",
+                    "account_recovery_challenges",
+                    "account_recovery_quotas",
+                    "account_recovery_receipts",
                 ),
                 tables,
             )
@@ -193,8 +197,26 @@ class PrivateDirectoryRegistryIntegrationTest {
                     "registration_id",
                     "credential_epoch",
                     "refresh_generation",
+                    "recovery_identity_pin",
+                    "recovery_identity_protocol",
                 ),
                 columns(connection, "users"),
+            )
+            assertEquals(
+                setOf("account_index", "email_index", "binding_version", "sealed_context"),
+                columns(connection, "account_recovery_bindings"),
+            )
+            assertEquals(
+                setOf("challenge_index", "purpose", "account_index", "email_index", "sealed_context", "proof_hash", "attempts", "expires_at"),
+                columns(connection, "account_recovery_challenges"),
+            )
+            assertEquals(
+                setOf("quota_index", "used", "expires_at"),
+                columns(connection, "account_recovery_quotas"),
+            )
+            assertEquals(
+                setOf("challenge_index", "account_index", "request_hash", "sealed_response", "expires_at"),
+                columns(connection, "account_recovery_receipts"),
             )
             assertEquals(
                 setOf("id", "user_index", "token", "registered_on"),

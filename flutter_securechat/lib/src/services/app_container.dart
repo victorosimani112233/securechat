@@ -478,6 +478,7 @@ class AppContainer {
         crypto: crypto,
         reliableQueue: offlineQueue,
         phoneSharing: phoneSharing,
+        onAsyncFailure: reportAsyncFailure,
       );
       final chatActivity = ChatActivityService(
         session: session,
@@ -752,6 +753,7 @@ class AppContainer {
         incomingMessages: incomingMessages.acceptedMessages,
         session: session,
         presenter: notificationPresenter,
+        unreadCounts: database.conversations.unreadCounts,
         onAsyncFailure: reportAsyncFailure,
       );
       await messageNotifications.start();
@@ -784,6 +786,7 @@ class AppContainer {
         signaling: signaling,
         signalingUrl: config.signalingUrl,
         foregroundMaintenance: backgroundRuntime.runForegroundMaintenance,
+        refreshLocalState: database.refreshFromDisk,
         refreshPushRegistration: () async {
           await pushCoordinator?.refreshRegistration();
         },
@@ -798,6 +801,7 @@ class AppContainer {
         conversations: StorageConversationRepository(
           database,
           sender: messageSender,
+          session: session,
         ),
         crypto: crypto,
         signaling: signaling,

@@ -1,84 +1,50 @@
 package com.securechat.signaling
 
-import org.slf4j.LoggerFactory
-
-private val log = LoggerFactory.getLogger("SfuPolicy")
-
 /**
- * Janus SFU'nun medya gizliligi sinirindaki yeri.
- *
- * P2P/TURN yolunda DTLS-SRTP iki uc arasinda kalir ve TURN yalniz ciphertext
- * relay eder. SFU yolunda ise WebRTC oturumu Janus'ta **sonlanir**: ayri bir
- * uygulama-katmani medya sifrelemesi (SFrame veya FrameCryptor) olmadan
- * Janus host/process'i ses ve goruntu icin guven sinirinin **icindedir**.
- *
- * Flutter istemcisi FrameCryptor ile uygulama-katmani medya sifrelemesi
- * kullanabilir. SFU varsayilan olarak yine kapalidir; frame sifrelemesi
- * butun katilimcilarda etkin degilse production'da acilmasi operatorun bu
- * siniri acikca kabul etmesini gerektirir. Kapaliyken grup aramalari mesh
- * modda kalir; kullaniciya sessizce zayif bir garanti verilmez.
+ * Admission is capped at eight; promotion is optional and encrypted-only.
+ * DTLS-SRTP remains endpoint-to-endpoint in mesh/TURN, but terminates at Janus.
+ * No deployment acknowledgement can substitute for client frame encryption.
  */
 object SfuPolicy {
-
-    /** Kabulun anlamini gizlemeyen, kopyalanmasi bilincli olan deger. */
+    // Legacy configuration value retained for regression tests, not an override.
     const val REQUIRED_ACKNOWLEDGEMENT = "sfu-media-not-end-to-end-encrypted"
-
-    /** Tum grup aramalari icin, arayan dahil, asilamayan protokol tavani. */
     const val MAX_PARTICIPANTS = 8
 
-    /** Mesh'in pratik tavani; SFU esiginin ustunde arama kullanilamaz hale gelir. */
-    fun meshCapacity(callType: String): Int =
-        if (callType.equals("VIDEO", true)) 6 else MAX_PARTICIPANTS
+    fun meshCapacity(callType: String): Int {
+        require(callType in setOf("VOICE", "VIDEO"))
+        return MAX_PARTICIPANTS
+    }
 
-    fun sfuThreshold(callType: String): Int = meshCapacity(callType)
+    /** Promote on the seventh joined participant, for voice as well as video. */
+    fun sfuThreshold(callType: String): Int {
+        require(callType in setOf("VOICE", "VIDEO"))
+        return 6
+    }
 
-    /**
-     * Bir aramanin SFU'ya gecebilmesi.
-     *
-     * Tum katilimcilar medya frame sifrelemesi bildiriyorsa Janus yalniz
-     * ciphertext yonlendirir ve medya guven siniri disinda kalir; bu durumda
-     * operator kabul beyani gerekmez. Biri bile bildirmiyorsa medya Janus'ta
-     * aciktir ve ancak acik kabulle gecilebilir.
-     */
     fun canPromote(
         mediaEndToEndEncrypted: Boolean,
         environment: Map<String, String> = System.getenv(),
-    ): Boolean {
-        if (environment["JANUS_WS_URL"].isNullOrBlank()) return false
-        if (environment["SFU_ENABLED"]?.equals("true", ignoreCase = true) != true) return false
-        if (mediaEndToEndEncrypted) return true
-        return isEnabled(environment)
-    }
+    ): Boolean = mediaEndToEndEncrypted && isEnabled(environment)
 
-    fun isEnabled(environment: Map<String, String> = System.getenv()): Boolean {
-        if (environment["JANUS_WS_URL"].isNullOrBlank()) return false
-        if (environment["SFU_ENABLED"]?.equals("true", ignoreCase = true) != true) return false
-        val production =
-            environment["PRIVACY_PRODUCTION_MODE"]?.equals("true", ignoreCase = true) == true
-        if (!production) return true
-        return environment["SFU_MEDIA_BOUNDARY_ACK"]?.trim() == REQUIRED_ACKNOWLEDGEMENT
-    }
+    fun isEnabled(environment: Map<String, String> = System.getenv()): Boolean =
+        environment["SFU_ENABLED"]?.equals("true", ignoreCase = true) == true &&
+            !environment["JANUS_WS_URL"].isNullOrBlank()
 
-    /**
-     * Production'da SFU acilmak isteniyorsa kabul beyani zorunludur; eksik
-     * beyan sessizce "kapali"ya donusmez, startup durur.
-     */
     fun validate(environment: Map<String, String> = System.getenv()) {
-        val requested = environment["SFU_ENABLED"]?.equals("true", ignoreCase = true) == true
-        if (!requested) return
+        if (environment["SFU_ENABLED"]?.equals("true", ignoreCase = true) != true) return
         require(!environment["JANUS_WS_URL"].isNullOrBlank()) {
             "SFU_ENABLED=true requires JANUS_WS_URL"
         }
-        val production =
-            environment["PRIVACY_PRODUCTION_MODE"]?.equals("true", ignoreCase = true) == true
-        if (!production) return
-        require(environment["SFU_MEDIA_BOUNDARY_ACK"]?.trim() == REQUIRED_ACKNOWLEDGEMENT) {
-            "Enabling the SFU in production requires SFU_MEDIA_BOUNDARY_ACK=" +
-                REQUIRED_ACKNOWLEDGEMENT
+        require(!environment["JANUS_PUBLIC_WS_URL"].isNullOrBlank()) {
+            "SFU_ENABLED=true requires JANUS_PUBLIC_WS_URL pointing to the authenticated /janus gateway"
         }
-        log.warn(
-            "[SFU] Medya, uygulama katmaninda sifrelenmemis olarak Janus'tan gecer; " +
-                "bu sinir operator tarafindan kabul edildi",
-        )
+        val internal = java.net.URI(environment.getValue("JANUS_WS_URL"))
+        val public = java.net.URI(environment.getValue("JANUS_PUBLIC_WS_URL"))
+        require(internal.scheme in setOf("ws", "wss") && internal.host != null &&
+            internal.userInfo == null && internal.rawQuery == null && internal.fragment == null)
+        require(public.scheme == "wss" && public.host != null && public.path == "/janus" &&
+            public.rawQuery == null && public.userInfo == null && public.fragment == null) {
+            "JANUS_PUBLIC_WS_URL must be wss://<trusted-host>/janus without credentials or query"
+        }
     }
 }

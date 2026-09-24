@@ -197,6 +197,14 @@ class PrivacyCrashReporter implements CrashReporter {
   }) async {
     try {
       final now = DateTime.now().toUtc();
+      if (const bool.fromEnvironment('SECURECHAT_LOCAL_DIAGNOSTICS')) {
+        // Opt-in device diagnostic build only. Never log exception messages,
+        // request data, account identifiers, or cryptographic material.
+        debugPrint('SC-DIAG ${_safeValue(context)} ${error.runtimeType}');
+        debugPrint(
+          _redactStack(stackTrace.toString()).split('\n').take(12).join('\n'),
+        );
+      }
       final payload = <String, Object?>{
         'format': 'elcim-crash-v1',
         'timestamp': now.toIso8601String(),

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -48,7 +49,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _input = TextEditingController();
   final _search = TextEditingController();
   final _messageScroll = ScrollController();
@@ -80,6 +81,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _accessGranted = false;
   bool _accessChecking = false;
   bool _markedRead = false;
+  Set<String> _readMessageIds = const {};
   final Set<String> _forwardSelection = {};
   Stream<AppPeerActivity>? _peerActivityStream;
   Future<void> Function()? _stopTyping;
@@ -88,13 +90,15 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _messageScroll.addListener(_onMessageScroll);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
     _conversationSubscription?.cancel();
     _groupIdentitySubscription?.cancel();
-    _notificationRuntime?.coordinator.setActiveConversation(null);
+    WidgetsBinding.instance.removeObserver(this);
+    _notificationRuntime?.coordinator.clearActiveConversation(this);
     final stopTyping = _stopTyping;
     if (stopTyping != null) unawaited(stopTyping());
     _highlightTimer?.cancel();
@@ -145,13 +149,22 @@ class _ChatScreenState extends State<ChatScreen> {
             final current = _conversation!;
             if (updated == null ||
                 (updated.peerName == current.peerName &&
-                    updated.peerPhone == current.peerPhone))
+                    updated.peerPhone == current.peerPhone &&
+                    listEquals(updated.groupMembers, current.groupMembers) &&
+                    listEquals(updated.groupAdmins, current.groupAdmins) &&
+                    updated.isReadOnly == current.isReadOnly &&
+                    updated.isExportEnabled == current.isExportEnabled))
               return;
             setState(() {
-              // Refresh identity without changing the independently checked lock state.
+              // Refresh membership/policy too, but preserve the independently
+              // authorized lock state for this open route.
               _conversation = current.copyWith(
                 peerName: updated.peerName,
                 peerPhone: updated.peerPhone,
+                groupMembers: updated.groupMembers,
+                groupAdmins: updated.groupAdmins,
+                isReadOnly: updated.isReadOnly,
+                isExportEnabled: updated.isExportEnabled,
               );
             });
           });
@@ -174,6 +187,7 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       });
     }
+    _syncNotificationVisibility();
     if (_lostSelectionChecked) return;
     _lostSelectionChecked = true;
     final selection = AppContainerScope.of(
@@ -195,6 +209,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final conversation = _conversation!;
     final container = AppContainerScope.of(context);
+    _syncNotificationVisibility();
     if (!_accessGranted) {
       return Scaffold(
         appBar: AppBar(title: Text(context.l10n.locked_chat)),
@@ -234,8 +249,6 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
     final repo = container.conversations;
-    _notificationRuntime = container.notificationRuntime;
-    _notificationRuntime?.coordinator.setActiveConversation(conversation.id);
     return AzureBackdrop(
       child: Scaffold(
         appBar: AppBar(
@@ -311,10 +324,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 final userId = AppContainerScope.of(context).session.userId;
                 final isAdmin =
                     conversation.isGroup &&
+                    !conversation.hasLeftGroup(userId) &&
                     conversation.groupAdmins.contains(userId);
                 return [
                   PopupMenuItem(
                     value: 'voice_call',
+                    enabled: !conversation.hasLeftGroup(userId),
                     child: Row(
                       children: [
                         const Icon(Icons.call_outlined),
@@ -325,6 +340,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   PopupMenuItem(
                     value: 'video_call',
+                    enabled: !conversation.hasLeftGroup(userId),
                     child: Row(
                       children: [
                         const Icon(Icons.videocam_outlined),
@@ -382,7 +398,12 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         body: Column(
           children: [
-            if (conversation.isReadOnly)
+            if (conversation.hasLeftGroup(container.session.userId))
+              MaterialBanner(
+                content: Text(context.l10n.group_not_member),
+                actions: const [SizedBox.shrink()],
+              )
+            else if (conversation.isReadOnly)
               MaterialBanner(
                 content: Text(context.l10n.read_only_announcement),
                 actions: const [SizedBox.shrink()],
@@ -492,7 +513,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 sender: _senderLabel(_replying!),
                 onClose: () => setState(() => _replying = null),
               ),
-            if (_forwardSelection.isEmpty && _showAttachments)
+            if (_forwardSelection.isEmpty &&
+                _showAttachments &&
+                !_readOnlyForLocalUser(container, conversation))
               _ChatAttachmentTray(
                 onCamera: () =>
                     _selectAttachment((selection) => selection.takePhoto()),
@@ -505,7 +528,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   unawaited(_showPollDialog(context, conversation));
                 },
               ),
-            if (_forwardSelection.isEmpty)
+            if (_forwardSelection.isEmpty &&
+                !conversation.hasLeftGroup(container.session.userId))
               _ChatComposer(
                 controller: _input,
                 onTap: _onComposerTap,
@@ -644,7 +668,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final query = _search.text.trim().toLowerCase();
     if (query.isEmpty) return const [];
     return _latestMessages
-        .where((message) => message.previewText.toLowerCase().contains(query))
+        .where((message) => message.searchText.toLowerCase().contains(query))
         .toList(growable: false);
   }
 
@@ -948,8 +972,9 @@ class _ChatScreenState extends State<ChatScreen> {
     AppContainer container,
     Conversation conversation,
   ) =>
-      conversation.isReadOnly &&
-      !conversation.groupAdmins.contains(container.session.userId);
+      conversation.hasLeftGroup(container.session.userId) ||
+      (conversation.isReadOnly &&
+          !conversation.groupAdmins.contains(container.session.userId));
 
   void _onComposerChanged(Conversation conversation, String value) {
     final clean = value
@@ -1035,15 +1060,57 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _markRead(String conversationId) async {
+    if (!_isConversationVisible) return;
+    final messageIds = _latestMessages
+        .where((message) => !message.isOutgoing)
+        .map((message) => message.id)
+        .toSet();
+    // Delayed messages can sort before the newest item in the conversation.
+    if (_markedRead &&
+        messageIds.length == _readMessageIds.length &&
+        _readMessageIds.containsAll(messageIds))
+      return;
+    _markedRead = true;
+    _readMessageIds = messageIds;
     final container = AppContainerScope.of(context);
     final receipts = container.readReceiptRuntime?.service;
-    if (receipts != null) {
-      await receipts.markConversationRead(conversationId);
-      _markedRead = true;
+    try {
+      if (receipts != null) {
+        await receipts.markConversationRead(conversationId);
+      } else {
+        await container.conversations.markConversationRead(conversationId);
+      }
+    } catch (_) {
+      _markedRead = false;
+      rethrow;
+    }
+  }
+
+  bool get _isConversationVisible {
+    if (!mounted ||
+        !_accessGranted ||
+        ModalRoute.of(context)?.isCurrent == false)
+      return false;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    return lifecycle == null || lifecycle == AppLifecycleState.resumed;
+  }
+
+  void _syncNotificationVisibility() {
+    _notificationRuntime = AppContainerScope.of(context).notificationRuntime;
+    final coordinator = _notificationRuntime?.coordinator;
+    if (_isConversationVisible) {
+      coordinator?.setActiveConversation(_conversation?.id, owner: this);
     } else {
-      if (_markedRead) return;
-      _markedRead = true;
-      await container.conversations.markConversationRead(conversationId);
+      coordinator?.clearActiveConversation(this);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    _syncNotificationVisibility();
+    if (state == AppLifecycleState.resumed && _conversation != null) {
+      unawaited(_markReadSafely(_conversation!.id));
     }
   }
 
@@ -1747,12 +1814,17 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _openGroupInfo(Conversation conversation) async {
-    final locked = await Navigator.pushNamed<bool>(
+    final result = await Navigator.pushNamed<Object?>(
       context,
       '/group-info',
       arguments: conversation,
     );
-    if (!mounted || locked != true) return;
+    if (!mounted) return;
+    if (result is ChatInfoResult && result.messageId != null) {
+      _scrollToMessage(result.messageId!);
+      return;
+    }
+    if (result != true) return;
     setState(() {
       _conversation = conversation.copyWith(isLocked: true);
       _accessGranted = false;

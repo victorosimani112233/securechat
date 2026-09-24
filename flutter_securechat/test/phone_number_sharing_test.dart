@@ -35,6 +35,19 @@ void main() {
           final f = await _Fixture.open();
           addTearDown(f.close);
           f.session.sharePhoneNumber = mode != 'disabled';
+          if (mode == 'group') {
+            await f.db.conversations.insert(
+              const ConversationEntity(
+                id: 'group',
+                peerId: 'group',
+                peerName: 'Team',
+                peerPhone: '',
+                isGroup: true,
+                groupMembers: 'me,peer',
+                groupAdmins: 'me',
+              ),
+            );
+          }
           final transfers = FileTransferManager(
             signaling: f.socket,
             crypto: f.crypto,

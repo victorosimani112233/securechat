@@ -9,6 +9,193 @@ class AppLocalizationsAr extends AppLocalizations {
   AppLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get identity_review_title => 'التحقق من الهوية';
+
+  @override
+  String get identity_review_warning =>
+      'قد يعني تغير الهوية استرداد الحساب أو استخدام جهاز جديد أو وقوع هجوم. قبل الموافقة، قارن بصمة SHA-256 الحالية مع هذا الشخص وجهاً لوجه أو عبر قناة مستقلة موثوقة. لا تعتمد على رسالة في هذه المحادثة. يمكن للطرف الآخر مقارنة بصمتك على جهازه أيضاً.';
+
+  @override
+  String get identity_review_previous => 'البصمة الموثوقة سابقاً (SHA-256)';
+
+  @override
+  String get identity_review_current => 'البصمة الحالية للطرف الآخر (SHA-256)';
+
+  @override
+  String get identity_review_local => 'بصمتك (SHA-256)';
+
+  @override
+  String get identity_review_no_previous => 'لا توجد هوية موثوقة سابقاً';
+
+  @override
+  String get identity_review_unchanged =>
+      'الهوية الحالية تطابق الهوية المحفوظة.';
+
+  @override
+  String get identity_review_confirm =>
+      'قارنت هذه البصمة عبر قناة مستقلة موثوقة.';
+
+  @override
+  String get identity_review_approve => 'الموافقة على هذه الهوية';
+
+  @override
+  String get identity_review_approved =>
+      'تمت الموافقة على الهوية. يمكنك العودة إلى المحادثة.';
+
+  @override
+  String get identity_review_stale =>
+      'تغيرت الهوية أثناء المراجعة. أعد تحميلها وتحقق مجدداً.';
+
+  @override
+  String get identity_review_failed =>
+      'تعذر التحقق من الهوية. لم تتم الموافقة على أي هوية جديدة.';
+
+  @override
+  String get identity_review_retry => 'إعادة تحميل الهوية';
+
+  @override
+  String get recovery_error_expired =>
+      'انتهت صلاحية هذا التحقق. اطلب رمزاً جديداً أو ابدأ تحققاً جديداً.';
+
+  @override
+  String get recovery_error_trusted_device =>
+      'يتطلب ربط بريد الاسترداد جهازك الموثوق والمسجل دخوله. تحقق من جلستك قبل المحاولة مجدداً.';
+
+  @override
+  String get recovery_error_signed_in =>
+      'هذا الجهاز مسجل دخوله بالفعل. عد إلى حسابك بدلاً من بدء تحقق آخر.';
+
+  @override
+  String get recovery_restart => 'بدء تحقق جديد';
+
+  @override
+  String get recovery_restart_warning =>
+      'ربما غيّر تسجيل الدخول السابق هوية Signal وألغى الجلسات القديمة بالفعل. ابدأ من جديد فقط إذا تعذر الإكمال بإعادة المحاولة. سيلزم رمز بريد جديد وموافقة صريحة على الهوية. إذا تم تأكيد تسجيل الدخول السابق، فسيتم الاحتفاظ بهويته.';
+
+  @override
+  String get recovery_login_title => 'تسجيل الدخول إلى حساب موجود';
+
+  @override
+  String get recovery_email_title => 'بريد استرداد الحساب';
+
+  @override
+  String get recovery_email_settings =>
+      'إدارة استرداد الحساب على هذا الجهاز المسجل دخوله.';
+
+  @override
+  String get recovery_login_description =>
+      'أدخل بريد الاسترداد الذي سبق تأكيده على جهازك المسجل دخوله.';
+
+  @override
+  String get recovery_enrollment_description =>
+      'أكد بريد الاسترداد من هذا الجهاز الموثوق والمسجل دخوله. يمكن ربط العنوان الأول فقط؛ ولا يمكن عرضه أو استبداله هنا.';
+
+  @override
+  String get recovery_request_sent =>
+      'إذا كان الطلب مؤهلاً، فسيتم إرسال رمز من ستة أرقام. تحقق من بريدك.';
+
+  @override
+  String get recovery_send_code => 'إرسال الرمز';
+
+  @override
+  String get recovery_verify => 'تأكيد الرمز';
+
+  @override
+  String get recovery_change_email => 'استخدام بريد آخر أو طلب رمز جديد';
+
+  @override
+  String get recovery_checking => 'جارٍ التحقق من حالة الاسترداد…';
+
+  @override
+  String get recovery_retry => 'إعادة المحاولة';
+
+  @override
+  String get recovery_email_bound =>
+      'تم تأكيد بريد استرداد لهذا الحساب. لا يُعرض العنوان ولا يمكن تغييره هنا.';
+
+  @override
+  String get recovery_approval_title => 'الموافقة على تسجيل الدخول';
+
+  @override
+  String get recovery_identity_warning =>
+      'ينشئ تسجيل الدخول هذا هوية Signal جديدة لحسابك. سيتغير رقم الأمان، وينبغي لجهات اتصالك التحقق منه مجدداً.';
+
+  @override
+  String get recovery_sessions_warning => 'سيتم إلغاء جلسات الحساب السابقة.';
+
+  @override
+  String get recovery_history_warning =>
+      'استرداد الحساب لا يعيد الرسائل. لا يمكن استعادة سجل المحادثات إلا من نسخة احتياطية موجودة.';
+
+  @override
+  String get recovery_identity_accept =>
+      'أوافق على هوية Signal جديدة وإلغاء الجلسات السابقة.';
+
+  @override
+  String get recovery_login_accept =>
+      'أوافق على تسجيل الدخول هذا وإلغاء الجلسات السابقة.';
+
+  @override
+  String get recovery_complete => 'الموافقة وتسجيل الدخول';
+
+  @override
+  String get recovery_pending_description =>
+      'يجري إكمال تسجيل دخول تمت الموافقة عليه سابقاً. تعيد المحاولة إكمال تسجيل الدخول نفسه دون إنشاء هوية أخرى.';
+
+  @override
+  String get recovery_resume_unavailable =>
+      'تعذر استئناف تسجيل الدخول المعلق. احتفظ ببيانات هذا الجهاز وحاول مجدداً أو تواصل مع الدعم.';
+
+  @override
+  String get recovery_error_rate_limit =>
+      'محاولات كثيرة جداً. يرجى الانتظار قبل المحاولة مجدداً.';
+
+  @override
+  String get recovery_error_rejected =>
+      'تعذر التحقق من الاسترداد. تحقق من بياناتك أو اطلب رمزاً جديداً.';
+
+  @override
+  String get recovery_error_generic =>
+      'تعذر إكمال الاسترداد. يرجى المحاولة مجدداً.';
+
+  @override
+  String get recovery_registration_existing =>
+      'هذا الحساب موجود بالفعل. استخدم تسجيل الدخول إلى حساب موجود ببريد الاسترداد المؤكد. احتفظ بجهازك المسجل دخوله.';
+
+  @override
+  String get auth_login_unavailable =>
+      'لا يمكن الوصول إلى حساب موجود عن طريق التسجيل. تسجيل الدخول إلى حساب موجود غير متاح بعد. احتفظ بجهازك الذي تم تسجيل الدخول عليه واتصل بالمسؤول.';
+
+  @override
+  String get auth_setup_failed =>
+      'لم يكتمل إعداد الحساب. اتصل بالمسؤول قبل التسجيل مرة أخرى. تتطلب المحاولة الجديدة رمز بريد إلكتروني جديداً.';
+
+  @override
+  String notification_private_summary(int messageCount, int chatCount) {
+    String _temp0 = intl.Intl.pluralLogic(
+      messageCount,
+      locale: localeName,
+      other: '$messageCount رسالة',
+      many: '$messageCount رسالة',
+      few: '$messageCount رسائل',
+      two: 'رسالتان',
+      one: 'رسالة واحدة',
+      zero: 'لا رسائل',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      chatCount,
+      locale: localeName,
+      other: '$chatCount محادثة',
+      many: '$chatCount محادثة',
+      few: '$chatCount محادثات',
+      two: 'محادثتين',
+      one: 'محادثة واحدة',
+      zero: 'لا محادثات',
+    );
+    return '$_temp0 من $_temp1';
+  }
+
+  @override
   String get app_name => 'ELÇİM';
 
   @override
@@ -459,7 +646,14 @@ class AppLocalizationsAr extends AppLocalizations {
   String get group_view_profile => 'View Profile';
 
   @override
-  String get group_leave => 'Leave Group';
+  String get group_leave => 'مغادرة المجموعة';
+
+  @override
+  String get group_not_member => 'لم تعد عضواً في هذه المجموعة.';
+
+  @override
+  String get group_leave_failed =>
+      'تعذر إرسال إشعار المغادرة. تحقق من اتصالك وحاول مجدداً.';
 
   @override
   String get chat_search_in_chat => 'Search in Chat';
@@ -1317,6 +1511,10 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get clear_chat_body =>
       'All messages on this device will be permanently deleted.';
+
+  @override
+  String get clear_group_history_body =>
+      'ستُحذف رسائل هذه المجموعة من هذا الجهاز فقط. ستبقى المجموعة وعضويتك فيها، ولن تتأثر رسائل الأعضاء الآخرين.';
 
   @override
   String get voice_message => 'Voice message';

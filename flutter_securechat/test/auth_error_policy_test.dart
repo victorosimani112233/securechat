@@ -6,6 +6,15 @@ import 'package:flutter_securechat/src/auth/auth_error_policy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('existing registration identities require login, not a new email', () {
+    expect(
+      classifyAuthError(
+        const ExistingAccountLoginRequired(),
+        duringVerification: true,
+      ),
+      AuthErrorPresentation.loginRequired,
+    );
+  });
   test('native transport details are classified as connection errors', () {
     final failures = <Object>[
       const SocketException('Connection failed: private endpoint'),

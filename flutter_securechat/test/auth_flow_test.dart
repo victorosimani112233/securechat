@@ -51,7 +51,7 @@ void main() {
           case '/api/v1/users/register':
             request.response.write(
               jsonEncode({
-                'userId': 'server-user',
+                'userId': requests[path]!['userId'],
                 'isNew': true,
                 'accessToken': 'access-1',
                 'refreshToken': 'refresh-1',
@@ -108,7 +108,8 @@ void main() {
         registrationToken: registrationToken,
       );
 
-      expect(session.userId, 'server-user');
+      final registeredId = requests['/api/v1/users/register']!['userId'];
+      expect(session.userId, registeredId);
       expect(session.accessToken, 'access-1');
       expect(signaling.currentStatus.isConnected, isTrue);
       expect(requests['/api/v1/otp/request']?['email'], 'user@example.com');
@@ -116,7 +117,7 @@ void main() {
       expect(requests['/api/v1/users/register'], isNot(contains('phoneHash')));
       expect(directoryApi.phoneHashes, isEmpty);
       expect(directoryApi.accessToken, 'access-1');
-      expect(directoryApi.ownUserId, 'server-user');
+      expect(directoryApi.ownUserId, registeredId);
       expect(directoryApi.ownPhoneHash, await hashPhoneNumber('905551234567'));
       expect(
         requests['/api/v1/users/register'],
@@ -169,6 +170,164 @@ void main() {
       throwsA(isA<AuthApiException>()),
     );
   });
+
+  for (final scenario in [
+    'restored identity',
+    'existing account response',
+    'different account response',
+    'directory rejection',
+  ]) {
+    test('$scenario cannot establish or replace a local session', () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final store = DatabaseCryptoProtocolStore(fixture.database);
+      final preKeys = PreKeyManager(store, batchSize: 2);
+      await preKeys.generateAndSerializeInitialBundle();
+      final identityBefore = await store.getIdentityKeyPair();
+      final session = SessionStore(
+        userId: scenario == 'restored identity' ? 'restored-user' : null,
+        displayName: 'Existing profile',
+        phoneNumber: '+905551234567',
+      );
+      final sessionBefore = session.toJson();
+      final api = _RegistrationApi(scenario);
+      final directory = _RecordingDirectoryApi(
+        reject: scenario == 'directory rejection',
+      );
+      final signaling = InMemorySignalingService();
+      final coordinator = AuthCoordinator(
+        api: api,
+        session: session,
+        preKeys: preKeys,
+        signaling: signaling,
+        signalingUrl: 'ws://local',
+        privateDirectory: directory,
+      );
+      await expectLater(
+        coordinator.registerAndLogin(
+          displayName: 'Replacement profile',
+          phoneNumber: '+905559876543',
+          registrationToken: 'otp-grant',
+        ),
+        throwsA(
+          scenario == 'restored identity' ||
+                  scenario == 'existing account response'
+              ? isA<ExistingAccountLoginRequired>()
+              : isA<AuthApiException>(),
+        ),
+      );
+      expect(session.toJson(), sessionBefore);
+      expect(session.isLoggedIn, isFalse);
+      expect(signaling.currentStatus.isConnected, isFalse);
+      expect(await store.getIdentityKeyPair(), identityBefore);
+      if (scenario == 'restored identity') expect(api.registerCalls, 0);
+      expect(api.uploadCalls, 0);
+      if (scenario.contains('response') || scenario == 'restored identity') {
+        expect(directory.accessToken, isNull);
+      }
+    });
+  }
+
+  test(
+    'prekey upload failure retains durable credentials and identity',
+    () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final store = DatabaseCryptoProtocolStore(fixture.database);
+      final preKeys = PreKeyManager(store, batchSize: 2);
+      await preKeys.generateAndSerializeInitialBundle();
+      final identityBefore = await store.getIdentityKeyPair();
+      final sessionFile = File('${fixture.directory.path}/session.securejson');
+      final storageCrypto = LocalAeadCryptoService(
+        SecretKey(List<int>.generate(32, (index) => index + 1)),
+      );
+      final session = await PersistentSessionStore.open(
+        file: sessionFile,
+        crypto: storageCrypto,
+      );
+      addTearDown(session.close);
+      final api = _RegistrationApi('prekey rejection');
+      final directory = _RecordingDirectoryApi();
+      final signaling = InMemorySignalingService();
+      final coordinator = AuthCoordinator(
+        api: api,
+        session: session,
+        preKeys: preKeys,
+        signaling: signaling,
+        signalingUrl: 'ws://local',
+        privateDirectory: directory,
+      );
+
+      await expectLater(
+        coordinator.registerAndLogin(
+          displayName: 'Alice',
+          phoneNumber: '+905551234567',
+          registrationToken: 'otp-grant',
+        ),
+        throwsA(isA<AuthApiException>()),
+      );
+      expect(directory.ownUserId, session.userId);
+      expect(api.uploadCalls, 1);
+      expect(signaling.currentStatus.isConnected, isFalse);
+      expect(await store.getIdentityKeyPair(), identityBefore);
+
+      final reopened = await PersistentSessionStore.open(
+        file: sessionFile,
+        crypto: storageCrypto,
+      );
+      addTearDown(reopened.close);
+      expect(reopened.userId, directory.ownUserId);
+      expect(reopened.accessToken, 'access');
+      expect(reopened.refreshToken, 'refresh');
+      expect(reopened.isLoggedIn, isTrue);
+      expect(reopened.displayName, 'Alice');
+
+      // A retry must not register another UUID or discard the retained identity.
+      await expectLater(
+        coordinator.registerAndLogin(
+          displayName: 'Alice',
+          phoneNumber: '+905551234567',
+          registrationToken: 'another-grant',
+        ),
+        throwsA(isA<ExistingAccountLoginRequired>()),
+      );
+      expect(api.registerCalls, 1);
+      expect(await store.getIdentityKeyPair(), identityBefore);
+    },
+  );
+}
+
+class _RegistrationApi extends AuthApi {
+  _RegistrationApi(this.scenario) : super(baseUrl: 'http://unused.invalid');
+
+  final String scenario;
+  int registerCalls = 0;
+  int uploadCalls = 0;
+
+  @override
+  Future<RegisterResult> register({
+    required String userId,
+    required String registrationToken,
+  }) async {
+    registerCalls++;
+    return RegisterResult(
+      userId: scenario == 'different account response' ? 'other-user' : userId,
+      isNew: scenario != 'existing account response',
+      accessToken: 'access',
+      refreshToken: 'refresh',
+    );
+  }
+
+  @override
+  Future<void> uploadPreKeys(
+    SerializedPreKeyBundle bundle,
+    String accessToken,
+  ) async {
+    uploadCalls++;
+    if (scenario == 'prekey rejection') {
+      throw const AuthApiException('unavailable', statusCode: 503);
+    }
+  }
 }
 
 Future<_Fixture> _openFixture() async {
@@ -195,6 +354,9 @@ class _Fixture {
 }
 
 class _RecordingDirectoryApi implements ContactDiscoveryApi {
+  _RecordingDirectoryApi({this.reject = false});
+
+  final bool reject;
   List<String>? phoneHashes;
   String? accessToken;
   String? ownPhoneHash;
@@ -207,6 +369,11 @@ class _RecordingDirectoryApi implements ContactDiscoveryApi {
     String? ownPhoneHash,
     String? ownUserId,
   }) async {
+    if (reject) {
+      // The hardened route deliberately conflates malformed and already-owned
+      // directory tokens. It does not disclose a recoverable account/email.
+      throw const AuthApiException('invalid_directory_token', statusCode: 400);
+    }
     this.phoneHashes = List<String>.of(phoneHashes);
     this.accessToken = accessToken;
     this.ownPhoneHash = ownPhoneHash;

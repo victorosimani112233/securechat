@@ -13,6 +13,10 @@ class GroupManagementException implements Exception {
   String toString() => message;
 }
 
+class GroupLeaveDeliveryException implements Exception {
+  const GroupLeaveDeliveryException();
+}
+
 class GroupManagementService {
   GroupManagementService({
     required SecureChatDatabase database,
@@ -21,6 +25,7 @@ class GroupManagementService {
     required CryptoService crypto,
   }) : _database = database,
        _session = session,
+       _signaling = signaling,
        _controls = PrivateGroupControlSender(
          crypto: crypto,
          signaling: signaling,
@@ -29,7 +34,9 @@ class GroupManagementService {
   static const maximumMembers = 256;
   final SecureChatDatabase _database;
   final SessionStore _session;
+  final SignalingService _signaling;
   final PrivateGroupControlSender _controls;
+  final _leaving = <String, Future<void>>{};
 
   Stream<ConversationEntity?> watchGroup(String groupId) =>
       _database.conversations.observeById(groupId);
@@ -45,6 +52,7 @@ class GroupManagementService {
   }
 
   bool isLocalAdmin(ConversationEntity group) {
+    if (!isLocalMember(group)) return false;
     final members = _split(group.groupMembers);
     final admins = _split(group.groupAdmins);
     final effective = admins.isEmpty && members.isNotEmpty
@@ -54,6 +62,10 @@ class GroupManagementService {
   }
 
   String? get localUserId => _session.userId;
+
+  bool isLocalMember(ConversationEntity group) =>
+      _session.userId != null &&
+      _split(group.groupMembers).contains(_session.userId);
 
   Future<void> setMuted(String groupId, bool muted) =>
       _database.conversations.updateMuted(groupId, muted);
@@ -177,15 +189,29 @@ class GroupManagementService {
     );
   }
 
-  Future<void> leaveGroup(String groupId) async {
+  Future<void> leaveGroup(String groupId) => _leaving.putIfAbsent(
+    groupId,
+    () => _leaveGroup(groupId).whenComplete(() {
+      _leaving.remove(groupId);
+    }),
+  );
+
+  Future<void> _leaveGroup(String groupId) async {
     final userId = _session.userId;
     final group = await _group(groupId);
     if (userId == null) {
       throw const GroupManagementException('Kullanıcı giriş yapmamış.');
     }
+    if (!isLocalMember(group)) return;
     final remaining = _split(
       group.groupMembers,
     ).where((id) => id != userId).toList();
+    if (remaining.isNotEmpty &&
+        !await _signaling.ensureConnected(
+          timeout: const Duration(seconds: 8),
+        )) {
+      throw const GroupLeaveDeliveryException();
+    }
     await _controls.send(
       senderId: userId,
       groupId: group.id,
@@ -193,12 +219,19 @@ class GroupManagementService {
       memberIds: remaining,
       recipients: remaining,
       action: 'LEAVE_GROUP',
+      sendSignal: (signal) async {
+        if (await _signaling.send(signal)) return true;
+        // Reuse the encrypted envelope if the socket drops during fanout.
+        if (!await _signaling.ensureConnected(
+              timeout: const Duration(seconds: 3),
+            ) ||
+            !await _signaling.send(signal)) {
+          throw const GroupLeaveDeliveryException();
+        }
+        return true;
+      },
     );
-    await _database.conversations.updateGroupMembers(
-      groupId,
-      remaining.join(','),
-    );
-    await _database.conversations.updateArchived(groupId, true);
+    await _database.conversations.completeLocalGroupLeave(groupId, userId);
   }
 
   Future<_AdminState> _adminState(String groupId) async {
@@ -212,7 +245,7 @@ class GroupManagementService {
     final admins = storedAdmins.isEmpty && members.isNotEmpty
         ? <String>[members.first]
         : storedAdmins;
-    if (!admins.contains(userId)) {
+    if (!members.contains(userId) || !admins.contains(userId)) {
       throw const GroupManagementException(
         'Bu işlem yalnızca grup yöneticilerine açık.',
       );

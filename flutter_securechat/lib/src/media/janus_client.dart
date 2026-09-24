@@ -289,13 +289,19 @@ class JanusClient {
       if (transaction != null && kind != 'ack') {
         final completer = _pending[transaction];
         if (completer != null && !completer.isCompleted) {
-          if (kind == 'error') {
+          final pluginError = _mapAt(json, ['plugindata', 'data'])?['error'];
+          if (kind == 'error' || pluginError != null) {
             final reason =
-                _mapAt(json, ['error'])?['reason'] ?? 'Unknown Janus error';
+                pluginError ??
+                _mapAt(json, ['error'])?['reason'] ??
+                'Unknown Janus error';
             completer.completeError(StateError(reason.toString()));
           } else {
             completer.complete(json);
           }
+          // The requester consumes this JSEP/publisher list. Emitting it again
+          // recreates subscriber connections while their first answer is pending.
+          return;
         }
       }
       if (kind == 'event') _handleEvent(json);
@@ -315,8 +321,8 @@ class JanusClient {
         }
       }
     }
-    final left = (data?['unpublished'] ?? data?['leaving']) as num?;
-    if (left != null) {
+    final left = data?['unpublished'] ?? data?['leaving'];
+    if (left is num) {
       final feedId = left.toInt();
       _subscriberHandles.remove(feedId);
       _events.add(JanusPublisherLeft(feedId));

@@ -25,6 +25,8 @@ internal object PurposeSeparatedSecrets {
     )
 
     private val encryptionKeyNames = setOf(
+        "RECOVERY_INDEX_KEY",
+        "RECOVERY_ENCRYPTION_KEY",
         "PRIVACY_INDEX_KEY",
         "OFFLINE_QUEUE_ENCRYPTION_KEY",
         "FCM_TOKEN_ENCRYPTION_KEY",
@@ -41,6 +43,10 @@ internal object PurposeSeparatedSecrets {
 
     private fun loadValidated(environment: Map<String, String>): Map<String, String> {
         val names = mandatory.toMutableList()
+        val recoveryNames = listOf("RECOVERY_INDEX_KEY", "RECOVERY_ENCRYPTION_KEY")
+        if (recoveryNames.any { !environment[it].isNullOrBlank() || !environment["${it}_FILE"].isNullOrBlank() }) {
+            names += recoveryNames
+        }
         if (!environment["JANUS_WS_URL"].isNullOrBlank()) {
             names += "JANUS_API_SECRET"
             names += "JANUS_ADMIN_SECRET"

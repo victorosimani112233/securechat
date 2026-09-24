@@ -523,7 +523,7 @@ class _Fixture {
   final crypto = _Crypto();
   final signaling = _Signaling();
   final session = SessionStore(
-    userId: 'me',
+    userId: '12345678-1234-4234-8234-123456789abc',
     accessToken: 'token',
     phoneNumber: '+905001112233',
   );
@@ -551,7 +551,7 @@ class _Fixture {
       ),
     );
     await fixture.signaling.connect(
-      userId: 'me',
+      userId: '12345678-1234-4234-8234-123456789abc',
       url: 'ws://local',
       accessToken: 'token',
     );

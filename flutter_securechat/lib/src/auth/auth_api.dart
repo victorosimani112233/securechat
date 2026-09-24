@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../crypto/pre_key_manager.dart';
 
 enum OtpRequestStatus { sent, smtpDisabled, rateLimited }
@@ -35,6 +37,11 @@ class TokenPair {
 }
 
 enum AuthApiFailureKind { http, network, invalidResponse }
+
+/// A generic OTP registration grant cannot recover an existing account.
+class ExistingAccountLoginRequired implements Exception {
+  const ExistingAccountLoginRequired();
+}
 
 class AuthApiException implements Exception {
   const AuthApiException(
@@ -95,33 +102,50 @@ class AuthApi {
       'email': email,
       'otp': otp,
     });
-    final token = response.json['registrationToken'] as String?;
-    if (response.statusCode != 200 ||
-        response.json['verified'] != true ||
-        token == null ||
-        token.isEmpty) {
+    if (response.statusCode != 200) {
       throw response.error(fallback: 'Dogrulama kodu gecersiz');
+    }
+    final token = response.json['registrationToken'];
+    if (response.json['verified'] != true ||
+        token is! String ||
+        token.trim().isEmpty) {
+      throw const AuthApiException.invalidResponse();
     }
     return token;
   }
 
   Future<RegisterResult> register({
     required String userId,
-    String? registrationToken,
+    required String registrationToken,
   }) async {
+    if (registrationToken.trim().isEmpty) {
+      throw const AuthApiException('OTP verification required');
+    }
     final response = await _post('/api/v1/users/register', {
       'userId': userId,
-      if (registrationToken != null) 'registrationToken': registrationToken,
+      'registrationToken': registrationToken,
     });
+    if (response.statusCode == 409 &&
+        response.json['error'] == 'directory_identity_already_registered') {
+      throw const ExistingAccountLoginRequired();
+    }
     if (response.statusCode != 200) throw response.error();
-    final access = response.json['accessToken'] as String? ?? '';
-    final refresh = response.json['refreshToken'] as String? ?? '';
-    if (access.isEmpty || refresh.isEmpty) {
-      throw const AuthApiException('Sunucu token dondurmedi');
+    if (response.json['isNew'] == false) {
+      throw const ExistingAccountLoginRequired();
+    }
+    final access = response.json['accessToken'];
+    final refresh = response.json['refreshToken'];
+    if (response.json['userId'] != userId ||
+        response.json['isNew'] != true ||
+        access is! String ||
+        access.trim().isEmpty ||
+        refresh is! String ||
+        refresh.trim().isEmpty) {
+      throw const AuthApiException.invalidResponse();
     }
     return RegisterResult(
-      userId: response.json['userId'] as String? ?? userId,
-      isNew: response.json['isNew'] as bool? ?? true,
+      userId: userId,
+      isNew: true,
       accessToken: access,
       refreshToken: refresh,
     );
@@ -171,6 +195,26 @@ class AuthApi {
     if (response.statusCode != 200) throw response.error();
   }
 
+  Future<Map<String, Object?>> recoveryRequest(
+    String endpoint,
+    Map<String, Object?> body, {
+    String? accessToken,
+  }) async {
+    if (!const {
+      '/api/v1/account/recovery-email/status',
+      '/api/v1/account/recovery-email/request',
+      '/api/v1/account/recovery-email/verify',
+      '/api/v1/auth/login/request',
+      '/api/v1/auth/login/verify',
+      '/api/v1/auth/login/complete',
+    }.contains(endpoint)) {
+      throw ArgumentError.value(endpoint, 'endpoint');
+    }
+    final response = await _post(endpoint, body, bearerToken: accessToken);
+    if (response.statusCode != 200) throw response.error();
+    return response.json;
+  }
+
   Future<_ApiResponse> _post(
     String path,
     Object body, {
@@ -191,6 +235,10 @@ class AuthApi {
       final response = await request.close().timeout(
         const Duration(seconds: 20),
       );
+      if (const bool.fromEnvironment('SECURECHAT_LOCAL_DIAGNOSTICS')) {
+        // Internal fixed endpoint only; never print a body, URL, or credential.
+        debugPrint('SC-AUTH $path HTTP ${response.statusCode}');
+      }
       final raw = await utf8.decoder.bind(response).join();
       Map<String, Object?> json = const {};
       if (raw.isNotEmpty) {

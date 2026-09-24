@@ -5,6 +5,9 @@ import 'dart:io';
 
 import 'package:meta/meta.dart';
 
+import '../chat/message_reactions.dart';
+import '../chat/message_search.dart';
+import '../chat/conversation_preview.dart';
 import '../services/crypto_service.dart';
 import 'encrypted_record_store.dart';
 import 'storage_entities.dart';
@@ -14,7 +17,11 @@ class SecureChatDatabase {
     required _StorageSnapshot snapshot,
     required EncryptedRecordStore store,
   }) : _store = store,
-       _snapshot = snapshot {
+       _cachedSnapshot = snapshot {
+    _changed = StreamController<void>.broadcast(
+      onListen: _startWatching,
+      onCancel: _stopWatching,
+    );
     conversations = ConversationDao._(this);
     messages = MessageDao._(this);
     contacts = ContactDao._(this);
@@ -36,11 +43,56 @@ class SecureChatDatabase {
   /// Hata enjeksiyon testleri icin depoya erisim.
   @visibleForTesting
   EncryptedRecordStore get store => _store;
-  _StorageSnapshot _snapshot;
-  final _changed = StreamController<void>.broadcast();
+  _StorageSnapshot _cachedSnapshot;
+  int? _snapshotVersion;
+  bool _inWrite = false;
+  Timer? _refreshTimer;
+  late final StreamController<void> _changed;
   Future<void> _writeTail = Future<void>.value();
   Future<void>? _closeTask;
   bool _closed = false;
+
+  _StorageSnapshot get _snapshot {
+    if (!_inWrite && !_closed) _refreshSnapshot();
+    return _cachedSnapshot;
+  }
+
+  set _snapshot(_StorageSnapshot value) => _cachedSnapshot = value;
+
+  /// Checks for external commits after earlier queued writes, then atomically
+  /// reloads and notifies watchers only if changed. Call before reconnect or
+  /// foreground maintenance. Errors propagate; no partial snapshot is exposed.
+  Future<void> refreshFromDisk() => _enqueue(_refreshSnapshot);
+
+  void _refreshSnapshot() {
+    if (_snapshotVersion == _store.dataVersion) return;
+    final loaded = _store.readTransaction(() {
+      final version = _store.dataVersion;
+      return (snapshot: _load(_store), version: version);
+    });
+    _cachedSnapshot = loaded.snapshot;
+    _snapshotVersion = loaded.version;
+    _changed.add(null);
+  }
+
+  void _startWatching() {
+    if (_closed) return;
+    _refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      // No full reload or notification when data_version is unchanged.
+      // This synchronous read cannot interleave a synchronous write transaction.
+      // Keep idle polling out of the write queue and its shutdown barrier.
+      try {
+        _refreshSnapshot();
+      } catch (error, stack) {
+        if (!_closed) _changed.addError(error, stack);
+      }
+    });
+  }
+
+  void _stopWatching() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+  }
 
   /// Anlik goruntunun tamami degistiginde (hesap silme, eski Room ice
   /// aktarimi) depodaki eski satirlar da gitmelidir. Izleme yalnizca
@@ -77,26 +129,62 @@ class SecureChatDatabase {
     );
     // Depo acildiktan sonraki her hata yolunda native tanitici KAPATILMALI.
     // Bozuk bir depoda okuma hata verdiginde tanitici acik kaliyordu.
-    final _StorageSnapshot snapshot;
-    final _StorageSnapshot? legacy;
+    final db = SecureChatDatabase._(
+      snapshot: _StorageSnapshot.empty(),
+      store: store,
+    );
     try {
-      legacy = store.count() == 0 ? await _readLegacy(file, crypto) : null;
-      snapshot = legacy ?? _load(store);
+      final legacy = store.count() == 0
+          ? await _readLegacy(file, crypto)
+          : null;
+      if (legacy != null) {
+        await db._write((_) {
+          // A second runtime may have populated the store during decryption.
+          if (store.count() != 0) return;
+          db._snapshot = legacy;
+          for (final collection in legacy.tracked) {
+            collection.markAll();
+          }
+        });
+      }
+      await db._repairConversationPreviews();
+      return db;
     } catch (_) {
-      store.close();
+      await db.close();
       rethrow;
     }
-    final db = SecureChatDatabase._(snapshot: snapshot, store: store);
-    if (legacy != null) {
-      // Tek seferlik gecis: eski anlik goruntunun tamami artimli depoya
-      // yazilir. Eski dosya silinmez.
-      for (final collection in snapshot.tracked) {
-        collection.markAll();
-      }
-      await db._persist();
-    }
-    return db;
   }
+
+  Future<void> _repairConversationPreviews() => _write((snapshot) {
+    final latest = <String, MessageEntity>{};
+    for (final message in snapshot.messages.values) {
+      final previous = latest[message.conversationId];
+      if (previous == null || message.timestamp > previous.timestamp)
+        latest[message.conversationId] = message;
+    }
+    final repairs = <String, ConversationEntity>{};
+    for (final entry in latest.entries) {
+      final conversation = snapshot.conversations[entry.key];
+      final message = entry.value;
+      if (conversation == null ||
+          conversation.lastMessageTimestamp != message.timestamp)
+        continue;
+      final preview = message.isViewOnce
+          ? viewOncePreviewLabel
+          : conversation.lastMessage;
+      final status = message.isOutgoing
+          ? message.status.name
+          : conversation.lastMessageStatus;
+      if (preview != conversation.lastMessage ||
+          status != conversation.lastMessageStatus) {
+        repairs[entry.key] = conversation.copyWith(
+          lastMessage: preview,
+          lastMessageStatus: status,
+        );
+      }
+    }
+    snapshot.conversations.addAll(repairs);
+  });
 
   /// Eski tek dosyali JSON deposunu okur; yoksa veya bossa `null` doner.
   static Future<_StorageSnapshot?> _readLegacy(
@@ -162,6 +250,7 @@ class SecureChatDatabase {
     final active = _closeTask;
     if (active != null) return active;
     _closed = true;
+    _stopWatching();
     final operation = _close();
     _closeTask = operation;
     return operation;
@@ -177,13 +266,17 @@ class SecureChatDatabase {
   /// backup layer. Callers must never persist this string without encrypting
   /// it first.
   Future<String> exportPortableJson() async {
-    await _writeTail;
+    await refreshFromDisk();
     return jsonEncode(_snapshot.toJson());
   }
 
   /// Atomically replaces all persisted application state after a backup has
   /// been authenticated, decompressed and fully parsed.
-  Future<void> replaceFromPortableJson(String rawJson) async {
+  Future<void> replaceFromPortableJson(
+    String rawJson, {
+    bool preserveLocalSecurityState = false,
+    void Function()? validateBeforeCommit,
+  }) async {
     final decoded = jsonDecode(rawJson);
     if (decoded is! Map) {
       throw const FormatException('Backup database snapshot is not an object');
@@ -196,7 +289,32 @@ class SecureChatDatabase {
     // Parse before entering the serialized write queue. A malformed backup
     // therefore cannot partially mutate the active database.
     final replacement = _StorageSnapshot.fromJson(map);
-    await _write((_) {
+    await _write((current) {
+      validateBeforeCommit?.call();
+      if (preserveLocalSecurityState) {
+        // Copy inside the write queue so pending protocol writes are retained.
+        replacement.identities
+          ..clear()
+          ..addAll(current.identities);
+        replacement.preKeys
+          ..clear()
+          ..addAll(current.preKeys);
+        replacement.signedPreKeys
+          ..clear()
+          ..addAll(current.signedPreKeys);
+        replacement.sessions
+          ..clear()
+          ..addAll(current.sessions);
+        replacement.senderKeys
+          ..clear()
+          ..addAll(current.senderKeys);
+        replacement.pendingSignals
+          ..clear()
+          ..addAll(current.pendingSignals);
+        replacement.cryptoState
+          ..clear()
+          ..addAll(current.cryptoState);
+      }
       _snapshot = replacement;
       _fullReset = true;
       for (final collection in replacement.tracked) {
@@ -257,41 +375,135 @@ class SecureChatDatabase {
       (key, _) =>
           key == 'local_registration_id' ||
           key == 'local_identity_key_pair_v1' ||
+          key == 'account_recovery_pending_v1' ||
           key.startsWith('pending_sender_key_rotation:'),
     );
   });
 
-  Future<void> _write(FutureOr<void> Function(_StorageSnapshot s) mutate) {
+  /// Installs previously staged local keys only after account recovery is
+  /// confirmed. Peer identity pins survive; sessions tied to old local keys do
+  /// not. The pending record survives until credential persistence succeeds.
+  Future<void> installRecoveryIdentity({
+    required String expectedPendingRecord,
+    required List<int> identityKeyPair,
+    required int registrationId,
+    required List<PreKeyEntity> preKeys,
+    required List<SignedPreKeyEntity> signedPreKeys,
+  }) => _write((snapshot) {
+    if (snapshot.cryptoState['account_recovery_pending_v1'] !=
+        expectedPendingRecord) {
+      throw StateError('Recovery operation changed');
+    }
+    final encodedIdentity = base64Encode(identityKeyPair);
+    if (snapshot.cryptoState['local_identity_key_pair_v1'] == encodedIdentity) {
+      return;
+    }
+    snapshot.preKeys
+      ..clear()
+      ..addEntries(preKeys.map((key) => MapEntry(key.id, key)));
+    snapshot.signedPreKeys
+      ..clear()
+      ..addEntries(signedPreKeys.map((key) => MapEntry(key.id, key)));
+    snapshot.sessions.clear();
+    snapshot.senderKeys.clear();
+    snapshot.cryptoState.removeWhere(
+      (key, _) => key.startsWith('pending_sender_key_rotation:'),
+    );
+    snapshot.cryptoState['local_identity_key_pair_v1'] = encodedIdentity;
+    snapshot.cryptoState['local_registration_id'] = registrationId.toString();
+  });
+
+  Future<void> _enqueue(void Function() action) {
     if (_closed) throw StateError('Secure chat database is closed');
-    final operation = _writeTail.then<void>((_) async {
-      final previous = _snapshot;
-      final previousFullReset = _fullReset;
-      try {
-        await mutate(_snapshot);
-        await _persist();
-        _changed.add(null);
-      } catch (_) {
-        // A failed whole-snapshot replacement must restore the old reference,
-        // not roll back the newly loaded maps into an empty in-memory state.
-        if (!identical(previous, _snapshot)) _snapshot = previous;
-        _fullReset = previousFullReset;
-        // Geri alma yalnizca DOKUNULAN kayitlari eski degerine dondurur.
-        // Onceden burada anlik goruntunun tam derin kopyasi cikariliyordu;
-        // yazma yolundaki iki O(n) maliyetten biri buydu.
-        for (final collection in _snapshot.tracked) {
-          collection.rollback();
-        }
-        rethrow;
-      }
-    });
+    final operation = _writeTail.then<void>((_) => action());
     _writeTail = operation.then<void>((_) {}, onError: (_, _) {});
     return operation;
   }
 
-  Stream<T> _watch<T>(T Function(_StorageSnapshot s) project) async* {
-    yield project(_snapshot);
-    yield* _changed.stream.map((_) => project(_snapshot));
+  Future<void> _write(void Function(_StorageSnapshot s) mutate) => _enqueue(() {
+    _StorageSnapshot? previous;
+    final previousFullReset = _fullReset;
+    try {
+      _store.writeTransaction(() {
+        // Take the cross-runtime writer lock BEFORE reading mutation state.
+        _refreshSnapshot();
+        previous = _cachedSnapshot;
+        _inWrite = true;
+        mutate(_cachedSnapshot);
+        _persist();
+      });
+      // Do not discard rollback journals until the OUTER commit succeeds.
+      _fullReset = false;
+      for (final collection in _cachedSnapshot.tracked) {
+        collection.commit();
+      }
+      _changed.add(null);
+    } catch (_) {
+      // A failed whole-snapshot replacement must restore the old reference,
+      // not roll back the newly loaded maps into an empty in-memory state.
+      if (previous != null) _cachedSnapshot = previous!;
+      _fullReset = previousFullReset;
+      // Geri alma yalnizca DOKUNULAN kayitlari eski degerine dondurur.
+      // Onceden burada anlik goruntunun tam derin kopyasi cikariliyordu;
+      // yazma yolundaki iki O(n) maliyetten biri buydu.
+      for (final collection in _cachedSnapshot.tracked) {
+        collection.rollback();
+      }
+      rethrow;
+    } finally {
+      _inWrite = false;
+    }
+  });
+
+  Future<bool> approvePeerIdentity({
+    required String peerId,
+    required List<int>? expectedIdentity,
+    required List<int> approvedIdentity,
+    required List<int> expectedLocalIdentityRecord,
+  }) async {
+    var approved = false;
+    await _write((snapshot) {
+      final previous = snapshot.identities[peerId]?.identityKey;
+      final expected = expectedIdentity == null
+          ? null
+          : base64Encode(expectedIdentity);
+      if ((previous == null ? null : base64Encode(previous)) != expected ||
+          snapshot.cryptoState['local_identity_key_pair_v1'] !=
+              base64Encode(expectedLocalIdentityRecord)) {
+        return;
+      }
+      if (expected != base64Encode(approvedIdentity)) {
+        snapshot.sessions.removeWhere((id, _) => id.startsWith('$peerId:'));
+      }
+      snapshot.identities[peerId] = IdentityEntity(
+        addressName: peerId,
+        identityKey: List.of(approvedIdentity),
+        trustLevel: TrustLevel.trustedVerified,
+      );
+      approved = true;
+    });
+    return approved;
   }
+
+  Stream<T> _watch<T>(T Function(_StorageSnapshot s) project) =>
+      Stream<T>.multi((controller) {
+        // Subscribe before projecting so an update cannot fall in a yield gap.
+        final subscription = _changed.stream
+            .map((_) => project(_snapshot))
+            .listen(
+              controller.addSync,
+              onError: controller.addErrorSync,
+              onDone: controller.closeSync,
+            );
+        controller.onCancel = subscription.cancel;
+        controller.onPause = subscription.pause;
+        controller.onResume = subscription.resume;
+        try {
+          controller.addSync(project(_snapshot));
+        } catch (error, stack) {
+          controller.addErrorSync(error, stack);
+        }
+      });
 
   /// Yalnizca degisen kayitlari yazar.
   ///
@@ -299,7 +511,7 @@ class SecureChatDatabase {
   /// yaziyordu. Olculen maliyet: 50 mesajda 7 ms, 2 000 mesajda 120 ms —
   /// gecmisle dogru orantili. Artik maliyet yalnizca degisen kayit sayisina
   /// baglidir. Atomiklik SQLite isleminden gelir.
-  Future<void> _persist() async {
+  void _persist() {
     final upserts = <String, Map<String, Map<String, Object?>>>{};
     final deletions = <String, Set<String>>{};
     for (final collection in _snapshot.tracked) {
@@ -310,10 +522,6 @@ class SecureChatDatabase {
       deletions: deletions,
       clearFirst: _fullReset,
     );
-    _fullReset = false;
-    for (final collection in _snapshot.tracked) {
-      collection.commit();
-    }
   }
 }
 
@@ -324,6 +532,11 @@ class ConversationDao {
   Stream<List<ConversationEntity>> getAll() => _db._watch(_sorted);
   Future<List<ConversationEntity>> getAllImmediate() async =>
       _sorted(_db._snapshot);
+  Future<Map<String, int>> unreadCounts() async => {
+    for (final conversation in _db._snapshot.conversations.values)
+      if (conversation.unreadCount > 0)
+        conversation.id: conversation.unreadCount,
+  };
   Future<List<ConversationEntity>> getAllGroups() async => _db
       ._snapshot
       .conversations
@@ -355,6 +568,44 @@ class ConversationDao {
     s.conversations.remove(conversationId);
     s.messages.removeWhere((_, m) => m.conversationId == conversationId);
   });
+  Future<void> deleteLocalHistory(
+    String conversationId, {
+    String? localUserId,
+  }) => _db._write((s) {
+    final conversation = s.conversations[conversationId];
+    final hasLeft =
+        localUserId != null &&
+        localUserId.isNotEmpty &&
+        conversation?.groupMembers != null &&
+        !conversation!.groupMembers!.split(',').contains(localUserId);
+    if (conversation?.isGroup == true && !hasLeft) {
+      s.conversations[conversationId] = _withoutLastMessage(
+        conversation!,
+      ).copyWith(unreadCount: 0, manuallyUnread: false);
+    } else {
+      s.conversations.remove(conversationId);
+    }
+    s.messages.removeWhere(
+      (_, message) => message.conversationId == conversationId,
+    );
+  });
+  Future<void> completeLocalGroupLeave(String groupId, String userId) =>
+      _db._write((s) {
+        final group = s.conversations[groupId];
+        if (group == null || !group.isGroup) return;
+        String withoutSelf(String? ids) => (ids ?? '')
+            .split(',')
+            .where((id) => id.isNotEmpty && id != userId)
+            .join(',');
+        s.conversations[groupId] = group.copyWith(
+          groupMembers: withoutSelf(group.groupMembers),
+          groupAdmins: withoutSelf(group.groupAdmins),
+          isArchived: true,
+          unreadCount: 0,
+          manuallyUnread: false,
+        );
+        s.senderKeys.removeWhere((_, key) => key.groupId == groupId);
+      });
   Future<void> updateGroupMembers(String groupId, String groupMembers) =>
       _patch(groupId, (c) => c.copyWith(groupMembers: groupMembers));
   Future<void> updateLastMessage(
@@ -629,34 +880,34 @@ class MessageDao {
   Stream<List<MessageEntity>> getStarredMessages(String conversationId) =>
       _db._watch(
         (s) => s.messages.values
-            .where((m) => m.conversationId == conversationId && m.isStarred)
+            .where(
+              (m) =>
+                  m.conversationId == conversationId &&
+                  m.isStarred &&
+                  _canBrowse(m),
+            )
             .sortedBy((m) => -m.timestamp),
       );
   Stream<List<MessageEntity>> getAllStarredMessages() => _db._watch(
     (s) => s.messages.values
-        .where((m) => m.isStarred)
+        .where((m) => m.isStarred && _canBrowse(m))
         .sortedBy((m) => -m.timestamp),
   );
   Stream<List<MessageEntity>> searchMessages(String conversationId, String q) =>
       _db._watch(
         (s) => s.messages.values
             .where((m) => m.conversationId == conversationId)
-            .where((m) => m.content.contains(q.replaceAll('%', '')))
+            .where((m) => _matchesSearch(m, q))
             .sortedBy((m) => -m.timestamp),
       );
   Future<List<MessageEntity>> searchAllMessages(
     String q, {
     int limit = 100,
   }) async {
-    final clean = q.replaceAll('%', '').trim().toLowerCase();
+    final clean = q.trim().toLowerCase();
     if (clean.length < 2 || limit <= 0) return const [];
     return _db._snapshot.messages.values
-        .where((m) => m.content.toLowerCase().contains(clean))
-        .where(
-          (m) =>
-              m.contentType == StorageMessageContentType.text ||
-              m.contentType == StorageMessageContentType.voiceNote,
-        )
+        .where((m) => _matchesSearch(m, clean))
         .sortedBy((m) => -m.timestamp)
         .take(limit)
         .toList();
@@ -666,7 +917,7 @@ class MessageDao {
       _db._watch(
         (s) => s.messages.values
             .where((m) => m.conversationId == conversationId)
-            .where((m) => _isMedia(m))
+            .where((m) => _canBrowse(m) && _isMedia(m))
             .sortedBy((m) => -m.timestamp),
       );
   Stream<List<MessageEntity>> getDocumentMessages(String conversationId) =>
@@ -676,6 +927,7 @@ class MessageDao {
             .where(
               (m) =>
                   m.contentType == StorageMessageContentType.file &&
+                  _canBrowse(m) &&
                   !_isMedia(m),
             )
             .sortedBy((m) => -m.timestamp),
@@ -703,7 +955,11 @@ class MessageDao {
         s.conversations[conversationId] = remaining == null
             ? _withoutLastMessage(conversation)
             : conversation.copyWith(
-                lastMessage: remaining.content,
+                lastMessage: conversationPreview(
+                  content: remaining.content,
+                  isViewOnce: remaining.isViewOnce,
+                  contentType: remaining.contentType,
+                ),
                 lastMessageTimestamp: remaining.timestamp,
                 lastMessageType: remaining.contentType.name,
                 lastMessageOutgoing: remaining.isOutgoing,
@@ -787,6 +1043,25 @@ class MessageDao {
 
   Future<void> updateReactions(String id, String? reactions) =>
       _patch(id, (m) => m.copyWith(reactions: reactions));
+  Future<void> applyReaction(
+    String id, {
+    required String userId,
+    required String emoji,
+    required bool remove,
+  }) => _patch(id, (m) {
+    if (userId.isEmpty ||
+        !allowedMessageReactions.contains(emoji) ||
+        m.contentType == StorageMessageContentType.deleted)
+      return m;
+    return m.copyWith(
+      reactions: applyMessageReaction(
+        m.reactions,
+        userId,
+        emoji,
+        remove: remove,
+      ),
+    );
+  });
   Future<void> updatePinned(String id, bool isPinned, int? pinnedAt) =>
       _patch(id, (m) => m.copyWith(isPinned: isPinned, pinnedAt: pinnedAt));
   Stream<MessageEntity?> observeLatestPinned(String conversationId) =>
@@ -828,6 +1103,23 @@ class MessageDao {
       m.contentType == StorageMessageContentType.file ||
       m.contentType == StorageMessageContentType.image ||
       m.contentType == StorageMessageContentType.voiceNote;
+  static bool _canBrowse(MessageEntity m) =>
+      !m.isViewOnce &&
+      m.contentType != StorageMessageContentType.deleted &&
+      (m.expiresAt == null ||
+          m.expiresAt! > DateTime.now().millisecondsSinceEpoch);
+  static bool _matchesSearch(MessageEntity m, String query) {
+    final clean = query.trim().toLowerCase();
+    return clean.isNotEmpty &&
+        _canBrowse(m) &&
+        messageSearchText(
+          content: m.content,
+          contentType: m.contentType.name,
+          isViewOnce: m.isViewOnce,
+          caption: m.caption,
+        ).toLowerCase().contains(clean);
+  }
+
   static bool _isMedia(MessageEntity m) =>
       m.contentType == StorageMessageContentType.image ||
       (m.contentType == StorageMessageContentType.file &&
@@ -953,12 +1245,13 @@ class ScheduledMessageDao {
     });
   }
 
-  static List<ScheduledMessageHistoryEntity> _sortedHistory(_StorageSnapshot s) =>
-      s.scheduledMessageHistory.values.toList()
-        ..sort((a, b) {
-          final byTime = b.executedAt.compareTo(a.executedAt);
-          return byTime == 0 ? b.id.compareTo(a.id) : byTime;
-        });
+  static List<ScheduledMessageHistoryEntity> _sortedHistory(
+    _StorageSnapshot s,
+  ) => s.scheduledMessageHistory.values.toList()
+    ..sort((a, b) {
+      final byTime = b.executedAt.compareTo(a.executedAt);
+      return byTime == 0 ? b.id.compareTo(a.id) : byTime;
+    });
 
   Stream<List<ScheduledMessageEntity>> getAll() => _db._watch(
     (s) => s.scheduledMessages.values.sortedBy((m) => m.nextTriggerTime),
@@ -1266,7 +1559,8 @@ class _StorageSnapshot {
   final _TrackedMap<String, ContactEntity> contacts;
   final _TrackedMap<String, CallLogEntity> callLogs;
   final _TrackedMap<String, ScheduledMessageEntity> scheduledMessages;
-  final _TrackedMap<String, ScheduledMessageHistoryEntity> scheduledMessageHistory;
+  final _TrackedMap<String, ScheduledMessageHistoryEntity>
+  scheduledMessageHistory;
   final _TrackedMap<String, ExportLogEntity> exportLogs;
   final _TrackedMap<String, PendingTimerUpdateEntity> pendingTimerUpdates;
   final _TrackedMap<String, IdentityEntity> identities;

@@ -15,6 +15,7 @@ class AppLifecycleCoordinator {
     required String signalingUrl,
     required LifecycleTask foregroundMaintenance,
     required LifecycleTask refreshPushRegistration,
+    LifecycleTask? refreshLocalState,
     Future<String?> Function()? refreshAccessToken,
     NetworkStatusMonitor? networkMonitor,
     bool allowLoopbackWhenOffline = false,
@@ -24,6 +25,7 @@ class AppLifecycleCoordinator {
        _signalingUrl = signalingUrl,
        _foregroundMaintenance = foregroundMaintenance,
        _refreshPushRegistration = refreshPushRegistration,
+       _refreshLocalState = refreshLocalState,
        _refreshAccessToken = refreshAccessToken,
        _networkMonitor = networkMonitor,
        _allowLoopbackWhenOffline = allowLoopbackWhenOffline,
@@ -34,6 +36,7 @@ class AppLifecycleCoordinator {
   final String _signalingUrl;
   final LifecycleTask _foregroundMaintenance;
   final LifecycleTask _refreshPushRegistration;
+  final LifecycleTask? _refreshLocalState;
   final Future<String?> Function()? _refreshAccessToken;
   final NetworkStatusMonitor? _networkMonitor;
   final bool _allowLoopbackWhenOffline;
@@ -58,6 +61,9 @@ class AppLifecycleCoordinator {
 
   Future<void> _enterForeground() async {
     if (_foreground) return;
+    // Background isolates may have committed messages and Signal ratchets.
+    // Read their state before reconnecting or running foreground cleanup.
+    await _refreshLocalState?.call();
     _foreground = true;
     final monitor = _networkMonitor;
     if (monitor != null) {

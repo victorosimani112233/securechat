@@ -30,30 +30,32 @@ class SfuPolicyTest {
     }
 
     @Test
-    fun `production requires an explicit media boundary acknowledgement`() {
+    fun `production supports encrypted only promotion without plaintext acknowledgement`() {
         val requested = env(
             "SFU_ENABLED" to "true",
             "JANUS_WS_URL" to "ws://janus:8188",
+            "JANUS_PUBLIC_WS_URL" to "wss://signal.test.invalid/janus",
             "PRIVACY_PRODUCTION_MODE" to "true",
         )
-        assertFalse(SfuPolicy.isEnabled(requested))
-        // Eksik beyan sessizce "kapali"ya donusmez; startup durur.
-        assertThrows(IllegalArgumentException::class.java) { SfuPolicy.validate(requested) }
+        assertTrue(SfuPolicy.isEnabled(requested))
+        SfuPolicy.validate(requested)
+        assertFalse(SfuPolicy.canPromote(false, requested))
 
         val acknowledged = requested + ("SFU_MEDIA_BOUNDARY_ACK" to SfuPolicy.REQUIRED_ACKNOWLEDGEMENT)
         assertTrue(SfuPolicy.isEnabled(acknowledged))
         SfuPolicy.validate(acknowledged)
+        assertFalse(SfuPolicy.canPromote(false, acknowledged))
     }
 
     @Test
-    fun `a wrong acknowledgement value does not enable the sfu`() {
+    fun `an acknowledgement cannot bypass endpoint validation or encryption`() {
         val env = env(
             "SFU_ENABLED" to "true",
             "JANUS_WS_URL" to "ws://janus:8188",
             "PRIVACY_PRODUCTION_MODE" to "true",
             "SFU_MEDIA_BOUNDARY_ACK" to "true",
         )
-        assertFalse(SfuPolicy.isEnabled(env))
+        assertFalse(SfuPolicy.canPromote(false, env))
         assertThrows(IllegalArgumentException::class.java) { SfuPolicy.validate(env) }
     }
 

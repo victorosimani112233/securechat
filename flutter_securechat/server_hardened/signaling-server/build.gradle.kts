@@ -199,6 +199,8 @@ val runDummyServer by tasks.registering(JavaExec::class) {
 
 tasks.test {
     useJUnitPlatform()
+    environment("RECOVERY_INDEX_KEY", "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=")
+    environment("RECOVERY_ENCRYPTION_KEY", "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=")
     dependsOn(generateTestDirectoryOprfKey)
     systemProperty(
         "serverMigrationDir",

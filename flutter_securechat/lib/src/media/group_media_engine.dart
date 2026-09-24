@@ -53,6 +53,7 @@ abstract interface class GroupMediaEngine {
     required String? sdpMid,
     required int sdpMLineIndex,
   });
+
   /// Medya frame sifrelemesini acar.
   ///
   /// SFU yolunda WebRTC oturumu Janus'ta sonlanir; bu katman olmadan medya
@@ -106,6 +107,9 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
 
   @override
   Future<void> enableMediaEncryption(CallMediaKey mediaKey) async {
+    if (_mediaKey != null && _mediaKey!.callId != mediaKey.callId) {
+      throw StateError('Close the previous call before installing a new key');
+    }
     final provider = _keyProvider ??= await frameCryptorFactory
         .createDefaultKeyProvider(
           KeyProviderOptions(
@@ -177,6 +181,12 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
     await cryptor.setKeyIndex(mediaKey.keyIndex);
     await cryptor.setEnabled(true);
     _cryptors.putIfAbsent(key, () => []).add(cryptor);
+  }
+
+  Future<void> _attachReceiverCryptors(String key, RTCPeerConnection pc) async {
+    for (final receiver in await pc.getReceivers()) {
+      await _attachReceiverCryptor(key, receiver);
+    }
   }
 
   /// Kendi gonderdigimiz frame'lerin katilimci etiketi.
@@ -253,6 +263,7 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
       publishLocalTracks: true,
     );
     await pc.setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
+    await _attachReceiverCryptors(peerId, pc);
     final answer = await pc.createAnswer({
       'offerToReceiveAudio': true,
       'offerToReceiveVideo': _video,
@@ -270,6 +281,7 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
     if (pc == null)
       throw StateError('Group peer connection is missing: $peerId');
     await pc.setRemoteDescription(RTCSessionDescription(answerSdp, 'answer'));
+    await _attachReceiverCryptors(peerId, pc);
   }
 
   @override
@@ -323,6 +335,7 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
       publishLocalTracks: false,
     );
     await pc.setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
+    await _attachReceiverCryptors(key, pc);
     final answer = await pc.createAnswer({
       'offerToReceiveAudio': true,
       'offerToReceiveVideo': _video,
@@ -375,7 +388,6 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
     await _attachSenderCryptors(key, pc);
     if (renderRemote) {
       pc.onTrack = (event) {
-        unawaited(_attachReceiverCryptor(key, event.receiver));
         unawaited(_attachRemoteStream(key, event));
       };
     }
@@ -395,7 +407,6 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
     }
     _remoteStreams[key] = event.streams.first;
     renderer.srcObject = event.streams.first;
-    _peerStates.add(GroupPeerState(key, MediaConnectionState.connected));
   }
 
   @override
@@ -454,7 +465,11 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
     }
     await _localStream?.dispose();
     _localStream = null;
-    _localRenderer.srcObject = null;
+    if (_localRendererInitialized) _localRenderer.srcObject = null;
+    _mediaKey = null;
+    final provider = _keyProvider;
+    _keyProvider = null;
+    await provider?.dispose();
   }
 
   @override

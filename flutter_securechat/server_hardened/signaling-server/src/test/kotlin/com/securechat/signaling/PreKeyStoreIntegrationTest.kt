@@ -177,18 +177,19 @@ class PreKeyStoreIntegrationTest {
     }
 
     @Test
-    fun `rotating the identity erases the old one time keys in the same step`() {
+    fun `ordinary uploads cannot rotate identity`() {
         val user = account()
         upload(user, identitySeed = 1, oneTimeKeys = (1..4).map { PreKeyStore.OneTimePreKey(it, key(it + 100)) })
 
         // Yeni identity: eski materyal ayakta kalirsa esler yanlis identity
         // ile X3DH yapmaya calisir ve "no valid sessions" dongusune girer.
-        upload(user, identitySeed = 55, oneTimeKeys = listOf(PreKeyStore.OneTimePreKey(9, key(120))))
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+            upload(user, identitySeed = 55, oneTimeKeys = listOf(PreKeyStore.OneTimePreKey(9, key(120))))
+        }
 
         val bundle = PreKeyStore.fetchBundle(user)
-        assertTrue(bundle!!.identityKey.publicKey.contentEquals(key(55)))
-        assertEquals(9, bundle.oneTimePreKey!!.keyId)
-        assertEquals(0, PreKeyStore.unconsumedCount(user))
+        assertTrue(bundle!!.identityKey.publicKey.contentEquals(key(1)))
+        assertEquals(3, PreKeyStore.unconsumedCount(user))
     }
 
     @Test

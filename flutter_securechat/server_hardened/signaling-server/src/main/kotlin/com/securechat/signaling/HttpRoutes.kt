@@ -360,6 +360,7 @@ fun Application.configureRoutes(
     fcmPushSender: FcmPushSender? = null,
 ) {
     routing {
+        recoveryAuthRoutes()
         intercept(ApplicationCallPipeline.Plugins) {
             if (!PrivacyRetentionWorker.isHealthy() && call.request.path() != "/health") {
                 call.respond(
@@ -702,18 +703,13 @@ fun Application.configureRoutes(
         // Logout — access token blacklist'e alinir (revocation)
         // Body'de opsiyonel refresh token da revoke edilir.
         post("/api/v1/auth/logout") {
-            val authHeader = call.request.headers["Authorization"]
-            val accessToken = authHeader?.removePrefix("Bearer ")?.trim()
-            val authedUserId = AuthService.verifyToken(accessToken ?: "")
-            if (authedUserId == null) {
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Gecersiz token"))
-                return@post
-            }
+            val authedUserId = requireAuth(call) ?: return@post
+            val expectedEpoch = call.attributes[authenticatedEpochKey]
             val ip = call.clientAddress()
             // Tek adimda hesabin butun access/refresh token'lari gecersizlesir.
             // Kayit PostgreSQL'de oldugu icin Redis restart'i veya eviction'i
             // iptal edilmis bir token'i geri getiremez.
-            if (!AuthService.revokeAllTokens(authedUserId)) {
+            if (!AuthService.revokeAllTokens(authedUserId, expectedEpoch)) {
                 AuditLog.log(eventType = "USER_LOGOUT_FAILED", ipAddress = ip)
                 call.respond(
                     HttpStatusCode.ServiceUnavailable,
@@ -737,6 +733,7 @@ fun Application.configureRoutes(
                     connectionManager = connectionManager,
                     userRegistry = userRegistry,
                     fcmTokenStore = fcmTokenStore,
+                    expectedEpoch = call.attributes[authenticatedEpochKey],
                 )
                 // Deletion audit is intentionally unlinkable to the deleted UUID.
                 AuditLog.log(eventType = "ACCOUNT_DELETED", ipAddress = ip)
@@ -832,6 +829,7 @@ fun Application.configureRoutes(
                 call,
                 serviceScope = ServiceAssertion.Scope.PREKEY_UPLOAD,
             ) ?: return@post
+            val expectedEpoch = call.prekeyWriteEpoch()
             if (!RateLimiter.allow("prekey_write", authedUserId)) {
                 val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
                 call.response.header("Retry-After", retry.toString())
@@ -861,6 +859,7 @@ fun Application.configureRoutes(
                 // transaction'da yazilir; yarim bir bundle olusamaz.
                 PreKeyStore.uploadBundle(
                     userId = authedUserId,
+                    expectedEpoch = expectedEpoch,
                     identityPublicKey = decoder.decode(req.identityPublicKey),
                     registrationId = req.registrationId,
                     signedPreKey = PreKeyStore.SignedPreKey(
@@ -891,6 +890,7 @@ fun Application.configureRoutes(
         // One-time prekey havuzunu yenile (rotation)
         post("/api/v1/prekeys/refresh") {
             val authedUserId = requireAuth(call) ?: return@post
+            val expectedEpoch = call.attributes[authenticatedEpochKey]
             if (!RateLimiter.allow("prekey_write", authedUserId)) {
                 val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
                 call.response.header("Retry-After", retry.toString())
@@ -914,7 +914,8 @@ fun Application.configureRoutes(
             try {
                 PreKeyStore.addOneTimePreKeys(
                     authedUserId,
-                    keys.map { PreKeyStore.OneTimePreKey(it.keyId, decoder.decode(it.publicKey)) }
+                    keys.map { PreKeyStore.OneTimePreKey(it.keyId, decoder.decode(it.publicKey)) },
+                    expectedEpoch = expectedEpoch,
                 )
                 call.respond(HttpStatusCode.OK, mapOf("status" to "ok",
                     "remaining" to PreKeyStore.unconsumedCount(authedUserId).toString()))
@@ -974,6 +975,7 @@ fun Application.configureRoutes(
                 call,
                 serviceScope = ServiceAssertion.Scope.PREKEY_UPLOAD,
             ) ?: return@post
+            val expectedEpoch = call.prekeyWriteEpoch()
             if (!RateLimiter.allow("prekey_write", authedUserId)) {
                 val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
                 call.response.header("Retry-After", retry.toString())
@@ -992,6 +994,7 @@ fun Application.configureRoutes(
             try {
                 ModernPreKeyStore.uploadBundle(
                     userId = authedUserId,
+                    expectedEpoch = expectedEpoch,
                     identityPublicKey = decoder.decode(request.identityPublicKey),
                     registrationId = request.registrationId,
                     signedPreKey = ModernPreKeyStore.SignedPreKey(
@@ -1039,6 +1042,7 @@ fun Application.configureRoutes(
 
         post("/api/v2/prekeys/refresh") {
             val authedUserId = requireAuth(call) ?: return@post
+            val expectedEpoch = call.attributes[authenticatedEpochKey]
             if (!RateLimiter.allow("prekey_write", authedUserId)) {
                 val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
                 call.response.header("Retry-After", retry.toString())
@@ -1064,6 +1068,7 @@ fun Application.configureRoutes(
                             decoder.decode(key.kyberSignature),
                         )
                     },
+                    expectedEpoch = expectedEpoch,
                 )
                 call.respond(
                     mapOf("remaining" to ModernPreKeyStore.unconsumedCount(authedUserId)),
@@ -1290,7 +1295,7 @@ fun Application.configureRoutes(
                 call.respond(HttpStatusCode.NotFound, mapOf("error" to "Aktif SFU room bulunamadi"))
                 return@get
             }
-            val info = JanusOrchestrator.getRoomInfo(groupId)
+            val info = JanusOrchestrator.getRoomInfo(groupId, activeCall.instanceId)
             if (info == null) {
                 call.respond(HttpStatusCode.NotFound, mapOf("error" to "Aktif SFU room bulunamadi"))
             } else {
@@ -1366,7 +1371,7 @@ fun Application.configureRoutes(
  * Bildirilen `Content-Length` ve gercekte okunan byte sayisi ayri ayri
  * kontrol edilir; bildirimi eksik veya yalan olan istekler de sinirlanir.
  */
-private suspend inline fun <reified T> ApplicationCall.receiveBounded(
+internal suspend inline fun <reified T> ApplicationCall.receiveBounded(
     maximumBytes: Int,
     ignoreUnknownKeys: Boolean = true,
 ): T? {
@@ -1453,6 +1458,12 @@ private suspend fun requireServicePrincipal(
     return null
 }
 
+private val authenticatedEpochKey = io.ktor.util.AttributeKey<String>("authenticated-credential-epoch")
+private val servicePrincipalKey = io.ktor.util.AttributeKey<Boolean>("authenticated-service-principal")
+
+private fun ApplicationCall.prekeyWriteEpoch(): String? =
+    if (attributes.getOrNull(servicePrincipalKey) == true) null else attributes[authenticatedEpochKey]
+
 private suspend fun requirePrincipal(
     call: io.ktor.server.application.ApplicationCall,
     serviceScope: ServiceAssertion.Scope?,
@@ -1463,9 +1474,15 @@ private suspend fun requirePrincipal(
         call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authorization header gerekli"))
         return null
     }
-    AuthService.verifyToken(token)?.let { return it }
+    AuthService.accessClaims(token)?.let {
+        call.attributes.put(authenticatedEpochKey, it.epoch)
+        return it.userId
+    }
     if (serviceScope != null) {
-        ServiceAccounts.authenticate(token, serviceScope)?.let { return it }
+        ServiceAccounts.authenticate(token, serviceScope)?.let {
+            call.attributes.put(servicePrincipalKey, true)
+            return it
+        }
     }
     call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Gecersiz veya expired token"))
     return null

@@ -4,6 +4,7 @@ import '../core/models.dart';
 import '../domain/send_message_use_case.dart';
 import '../storage/secure_chat_database.dart';
 import '../storage/storage_entities.dart' as storage;
+import 'session_store.dart';
 
 abstract interface class ConversationRepository {
   Stream<List<Conversation>> watchConversations();
@@ -27,12 +28,15 @@ class InMemoryConversationRepository implements ConversationRepository {
   InMemoryConversationRepository({
     required List<Conversation> conversations,
     required Map<String, List<LocalMessage>> messages,
+    SessionStore? session,
   }) : _conversations = conversations,
+       _session = session,
        _messages = messages {
     _conversationController.add(List.unmodifiable(_conversations));
   }
 
   final List<Conversation> _conversations;
+  final SessionStore? _session;
   final Map<String, List<LocalMessage>> _messages;
   final _conversationController =
       StreamController<List<Conversation>>.broadcast();
@@ -66,7 +70,9 @@ class InMemoryConversationRepository implements ConversationRepository {
     final matches =
         _messages.values
             .expand((messages) => messages)
-            .where((message) => message.content.toLowerCase().contains(clean))
+            .where(
+              (message) => message.searchText.toLowerCase().contains(clean),
+            )
             .toList(growable: false)
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return matches.take(limit).toList(growable: false);
@@ -147,8 +153,24 @@ class InMemoryConversationRepository implements ConversationRepository {
 
   @override
   Future<void> deleteConversation(String conversationId) async {
+    final groupIndex = _conversations.indexWhere(
+      (c) =>
+          c.id == conversationId &&
+          c.isGroup &&
+          !c.hasLeftGroup(_session?.userId),
+    );
+    if (groupIndex >= 0) {
+      _conversations[groupIndex] = _conversations[groupIndex].copyWith(
+        clearLastMessage: true,
+        unreadCount: 0,
+        manuallyUnread: false,
+      );
+    }
     _conversations.removeWhere(
-      (conversation) => conversation.id == conversationId,
+      (conversation) =>
+          conversation.id == conversationId &&
+          (!conversation.isGroup ||
+              conversation.hasLeftGroup(_session?.userId)),
     );
     _messages.remove(conversationId);
     _notifyConversations();
@@ -220,11 +242,16 @@ class InMemoryConversationRepository implements ConversationRepository {
 }
 
 class StorageConversationRepository implements ConversationRepository {
-  StorageConversationRepository(this._db, {required SendMessageUseCase sender})
-    : _sender = sender;
+  StorageConversationRepository(
+    this._db, {
+    required SendMessageUseCase sender,
+    SessionStore? session,
+  }) : _sender = sender,
+       _session = session;
 
   final SecureChatDatabase _db;
   final SendMessageUseCase _sender;
+  final SessionStore? _session;
 
   @override
   Stream<List<Conversation>> watchConversations() {
@@ -288,8 +315,8 @@ class StorageConversationRepository implements ConversationRepository {
       _db.conversations.updateManuallyUnread(conversationId, unread);
 
   @override
-  Future<void> deleteConversation(String conversationId) =>
-      _db.conversations.delete(conversationId);
+  Future<void> deleteConversation(String conversationId) => _db.conversations
+      .deleteLocalHistory(conversationId, localUserId: _session?.userId);
 }
 
 Conversation _conversationFromEntity(storage.ConversationEntity entity) {

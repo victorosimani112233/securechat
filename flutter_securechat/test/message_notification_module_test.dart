@@ -9,13 +9,70 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'recreated background coordinator uses persistent unread totals',
+    () async {
+      final unread = <String, int>{'alice': 2};
+      Future<LocalMessageNotification> receive(String conversation) async {
+        final input = StreamController<IncomingMessageEvent>.broadcast();
+        final presenter = _FakePresenter();
+        final coordinator = MessageNotificationCoordinator(
+          incomingMessages: input.stream,
+          session: SessionStore(
+            showNotificationContent: false,
+            languagePreference: 'tr',
+          ),
+          presenter: presenter,
+          unreadCounts: () async => Map.of(unread),
+        );
+        await coordinator.start();
+        coordinator.setAppForeground(false);
+        input.add(_event(conversationId: conversation));
+        await _eventually(() => presenter.shown.isNotEmpty);
+        await coordinator.close();
+        await input.close();
+        return presenter.shown.single;
+      }
+
+      expect((await receive('alice')).body, '1 sohbetten 2 yeni mesaj');
+      unread['bob'] = 3;
+      final summary = await receive('bob');
+      expect(summary.body, '2 sohbetten 5 yeni mesaj');
+      expect(summary.count, 5);
+      expect(summary.payload, isNull);
+      unread.remove('alice');
+      expect((await receive('bob')).body, '1 sohbetten 3 yeni mesaj');
+    },
+  );
+
+  test('queued notification is omitted if its conversation was read', () async {
+    final input = StreamController<IncomingMessageEvent>.broadcast();
+    final presenter = _FakePresenter();
+    final coordinator = MessageNotificationCoordinator(
+      incomingMessages: input.stream,
+      session: SessionStore(),
+      presenter: presenter,
+      unreadCounts: () async => {'other': 4},
+    );
+    await coordinator.start();
+    input.add(_event(conversationId: 'already-read'));
+    await Future<void>.delayed(Duration.zero);
+    await coordinator.waitForIdle();
+    expect(presenter.shown, isEmpty);
+    await coordinator.close();
+    await input.close();
+  });
+
+  test(
     'privacy mode never exposes sender, content or routing payload',
     () async {
       final input = StreamController<IncomingMessageEvent>.broadcast();
       final presenter = _FakePresenter();
       final coordinator = MessageNotificationCoordinator(
         incomingMessages: input.stream,
-        session: SessionStore(showNotificationContent: false),
+        session: SessionStore(
+          showNotificationContent: false,
+          languagePreference: 'tr',
+        ),
         presenter: presenter,
       );
       addTearDown(() async {
@@ -32,8 +89,12 @@ void main() {
 
       final notification = presenter.shown.single;
       expect(notification.title, 'Elçim');
-      expect(notification.body, '1 yeni mesaj');
+      expect(notification.body, '1 sohbetten 1 yeni mesaj');
       expect(notification.payload, isNull);
+      expect(
+        notification.conversationId,
+        PluginLocalNotificationPresenter.groupKey,
+      );
       expect(notification.hideOnLockScreen, isTrue);
       expect(notification.title, isNot(contains('Alice')));
       expect(notification.body, isNot(contains('secret')));
@@ -134,7 +195,10 @@ void main() {
       final presenter = _FakePresenter();
       final coordinator = MessageNotificationCoordinator(
         incomingMessages: input.stream,
-        session: SessionStore(showNotificationContent: false),
+        session: SessionStore(
+          showNotificationContent: false,
+          languagePreference: 'tr',
+        ),
         presenter: presenter,
       );
       addTearDown(() async {
@@ -151,7 +215,7 @@ void main() {
       final notification = presenter.shown.single;
       expect(notification.silent, isFalse);
       expect(notification.title, 'Elçim');
-      expect(notification.body, '1 yeni mesaj');
+      expect(notification.body, '1 sohbetten 1 yeni mesaj');
       expect(notification.payload, isNull);
       expect(notification.hideOnLockScreen, isTrue);
     },
@@ -194,6 +258,130 @@ void main() {
     expect(presenter.shown.last.silent, isTrue);
   });
 
+  test('active chat alerts in background and again after leaving it', () async {
+    final input = StreamController<IncomingMessageEvent>.broadcast();
+    final presenter = _FakePresenter();
+    final coordinator = MessageNotificationCoordinator(
+      incomingMessages: input.stream,
+      session: SessionStore(showNotificationContent: true),
+      presenter: presenter,
+    );
+    addTearDown(() async {
+      await coordinator.close();
+      await input.close();
+    });
+    await coordinator.start();
+    coordinator.setActiveConversation('alice');
+
+    input.add(_event(conversationId: 'alice'));
+    await _drain(coordinator);
+    expect(presenter.shown, isEmpty);
+
+    coordinator.setAppForeground(false);
+    input.add(_event(conversationId: 'alice'));
+    await _drain(coordinator);
+    expect(presenter.shown.single.count, 1);
+    expect(presenter.shown.single.silent, isFalse);
+
+    coordinator.setAppForeground(true);
+    input.add(_event(conversationId: 'alice'));
+    await _drain(coordinator);
+    expect(presenter.shown, hasLength(1));
+
+    coordinator.setActiveConversation(null);
+    input.add(_event(conversationId: 'alice'));
+    await _drain(coordinator);
+    expect(presenter.shown, hasLength(2));
+    expect(presenter.shown.last.count, 2);
+    expect(presenter.shown.last.silent, isFalse);
+  });
+
+  for (final locale in <String, (String, String)>{
+    'en': ('1 message from 1 chat', '5 messages from 2 chats'),
+    'tr': ('1 sohbetten 1 yeni mesaj', '2 sohbetten 5 yeni mesaj'),
+    'de': ('1 Nachricht aus 1 Chat', '5 Nachrichten aus 2 Chats'),
+    'ar': ('رسالة واحدة من محادثة واحدة', '5 رسائل من محادثتين'),
+  }.entries) {
+    test(
+      'private summary counts messages and distinct chats in ${locale.key}',
+      () async {
+        final input = StreamController<IncomingMessageEvent>.broadcast();
+        final presenter = _FakePresenter();
+        final coordinator = MessageNotificationCoordinator(
+          incomingMessages: input.stream,
+          session: SessionStore(languagePreference: locale.key),
+          presenter: presenter,
+        );
+        addTearDown(() async {
+          await coordinator.close();
+          await input.close();
+        });
+        await coordinator.start();
+        coordinator.setActiveConversation('viewed');
+        input.add(_event(conversationId: 'viewed'));
+        for (final id in ['alice', 'alice', 'bob', 'alice', 'bob']) {
+          input.add(
+            _event(
+              conversationId: id,
+              title: 'Private name',
+              preview: 'secret',
+            ),
+          );
+        }
+        await _drain(coordinator);
+
+        expect(presenter.shown, hasLength(5));
+        expect(presenter.shown.first.body, locale.value.$1);
+        expect(presenter.shown.last.body, locale.value.$2);
+        expect(presenter.shown.map((item) => item.count), [1, 2, 3, 4, 5]);
+        for (final notification in presenter.shown) {
+          expect(
+            notification.id,
+            MessageNotificationCoordinator.privacyNotificationId,
+          );
+          expect(notification.payload, isNull);
+          expect(
+            notification.conversationId,
+            PluginLocalNotificationPresenter.groupKey,
+          );
+          expect(notification.hideOnLockScreen, isTrue);
+          expect(notification.silent, isFalse);
+          expect(notification.body, isNot(contains('secret')));
+          expect(notification.title, isNot(contains('Private name')));
+        }
+
+        await coordinator.clear();
+        input.add(_event(conversationId: 'alice'));
+        await _drain(coordinator);
+        expect(presenter.shown.single.body, locale.value.$1);
+        expect(presenter.shown.single.count, 1);
+      },
+    );
+  }
+
+  test('private summary follows session language changes', () async {
+    final input = StreamController<IncomingMessageEvent>.broadcast();
+    final presenter = _FakePresenter();
+    final session = SessionStore(languagePreference: 'en');
+    final coordinator = MessageNotificationCoordinator(
+      incomingMessages: input.stream,
+      session: session,
+      presenter: presenter,
+    );
+    addTearDown(() async {
+      await coordinator.close();
+      await input.close();
+    });
+    await coordinator.start();
+    input.add(_event(conversationId: 'alice'));
+    await _drain(coordinator);
+    expect(presenter.shown.single.body, '1 message from 1 chat');
+    session.languagePreference = 'tr';
+    input.add(_event(conversationId: 'alice'));
+    await _drain(coordinator);
+    expect(presenter.shown.last.body, '1 sohbetten 2 yeni mesaj');
+  });
+
   test(
     'dismissal clears one conversation count and summary clears all',
     () async {
@@ -201,7 +389,10 @@ void main() {
       final presenter = _FakePresenter();
       final coordinator = MessageNotificationCoordinator(
         incomingMessages: input.stream,
-        session: SessionStore(showNotificationContent: false),
+        session: SessionStore(
+          showNotificationContent: false,
+          languagePreference: 'tr',
+        ),
         presenter: presenter,
       );
       addTearDown(() async {
@@ -226,7 +417,7 @@ void main() {
       input.add(_event(conversationId: 'alice'));
       await _eventually(() => presenter.shown.length == 4);
       expect(presenter.shown.last.count, 1);
-      expect(presenter.shown.last.body, '1 yeni mesaj');
+      expect(presenter.shown.last.body, '1 sohbetten 1 yeni mesaj');
     },
   );
 }
@@ -281,4 +472,9 @@ Future<void> _eventually(bool Function() predicate) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   fail('Notification was not presented before timeout');
+}
+
+Future<void> _drain(MessageNotificationCoordinator coordinator) async {
+  await Future<void>.delayed(Duration.zero);
+  await coordinator.waitForIdle();
 }

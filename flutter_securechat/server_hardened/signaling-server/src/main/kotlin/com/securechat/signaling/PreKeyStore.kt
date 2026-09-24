@@ -29,18 +29,7 @@ object PreKeyStore {
         val oneTimePreKey: OneTimePreKey?
     )
 
-    /**
-     * Identity key ve registration_id kaydeder/gunceller.
-     *
-     * KRITIK: Identity degisirse (client reinstall sonrasi yeni keypair uretti),
-     * mevcut signed_prekeys ve one_time_prekeys eski identity'ye ait private key'lerle
-     * eslesir — yeni identity ile X3DH yapilirsa mismatch olur ve "No valid sessions"
-     * hatasi alinir. Bu yuzden identity degisikligini tespit edip eski prekey'leri
-     * atomik olarak silmek zorundayiz. Sonraki client upload'u taze prekey'ler ile
-     * dolduracak.
-     *
-     * Identity ayni kaliyorsa (no-op update) prekey'lere dokunmayiz — replenish'i bozmamak icin.
-     */
+    /** Initializes an identity or retains it; only explicit recovery may replace it. */
     fun setIdentityKey(userId: String, publicKey: ByteArray, registrationId: Int) {
         try {
             Database.getConnection().use { conn ->
@@ -48,7 +37,7 @@ object PreKeyStore {
                 try {
                     // Mevcut identity'yi oku — gercekten degisip degismedigini kontrol et
                     val oldKey: ByteArray? = conn.prepareStatement(
-                        "SELECT identity_public_key FROM users WHERE user_id = ?::uuid"
+                        "SELECT identity_public_key FROM users WHERE user_id = ?::uuid FOR UPDATE"
                     ).use { stmt ->
                         stmt.setString(1, userId)
                         stmt.executeQuery().use { rs ->
@@ -56,6 +45,9 @@ object PreKeyStore {
                         }
                     }
 
+                    PreKeyIdentityGuard.check(conn, userId, publicKey)
+                    check(oldKey == null || oldKey.contentEquals(publicKey)) { "Explicit identity recovery required" }
+                    if (oldKey == null) PreKeyIdentityGuard.checkOtherNamespace(conn, userId, publicKey, "modern_prekey_bundles")
                     conn.prepareStatement(
                         "UPDATE users SET identity_public_key = ?, registration_id = ? WHERE user_id = ?::uuid"
                     ).use { stmt ->
@@ -65,26 +57,6 @@ object PreKeyStore {
                         stmt.executeUpdate()
                     }
 
-                    val identityChanged = oldKey != null && !oldKey.contentEquals(publicKey)
-                    if (identityChanged) {
-                        // Eski identity'ye ait prekey'leri tamamen sil — yeni upload taze setle dolduracak.
-                        val otpkDeleted = conn.prepareStatement(
-                            "DELETE FROM one_time_prekeys WHERE user_id = ?::uuid"
-                        ).use { stmt ->
-                            stmt.setString(1, userId)
-                            stmt.executeUpdate()
-                        }
-                        val spkDeleted = conn.prepareStatement(
-                            "DELETE FROM signed_prekeys WHERE user_id = ?::uuid"
-                        ).use { stmt ->
-                            stmt.setString(1, userId)
-                            stmt.executeUpdate()
-                        }
-                        log.warn(
-                            "[PreKey] Identity degisti; eski OTPK={} SPK={} silindi — taze upload bekleniyor",
-                            otpkDeleted, spkDeleted
-                        )
-                    }
                     conn.commit()
                 } catch (e: Exception) {
                     conn.rollback(); throw e
@@ -147,6 +119,7 @@ object PreKeyStore {
         registrationId: Int,
         signedPreKey: SignedPreKey,
         oneTimePreKeys: List<OneTimePreKey>,
+        expectedEpoch: String? = null,
     ) {
         try {
             Database.getConnection().use { conn ->
@@ -161,6 +134,9 @@ object PreKeyStore {
                         }
                     }
 
+                    PreKeyIdentityGuard.check(conn, userId, identityPublicKey, expectedEpoch)
+                    check(locked == null || locked.contentEquals(identityPublicKey)) { "Explicit identity recovery required" }
+                    if (locked == null) PreKeyIdentityGuard.checkOtherNamespace(conn, userId, identityPublicKey, "modern_prekey_bundles")
                     conn.prepareStatement(
                         "UPDATE users SET identity_public_key = ?, registration_id = ? " +
                             "WHERE user_id = ?::uuid",
@@ -169,18 +145,6 @@ object PreKeyStore {
                         stmt.setInt(2, registrationId)
                         stmt.setString(3, userId)
                         check(stmt.executeUpdate() == 1) { "Unknown account cannot upload prekeys" }
-                    }
-
-                    val identityChanged = locked != null && !locked.contentEquals(identityPublicKey)
-                    if (identityChanged) {
-                        // Eski identity'ye ait materyal ayni transaction icinde
-                        // silinir; yarim kalmis bir gecis olusamaz.
-                        conn.prepareStatement(
-                            "DELETE FROM one_time_prekeys WHERE user_id = ?::uuid",
-                        ).use { stmt ->
-                            stmt.setString(1, userId)
-                            stmt.executeUpdate()
-                        }
                     }
 
                     conn.prepareStatement(
@@ -232,20 +196,30 @@ object PreKeyStore {
         }
     }
 
-    fun addOneTimePreKeys(userId: String, keys: List<OneTimePreKey>) {
+    fun addOneTimePreKeys(userId: String, keys: List<OneTimePreKey>, expectedEpoch: String? = null) {
         if (keys.isEmpty()) return
         try {
             Database.getConnection().use { conn ->
-                conn.prepareStatement(
-                    "INSERT INTO one_time_prekeys (user_id, key_id, public_key) VALUES (?::uuid, ?, ?) ON CONFLICT (user_id, key_id) DO NOTHING"
-                ).use { stmt ->
-                    for (k in keys) {
-                        stmt.setString(1, userId)
-                        stmt.setInt(2, k.keyId)
-                        stmt.setBytes(3, k.publicKey)
-                        stmt.addBatch()
+                conn.autoCommit = false
+                try {
+                    PreKeyIdentityGuard.check(conn, userId, expectedEpoch = expectedEpoch)
+                    conn.prepareStatement(
+                        "INSERT INTO one_time_prekeys (user_id, key_id, public_key) VALUES (?::uuid, ?, ?) ON CONFLICT (user_id, key_id) DO NOTHING"
+                    ).use { stmt ->
+                        for (k in keys) {
+                            stmt.setString(1, userId)
+                            stmt.setInt(2, k.keyId)
+                            stmt.setBytes(3, k.publicKey)
+                            stmt.addBatch()
+                        }
+                        stmt.executeBatch()
                     }
-                    stmt.executeBatch()
+                    conn.commit()
+                } catch (error: Exception) {
+                    conn.rollback()
+                    throw error
+                } finally {
+                    conn.autoCommit = true
                 }
             }
             log.info("[PreKey] {} adet one-time prekey eklendi", keys.size)

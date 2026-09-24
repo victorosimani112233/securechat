@@ -10,11 +10,33 @@ import SQLCipher
 import UserNotifications
 import WebRTC
 
+enum SecureChatContactsAccess {
+  static func isReadable(_ status: CNAuthorizationStatus) -> Bool {
+    if status == .authorized { return true }
+    if #available(iOS 18.0, *), status == .limited { return true }
+    return false
+  }
+
+  static var keysToFetch: [CNKeyDescriptor] {
+    // The formatter accesses more than givenName/familyName. Missing keys
+    // raise an Objective-C exception, which Swift do/catch cannot handle.
+    [CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
+     CNContactPhoneNumbersKey as CNKeyDescriptor]
+  }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private static let maintenanceTask = "com.securechat.app.background.maintenance"
   private static let senderKeyRotationTask = "com.securechat.app.background.sender-key-rotation"
   private let channelName = "com.securechat/native"
+  private let videoThumbnailQueue: OperationQueue = {
+    let queue = OperationQueue()
+    queue.name = "com.securechat.video-thumbnails"
+    queue.maxConcurrentOperationCount = 1
+    queue.qualityOfService = .utility
+    return queue
+  }()
   private var privacyOverlay: UIView?
   private var privacyOverlayHooksInstalled = false
   private var documentController: UIDocumentInteractionController?
@@ -116,6 +138,9 @@ import WebRTC
         self?.readContacts(result: result)
       case "openLocalFile":
         self?.openLocalFile(call.arguments, result: result)
+      case "localVideoThumbnail":
+        guard let self = self else { result(nil); return }
+        self.localVideoThumbnail(call.arguments, result: result)
       case "shareLocalFile":
         self?.shareLocalFile(call.arguments, result: result)
       case "getDiagnosticsMetadata":
@@ -251,7 +276,7 @@ import WebRTC
 
   private func requestContactsPermission(result: @escaping FlutterResult) {
     let status = CNContactStore.authorizationStatus(for: .contacts)
-    if status == .authorized {
+    if SecureChatContactsAccess.isReadable(status) {
       result(true)
       return
     }
@@ -271,18 +296,13 @@ import WebRTC
   }
 
   private func readContacts(result: @escaping FlutterResult) {
-    guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
+    guard SecureChatContactsAccess.isReadable(CNContactStore.authorizationStatus(for: .contacts)) else {
       result(FlutterError(code: "PERMISSION_DENIED", message: "Contacts permission not granted", details: nil))
       return
     }
     DispatchQueue.global(qos: .userInitiated).async {
       do {
-        let keys: [CNKeyDescriptor] = [
-          CNContactGivenNameKey as CNKeyDescriptor,
-          CNContactFamilyNameKey as CNKeyDescriptor,
-          CNContactPhoneNumbersKey as CNKeyDescriptor
-        ]
-        let request = CNContactFetchRequest(keysToFetch: keys)
+        let request = CNContactFetchRequest(keysToFetch: SecureChatContactsAccess.keysToFetch)
         request.sortOrder = .userDefault
         var records: [[String: Any]] = []
         try CNContactStore().enumerateContacts(with: request) { contact, _ in
@@ -300,6 +320,44 @@ import WebRTC
         DispatchQueue.main.async {
           result(FlutterError(code: "CONTACTS_READ_FAILED", message: error.localizedDescription, details: nil))
         }
+      }
+    }
+  }
+
+  private func localVideoThumbnail(_ arguments: Any?, result: @escaping FlutterResult) {
+    // Fail closed before opening a file or allocating a media decoder.
+    guard let values = arguments as? [String: Any],
+          let isViewOnce = values["isViewOnce"] as? Bool, !isViewOnce,
+          let path = values["path"] as? String, !path.isEmpty,
+          videoThumbnailQueue.operationCount < 24 else {
+      result(nil)
+      return
+    }
+    let maxSize = max(1, min(320, (values["maxSize"] as? NSNumber)?.intValue ?? 320))
+    videoThumbnailQueue.addOperation {
+      let data: Data? = autoreleasepool {
+        guard let url = SecureChatPrivateFilePolicy.validatedURL(path: path) else { return nil }
+        let root = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+          .appendingPathComponent("Library/Application Support/media", isDirectory: true)
+          .standardizedFileURL.resolvingSymlinksInPath()
+        guard url.path.hasPrefix(root.path + "/") else { return nil }
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: CGFloat(maxSize), height: CGFloat(maxSize))
+        defer {
+          generator.cancelAllCGImageGeneration()
+          asset.cancelLoading()
+        }
+        do {
+          let frame = try generator.copyCGImage(at: .zero, actualTime: nil)
+          return UIImage(cgImage: frame).jpegData(compressionQuality: 0.8)
+        } catch {
+          return nil
+        }
+      }
+      DispatchQueue.main.async {
+        result(data.map { FlutterStandardTypedData(bytes: $0) })
       }
     }
   }

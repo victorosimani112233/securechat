@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -322,10 +323,37 @@ class WebSocketRoutingE2ETest {
         // Koordinatorun invite'i alicinin yetenegi yerine gecemez. Alici
         // authenticated group_call_join_request ile ayrica onaylamalidir.
         assertEquals(setOf(caller), active.mediaE2eeParticipants)
-        assertFalse(active.mediaEndToEndEncrypted)
+        assertEquals(setOf(caller), active.joinedParticipants)
+        assertTrue(active.mediaEndToEndEncrypted)
         assertEquals("MESH", active.mode)
         session.close()
         GroupCallSessionStore.end(group)
+    }
+
+    @Test
+    fun `socket route reserves eight voice and video invitations before joins`() = e2e {
+        for (type in listOf("VOICE", "VIDEO")) {
+            val (caller, token) = newAccount()
+            val targets = (1..8).map { newAccount().first }
+            val socket = connect(caller, token)
+            val group = opaqueGroupId()
+            val callId = UUID.randomUUID().toString()
+            try {
+                for (target in targets) {
+                    socket.send(Frame.Text("""{"type":"group_call_invite","recipientId":"$target","groupId":"$group","callId":"$callId","callType":"$type","mediaE2ee":true}"""))
+                }
+                val error = json.parseToJsonElement(requireNotNull(socket.awaitFrame("group_call_error"))).jsonObject
+                assertEquals("CAPACITY_REACHED", error["code"]?.jsonPrimitive?.content)
+                assertEquals(callId, error["callId"]?.jsonPrimitive?.content)
+                val active = requireNotNull(GroupCallSessionStore.get(group))
+                assertEquals(8, active.participants.size)
+                assertEquals(setOf(caller), active.joinedParticipants)
+                assertEquals("MESH", active.mode)
+            } finally {
+                GroupCallSessionStore.end(group)
+                socket.close()
+            }
+        }
     }
 
     @Test

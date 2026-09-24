@@ -3,7 +3,12 @@ import 'dart:io';
 
 import 'auth_api.dart';
 
-enum AuthErrorPresentation { connection, requestRejected, verificationRejected }
+enum AuthErrorPresentation {
+  connection,
+  requestRejected,
+  verificationRejected,
+  loginRequired,
+}
 
 /// Converts transport details into a small UI-safe error vocabulary. Native
 /// socket, TLS and timeout messages may contain endpoint or platform details
@@ -12,6 +17,9 @@ AuthErrorPresentation classifyAuthError(
   Object error, {
   required bool duringVerification,
 }) {
+  if (error is ExistingAccountLoginRequired) {
+    return AuthErrorPresentation.loginRequired;
+  }
   if (error is TimeoutException || error is IOException) {
     return AuthErrorPresentation.connection;
   }

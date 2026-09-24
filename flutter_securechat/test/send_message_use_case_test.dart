@@ -12,6 +12,80 @@ import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('departed member cannot bootstrap or send to a former group', () async {
+    final fixture = await _openFixture();
+    addTearDown(fixture.close);
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: 'left',
+        peerId: 'left',
+        peerName: 'Left',
+        peerPhone: '',
+        isGroup: true,
+        groupMembers: 'alice,bob',
+        groupAdmins: 'me',
+      ),
+    );
+    final signaling = InMemorySignalingService()..setConnected(true);
+    addTearDown(signaling.dispose);
+    final crypto = _RecordingCrypto();
+    final result = await _sender(fixture.database, crypto, signaling)(
+      const SendMessageRequest(conversationId: 'left', content: 'not allowed'),
+    );
+    expect(result, SendMessageOutcome.deliveryFailed);
+    expect(signaling.sentMessages, isEmpty);
+    expect(crypto.directCalls, 0);
+    expect(await fixture.database.messages.getAllMessages(), isEmpty);
+    expect(
+      (await fixture.database.conversations.getById('left'))!.groupMembers,
+      'alice,bob',
+    );
+  });
+
+  for (final diagnosticsFail in [false, true]) {
+    test(
+      'encryption failure is reported without changing outcome ($diagnosticsFail)',
+      () async {
+        final fixture = await _openFixture();
+        addTearDown(fixture.close);
+        final signaling = InMemorySignalingService();
+        addTearDown(signaling.dispose);
+        await signaling.connect(
+          userId: 'me',
+          url: 'ws://local',
+          accessToken: 'token',
+        );
+        final operations = <String>[];
+        final sender = SendMessageUseCase(
+          database: fixture.database,
+          signaling: signaling,
+          session: SessionStore(userId: 'me', accessToken: 'token'),
+          crypto: _ThrowingCrypto(),
+          onAsyncFailure: (operation, error, stack) async {
+            operations.add(operation);
+            expect(error, isA<StateError>());
+            if (diagnosticsFail) throw StateError('diagnostics unavailable');
+          },
+        );
+        expect(
+          await sender(
+            const SendMessageRequest(
+              conversationId: 'alice',
+              content: 'secret',
+            ),
+          ),
+          SendMessageOutcome.encryptionFailed,
+        );
+        expect(operations, ['message.prepare-encrypted']);
+        expect(signaling.sentMessages, isEmpty);
+        expect(
+          (await fixture.database.messages.getAllMessages()).single.status,
+          StorageMessageStatus.failed,
+        );
+      },
+    );
+  }
+
   test('direct send encrypts once and marks persisted message sent', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);
@@ -78,7 +152,7 @@ void main() {
           peerName: 'Secret Group Name',
           peerPhone: '',
           isGroup: true,
-          groupMembers: 'alice,bob',
+          groupMembers: 'me,alice,bob',
         ),
       );
       final crypto = _RecordingCrypto();
@@ -192,7 +266,7 @@ void main() {
         peerName: 'Private group',
         peerPhone: '',
         isGroup: true,
-        groupMembers: 'alice,bob',
+        groupMembers: 'me,alice,bob',
       ),
     );
     final signaling = InMemorySignalingService();

@@ -10,6 +10,7 @@ import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
 import '../network/network_resilience.dart';
 import '../services/crypto_service.dart';
+import '../services/async_operation_tracker.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import '../storage/secure_chat_database.dart';
@@ -47,6 +48,7 @@ class SendMessageUseCase {
     Random? random,
     OfflineMessageQueue? reliableQueue,
     PhoneNumberSharingService? phoneSharing,
+    AsyncOperationFailureHandler? onAsyncFailure,
   }) : _database = database,
        _signaling = signaling,
        _session = session,
@@ -56,6 +58,7 @@ class SendMessageUseCase {
            PrivateGroupControlSender(crypto: crypto, signaling: signaling),
        _reliableQueue = reliableQueue,
        _phoneSharing = phoneSharing,
+       _onAsyncFailure = onAsyncFailure,
        _random = random ?? Random.secure();
 
   final SecureChatDatabase _database;
@@ -65,6 +68,7 @@ class SendMessageUseCase {
   final PrivateGroupControlSender _groupControls;
   final OfflineMessageQueue? _reliableQueue;
   final PhoneNumberSharingService? _phoneSharing;
+  final AsyncOperationFailureHandler? _onAsyncFailure;
   final Random _random;
   final int maxRetryCount;
   final Duration retryDelay;
@@ -79,6 +83,9 @@ class SendMessageUseCase {
       request.conversationId,
     );
     final isGroup = conversation?.isGroup ?? false;
+    if (isGroup && !_members(conversation?.groupMembers).contains(senderId)) {
+      return SendMessageOutcome.deliveryFailed;
+    }
     final expiresAt =
         conversation != null && conversation.disappearingDuration > 0
         ? now.millisecondsSinceEpoch + conversation.disappearingDuration
@@ -235,12 +242,21 @@ class SendMessageUseCase {
           ),
         ];
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       await _database.pendingSignals.deleteForMessage(messageId);
       await _database.messages.updateStatusIfSending(
         messageId,
         StorageMessageStatus.failed,
       );
+      try {
+        await _onAsyncFailure?.call(
+          'message.prepare-encrypted',
+          error,
+          stackTrace,
+        );
+      } catch (_) {
+        // Diagnostic failure must not change the send outcome or expose plaintext.
+      }
       return SendMessageOutcome.encryptionFailed;
     }
 

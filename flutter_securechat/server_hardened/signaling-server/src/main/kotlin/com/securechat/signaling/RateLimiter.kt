@@ -16,6 +16,9 @@ object RateLimiter {
 
     // Endpoint bazli limitler
     val LIMITS = mapOf(
+        "recovery_request" to RateLimit(5, 600),
+        "recovery_verify" to RateLimit(20, 600),
+        "recovery_complete" to RateLimit(20, 600),
         "directory_evaluate" to RateLimit(32, 86_400), // en fazla 8192 aday/gun/account
         "directory_snapshot" to RateLimit(12, 3_600),  // snapshot polling siniri
         "directory_self_update" to RateLimit(4, 86_400), // own-index migration/rotation

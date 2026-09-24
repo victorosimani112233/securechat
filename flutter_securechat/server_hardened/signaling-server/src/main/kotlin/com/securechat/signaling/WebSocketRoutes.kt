@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory
 private val logger = LoggerFactory.getLogger("WebSocketRoutes")
 
 private val sfuScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+private val groupCallPromotion = GroupCallPromotion()
 
 /** Maksimum WebSocket mesaj uzunlugu (karakter cinsinden). 256KB frame'e paralel. */
 /**
@@ -43,7 +44,8 @@ internal const val DELIVERY_TRANSPORT_ACK_TYPE = "delivery_transport_ack"
 internal const val CALL_CAPABILITY_HEADER = "X-SecureChat-Call-Capable"
 
 internal fun isServerOnlyFrameType(type: String?): Boolean =
-    type == SERVICE_MESSAGE_ACK_TYPE
+    type in setOf(SERVICE_MESSAGE_ACK_TYPE, "sfu_room_created", "group_call_status_response",
+        "group_call_error", "group_call_coordinator_changed", "group_call_member_left")
 
 /**
  * Bir aramanin katilimci tavani.
@@ -93,6 +95,8 @@ fun Application.configureWebSocket(
     connectionManager: ConnectionManager,
     userRegistry: UserRegistry,
 ) {
+    configureGroupJanusGateway()
+    configureGroupCallLifecycle()
     routing {
         webSocket("/ws") {
             if (!PrivacyRetentionWorker.isHealthy()) {
@@ -195,8 +199,22 @@ fun Application.configureWebSocket(
             AuditLog.log(userId = userId, eventType = "WS_CONNECTION_ESTABLISHED", ipAddress = ip)
             if (!connectionManager.addConnection(userId, this, callCapable)) return@webSocket
 
+            // Epoch cache is invalidated by pub/sub; its 10s TTL bounds the outage fallback.
+            val credentialWatch = if (!isServiceAccount) launch(Dispatchers.IO) {
+                while (true) {
+                    kotlinx.coroutines.delay(1_000)
+                    if (AuthService.verifyToken(token) != userId) {
+                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Credentials superseded"))
+                        break
+                    }
+                }
+            } else null
             try {
                 for (frame in incoming) {
+                    if (!isServiceAccount && AuthService.verifyToken(token) != userId) {
+                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Credentials superseded"))
+                        return@webSocket
+                    }
                     if (!PrivacyRetentionWorker.isHealthy()) {
                         close(
                             CloseReason(
@@ -240,6 +258,7 @@ fun Application.configureWebSocket(
             } catch (e: Exception) {
                 logger.warn("[!] WebSocket hatasi: ${e.javaClass.simpleName}")
             } finally {
+                credentialWatch?.cancel()
                 // Aktif grup aramalarinda participant ise digerlerine ayrildigini bildir.
                 // Kullanici explicit HANGUP gondermeden app'i kapatirsa peer'lar bu yolla temizlenir.
                 if (callCapable && connectionManager.connections()[userId] === this) {
@@ -322,9 +341,9 @@ private suspend fun handleUserDisconnectFromGroupCalls(
             if (coordinatorLeft) {
                 if (remaining.size <= 1) {
                     // <=1 kisi kaldi → aramayi tamamen sonlandir
-                    GroupCallSessionStore.end(active.groupId)
+                    GroupCallSessionStore.end(active.groupId, active.instanceId)
                     if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
-                        sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
+                        sfuScope.launch { cleanExpiredGroupCalls() }
                     }
                     broadcastGroupCallEnded(active.groupId, remaining, connectionManager)
                     logger.info("[GroupCall] Koordinator disconnect + <=1 uye — arama sonlandirildi")
@@ -333,13 +352,15 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                     // Eskiden offline uyeye fallback vardi — bu kullaniciya orphan call yaratabilirdi.
                     // Online candidate yoksa transfer skip edilir, arama kalan online uyelerle devam,
                     // sonraki disconnect/heartbeat tekrar dener.
-                    val onlineCandidate = remaining.firstOrNull { connectionManager.connections().containsKey(it) }
+                    val onlineCandidate = remaining.firstOrNull {
+                        it in refreshed?.joinedParticipants.orEmpty() && connectionManager.connections().containsKey(it)
+                    }
                     if (onlineCandidate == null) {
                         logger.warn("[!] Koordinator transfer atlandi: hicbir kalan uye online degil")
                         // Hicbir online uye yok → arama pratik olarak duzelmez, sonlandir.
-                        GroupCallSessionStore.end(active.groupId)
+                        GroupCallSessionStore.end(active.groupId, active.instanceId)
                         if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
-                            sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
+                            sfuScope.launch { cleanExpiredGroupCalls() }
                         }
                         broadcastGroupCallEnded(active.groupId, remaining, connectionManager)
                         continue
@@ -371,9 +392,9 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                 // kaliyor (remaining=1) ama call canlı goruyordu, "bar gitmiyor" bug'i.
                 // 1 kisi kalmasi pratik olarak bos call demek (kendisiyle konusamaz).
                 if (remaining.size <= 1) {
-                    GroupCallSessionStore.end(active.groupId)
+                    GroupCallSessionStore.end(active.groupId, active.instanceId)
                     if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
-                        sfuScope.launch { JanusOrchestrator.destroyVideoRoom(active.groupId) }
+                        sfuScope.launch { cleanExpiredGroupCalls() }
                     }
                     broadcastGroupCallEnded(active.groupId, remaining, connectionManager)
                     logger.info("[GroupCall] <=1 uye kaldi — arama temizlendi")
@@ -516,121 +537,16 @@ private suspend fun handleMessage(
             return
         }
 
-        // --- Grup aramasi: GroupCallSessionStore'a kaydet + (esik asilirsa) SFU room olustur ---
-        // Esikler: 3-5K kullanici icin mesh-first stratejisi. Video bandwidth pahali oldugu
-        // icin daha dusuk esik. 6+ kisi grup video pratikte nadir; bu konfig ile cogu grup
-        // arama mesh kalir, server CPU/RAM tasarrufu.
-        if (type == "group_call_invite") {
-            val groupId = element["groupId"]?.jsonPrimitive?.contentOrNull
-            val callId = element["callId"]?.jsonPrimitive?.contentOrNull
-            val callType = element["callType"]?.jsonPrimitive?.contentOrNull
-            // Istemci medya frame sifrelemesi yapabildigini bildirir. Alan
-            // yoksa false kabul edilir: eski istemci SFU'ya sessizce
-            // gecirilmez.
-            val mediaE2ee = element["mediaE2ee"]?.jsonPrimitive?.booleanOrNull == true
-            val tokenValid = groupId?.matches(Regex("^[A-Za-z0-9_-]{43}=?$")) == true
-            val recipientValid = recipientId != null &&
-                recipientId != senderId &&
-                runCatching { java.util.UUID.fromString(recipientId) }.isSuccess
-            val fieldsValid = tokenValid &&
-                !callId.isNullOrBlank() && callId.length <= 128 &&
-                callType in setOf("VOICE", "VIDEO") && recipientValid
-            if (!fieldsValid) {
-                logger.warn("[!] group_call_invite reddedildi: gecersiz opak routing paketi")
-                return
-            }
-
-            val existing = GroupCallSessionStore.get(groupId!!)
-            if (existing == null) {
-                GroupCallSessionStore.start(
-                    groupId = groupId,
-                    callId = callId!!,
-                    coordinatorId = senderId,
-                    callType = callType!!,
-                    // Yalnizca bu invite'in route uclari in-memory tutulur. Client'in
-                    // tam grup listesi wire'a alinmaz ve PostgreSQL/Redis'e yazilmaz.
-                    participants = listOf(senderId, recipientId!!),
-                    mode = "MESH",
-                    // Invite yalniz koordinatorun yetenegini kanitlar. Alici,
-                    // anahtari uyguladiktan sonra group_call_join_request ile
-                    // kendi yetenegini ayrica bildirir.
-                    mediaE2eeParticipants = if (mediaE2ee) setOf(senderId) else emptySet(),
-                )
-            } else {
-                if (existing.callId != callId ||
-                    existing.coordinatorId != senderId ||
-                    existing.callType != callType
-                ) {
-                    logger.warn("[!] group_call_invite reddedildi: aktif arama baglam uyusmazligi")
-                    return
-                }
-                // Kapasite moda baglidir: SFU kullanilamiyorsa mesh tavani,
-                // kullanilabiliyorsa protokol tavani. Sinirin ustunde arama
-                // sessizce bozulmak yerine reddedilir.
-                val capacity = groupCallCapacity(existing, callType!!)
-                val joined = GroupCallSessionStore.addParticipant(
-                    groupId = groupId,
-                    userId = recipientId!!,
-                    capacity = capacity,
-                    // Koordinatorun invite alani alici adina yetenek beyan
-                    // edemez. SFU ancak alicinin authenticated join onayindan
-                    // sonra acilabilir.
-                    mediaE2ee = false,
-                )
-                if (joined == GroupCallSessionStore.JoinResult.CAPACITY_REACHED) {
-                    AuditLog.log(eventType = "GROUP_CALL_CAPACITY_REACHED")
-                    logger.warn("[!] group_call_invite reddedildi: katilimci tavani")
-                    return
-                }
-            }
-            val activeCall = GroupCallSessionStore.get(groupId) ?: return
-            // SFU'ya gecis iki kosula bagli: esik asilmis olmali ve medya
-            // guven sinirinin disinda kalmali. Tum katilimcilar frame
-            // sifrelemesi bildiriyorsa Janus yalniz ciphertext yonlendirir;
-            // biri bile bildirmiyorsa gecis operator kabulu ister.
-            val shouldCreateSfu =
-                activeCall.participants.size > SfuPolicy.sfuThreshold(callType!!) &&
-                    SfuPolicy.canPromote(activeCall.mediaEndToEndEncrypted) &&
-                    GroupCallSessionStore.promoteToSfu(groupId)
-            logger.info("[GroupCall] Ephemeral aktif arama kayit edildi: participant_count={}", activeCall.participants.size)
-
-            if (shouldCreateSfu) {
-                sfuScope.launch {
-                    try {
-                        JanusOrchestrator.createVideoRoom(groupId)
-                        val roomInfo = JanusOrchestrator.getRoomInfo(groupId)
-                        if (roomInfo != null) {
-                            GroupCallSessionStore.updateSfuInfo(
-                                groupId = groupId,
-                                sfuRoomId = roomInfo.roomId,
-                                janusWsUrl = roomInfo.janusWsUrl
-                            )
-                            // Tum katilimcilara SFU room bilgisini gonder.
-                            // GUVENLIK: apiSecret artik gonderilmiyor (C2 fix).
-                            val sfuMsg = buildJsonObject {
-                                put("type", "sfu_room_created")
-                                put("groupId", groupId)
-                                put("roomId", roomInfo.roomId)
-                                put("janusWsUrl", roomInfo.janusWsUrl)
-                                put("timestamp", System.currentTimeMillis())
-                            }.toString()
-                            for (pid in activeCall.participants) {
-                                val s = connectionManager.connections()[pid]
-                                if (s != null) {
-                                    try { s.send(io.ktor.websocket.Frame.Text(sfuMsg)) } catch (_: Exception) { /* best-effort: kapali soket yut */ }
-                                }
-                            }
-                            logger.info("[SFU] Room olusturuldu ve bildirildi")
-                        } else {
-                            GroupCallSessionStore.cancelSfuPromotion(groupId)
+        if (handleGroupCallSignal(
+                senderId, element, connectionManager::routeMessage,
+                promote = { groupId ->
+                    sfuScope.launch {
+                        groupCallPromotion.promote(groupId) { member, message ->
+                            connectionManager.connections()[member]?.send(Frame.Text(message))
                         }
-                    } catch (e: Exception) {
-                        GroupCallSessionStore.cancelSfuPromotion(groupId)
-                        logger.warn("[!] SFU room olusturma hatasi: ${e.javaClass.simpleName}")
                     }
-                }
-            }
-        }
+                },
+            )) return
 
         // --- Aktif grup aramasi durum sorgusu ---
         if (type == "group_call_status_query") {
@@ -674,45 +590,6 @@ private suspend fun handleMessage(
             }
         }
 
-        // --- Aktif grup aramasina katilim istegi — koordinatore route, store'a participant ekle ---
-        if (type == "group_call_join_request") {
-            val groupId = element["groupId"]?.jsonPrimitive?.contentOrNull
-            if (groupId != null) {
-                if (!groupId.matches(Regex("^[A-Za-z0-9_-]{43}=?$"))) {
-                    logger.warn("[!] group_call_join_request gecersiz token")
-                    return
-                }
-                val active = GroupCallSessionStore.get(groupId)
-                if (active == null) {
-                    logger.warn("[!] group_call_join_request: aktif arama yok")
-                    return
-                }
-                // Late join sadece daha once bireysel invite ile bu ephemeral
-                // call state'e alinmis kullanici icin kabul edilir.
-                if (senderId !in active.participants) {
-                    logger.warn("[!] group_call_join_request yetki yok")
-                    return
-                }
-                if (recipientId != active.coordinatorId ||
-                    element["callId"]?.jsonPrimitive?.contentOrNull != active.callId
-                ) {
-                    logger.warn("[!] group_call_join_request baglam uyusmazligi")
-                    return
-                }
-                val joined = GroupCallSessionStore.addParticipant(
-                    groupId = groupId,
-                    userId = senderId,
-                    capacity = groupCallCapacity(active, active.callType),
-                    mediaE2ee = element["mediaE2ee"]?.jsonPrimitive?.booleanOrNull == true,
-                )
-                if (joined == GroupCallSessionStore.JoinResult.CAPACITY_REACHED) {
-                    AuditLog.log(eventType = "GROUP_CALL_CAPACITY_REACHED")
-                    logger.warn("[!] group_call_join_request reddedildi: katilimci tavani")
-                    return
-                }
-                // recipientId koordinator'a zaten set edilmis durumda — normal route ile gidiyor
-            }
-        }
 
         // --- SDP_OFFER: aktif call session olustur (Redis), duplicate engelle ---
         if (type == "sdp_offer" && !recipientId.isNullOrBlank()) {
@@ -760,17 +637,23 @@ private suspend fun handleMessage(
                         if (remaining.size <= 1) {
                             // <=1 kisi kaldi → aramayi sonlandir; yalniz kalan kisinin de
                             // local session'i broadcast ile temizlenir
-                            GroupCallSessionStore.end(hangupGroupId)
+                            GroupCallSessionStore.end(hangupGroupId, active.instanceId)
                             if (JanusOrchestrator.hasActiveRoom(hangupGroupId)) {
-                                sfuScope.launch { JanusOrchestrator.destroyVideoRoom(hangupGroupId) }
+                                sfuScope.launch { cleanExpiredGroupCalls() }
                             }
                             broadcastGroupCallEnded(hangupGroupId, remaining, connectionManager)
                             logger.info("[GroupCall] HANGUP sonrasi <=1 uye — arama sonlandirildi")
                         } else if (active.coordinatorId == senderId) {
                             // Koordinator ayrildi → online kalan biri devralir
-                            val newCoordinator = remaining.firstOrNull { connectionManager.connections().containsKey(it) }
-                                ?: remaining.first()
-                            val transferred = GroupCallSessionStore.transferCoordinator(hangupGroupId, newCoordinator)
+                            val newCoordinator = remaining.firstOrNull {
+                                it in refreshed?.joinedParticipants.orEmpty() && connectionManager.connections().containsKey(it)
+                            }
+                            if (newCoordinator == null) {
+                                GroupCallSessionStore.end(hangupGroupId, active.instanceId)
+                                sfuScope.launch { cleanExpiredGroupCalls() }
+                                broadcastGroupCallEnded(hangupGroupId, remaining, connectionManager)
+                            }
+                            val transferred = newCoordinator?.let { GroupCallSessionStore.transferCoordinator(hangupGroupId, it) }
                             if (transferred != null) {
                                 val (prev, next) = transferred
                                 for (memberId in remaining) {

@@ -760,22 +760,11 @@ class IncomingMessageHandler {
         !_senderAllowed(conversation, signal.senderId)) {
       return;
     }
-    final reactions = parseReactions(message.reactions);
-    final voters = reactions.putIfAbsent(signal.emoji, () => <String>{});
-    if (signal.remove) {
-      voters.remove(signal.senderId);
-      if (voters.isEmpty) reactions.remove(signal.emoji);
-    } else {
-      voters.add(signal.senderId);
-    }
-    await _database.messages.updateReactions(
+    await _database.messages.applyReaction(
       signal.messageId,
-      reactions.isEmpty
-          ? null
-          : jsonEncode({
-              for (final entry in reactions.entries)
-                entry.key: entry.value.toList(growable: false),
-            }),
+      userId: signal.senderId,
+      emoji: signal.emoji,
+      remove: signal.remove,
     );
   }
 

@@ -11,6 +11,7 @@ import 'features/calls/call_readiness_screen.dart';
 import 'features/calls/ongoing_call_bar.dart';
 import 'features/chat/chat_screen.dart';
 import 'features/chat/chat_info_screen.dart';
+import 'features/chat/peer_identity_review_screen.dart';
 import 'features/contacts/contacts_screen.dart';
 import 'features/export/export_history_screen.dart';
 import 'features/groups/group_info_screen.dart';
@@ -178,9 +179,13 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
         onGenerateRoute: (settings) => switch (settings.name) {
           '/chat-info' => MaterialPageRoute<ChatInfoResult>(
             settings: settings,
-            builder: (_) => const ChatInfoScreen(),
+            builder: (context) => ChatInfoScreen(
+              identityReviewStrings: PeerIdentityReviewStrings.localized(
+                context,
+              ),
+            ),
           ),
-          '/group-info' => MaterialPageRoute<bool>(
+          '/group-info' => MaterialPageRoute<Object?>(
             settings: settings,
             builder: (_) => const GroupInfoScreen(),
           ),

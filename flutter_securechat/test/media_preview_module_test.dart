@@ -4,6 +4,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:flutter_securechat/src/core/signal_message.dart';
+import 'package:flutter_securechat/src/chat/conversation_preview.dart';
 import 'package:flutter_securechat/src/features/chat/media_preview_screen.dart';
 import 'package:flutter_securechat/src/media/file_transfer_manager.dart';
 import 'package:flutter_securechat/src/media/media_attachment.dart';
@@ -16,6 +17,87 @@ import 'package:flutter_securechat/src/storage/storage_entities.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final deliveredEarly in [true, false]) {
+    test(
+      'media keeps ${deliveredEarly ? 'early delivery receipt' : 'failed transfer'} in chat summary',
+      () async {
+        final root = await Directory.systemTemp.createTemp('media_status_');
+        addTearDown(() => root.delete(recursive: true));
+        final crypto = LocalAeadCryptoService(SecretKey(List.filled(32, 7)));
+        final database = await SecureChatDatabase.open(
+          file: File('${root.path}/store'),
+          crypto: crypto,
+        );
+        addTearDown(database.close);
+        await database.conversations.insert(
+          const ConversationEntity(
+            id: 'peer',
+            peerId: 'peer',
+            peerName: 'Peer',
+            peerPhone: '',
+          ),
+        );
+        final signaling = _TransferSignaling(() async {
+          final row = (await database.messages.getAllMessages()).single;
+          expect(
+            row.status,
+            deliveredEarly
+                ? isIn([
+                    StorageMessageStatus.sending,
+                    StorageMessageStatus.delivered,
+                  ])
+                : StorageMessageStatus.sending,
+          );
+          if (deliveredEarly) {
+            await database.messages.updateStatus(
+              row.id,
+              StorageMessageStatus.delivered,
+            );
+          }
+          return deliveredEarly;
+        });
+        await signaling.connect(
+          userId: 'me',
+          url: 'wss://test.invalid',
+          accessToken: 'token',
+        );
+        final transfers = FileTransferManager(
+          signaling: signaling,
+          crypto: crypto,
+          filesDirectory: Directory('${root.path}/media'),
+        );
+        addTearDown(transfers.dispose);
+        final media = MediaMessageService(
+          database: database,
+          transfers: transfers,
+          session: SessionStore(userId: 'me', accessToken: 'token'),
+          localMediaDirectory: Directory('${root.path}/media'),
+        );
+        addTearDown(media.close);
+        final source = File('${root.path}/photo.jpg')
+          ..writeAsBytesSync([1, 2, 3]);
+        await media.send(
+          conversationId: 'peer',
+          recipientId: 'peer',
+          attachments: [await MediaAttachment.fromPath(source.path)],
+          isGroup: false,
+          groupMembers: const [],
+        );
+        final expected = deliveredEarly
+            ? StorageMessageStatus.delivered
+            : StorageMessageStatus.failed;
+        expect(
+          (await database.messages.getAllMessages()).single.status,
+          expected,
+        );
+        expect(
+          (await database.conversations.getById('peer'))!.lastMessageStatus,
+          expected.name,
+        );
+      },
+    );
+  }
 
   test(
     'media metadata is sanitized and typed without trusting picker names',
@@ -118,6 +200,9 @@ void main() {
       expect(stored.single.caption, 'caption');
       expect(stored.single.isViewOnce, isTrue);
       expect(stored.single.status, StorageMessageStatus.sent);
+      final preview = (await database.conversations.getById('peer'))!;
+      expect(preview.lastMessage, viewOncePreviewLabel);
+      expect(preview.lastMessageStatus, 'sent');
       expect(File(stored.single.content.split('|').last).existsSync(), isTrue);
       final wireMessageId = stored.single.id;
 
@@ -156,6 +241,32 @@ void main() {
       expect(incoming.isOutgoing, isFalse);
       expect(incoming.status, StorageMessageStatus.delivered);
       expect(incoming.caption, 'caption');
+      expect(incoming.isViewOnce, isTrue);
+      expect(
+        (await recipientDatabase.conversations.getById('peer'))!.lastMessage,
+        viewOncePreviewLabel,
+      );
+      expect(
+        await recipientDatabase.messages
+            .searchMessages('peer', 'caption')
+            .first,
+        isEmpty,
+      );
+      expect(
+        await recipientDatabase.messages.getMediaMessages('peer').first,
+        isEmpty,
+      );
     },
   );
+}
+
+class _TransferSignaling extends InMemorySignalingService {
+  _TransferSignaling(this.onChunk);
+  final Future<bool> Function() onChunk;
+
+  @override
+  Future<bool> send(SignalMessage message) async {
+    if (message is FileTransferSignal) return onChunk();
+    return super.send(message);
+  }
 }

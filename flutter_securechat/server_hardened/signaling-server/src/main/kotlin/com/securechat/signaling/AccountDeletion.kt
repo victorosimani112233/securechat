@@ -52,8 +52,10 @@ object AccountDeletion {
         connectionManager: ConnectionManager,
         userRegistry: UserRegistry,
         fcmTokenStore: FcmTokenStore?,
+        expectedEpoch: String? = null,
     ): Result = execute(
         userId = userId,
+        expectedEpoch = expectedEpoch,
         steps = listOf(
             PurgeStep("push_cache") { fcmTokenStore?.removeToken(userId) },
             PurgeStep("registry") { userRegistry.removeUser(userId) },
@@ -64,8 +66,8 @@ object AccountDeletion {
         ),
     )
 
-    suspend fun execute(userId: String, steps: List<PurgeStep>): Result {
-        val deleted = deleteDurableState(userId)
+    suspend fun execute(userId: String, steps: List<PurgeStep>, expectedEpoch: String? = null): Result {
+        val deleted = deleteDurableState(userId, expectedEpoch)
         val residual = purgeTransientState(steps)
         return Result(
             outcome = if (deleted) Outcome.DELETED else Outcome.ALREADY_ABSENT,
@@ -74,10 +76,19 @@ object AccountDeletion {
     }
 
     /** @return kalici satir bu cagride silindiyse true. */
-    fun deleteDurableState(userId: String): Boolean =
+    fun deleteDurableState(userId: String, expectedEpoch: String? = null): Boolean =
         Database.getConnection().use { connection ->
             connection.autoCommit = false
             try {
+                connection.prepareStatement("SELECT credential_epoch FROM users WHERE user_id = ?::uuid FOR UPDATE").use {
+                    it.setString(1, userId)
+                    it.executeQuery().use { rows ->
+                        if (rows.next()) check(expectedEpoch == null || rows.getString(1) == expectedEpoch) {
+                            "Superseded credential epoch"
+                        }
+                    }
+                }
+                AccountRecovery.deleteAccount(connection, userId)
                 connection.prepareStatement(
                     "DELETE FROM fcm_tokens WHERE user_index = ?",
                 ).use { statement ->

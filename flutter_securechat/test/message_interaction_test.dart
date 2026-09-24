@@ -57,6 +57,12 @@ void main() {
     expect(parseReactions(message!.reactions), {
       '👍': {'me'},
     });
+    expect(await fixture.service.toggleReaction('m1', '❤️'), isTrue);
+    message = await fixture.database.messages.getById('m1');
+    expect(parseReactions(message!.reactions), {
+      '❤️': {'me'},
+    });
+    expect(await fixture.service.toggleReaction('m1', '👍'), isTrue);
     expect(await fixture.service.toggleReaction('m1', '👍'), isTrue);
     message = await fixture.database.messages.getById('m1');
     expect(parseReactions(message!.reactions), isEmpty);
@@ -112,6 +118,87 @@ void main() {
     expect((await fixture.database.messages.getById('g1'))?.isPinned, isFalse);
     expect(fixture.signaling.sentMessages, isEmpty);
   });
+
+  test(
+    'rapid reactions serialize and replace only the local users reaction',
+    () async {
+      final f = await _Fixture.open();
+      addTearDown(f.close);
+      await f.database.conversations.insert(
+        const ConversationEntity(
+          id: 'peer',
+          peerId: 'peer',
+          peerName: 'Peer',
+          peerPhone: '',
+        ),
+      );
+      await f.database.messages.insert(
+        const MessageEntity(
+          id: 'm',
+          conversationId: 'peer',
+          senderId: 'peer',
+          content: 'test',
+          contentType: StorageMessageContentType.text,
+          timestamp: 1,
+          status: StorageMessageStatus.delivered,
+          isOutgoing: false,
+          reactions: '{"👍":["peer"]}',
+        ),
+      );
+      expect(
+        await Future.wait([
+          f.service.toggleReaction('m', '👍'),
+          f.service.toggleReaction('m', '❤️'),
+          f.service.toggleReaction('m', '😂'),
+        ]),
+        everyElement(isTrue),
+      );
+      expect(
+        parseReactions((await f.database.messages.getById('m'))!.reactions),
+        {
+          '👍': {'peer'},
+          '😂': {'me'},
+        },
+      );
+      await f.database.messages.applyReaction(
+        'm',
+        userId: 'peer',
+        emoji: '❤️',
+        remove: false,
+      );
+      await f.database.messages.applyReaction(
+        'm',
+        userId: 'peer',
+        emoji: '❤️',
+        remove: false,
+      );
+      await f.database.messages.applyReaction(
+        'm',
+        userId: 'peer',
+        emoji: '👍',
+        remove: true,
+      );
+      expect(
+        parseReactions((await f.database.messages.getById('m'))!.reactions),
+        {
+          '❤️': {'peer'},
+          '😂': {'me'},
+        },
+      );
+    },
+  );
+
+  test(
+    'legacy duplicate voters display at most one supported reaction each',
+    () {
+      final parsed = parseReactions(
+        '{"👍":["me","me","peer"],"❤️":["me"],"bad":["other"]}',
+      );
+      expect(parsed, {
+        '👍': {'me', 'peer'},
+      });
+    },
+  );
 }
 
 class _Fixture {

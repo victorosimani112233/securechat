@@ -1,6 +1,8 @@
 package com.securechat.signaling
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import java.net.URI
 import java.net.http.HttpClient
@@ -55,6 +57,10 @@ object JanusOrchestrator {
     private val sessions = ConcurrentHashMap<String, Long>()
     // groupId -> Janus plugin handle ID
     private val handles = ConcurrentHashMap<String, Long>()
+    private val owners = ConcurrentHashMap<String, String>()
+    private val retiring = ConcurrentHashMap.newKeySet<String>()
+    private val roomLocks = Array(64) { Mutex() }
+    private fun roomLock(groupId: String) = roomLocks[(groupId.hashCode() and Int.MAX_VALUE) % roomLocks.size]
 
     // Janus WebSocket baglantisi
     @Volatile
@@ -174,7 +180,8 @@ object JanusOrchestrator {
             while (true) {
                 delay(keepAliveIntervalMillis)
                 if (!connected) continue
-                for (sessionId in sessions.values.toList()) {
+                for ((groupId, sessionId) in sessions.entries.toList()) {
+                    if (groupId in retiring) continue
                     val message = buildJsonObject {
                         put("janus", "keepalive")
                         put("session_id", sessionId)
@@ -191,6 +198,7 @@ object JanusOrchestrator {
         try {
             val json = Json.parseToJsonElement(text).jsonObject
             val transaction = json["transaction"]?.jsonPrimitive?.contentOrNull
+            if (json["janus"]?.jsonPrimitive?.contentOrNull == "ack") return
 
             // Transaction'a bagli yanit varsa callback'e ilet
             if (transaction != null) {
@@ -205,7 +213,7 @@ object JanusOrchestrator {
     /**
      * Janus'a mesaj gonderir ve yanit bekler.
      */
-    internal suspend fun sendAndWait(message: JsonObject, timeoutMs: Long = 10_000): JsonObject {
+    internal suspend fun sendAndWait(message: JsonObject, timeoutMs: Long = 10_000, allowMissingRoom: Boolean = false): JsonObject {
         val transaction = message["transaction"]?.jsonPrimitive?.contentOrNull
             ?: throw IllegalArgumentException("transaction alani gerekli")
 
@@ -214,7 +222,13 @@ object JanusOrchestrator {
         try {
             val text = message.toString()
             ws?.sendText(text, true) ?: throw IllegalStateException("Janus WS bagli degil")
-            return withTimeout(timeoutMs) { deferred.await() }
+            val response = withTimeout(timeoutMs) { deferred.await() }
+            val pluginError = response["plugindata"]?.jsonObject?.get("data")?.jsonObject?.get("error_code")?.jsonPrimitive?.intOrNull
+            check(response["janus"]?.jsonPrimitive?.contentOrNull != "error" &&
+                (pluginError == null || (allowMissingRoom && pluginError == 426))) {
+                "Janus rejected the control request"
+            }
+            return response
         } finally {
             // Timeout veya gonderim hatasinda kayit birakilirsa harita yalniz
             // buyur ve hicbir zaman temizlenmezdi.
@@ -284,15 +298,16 @@ object JanusOrchestrator {
         error("Janus room id could not be allocated without a collision")
     }
 
-    suspend fun createVideoRoom(groupId: String): Long {
-        // Zaten varsa mevcut room'u don
-        activeRooms[groupId]?.let { return it }
+    suspend fun createVideoRoom(groupId: String, instanceId: String = groupId): Long = roomLock(groupId).withLock {
+        activeRooms[groupId]?.let {
+            if (owners[groupId] == instanceId && groupId !in retiring) return@withLock it
+            // Replacement calls never inherit the preceding call's media room.
+            destroyRoomLocked(groupId)
+        }
 
         val sessionId = createSession()
-        sessions[groupId] = sessionId
-
+        try {
         val handleId = attachVideoRoom(sessionId)
-        handles[groupId] = handleId
 
         // Room ID grup kimliginden turetilmez: `groupId.hashCode()` 31 bitlik,
         // cakismaya acik ve grup routing tokenini bilen biri tarafindan
@@ -316,6 +331,8 @@ object JanusOrchestrator {
                 put("videocodec", "vp8")
                 put("audiocodec", "opus")
                 put("record", false)
+                put("require_e2ee", true)
+                put("is_private", true)
                 put("admin_key", janusAdminSecret)
                 put("description", "SecureChat private group")
             }
@@ -323,23 +340,40 @@ object JanusOrchestrator {
 
         val response = sendAndWait(request)
         val pluginData = response["plugindata"]?.jsonObject?.get("data")?.jsonObject
-        val createdRoomId = pluginData?.get("room")?.jsonPrimitive?.long ?: roomId
+        check(pluginData?.get("videoroom")?.jsonPrimitive?.contentOrNull == "created" &&
+            pluginData["room"]?.jsonPrimitive?.longOrNull == roomId) {
+            "Janus did not confirm the requested room"
+        }
 
-        activeRooms[groupId] = createdRoomId
+        sessions[groupId] = sessionId
+        handles[groupId] = handleId
+        owners[groupId] = instanceId
+        activeRooms[groupId] = roomId
         log.info("[Janus] VideoRoom olusturuldu")
-        return createdRoomId
+        roomId
+        } catch (error: Exception) {
+            withContext(NonCancellable) { destroySession(sessionId) }
+            throw error
+        }
     }
 
     /**
      * VideoRoom'u siler.
      * Grup aramasi bittiginde cagrilir.
      */
-    suspend fun destroyVideoRoom(groupId: String) {
-        val roomId = activeRooms.remove(groupId) ?: return
-        val sessionId = sessions.remove(groupId) ?: return
-        val handleId = handles.remove(groupId) ?: return
+    suspend fun destroyVideoRoom(groupId: String, expectedRoomId: Long? = null, expectedInstanceId: String? = null) = roomLock(groupId).withLock {
+        if (expectedInstanceId != null && owners[groupId] != expectedInstanceId) return@withLock
+        if (expectedRoomId != null && activeRooms[groupId] != expectedRoomId) return@withLock
+        destroyRoomLocked(groupId)
+    }
 
+    private suspend fun destroyRoomLocked(groupId: String) {
+        val roomId = activeRooms[groupId] ?: return
+        retiring.add(groupId)
+        // A fresh controller also permits retry after the old session expired.
+        val sessionId = createSession()
         try {
+            val handleId = attachVideoRoom(sessionId)
             val txn = nextTransaction()
             val request = buildJsonObject {
                 put("janus", "message")
@@ -352,13 +386,23 @@ object JanusOrchestrator {
                     put("room", roomId)
                 }
             }
-            sendAndWait(request, 5000)
+            val response = sendAndWait(request, 5000, allowMissingRoom = true)
+            val data = response["plugindata"]?.jsonObject?.get("data")?.jsonObject
+            check((data?.get("videoroom")?.jsonPrimitive?.contentOrNull == "destroyed" &&
+                data["room"]?.jsonPrimitive?.longOrNull == roomId) ||
+                data?.get("error_code")?.jsonPrimitive?.intOrNull == 426) { "Janus did not confirm room disposal" }
+            activeRooms.remove(groupId)
+            owners.remove(groupId)
+            handles.remove(groupId)
+            sessions.remove(groupId)?.let { destroySession(it) }
+            retiring.remove(groupId)
             log.info("[Janus] VideoRoom silindi")
-        } catch (e: Exception) {
-            log.warn("[!] Janus room destroy hatasi: ${e.javaClass.simpleName}")
+        } finally {
+            withContext(NonCancellable) { destroySession(sessionId) }
         }
+    }
 
-        // Session'i da kapat
+    private suspend fun destroySession(sessionId: Long) {
         try {
             val txn = nextTransaction()
             val destroySession = buildJsonObject {
@@ -376,12 +420,12 @@ object JanusOrchestrator {
      * Client bu bilgiyi kullanarak Janus'a dogrudan baglanir.
      *
      * GUVENLIK: apiSecret client'a ASLA gonderilmez (C2 fix).
-     * Janus public endpoint (Nginx reverse proxy) anonymous baglantiyi kabul etmeli
-     * veya per-session token plugin'i ile authentication yapilmali. apiSecret server-internal.
+     * Public /janus is the authenticated group gateway, never anonymous Janus.
      *
      * @return null ise room henuz olusturulmamis
      */
-    fun getRoomInfo(groupId: String): SfuRoomInfo? {
+    fun getRoomInfo(groupId: String, expectedInstanceId: String? = null): SfuRoomInfo? {
+        if (groupId in retiring || (expectedInstanceId != null && owners[groupId] != expectedInstanceId)) return null
         val roomId = activeRooms[groupId] ?: return null
         return SfuRoomInfo(
             roomId = roomId,
@@ -399,9 +443,9 @@ object JanusOrchestrator {
      * Tum aktif room'lari kapatir (graceful shutdown icin).
      */
     suspend fun destroyAllRooms() {
-        val groups = activeRooms.keys.toList()
-        for (groupId in groups) {
-            destroyVideoRoom(groupId)
+        val groups = owners.toMap()
+        for ((groupId, instanceId) in groups) {
+            destroyVideoRoom(groupId, expectedInstanceId = instanceId)
         }
         log.info("[Janus] Tum room'lar kapatildi (${groups.size})")
     }

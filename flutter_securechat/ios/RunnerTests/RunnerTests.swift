@@ -1,10 +1,29 @@
 import Flutter
 import CallKit
+import Contacts
 import UIKit
 import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+
+  func testContactsFetchIncludesFormatterDescriptorAndPhoneNumbers() {
+    let formatterKeys = CNContactFormatter.descriptorForRequiredKeys(for: .fullName)
+    XCTAssertTrue(SecureChatContactsAccess.keysToFetch.contains { $0.isEqual(formatterKeys) })
+    XCTAssertTrue(SecureChatContactsAccess.keysToFetch.contains {
+      $0.isEqual(CNContactPhoneNumbersKey as CNKeyDescriptor)
+    })
+  }
+
+  func testContactsPermissionSupportsLimitedAccessWithoutBroadeningIt() {
+    XCTAssertTrue(SecureChatContactsAccess.isReadable(.authorized))
+    XCTAssertFalse(SecureChatContactsAccess.isReadable(.denied))
+    XCTAssertFalse(SecureChatContactsAccess.isReadable(.restricted))
+    XCTAssertFalse(SecureChatContactsAccess.isReadable(.notDetermined))
+    if #available(iOS 18.0, *) {
+      XCTAssertTrue(SecureChatContactsAccess.isReadable(.limited))
+    }
+  }
 
   private var temporaryHome: URL!
 

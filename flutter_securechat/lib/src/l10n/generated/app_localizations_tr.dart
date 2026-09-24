@@ -9,6 +9,176 @@ class AppLocalizationsTr extends AppLocalizations {
   AppLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get identity_review_title => 'Kimliği doğrula';
+
+  @override
+  String get identity_review_warning =>
+      'Kimlik değişikliği hesap kurtarma, yeni bir cihaz veya saldırı anlamına gelebilir. Onaylamadan önce güncel SHA-256 parmak izini bu kişiyle yüz yüze veya güvenilir, bağımsız bir kanal üzerinden karşılaştırın. Bu sohbetteki bir mesaja güvenmeyin. Karşınızdaki kişi de sizin parmak izinizi kendi cihazında karşılaştırabilir.';
+
+  @override
+  String get identity_review_previous =>
+      'Önceden güvenilen parmak izi (SHA-256)';
+
+  @override
+  String get identity_review_current =>
+      'Karşı tarafın güncel parmak izi (SHA-256)';
+
+  @override
+  String get identity_review_local => 'Sizin parmak iziniz (SHA-256)';
+
+  @override
+  String get identity_review_no_previous => 'Önceden güvenilen bir kimlik yok';
+
+  @override
+  String get identity_review_unchanged =>
+      'Güncel kimlik, kayıtlı kimlikle eşleşiyor.';
+
+  @override
+  String get identity_review_confirm =>
+      'Bu parmak izini güvenilir, bağımsız bir kanal üzerinden karşılaştırdım.';
+
+  @override
+  String get identity_review_approve => 'Bu kimliği onayla';
+
+  @override
+  String get identity_review_approved =>
+      'Kimlik onaylandı. Sohbete dönebilirsiniz.';
+
+  @override
+  String get identity_review_stale =>
+      'İnceleme sırasında kimlik değişti. Yeniden yükleyip tekrar doğrulayın.';
+
+  @override
+  String get identity_review_failed =>
+      'Kimlik doğrulanamadı. Yeni bir kimlik onaylanmadı.';
+
+  @override
+  String get identity_review_retry => 'Kimliği yeniden yükle';
+
+  @override
+  String get recovery_error_expired =>
+      'Bu doğrulamanın süresi doldu. Yeni kod isteyin veya yeni doğrulama başlatın.';
+
+  @override
+  String get recovery_error_trusted_device =>
+      'Kurtarma e-postası eklemek için güvenilir, oturumu açık cihazınız gerekir. Yeniden denemeden önce oturumunuzu kontrol edin.';
+
+  @override
+  String get recovery_error_signed_in =>
+      'Bu cihazda zaten oturum açık. Yeni doğrulama başlatmak yerine hesabınıza dönün.';
+
+  @override
+  String get recovery_restart => 'Yeni doğrulama başlat';
+
+  @override
+  String get recovery_restart_warning =>
+      'Önceki giriş Signal kimliğinizi değiştirmiş ve eski oturumları iptal etmiş olabilir. Yalnızca yeniden deneme tamamlanamıyorsa baştan başlayın. Yeni e-posta kodu ve açık kimlik onayı gerekecektir. Önceki giriş doğrulanmışsa o girişin kimliği korunur.';
+
+  @override
+  String get recovery_login_title => 'Mevcut hesaba giriş yap';
+
+  @override
+  String get recovery_email_title => 'Kurtarma e-postası';
+
+  @override
+  String get recovery_email_settings =>
+      'Bu oturum açık cihazda hesap kurtarmayı yönetin.';
+
+  @override
+  String get recovery_login_description =>
+      'Oturumunuz açıkken doğruladığınız kurtarma e-postasını girin.';
+
+  @override
+  String get recovery_enrollment_description =>
+      'Bu güvenilir, oturum açık cihazdan kurtarma e-postanızı doğrulayın. Yalnızca ilk adres bağlanabilir; adres burada görüntülenemez veya değiştirilemez.';
+
+  @override
+  String get recovery_request_sent =>
+      'İstek uygunsa altı haneli bir kod gönderilecektir. E-postanızı kontrol edin.';
+
+  @override
+  String get recovery_send_code => 'Kod gönder';
+
+  @override
+  String get recovery_verify => 'Kodu doğrula';
+
+  @override
+  String get recovery_change_email => 'Başka e-posta kullan veya yeni kod iste';
+
+  @override
+  String get recovery_checking => 'Kurtarma durumu kontrol ediliyor…';
+
+  @override
+  String get recovery_retry => 'Yeniden dene';
+
+  @override
+  String get recovery_email_bound =>
+      'Bu hesap için bir kurtarma e-postası doğrulanmış. Adres gösterilmez ve burada değiştirilemez.';
+
+  @override
+  String get recovery_approval_title => 'Hesaba girişi onayla';
+
+  @override
+  String get recovery_identity_warning =>
+      'Bu giriş, hesabınız için yeni bir Signal kimliği oluşturur. Güvenlik numaranız değişir. Kişileriniz numarayı yeniden doğrulamalıdır.';
+
+  @override
+  String get recovery_sessions_warning =>
+      'Önceki hesap oturumları iptal edilecek.';
+
+  @override
+  String get recovery_history_warning =>
+      'Hesap kurtarma mesajları geri getirmez. Sohbet geçmişi yalnızca mevcut bir yedekten geri yüklenebilir.';
+
+  @override
+  String get recovery_identity_accept =>
+      'Yeni Signal kimliğini ve önceki oturumların iptalini onaylıyorum.';
+
+  @override
+  String get recovery_login_accept =>
+      'Bu girişi ve önceki oturumların iptalini onaylıyorum.';
+
+  @override
+  String get recovery_complete => 'Onayla ve giriş yap';
+
+  @override
+  String get recovery_pending_description =>
+      'Daha önce onaylanan giriş tamamlanıyor. Yeniden denemek, başka bir kimlik oluşturmadan aynı girişi sürdürür.';
+
+  @override
+  String get recovery_resume_unavailable =>
+      'Bekleyen giriş sürdürülemedi. Bu cihazın verilerini koruyun ve yeniden deneyin veya destek ile iletişime geçin.';
+
+  @override
+  String get recovery_error_rate_limit =>
+      'Çok fazla deneme yapıldı. Yeniden denemeden önce bekleyin.';
+
+  @override
+  String get recovery_error_rejected =>
+      'Kurtarma doğrulanamadı. Bilgilerinizi kontrol edin veya yeni kod isteyin.';
+
+  @override
+  String get recovery_error_generic =>
+      'Kurtarma tamamlanamadı. Lütfen yeniden deneyin.';
+
+  @override
+  String get recovery_registration_existing =>
+      'Bu hesap zaten mevcut. Doğrulanmış kurtarma e-postanızla mevcut hesaba giriş yapın. Oturumunuz açık cihazı koruyun.';
+
+  @override
+  String get auth_login_unavailable =>
+      'Mevcut hesaba kayıt yoluyla erişilemez. Mevcut hesaba giriş henüz kullanılamıyor. Oturumunuzun açık olduğu cihazı koruyun ve yöneticinizle iletişime geçin.';
+
+  @override
+  String get auth_setup_failed =>
+      'Hesap kurulumu tamamlanamadı. Tekrar kayıt olmadan önce yöneticinizle iletişime geçin. Yeni deneme için yeni bir e-posta kodu gerekir.';
+
+  @override
+  String notification_private_summary(int messageCount, int chatCount) {
+    return '$chatCount sohbetten $messageCount yeni mesaj';
+  }
+
+  @override
   String get app_name => 'ELÇİM';
 
   @override
@@ -461,7 +631,14 @@ class AppLocalizationsTr extends AppLocalizations {
   String get group_view_profile => 'Profili Görüntüle';
 
   @override
-  String get group_leave => 'Gruptan Çıkar';
+  String get group_leave => 'Gruptan Çık';
+
+  @override
+  String get group_not_member => 'Artık bu grubun üyesi değilsiniz.';
+
+  @override
+  String get group_leave_failed =>
+      'Ayrılma bildirimi gönderilemedi. Bağlantınızı kontrol edip tekrar deneyin.';
 
   @override
   String get chat_search_in_chat => 'Sohbette Ara';
@@ -1321,6 +1498,10 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get clear_chat_body =>
       'Bu cihazdaki tüm mesajlar kalıcı olarak silinir.';
+
+  @override
+  String get clear_group_history_body =>
+      'Yalnızca bu grubun bu cihazdaki mesajları silinir. Grup ve üyeliğiniz korunur. Diğer üyelerin mesajları etkilenmez.';
 
   @override
   String get voice_message => 'Sesli mesaj';

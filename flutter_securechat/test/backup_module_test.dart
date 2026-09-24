@@ -79,10 +79,10 @@ void main() {
         (await fixture.database.messages.getById('m1'))?.content,
         'yalnızca yedekte',
       );
-      expect(await fixture.database.preKeys.exists(7), isFalse);
+      expect(await fixture.database.preKeys.exists(7), isTrue);
       expect(
         await fixture.database.cryptoState.get('local_identity_key_pair_v1'),
-        isNull,
+        base64Encode([4, 5, 6]),
       );
       expect(fixture.session.displayName, 'Mevcut Kullanıcı');
     },
@@ -95,12 +95,12 @@ void main() {
       addTearDown(() => source.root.delete(recursive: true));
       final backup = await source.service.createBackup('correct-password');
 
-      source.session.phoneNumber = '+905009998877';
+      source.session.userId = '22222222-2222-4222-8222-222222222222';
       expect(
         await source.service.restoreBackup(backup, 'correct-password'),
         isA<BackupRestoreFailure>(),
       );
-      source.session.phoneNumber = '+905001112233';
+      source.session.userId = '11111111-1111-4111-8111-111111111111';
       for (
         var attempt = 1;
         attempt < BackupService.maximumAttempts;
@@ -151,7 +151,7 @@ void main() {
         'version': 2,
         'createdAt': 1,
         'profile': <String, Object?>{
-          'userId': 'me',
+          'userId': fixture.session.userId,
           'displayName': 'Mevcut Kullanıcı',
           'phoneNumber': fixture.session.phoneNumber,
           'profilePhotoUri': '',
@@ -189,7 +189,7 @@ void main() {
         restoredState.keys,
         everyElement(isNot(startsWith('pending_sender_key_rotation:'))),
       );
-      expect(restoredState['non_signal_setting'], 'preserved');
+      expect(restoredState['non_signal_setting'], isNull);
     },
   );
 }
@@ -216,8 +216,9 @@ Future<_BackupFixture> _fixture({String phone = '+905001112233'}) async {
     file: File('${root.path}/db.securejson'),
     crypto: localCrypto,
   );
+  addTearDown(database.close);
   final session = SessionStore(
-    userId: 'me',
+    userId: '11111111-1111-4111-8111-111111111111',
     displayName: 'Mevcut Kullanıcı',
     phoneNumber: phone,
     accessToken: 'not-backed-up',

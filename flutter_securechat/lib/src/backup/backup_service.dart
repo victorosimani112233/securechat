@@ -54,20 +54,29 @@ class BackupService {
 
   Future<File> createBackup(String password) async {
     _validatePassword(password);
+    final profile = _BackupProfile.parse(<String, Object?>{
+      'userId': _session.userId,
+      'displayName': _session.displayName ?? '',
+      'phoneNumber': _session.phoneNumber ?? '',
+      'profilePhotoUri': _session.profilePhotoUri,
+    });
+    final database = await _database.exportPortableJson();
+    if (_session.userId != profile.userId) {
+      throw const FormatException('Account changed during backup');
+    }
     final root = <String, Object?>{
       'version': currentVersion,
       'createdAt': DateTime.now().millisecondsSinceEpoch,
       'profile': <String, Object?>{
-        'userId': _session.userId ?? '',
-        'displayName': _session.displayName ?? '',
-        'phoneNumber': _session.phoneNumber ?? '',
-        'profilePhotoUri': _session.profilePhotoUri ?? '',
+        'userId': profile.userId,
+        'displayName': profile.displayName,
+        'phoneNumber': profile.phoneNumber,
+        'profilePhotoUri': profile.photoUri ?? '',
       },
       // Tokens are deliberately excluded. A restored device must obtain a new
       // access/refresh pair from the authentication service.
-      'database': _withoutSignalProtocolState(
-        (jsonDecode(await _database.exportPortableJson()) as Map)
-            .cast<String, Object?>(),
+      'database': _historyOnly(
+        (jsonDecode(database) as Map).cast<String, Object?>(),
       ),
     };
     final compressed = gzip.encode(utf8.encode(jsonEncode(root)));
@@ -124,20 +133,21 @@ class BackupService {
       final decoded = jsonDecode(utf8.decode(decompressed));
       if (decoded is! Map) throw const FormatException('Invalid backup root');
       final root = decoded.cast<String, Object?>();
-      final version = (root['version'] as num?)?.toInt() ?? 1;
-      if (version < 1 || version > currentVersion) {
+      final version = root['version'] ?? 1;
+      if (version is! int || version < 1 || version > currentVersion) {
         throw FormatException('Desteklenmeyen yedek sürümü: $version');
       }
-      final profile = (root['profile'] as Map?)?.cast<String, Object?>();
-      if (profile == null) throw const FormatException('Profile is missing');
-      final backupPhone = profile['phoneNumber'] as String? ?? '';
-      final currentPhone = _session.phoneNumber;
-      if (currentPhone != null &&
-          currentPhone.isNotEmpty &&
-          currentPhone != backupPhone) {
-        return const BackupRestoreFailure(
-          'Yedek farklı bir hesaba ait (telefon numarası eşleşmiyor)',
-        );
+      final profile = _BackupProfile.parse(root['profile']);
+      _validateRestoreAccount(profile.userId);
+      final initialUserId = _session.userId;
+      final wasLoggedIn = _session.isLoggedIn;
+
+      void validateAccount() {
+        _validateRestoreAccount(profile.userId);
+        if (_session.userId != initialUserId ||
+            _session.isLoggedIn != wasLoggedIn) {
+          throw const FormatException('Account changed during restore');
+        }
       }
 
       final databaseJson = version == 1
@@ -146,18 +156,27 @@ class BackupService {
       if (databaseJson is! Map) {
         throw const FormatException('Database snapshot is missing');
       }
-      final sanitizedDatabase = _withoutSignalProtocolState(
+      final sanitizedDatabase = _historyOnly(
         databaseJson.cast<String, Object?>(),
       );
-      // Both database and profile are parsed/validated before the database is
-      // atomically replaced. No row-by-row partial restore is possible.
-      await _database.replaceFromPortableJson(jsonEncode(sanitizedDatabase));
-      await _session.restoreProfileAndPersist(
-        userId: profile['userId'] as String? ?? '',
-        displayName: profile['displayName'] as String? ?? '',
-        phoneNumber: backupPhone,
-        profilePhotoUri: _nonEmpty(profile['profilePhotoUri'] as String?),
+      // The database preserves local protocol state at commit time, not from
+      // an exported snapshot that could race a queued Signal write.
+      await _database.replaceFromPortableJson(
+        jsonEncode(sanitizedDatabase),
+        preserveLocalSecurityState: true,
+        validateBeforeCommit: validateAccount,
       );
+      validateAccount();
+      // Recovery credentials and the authenticated profile are authoritative.
+      // Only an offline restore installs profile data from the backup.
+      if (!wasLoggedIn) {
+        await _session.restoreProfileAndPersist(
+          userId: profile.userId,
+          displayName: profile.displayName,
+          phoneNumber: profile.phoneNumber,
+          profilePhotoUri: _nonEmpty(profile.photoUri),
+        );
+      }
       await _database.cryptoState.delete(attemptKey);
       return const BackupRestoreSuccess();
     } on FormatException catch (error) {
@@ -166,6 +185,21 @@ class BackupService {
       return BackupRestoreFailure('Yedek uygulanamadı: ${error.message}');
     } catch (error) {
       return BackupRestoreFailure('Yedek uygulanamadı: $error');
+    }
+  }
+
+  void _validateRestoreAccount(String backupUserId) {
+    final currentUserId = _session.userId;
+    if (currentUserId != null &&
+        currentUserId.isNotEmpty &&
+        currentUserId != backupUserId) {
+      throw const FormatException('Backup account UUID does not match');
+    }
+    // A partial credential state must not be attached to an imported profile.
+    if ((_session.accessToken?.isNotEmpty == true ||
+            _session.refreshToken?.isNotEmpty == true) &&
+        (!_session.isLoggedIn || currentUserId != backupUserId)) {
+      throw const FormatException('Invalid local authentication state');
     }
   }
 
@@ -198,15 +232,33 @@ class BackupService {
         'pendingSignals': const [],
       };
 
-  /// Normal yedek bir cihaz-transfer protokolu degildir. Signal identity
-  /// private key'i, ratchet/session ve SenderKey durumu baska cihaza
-  /// klonlanirsa ayni deviceId iki farkli ratchet dali uretir; parola
-  /// kirildiginda da aktif oturum materyali aciga cikar. Eski yedekler de
-  /// restore sinirinda temizlenir.
-  static Map<String, Object?> _withoutSignalProtocolState(
-    Map<String, Object?> source,
-  ) {
-    final result = Map<String, Object?>.from(source);
+  // Explicit history allowlist: new local/secret collections must not become
+  // portable by default. Never export/import the generic cryptoState map.
+  static Map<String, Object?> _historyOnly(Map<String, Object?> source) {
+    if (source['schema'] is! int || source['schema'] != 1) {
+      throw const FormatException('Unsupported database schema');
+    }
+    final result = <String, Object?>{
+      'schema': source['schema'],
+      for (final key in const [
+        'conversations',
+        'messages',
+        'contacts',
+        'callLogs',
+        'scheduledMessages',
+        'scheduledMessageHistory',
+        'exportLogs',
+        'pendingTimerUpdates',
+      ])
+        key: source[key] ?? const <Object?>[],
+    };
+    for (final entry in result.entries) {
+      if (entry.key == 'schema') continue;
+      final rows = entry.value;
+      if (rows is! List || rows.any((row) => row is! Map)) {
+        throw FormatException('Invalid history collection: ${entry.key}');
+      }
+    }
     for (final key in const [
       'identities',
       'preKeys',
@@ -217,18 +269,7 @@ class BackupService {
     ]) {
       result[key] = const <Object?>[];
     }
-    final rawCryptoState = source['cryptoState'];
-    final cryptoState = rawCryptoState is Map
-        ? rawCryptoState.cast<String, Object?>()
-        : const <String, Object?>{};
-    result['cryptoState'] = <String, Object?>{
-      for (final entry in cryptoState.entries)
-        if (entry.key != 'local_registration_id' &&
-            entry.key != 'local_identity_key_pair_v1' &&
-            !entry.key.startsWith('pending_sender_key_rotation:') &&
-            !entry.key.startsWith('processed-delivery:'))
-          entry.key: entry.value,
-    };
+    result['cryptoState'] = const <String, String>{};
     return result;
   }
 
@@ -254,4 +295,44 @@ class BackupService {
       value == null || value.isEmpty ? null : value;
   static String _two(int value) => value.toString().padLeft(2, '0');
   static String _four(int value) => value.toString().padLeft(4, '0');
+}
+
+class _BackupProfile {
+  const _BackupProfile(
+    this.userId,
+    this.displayName,
+    this.phoneNumber,
+    this.photoUri,
+  );
+
+  final String userId;
+  final String displayName;
+  final String phoneNumber;
+  final String? photoUri;
+
+  static _BackupProfile parse(Object? value) {
+    if (value is! Map) throw const FormatException('Profile is missing');
+    final userId = value['userId'];
+    if (userId is! String ||
+        !RegExp(
+          r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+        ).hasMatch(userId)) {
+      throw const FormatException('Profile account UUID is invalid');
+    }
+    String field(String name) {
+      final field = value[name];
+      if (field == null) return '';
+      if (field is! String) {
+        throw FormatException('Profile $name is invalid');
+      }
+      return field;
+    }
+
+    return _BackupProfile(
+      userId,
+      field('displayName'),
+      field('phoneNumber'),
+      field('profilePhotoUri'),
+    );
+  }
 }

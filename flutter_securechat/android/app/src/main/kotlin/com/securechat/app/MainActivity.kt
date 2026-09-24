@@ -5,12 +5,16 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
+import android.media.ThumbnailUtils
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.os.PowerManager
 import android.provider.ContactsContract
 import android.provider.Settings
+import android.provider.MediaStore
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -21,9 +25,17 @@ import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 class MainActivity : FlutterFragmentActivity() {
     private val channelName = "com.securechat/native"
+    private val videoThumbnailExecutor = ThreadPoolExecutor(
+        1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue<Runnable>(24)
+    )
     private val contactsPermissionRequest = 4102
     private var pendingContactsPermission: MethodChannel.Result? = null
     private lateinit var nativeChannel: MethodChannel
@@ -81,6 +93,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "requestContactsPermission" -> requestContactsPermission(result)
                     "readContacts" -> readContacts(result)
                     "openLocalFile" -> openLocalFile(call.arguments, result)
+                    "localVideoThumbnail" -> localVideoThumbnail(call.arguments, result)
                     "shareLocalFile" -> shareLocalFile(call.arguments, result)
                     "getDiagnosticsMetadata" -> getDiagnosticsMetadata(result)
                     "exportLegacyRoomDatabase" -> runLegacyRoomOperation(result) {
@@ -111,6 +124,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        videoThumbnailExecutor.shutdown()
         biometricPrompt?.cancelAuthentication()
         pendingAuthentication?.success(false)
         pendingAuthentication = null
@@ -502,6 +516,70 @@ class MainActivity : FlutterFragmentActivity() {
             PackageManager.GET_META_DATA
         ).metaData
         return metadata?.getBoolean("com.securechat.DEBUG_ALLOW_SCREEN_CAPTURE") == true
+    }
+
+    private fun localVideoThumbnail(arguments: Any?, result: MethodChannel.Result) {
+        val values = arguments as? Map<*, *>
+        // Fail closed before opening a file or allocating a media decoder.
+        if (values == null || values["isViewOnce"] != false) {
+            result.success(null)
+            return
+        }
+        val path = values["path"] as? String
+        if (path.isNullOrBlank()) {
+            result.success(null)
+            return
+        }
+        val maxSize = ((values["maxSize"] as? Number)?.toInt() ?: 320).coerceIn(1, 320)
+        try {
+            videoThumbnailExecutor.execute {
+                val bytes = if (isDestroyed) null else videoThumbnailBytes(path, maxSize)
+                runOnUiThread { result.success(bytes) }
+            }
+        } catch (_: RejectedExecutionException) {
+            result.success(null)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun videoThumbnailBytes(path: String, maxSize: Int): ByteArray? {
+        var retriever: MediaMetadataRetriever? = null
+        var frame: Bitmap? = null
+        var scaled: Bitmap? = null
+        try {
+            val file = File(path).canonicalFile
+            val root = File(filesDir, "media").canonicalFile
+            if (!file.path.startsWith(root.path + File.separator) || !file.isFile) return null
+            val decoded = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                val decoder = MediaMetadataRetriever()
+                retriever = decoder
+                decoder.setDataSource(file.path)
+                decoder.getScaledFrameAtTime(
+                    0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, maxSize, maxSize
+                )
+            } else {
+                // API 26 has no scaled retriever API. MINI_KIND bounds this
+                // temporary frame; the result below is still capped at 320px.
+                ThumbnailUtils.createVideoThumbnail(file.path, MediaStore.Video.Thumbnails.MINI_KIND)
+            } ?: return null
+            frame = decoded
+            val ratio = minOf(1.0, maxSize.toDouble() / maxOf(decoded.width, decoded.height))
+            val bounded = if (ratio < 1.0) Bitmap.createScaledBitmap(
+                decoded, maxOf(1, (decoded.width * ratio).toInt()),
+                maxOf(1, (decoded.height * ratio).toInt()), true
+            ) else decoded
+            scaled = bounded
+            return ByteArrayOutputStream().use { output ->
+                if (!bounded.compress(Bitmap.CompressFormat.JPEG, 80, output)) null
+                else output.toByteArray()
+            }
+        } catch (_: Exception) {
+            return null
+        } finally {
+            if (scaled !== frame) scaled?.recycle()
+            frame?.recycle()
+            try { retriever?.release() } catch (_: Exception) { }
+        }
     }
 
     private fun openLocalFile(arguments: Any?, result: MethodChannel.Result) {

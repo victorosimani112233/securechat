@@ -6,9 +6,9 @@ Linux uzerinde statik sozlesmeyi kanitlar; Xcode derlemesi yerine gecmez.
 ## Sonuc
 
 - Statik readiness: **PASS**
-- Dart native method sayisi: 21
-- iOS method eslesmesi: 19/19
-- Android method eslesmesi: 21/21
+- Dart native method sayisi: 22
+- iOS method eslesmesi: 20/20
+- Android method eslesmesi: 22/22
 - Kayitli iOS plugin sayisi: 13
 - Minimum deployment target: iOS 15.0
 

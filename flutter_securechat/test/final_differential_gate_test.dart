@@ -205,10 +205,11 @@ void main() {
     final sender = File(
       '${project.path}/lib/src/domain/send_message_use_case.dart',
     ).readAsStringSync();
-    final encryptionFailure = sender.substring(
-      sender.indexOf('} catch (_) {'),
-      sender.indexOf('for (var attempt'),
-    );
+    final catchStart = sender.indexOf('} catch (error, stackTrace) {');
+    final retryStart = sender.indexOf('for (var attempt');
+    expect(catchStart, greaterThanOrEqualTo(0));
+    expect(retryStart, greaterThan(catchStart));
+    final encryptionFailure = sender.substring(catchStart, retryStart);
 
     expect(encryptionFailure, contains('StorageMessageStatus.failed'));
     expect(encryptionFailure, contains('SendMessageOutcome.encryptionFailed'));

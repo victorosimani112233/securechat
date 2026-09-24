@@ -419,7 +419,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         secondaryBackground: _swipeBackground(
           alignment: Alignment.centerRight,
           icon: Icons.delete_outline,
-          label: context.l10n.conv_delete,
+          label: _keepsGroup(context, conversation)
+              ? context.l10n.clear_chat
+              : context.l10n.conv_delete,
           color: Theme.of(context).colorScheme.error,
         ),
         confirmDismiss: (direction) async {
@@ -938,7 +940,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                 color: Theme.of(context).colorScheme.error,
               ),
               title: Text(
-                context.l10n.conv_delete_chat,
+                _keepsGroup(context, conversation)
+                    ? context.l10n.clear_chat
+                    : context.l10n.conv_delete_chat,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
               onTap: () async {
@@ -954,6 +958,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     ),
   );
 
+  bool _keepsGroup(BuildContext context, Conversation conversation) =>
+      conversation.isGroup &&
+      !conversation.hasLeftGroup(AppContainerScope.of(context).session.userId);
+
   Future<bool> _confirmDelete(
     BuildContext context,
     Conversation conversation,
@@ -961,8 +969,16 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: Text(context.l10n.conv_delete_chat),
-          content: Text(context.l10n.delete_chat_body(conversation.peerName)),
+          title: Text(
+            _keepsGroup(context, conversation)
+                ? context.l10n.clear_chat_confirm
+                : context.l10n.conv_delete_chat,
+          ),
+          content: Text(
+            _keepsGroup(context, conversation)
+                ? context.l10n.clear_group_history_body
+                : context.l10n.delete_chat_body(conversation.peerName),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
