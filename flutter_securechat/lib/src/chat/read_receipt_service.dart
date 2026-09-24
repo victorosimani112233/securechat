@@ -65,6 +65,7 @@ class ReadReceiptService {
       await _database.conversations.markAsRead(conversationId);
     }
     if (unread.isEmpty) return 0;
+    final shareReceipts = _session.shareReadReceipts;
 
     if (deliveredVisibilityDelay > Duration.zero) {
       await Future<void>.delayed(deliveredVisibilityDelay);
@@ -75,6 +76,7 @@ class ReadReceiptService {
         message.id,
         StorageMessageStatus.read,
       );
+      if (!shareReceipts || !_session.shareReadReceipts) continue;
       if (await sendPrivateChatControl(
         crypto: _crypto,
         signaling: _signaling,

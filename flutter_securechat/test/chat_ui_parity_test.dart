@@ -254,7 +254,7 @@ void main() {
       (clipboardCall.arguments as Map<Object?, Object?>)['text'],
       'Signal/WebRTC/native bridge noktalarini ayirdim.',
     );
-    expect(find.text('Mesaj kopyalandı.'), findsOneWidget);
+    expect(find.text('Mesaj kopyalandı.'), findsNothing);
   });
 
   testWidgets('read-only group keeps composer admin-only for a member', (

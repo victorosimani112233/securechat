@@ -55,9 +55,17 @@ class MediaMessageService {
   StreamSubscription<ReceivedFile>? _receivedSubscription;
   Future<void>? _closeTask;
   bool _closed = false;
+  final _activeViewOnce = <String>{};
+  final _purgingViewOnce = <String>{};
 
   void start() {
     if (_closed) throw StateError('Media message service is closed');
+    if (_receivedSubscription == null) {
+      _operations.run(
+        'media.view-once.recover-cleanup',
+        cleanupViewedOnceMedia(),
+      );
+    }
     _receivedSubscription ??= _transfers.receivedFiles.listen(
       (received) => _operations.run(
         'media-message.persist-incoming',
@@ -78,6 +86,11 @@ class MediaMessageService {
   Future<void> _close() async {
     await _receivedSubscription?.cancel();
     _receivedSubscription = null;
+    _activeViewOnce.clear();
+    _operations.run(
+      'media.view-once.shutdown-cleanup',
+      cleanupViewedOnceMedia(),
+    );
     await _operations.close();
   }
 
@@ -206,9 +219,75 @@ class MediaMessageService {
     }
   }
 
-  Future<void> markViewOnceViewed(LocalMessage message) async {
-    if (!message.isViewOnce || message.isOutgoing || message.isViewed) return;
-    await _database.messages.markViewOnceAsViewed(message.id);
+  Future<bool> markViewOnceViewed(LocalMessage message) async {
+    if (!message.isViewOnce ||
+        message.isOutgoing ||
+        message.isViewed ||
+        !_activeViewOnce.add(message.id))
+      return false;
+    try {
+      final claimed = await _database.messages.markViewOnceAsViewed(message.id);
+      if (!claimed) _activeViewOnce.remove(message.id);
+      return claimed;
+    } catch (_) {
+      _activeViewOnce.remove(message.id);
+      rethrow;
+    }
+  }
+
+  void finishViewOnce(String id) {
+    _activeViewOnce.remove(id);
+    if (_closed) return;
+    _operations.run('media.view-once.cleanup', _purgeViewedOnce(id));
+  }
+
+  Future<void> cleanupViewedOnceMedia() async {
+    Object? failure;
+    StackTrace? failureStack;
+    for (final message in await _database.messages.getAllMessages()) {
+      if (message.isViewOnce &&
+          message.isViewed &&
+          !message.isOutgoing &&
+          !_activeViewOnce.contains(message.id) &&
+          (message.content.isNotEmpty || message.caption != null)) {
+        try {
+          await _purgeViewedOnce(message.id);
+        } catch (error, stack) {
+          failure ??= error;
+          failureStack ??= stack;
+        }
+      }
+    }
+    if (failure != null) Error.throwWithStackTrace(failure, failureStack!);
+  }
+
+  Future<void> _purgeViewedOnce(String id) async {
+    if (!_purgingViewOnce.add(id)) return;
+    try {
+      final entity = await _database.messages.getById(id);
+      if (entity == null ||
+          !entity.isViewOnce ||
+          !entity.isViewed ||
+          entity.isOutgoing)
+        return;
+      final message = LocalMessage.fromJson(entity.toJson());
+      final path = message.isFileMessage ? message.filePath : null;
+      if (path != null && path.isNotEmpty && await File(path).exists()) {
+        final root = await _localMediaDirectory.resolveSymbolicLinks();
+        final file = File(await File(path).resolveSymbolicLinks());
+        if (!file.path.startsWith('$root${Platform.pathSeparator}')) {
+          throw const FileSystemException(
+            'View-once media outside managed storage',
+          );
+        }
+        await file.delete();
+      }
+      // Keep the viewed tombstone to prevent replay, but not the content or
+      // caption. Retain the path on deletion failure so startup can retry.
+      await _database.messages.eraseViewedOnceContent(id);
+    } finally {
+      _purgingViewOnce.remove(id);
+    }
   }
 
   Future<File> _retain(MediaAttachment attachment, String messageId) async {

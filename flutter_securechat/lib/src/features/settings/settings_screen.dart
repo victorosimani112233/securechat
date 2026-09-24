@@ -406,6 +406,23 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (value) =>
                     _run(context, () => service.setShareLastSeen(value)),
               ),
+              SwitchListTile(
+                key: const ValueKey('settings-share-online'),
+                secondary: const Icon(Icons.circle_outlined),
+                title: Text(context.l10n.settings_share_online),
+                value: settings.shareOnline,
+                onChanged: (value) =>
+                    _run(context, () => service.setShareOnline(value)),
+              ),
+              SwitchListTile(
+                key: const ValueKey('settings-read-receipts'),
+                secondary: const Icon(Icons.done_all),
+                title: Text(context.l10n.settings_read_receipts),
+                subtitle: Text(context.l10n.settings_read_receipts_desc),
+                value: settings.shareReadReceipts,
+                onChanged: (value) =>
+                    _run(context, () => service.setShareReadReceipts(value)),
+              ),
               ListTile(
                 leading: const Icon(Icons.screenshot_monitor_outlined),
                 title: Text(context.l10n.settings_screen_protection),

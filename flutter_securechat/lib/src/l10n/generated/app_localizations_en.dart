@@ -9,6 +9,12 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get calls_filter_video => 'Video';
+
+  @override
+  String get calls_filter_empty => 'No calls match this filter';
+
+  @override
   String get group_added_notification => 'You were added to a group.';
 
   @override
@@ -615,7 +621,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settings_backup_desc => 'Back up chats encrypted or restore';
 
   @override
-  String get settings_storage_usage => 'Storage Usage';
+  String get settings_storage_usage => 'Storage';
+
+  @override
+  String get create_group_and_add => 'Create group and add people';
+
+  @override
+  String get recipient_action_failed =>
+      'Could not complete the action. Please try again.';
+
+  @override
+  String get settings_share_online => 'Share online status';
+
+  @override
+  String get settings_read_receipts => 'Read receipts';
+
+  @override
+  String get settings_read_receipts_desc =>
+      'When off, you wont send read receipts or see other peoples read receipts.';
+
+  @override
+  String get message_show_more => 'Show more';
+
+  @override
+  String get message_show_less => 'Show less';
 
   @override
   String get chat_info_note_label => 'Note';

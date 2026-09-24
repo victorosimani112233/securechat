@@ -1939,6 +1939,7 @@ class CallManager {
         timestamp: (session.createdAt ?? session.startTime ?? DateTime.now())
             .millisecondsSinceEpoch,
         duration: duration.inMilliseconds,
+        groupId: session.isGroupCall ? session.groupId : null,
       ),
     );
   }

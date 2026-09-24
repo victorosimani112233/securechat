@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../core/models.dart';
@@ -6,18 +9,67 @@ import '../../media/local_file_actions.dart';
 import '../../widgets/local_image_view.dart';
 import 'media_preview_screen.dart';
 
-class MediaViewerScreen extends StatelessWidget {
+class MediaViewerScreen extends StatefulWidget {
   const MediaViewerScreen({
     super.key,
     required this.message,
     required this.fileActions,
+    this.onViewOnceClosed,
   });
 
   final LocalMessage message;
   final LocalFileActions fileActions;
+  final VoidCallback? onViewOnceClosed;
+
+  @override
+  State<MediaViewerScreen> createState() => _MediaViewerScreenState();
+}
+
+class _MediaViewerScreenState extends State<MediaViewerScreen>
+    with WidgetsBindingObserver {
+  LocalMessage get message => widget.message;
+  LocalFileActions get fileActions => widget.fileActions;
+  bool _consumed = false;
+  bool _externalOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  void _consume() {
+    if (!message.isViewOnce || _consumed) return;
+    _consumed = true;
+    final path = message.filePath;
+    if (path != null && path.isNotEmpty)
+      unawaited(FileImage(File(path)).evict());
+    widget.onViewOnceClosed?.call();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!message.isViewOnce || _consumed) return;
+    // An external viewer must finish before its backing file is deleted.
+    if (_externalOpen && state != AppLifecycleState.resumed) return;
+    if (!_externalOpen && state == AppLifecycleState.resumed) return;
+    setState(_consume);
+    if (ModalRoute.of(context)?.isCurrent == true &&
+        Navigator.canPop(context)) {
+      Navigator.pop(context);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _consume();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_consumed) return const Scaffold(backgroundColor: Colors.black);
     final path = message.filePath;
     final mime = message.fileMimeType ?? 'application/octet-stream';
     final isImage = mime.startsWith('image/');
@@ -107,8 +159,10 @@ class MediaViewerScreen extends StatelessWidget {
 
   Future<void> _open(BuildContext context, String path, String mime) async {
     try {
+      _externalOpen = true;
       await fileActions.open(path: path, mimeType: mime);
     } catch (error) {
+      _externalOpen = false;
       if (context.mounted) {
         _showError(context, context.l10n.file_open_failed('$error'));
       }

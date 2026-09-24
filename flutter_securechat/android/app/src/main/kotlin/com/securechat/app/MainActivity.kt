@@ -266,7 +266,10 @@ class MainActivity : FlutterFragmentActivity() {
         val kind = (arguments as? Map<*, *>)?.get("kind")?.toString().orEmpty()
         val packageUri = Uri.parse("package:$packageName")
         val intent = when (kind) {
-            "battery" -> Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri)
+            "battery" -> if (getSystemService(android.os.PowerManager::class.java)
+                    .isIgnoringBatteryOptimizations(packageName)) {
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            } else Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri)
             "fullScreenIntent" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, packageUri)
             } else null

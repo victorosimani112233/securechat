@@ -11,18 +11,29 @@ void main() {
       SecureChatFlutterApp(container: createWidgetTestContainer()),
     );
     await tester.pumpAndSettle();
-    final navigator = tester.state<NavigatorState>(find.byType(Navigator).first);
+    final navigator = tester.state<NavigatorState>(
+      find.byType(Navigator).first,
+    );
     navigator.pushNamed('/bulk-message');
     await tester.pumpAndSettle();
   }
 
-  testWidgets('ozelligin ne yaptigi yazili', (tester) async {
+  testWidgets('message is entered before searching and selecting recipients', (
+    tester,
+  ) async {
     await open(tester);
-    // "Toplu mesaj" adi yaniltici: grup kurdugu sanilabilir. Alicilarin
-    // birbirini gormedigi bir gizlilik ayrintisi ve gondermeden once
-    // bilinmesi gerekiyor.
-    expect(find.text('Herkese ayrı ayrı gider'), findsOneWidget);
-    expect(find.textContaining('birbirini görmez'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.byType(CheckboxListTile), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('bulk-message-input')),
+      'Test message',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Devam et'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byKey(const ValueKey('recipient-search')), findsOneWidget);
+    expect(find.byType(CheckboxListTile), findsWidgets);
   });
 
   testWidgets('mesaj bos iken gonderim kapali', (tester) async {
@@ -36,12 +47,24 @@ void main() {
     expect(button, findsNothing);
   });
 
-  testWidgets('alici secilince sayac gorunur', (tester) async {
+  testWidgets('selected recipient has a removable avatar badge', (
+    tester,
+  ) async {
     await open(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('bulk-message-input')),
+      'Test',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Devam et'));
+    await tester.pumpAndSettle();
     final checkbox = find.byType(CheckboxListTile).first;
     await tester.tap(checkbox);
     await tester.pumpAndSettle();
-    // Uzun listede kac kisi secildigi listeye bakmadan gorunmeli.
-    expect(find.textContaining('seçili'), findsOneWidget);
+    expect(find.byType(InputChip), findsOneWidget);
+    expect(tester.widget<InputChip>(find.byType(InputChip)).avatar, isNotNull);
+    tester.widget<InputChip>(find.byType(InputChip)).onDeleted!();
+    await tester.pumpAndSettle();
+    expect(find.byType(InputChip), findsNothing);
   });
 }

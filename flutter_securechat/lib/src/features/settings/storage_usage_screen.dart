@@ -4,6 +4,8 @@ import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_management_service.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/azure_surface.dart';
+import '../../widgets/avatar.dart';
 import 'chat_storage_screen.dart';
 
 class StorageUsageScreen extends StatefulWidget {
@@ -66,15 +68,18 @@ class _StorageUsageScreenState extends State<StorageUsageScreen> {
           : _items!.isEmpty
           ? Center(child: Text(context.l10n.no_chats_yet))
           : ListView.separated(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16),
               itemCount: _items!.length,
               separatorBuilder: (_, _) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final item = _items![index];
-                return Card(
+                return AzureSurface(
                   child: ListTile(
                     key: ValueKey('storage-chat-${item.conversationId}'),
-                    leading: Icon(item.isGroup ? Icons.group : Icons.person),
+                    leading: GeneratedAvatar(
+                      name: item.displayName,
+                      isGroup: item.isGroup,
+                    ),
                     title: Text(item.displayName),
                     subtitle: Text(
                       context.l10n.storage_summary(

@@ -698,7 +698,10 @@ class IncomingMessageHandler {
     );
     if (!_senderAllowed(conversation, signal.senderId)) return;
     final next = switch (signal.status.toUpperCase()) {
-      'READ' => StorageMessageStatus.read,
+      'READ' =>
+        _session.shareReadReceipts
+            ? StorageMessageStatus.read
+            : StorageMessageStatus.delivered,
       'DELIVERED' => StorageMessageStatus.delivered,
       _ => null,
     };
@@ -756,7 +759,7 @@ class IncomingMessageHandler {
         ? null
         : await _database.conversations.getById(message.conversationId);
     if (message == null ||
-        !allowedMessageReactions.contains(signal.emoji) ||
+        !isValidMessageReaction(signal.emoji) ||
         !_senderAllowed(conversation, signal.senderId)) {
       return;
     }

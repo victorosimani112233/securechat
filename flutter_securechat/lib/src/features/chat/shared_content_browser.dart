@@ -53,24 +53,42 @@ class SharedContentBrowser extends StatefulWidget {
     required this.service,
     required this.conversationId,
     required this.section,
+    this.closeOnBackground = false,
   });
 
   final ChatInfoService service;
   final String conversationId;
   final SharedContentSection section;
+  final bool closeOnBackground;
 
   @override
   State<SharedContentBrowser> createState() => _SharedContentBrowserState();
 }
 
-class _SharedContentBrowserState extends State<SharedContentBrowser> {
+class _SharedContentBrowserState extends State<SharedContentBrowser>
+    with WidgetsBindingObserver {
   late Stream<List<MessageEntity>> _messages;
   String _query = '';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _messages = _stream();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (widget.closeOnBackground &&
+        state != AppLifecycleState.resumed &&
+        ModalRoute.of(context)?.isCurrent == true)
+      Navigator.pop(context);
   }
 
   Stream<List<MessageEntity>> _stream() => switch (widget.section) {

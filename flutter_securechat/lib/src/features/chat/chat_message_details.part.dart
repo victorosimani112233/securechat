@@ -62,12 +62,36 @@ class _MediaMessageContent extends StatelessWidget {
           if (isImage && path != null)
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
-              child: Image.file(
-                File(path),
-                height: 180,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 240,
+                  maxHeight: 360,
+                ),
+                child: Image.file(
+                  File(path),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
+              ),
+            )
+          else if (message.fileMimeType?.startsWith('video/') == true &&
+              path != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 240,
+                  maxHeight: 360,
+                ),
+                child: LocalVideoThumbnail(
+                  path: path,
+                  isViewOnce: false,
+                  preserveAspectRatio: true,
+                  fallback: ListTile(
+                    leading: const Icon(Icons.videocam_outlined),
+                    title: Text(message.fileName ?? context.l10n.file),
+                  ),
+                ),
               ),
             )
           else
@@ -221,23 +245,39 @@ class _MessageInfoDialog extends StatelessWidget {
     required this.message,
     required this.conversation,
     required this.localUserId,
+    required this.recipientLabels,
   });
 
   final LocalMessage message;
   final Conversation conversation;
   final String localUserId;
+  final Map<String, String> recipientLabels;
 
   @override
   Widget build(BuildContext context) {
     final recipients = conversation.isGroup
         ? conversation.groupMembers
               .where((member) => member != localUserId)
+              .map(
+                (member) =>
+                    recipientLabels[member] ??
+                    context.l10n.group_unknown_member,
+              )
               .toList(growable: false)
-        : [conversation.peerName];
+        : [
+            conversation.peerName.isNotEmpty &&
+                    conversation.peerName != conversation.peerId
+                ? conversation.peerName
+                : conversation.peerPhone.isNotEmpty
+                ? conversation.peerPhone
+                : context.l10n.group_unknown_member,
+          ];
     final delivered =
         message.status == MessageStatus.delivered ||
         message.status == MessageStatus.read;
-    final read = message.status == MessageStatus.read;
+    final read =
+        message.status == MessageStatus.read &&
+        AppContainerScope.of(context).session.shareReadReceipts;
     final localizations = MaterialLocalizations.of(context);
     final sentAt =
         '${localizations.formatFullDate(message.timestamp)} · '

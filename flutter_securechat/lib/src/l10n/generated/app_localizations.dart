@@ -102,6 +102,18 @@ abstract class AppLocalizations {
     Locale('tr'),
   ];
 
+  /// No description provided for @calls_filter_video.
+  ///
+  /// In en, this message translates to:
+  /// **'Video'**
+  String get calls_filter_video;
+
+  /// No description provided for @calls_filter_empty.
+  ///
+  /// In en, this message translates to:
+  /// **'No calls match this filter'**
+  String get calls_filter_empty;
+
   /// No description provided for @group_added_notification.
   ///
   /// In en, this message translates to:
@@ -1167,8 +1179,50 @@ abstract class AppLocalizations {
   /// No description provided for @settings_storage_usage.
   ///
   /// In en, this message translates to:
-  /// **'Storage Usage'**
+  /// **'Storage'**
   String get settings_storage_usage;
+
+  /// No description provided for @create_group_and_add.
+  ///
+  /// In en, this message translates to:
+  /// **'Create group and add people'**
+  String get create_group_and_add;
+
+  /// No description provided for @recipient_action_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not complete the action. Please try again.'**
+  String get recipient_action_failed;
+
+  /// No description provided for @settings_share_online.
+  ///
+  /// In en, this message translates to:
+  /// **'Share online status'**
+  String get settings_share_online;
+
+  /// No description provided for @settings_read_receipts.
+  ///
+  /// In en, this message translates to:
+  /// **'Read receipts'**
+  String get settings_read_receipts;
+
+  /// No description provided for @settings_read_receipts_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'When off, you won\'t send read receipts or see other people\'s read receipts.'**
+  String get settings_read_receipts_desc;
+
+  /// No description provided for @message_show_more.
+  ///
+  /// In en, this message translates to:
+  /// **'Show more'**
+  String get message_show_more;
+
+  /// No description provided for @message_show_less.
+  ///
+  /// In en, this message translates to:
+  /// **'Show less'**
+  String get message_show_less;
 
   /// No description provided for @chat_info_note_label.
   ///

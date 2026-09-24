@@ -32,6 +32,51 @@ void main() {
   });
   tearDown(() => messenger.setMockMethodCallHandler(_channel, null));
 
+  for (final size in [
+    const Size(400, 800),
+    const Size(800, 400),
+    const Size(400, 400),
+  ]) {
+    testWidgets('chat video preview preserves source ratio $size', (
+      tester,
+    ) async {
+      final bytes = await _png(
+        tester,
+        width: size.width.toInt(),
+        height: size.height.toInt(),
+      );
+      messenger.setMockMethodCallHandler(_channel, (call) async => bytes);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 240, maxHeight: 360),
+              child: const LocalVideoThumbnail(
+                path: '/video.mp4',
+                isViewOnce: false,
+                preserveAspectRatio: true,
+                fallback: _fallback,
+              ),
+            ),
+          ),
+        ),
+      );
+      await _settleDecode(tester);
+      final preview = tester.getSize(find.byType(RawImage));
+      expect(
+        preview.width / preview.height,
+        closeTo(size.width / size.height, .001),
+      );
+      expect(preview.width, lessThanOrEqualTo(240));
+      expect(preview.height, lessThanOrEqualTo(360));
+      expect(
+        tester.widget<RawImage>(find.byType(RawImage)).fit,
+        BoxFit.contain,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   test(
     'bridge rejects protected and empty paths before invoking native',
     () async {

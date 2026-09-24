@@ -72,6 +72,8 @@ class AppSettingsState {
     required this.fullscreenMode,
     required this.scheduledMessagesEnabled,
     required this.shareLastSeen,
+    this.shareOnline = true,
+    this.shareReadReceipts = true,
     this.sharePhoneNumber = false,
     required this.profilePhotoPath,
   });
@@ -84,6 +86,8 @@ class AppSettingsState {
   final bool fullscreenMode;
   final bool scheduledMessagesEnabled;
   final bool shareLastSeen;
+  final bool shareOnline;
+  final bool shareReadReceipts;
   final bool sharePhoneNumber;
   final String? profilePhotoPath;
 }
@@ -154,6 +158,8 @@ class SettingsService {
     fullscreenMode: _session.fullscreenMode,
     scheduledMessagesEnabled: _session.scheduledMessagesEnabled,
     shareLastSeen: _session.shareLastSeen,
+    shareOnline: _session.shareOnline,
+    shareReadReceipts: _session.shareReadReceipts,
     sharePhoneNumber: _session.sharePhoneNumber,
     profilePhotoPath: _session.profilePhotoUri,
   );
@@ -231,6 +237,21 @@ class SettingsService {
   Future<void> setShareLastSeen(bool value) async {
     _session.shareLastSeen = value;
     await _persistAndEmit();
+    await _publishPresence();
+  }
+
+  Future<void> setShareOnline(bool value) async {
+    _session.shareOnline = value;
+    await _persistAndEmit();
+    await _publishPresence();
+  }
+
+  Future<void> setShareReadReceipts(bool value) async {
+    _session.shareReadReceipts = value;
+    await _persistAndEmit();
+  }
+
+  Future<void> _publishPresence() async {
     final userId = _session.userId;
     if (userId != null && _signaling.currentStatus.isConnected) {
       await _signaling.send(
@@ -238,9 +259,9 @@ class SettingsService {
           senderId: userId,
           recipientId: 'server',
           timestamp: DateTime.now(),
-          isOnline: true,
+          isOnline: _session.shareOnline,
           lastSeen: DateTime.now(),
-          hideLastSeen: !value,
+          hideLastSeen: !_session.shareLastSeen,
         ),
       );
     }

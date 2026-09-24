@@ -879,8 +879,32 @@ class MessageDao {
       editHistory: editHistory,
     ),
   );
-  Future<void> markViewOnceAsViewed(String id) =>
-      _patch(id, (m) => m.copyWith(isViewed: true));
+  Future<bool> markViewOnceAsViewed(String id) async {
+    var claimed = false;
+    await _db._write((s) {
+      final message = s.messages[id];
+      if (message == null ||
+          !message.isViewOnce ||
+          message.isOutgoing ||
+          message.isViewed)
+        return;
+      s.messages[id] = message.copyWith(isViewed: true);
+      claimed = true;
+    });
+    return claimed;
+  }
+
+  Future<void> eraseViewedOnceContent(String id) => _patch(
+    id,
+    (m) => m.isViewOnce && m.isViewed && !m.isOutgoing
+        ? m.copyWith(
+            content: '',
+            caption: null,
+            editHistory: '',
+            isStarred: false,
+          )
+        : m,
+  );
   Future<void> consumeViewOnceText(String id) => _patch(
     id,
     (m) => m.contentType == StorageMessageContentType.text
@@ -1062,7 +1086,7 @@ class MessageDao {
     required bool remove,
   }) => _patch(id, (m) {
     if (userId.isEmpty ||
-        !allowedMessageReactions.contains(emoji) ||
+        !isValidMessageReaction(emoji) ||
         m.contentType == StorageMessageContentType.deleted)
       return m;
     return m.copyWith(
@@ -1212,7 +1236,7 @@ class CallLogDao {
       _db._watch((s) => s.callLogs.values.sortedBy((c) => -c.timestamp));
   Stream<List<CallLogEntity>> getByPeerId(String peerId) => _db._watch(
     (s) => s.callLogs.values
-        .where((c) => c.peerId == peerId)
+        .where((c) => (c.groupId ?? c.peerId) == peerId)
         .sortedBy((c) => -c.timestamp),
   );
   Future<void> insert(CallLogEntity callLog) =>

@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import '../../background/scheduled_message_service.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
-import '../../widgets/avatar.dart';
+import '../contacts/recipient_picker_screen.dart';
+import '../contacts/conversation_recipients.dart';
 import '../../services/app_container.dart';
 import '../../settings/settings_service.dart';
 import '../../storage/storage_entities.dart';
@@ -55,7 +56,11 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
           title: Text(context.l10n.sched_title),
           bottom: TabBar(
             controller: _tabs,
-            isScrollable: true,
+            isScrollable: false,
+            tabAlignment: TabAlignment.fill,
+            padding: EdgeInsets.zero,
+            labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+            indicatorSize: TabBarIndicatorSize.tab,
             tabs: [
               Tab(text: context.l10n.sched_tab_create),
               Tab(text: context.l10n.sched_tab_existing),
@@ -364,79 +369,32 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
   }
 
   Future<void> _pickRecipients() async {
-    final conversations = AppContainerScope.of(context).conversations;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(context.l10n.sched_pick_recipient),
-        contentPadding: const EdgeInsets.symmetric(vertical: 8),
-        content: SizedBox(
-          // Sabit 420 px genislik dar telefonda tasiyordu. `maxFinite`
-          // diyalogun kendi sinirlarina uyar.
-          width: double.maxFinite,
-          child: StreamBuilder<List<Conversation>>(
-            stream: conversations.watchConversations(),
-            builder: (context, snapshot) {
-              final items = snapshot.data ?? const [];
-              if (items.isEmpty) {
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                  child: Text(
-                    context.l10n.no_chats_yet,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                );
-              }
-              return StatefulBuilder(
-                builder: (context, setDialogState) => ConstrainedBox(
-                  // Uzun listede diyalog ekrani asmasin; icerik kaysin.
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.sizeOf(context).height * .5,
-                  ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: items.length,
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      final selected = _selectedRecipients.containsKey(item.id);
-                      return CheckboxListTile(
-                        value: selected,
-                        title: Text(item.peerName),
-                        // Uygulamanin geri kalaninda kisiler bu avatarla
-                        // gosteriliyor; genel ikon burayi yabanci
-                        // gosteriyordu.
-                        secondary: GeneratedAvatar(
-                          name: item.peerName,
-                          size: 36,
-                          isGroup: item.isGroup,
-                        ),
-                        onChanged: (_) {
-                          setDialogState(() {
-                            selected
-                                ? _selectedRecipients.remove(item.id)
-                                : _selectedRecipients[item.id] = item.peerName;
-                          });
-                          setState(() {});
-                        },
-                      );
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
+    final recipients = ConversationRecipients(AppContainerScope.of(context));
+    List<RecipientChoice>? resolved;
+    final selected = await Navigator.of(context).push<List<RecipientChoice>>(
+      MaterialPageRoute(
+        builder: (_) => RecipientPickerScreen(
+          title: context.l10n.sched_pick_recipient,
+          actionLabel: context.l10n.action_ok,
+          allowEmpty: true,
+          initial: [
+            for (final item in _selectedRecipients.entries)
+              RecipientChoice(id: item.key, name: item.value),
+          ],
+          choices: recipients.choices,
+          onConfirm: (selected) async {
+            resolved = await recipients.resolve(selected);
+            return true;
+          },
         ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(context.l10n.action_ok),
-          ),
-        ],
       ),
     );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _selectedRecipients
+        ..clear()
+        ..addEntries(resolved!.map((item) => MapEntry(item.id, item.name)));
+    });
   }
 
   Future<void> _save(ScheduledMessageService service) async {

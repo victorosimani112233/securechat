@@ -8,6 +8,34 @@ import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
 
 void main() {
+  test('hidden online status keeps transport active across resume', () async {
+    final session = SessionStore(
+      userId: 'me',
+      accessToken: 'access',
+      shareOnline: false,
+      shareLastSeen: false,
+    );
+    final signaling = InMemorySignalingService();
+    final lifecycle = AppLifecycleCoordinator(
+      session: session,
+      signaling: signaling,
+      signalingUrl: 'wss://test.invalid',
+      foregroundMaintenance: () async {},
+      refreshPushRegistration: () async {},
+    );
+    addTearDown(signaling.dispose);
+    addTearDown(lifecycle.dispose);
+    await lifecycle.enterForeground();
+    await lifecycle.enterBackground();
+    await lifecycle.enterForeground();
+    expect(signaling.currentStatus.isConnected, isTrue);
+    final signals = signaling.sentMessages.whereType<PresenceUpdateSignal>();
+    expect(signals, isNotEmpty);
+    expect(
+      signals.every((signal) => !signal.isOnline && signal.hideLastSeen),
+      isTrue,
+    );
+  });
   test('screen lock retains call transport until the call ends', () async {
     final signaling = InMemorySignalingService();
     final calls = StreamController<bool>();

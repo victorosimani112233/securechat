@@ -15,6 +15,8 @@ class SessionStore {
     this.pushToken,
     this.profilePhotoUri,
     this.shareLastSeen = false,
+    this.shareOnline = true,
+    this.shareReadReceipts = true,
     this.sharePhoneNumber = false,
     this.themePreference = 'system',
     this.languagePreference = 'system',
@@ -33,6 +35,8 @@ class SessionStore {
   String? pushToken;
   String? profilePhotoUri;
   bool shareLastSeen;
+  bool shareOnline;
+  bool shareReadReceipts;
   bool sharePhoneNumber;
   String themePreference;
   String languagePreference;
@@ -69,6 +73,8 @@ class SessionStore {
     pushToken = null;
     profilePhotoUri = null;
     shareLastSeen = false;
+    shareOnline = true;
+    shareReadReceipts = true;
     sharePhoneNumber = false;
     themePreference = 'system';
     languagePreference = 'system';
@@ -132,6 +138,8 @@ class SessionStore {
     'pushToken': pushToken,
     'profilePhotoUri': profilePhotoUri,
     'shareLastSeen': shareLastSeen,
+    'shareOnline': shareOnline,
+    'shareReadReceipts': shareReadReceipts,
     'sharePhoneNumber': sharePhoneNumber,
     'themePreference': themePreference,
     'languagePreference': languagePreference,
@@ -151,6 +159,8 @@ class SessionStore {
     pushToken = json['pushToken'] as String?;
     profilePhotoUri = json['profilePhotoUri'] as String?;
     shareLastSeen = json['shareLastSeen'] as bool? ?? false;
+    shareOnline = json['shareOnline'] as bool? ?? true;
+    shareReadReceipts = json['shareReadReceipts'] as bool? ?? true;
     sharePhoneNumber = json['sharePhoneNumber'] as bool? ?? false;
     themePreference = _allowed(json['themePreference'], const {
       'system',

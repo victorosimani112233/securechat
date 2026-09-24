@@ -12,11 +12,17 @@ import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/azure_surface.dart';
 import '../../widgets/azure_empty_state.dart';
+import 'create_group_flow.dart';
 
 class ContactsScreen extends StatefulWidget {
-  const ContactsScreen({super.key, this.embedded = false});
+  const ContactsScreen({
+    super.key,
+    this.embedded = false,
+    this.newChat = false,
+  });
 
   final bool embedded;
+  final bool newChat;
 
   @override
   State<ContactsScreen> createState() => _ContactsScreenState();
@@ -47,7 +53,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: !widget.embedded,
-          title: Text(context.l10n.nav_contacts),
+          title: Text(
+            widget.newChat
+                ? context.l10n.conv_new_chat
+                : context.l10n.nav_contacts,
+          ),
           actions: [
             IconButton(
               onPressed: _syncing ? null : _syncContacts,
@@ -90,13 +100,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: contacts.isEmpty
-                            ? null
-                            : () => _createGroup(service, contacts),
-                        icon: const Icon(Icons.group_add_outlined),
-                        label: Text(context.l10n.create_group_title),
-                      ),
+                      if (!widget.newChat)
+                        FilledButton.icon(
+                          onPressed: () => showCreateGroupFlow(context),
+                          icon: const Icon(Icons.group_add_outlined),
+                          label: Text(context.l10n.create_group_title),
+                        ),
                       if (_syncing) ...[
                         const SizedBox(height: 16),
                         const LinearProgressIndicator(),
@@ -333,103 +342,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ).showSnackBar(SnackBar(content: Text(error.toString())));
       }
     }
-  }
-
-  Future<void> _createGroup(
-    ContactService service,
-    List<ContactEntity> contacts,
-  ) async {
-    final selected = <String>{};
-    // Dialog hem grup adini hem uyeleri dondurur; boylece controller'i
-    // `await` sonrasinda okumak gerekmez ve sahipligi dialog'a birakilabilir
-    // (bkz TextControllerScope).
-    final result =
-        await showDialog<({String name, List<ContactEntity> members})>(
-          context: context,
-          builder: (context) => TextControllerScope(
-            builder: (context, name) => StatefulBuilder(
-              builder: (context, setDialogState) => AlertDialog(
-                title: Text(context.l10n.create_group_title),
-                content: SizedBox(
-                  width: 420,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: name,
-                        decoration: InputDecoration(
-                          labelText: context.l10n.group_name,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Flexible(
-                        child: ListView(
-                          shrinkWrap: true,
-                          children: [
-                            for (final contact in contacts)
-                              CheckboxListTile(
-                                value: selected.contains(contact.id),
-                                title: Text(contact.displayName),
-                                onChanged: (checked) => setDialogState(() {
-                                  checked == true
-                                      ? selected.add(contact.id)
-                                      : selected.remove(contact.id);
-                                }),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(context.l10n.cancel),
-                  ),
-                  FilledButton(
-                    onPressed: selected.isEmpty
-                        ? null
-                        : () => Navigator.pop(context, (
-                            name: name.text,
-                            members: contacts
-                                .where(
-                                  (contact) => selected.contains(contact.id),
-                                )
-                                .toList(),
-                          )),
-                    child: Text(context.l10n.create_group_action),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-    if (result == null || result.members.isEmpty) return;
-    late final ConversationEntity group;
-    try {
-      group = await service.createGroup(result.name, result.members);
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.group_create_failed)),
-        );
-      }
-      return;
-    }
-    if (!mounted) return;
-    Navigator.of(context).pushNamed(
-      '/chat',
-      arguments: Conversation(
-        id: group.id,
-        peerId: group.peerId,
-        peerName: group.peerName,
-        peerPhone: '',
-        isGroup: true,
-        groupMembers: group.groupMembers?.split(',') ?? const [],
-        groupAdmins: group.groupAdmins?.split(',') ?? const [],
-      ),
-    );
   }
 
   Conversation _conversation(ConversationEntity conversation) => Conversation(

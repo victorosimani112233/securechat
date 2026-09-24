@@ -6,6 +6,32 @@ import 'package:flutter_securechat/src/media/local_file_actions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('view-once viewer consumes once when app leaves foreground', (
+    tester,
+  ) async {
+    var consumed = 0;
+    await tester.pumpWidget(
+      _app(viewOnce: true, image: true, onClosed: () => consumed++),
+    );
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    expect(consumed, 1);
+    expect(find.text('Private caption'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const SizedBox());
+    expect(consumed, 1);
+  });
+
+  testWidgets('normal media disposal never requests view-once cleanup', (
+    tester,
+  ) async {
+    var consumed = 0;
+    await tester.pumpWidget(_app(viewOnce: false, onClosed: () => consumed++));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
+    expect(consumed, 0);
+  });
   for (final viewOnce in [false, true]) {
     testWidgets(
       'caption is visible in ${viewOnce ? 'view-once' : 'normal'} viewer',
@@ -59,6 +85,7 @@ Widget _app({
   String caption = 'Private caption',
   double textScale = 1,
   bool image = false,
+  VoidCallback? onClosed,
 }) => MaterialApp(
   locale: const Locale('en'),
   localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -70,6 +97,7 @@ Widget _app({
     child: child!,
   ),
   home: MediaViewerScreen(
+    onViewOnceClosed: onClosed,
     message: LocalMessage(
       id: 'media',
       conversationId: 'chat',

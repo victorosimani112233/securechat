@@ -12,12 +12,14 @@ class LocalVideoThumbnail extends StatefulWidget {
     required this.path,
     required this.isViewOnce,
     required this.fallback,
+    this.preserveAspectRatio = false,
     this.bridge = const NativeBridge(),
   });
 
   final String path;
   final bool isViewOnce;
   final Widget fallback;
+  final bool preserveAspectRatio;
   final NativeBridge bridge;
 
   @override
@@ -99,21 +101,29 @@ class _LocalVideoThumbnailState extends State<LocalVideoThumbnail> {
   }
 
   @override
-  Widget build(BuildContext context) => _image == null || widget.isViewOnce
-      ? widget.fallback
-      : Stack(
-          fit: StackFit.expand,
-          children: [
-            RawImage(image: _image, fit: BoxFit.cover),
-            const Positioned(
-              right: 8,
-              bottom: 8,
-              child: Icon(
-                Icons.play_circle_outline,
-                color: Colors.white,
-                shadows: [Shadow(blurRadius: 4, color: Colors.black)],
-              ),
-            ),
-          ],
-        );
+  Widget build(BuildContext context) {
+    final image = _image;
+    if (image == null || widget.isViewOnce) return widget.fallback;
+    final preview = Stack(
+      fit: StackFit.expand,
+      children: [
+        RawImage(
+          image: image,
+          fit: widget.preserveAspectRatio ? BoxFit.contain : BoxFit.cover,
+        ),
+        const Positioned(
+          right: 8,
+          bottom: 8,
+          child: Icon(
+            Icons.play_circle_outline,
+            color: Colors.white,
+            shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+          ),
+        ),
+      ],
+    );
+    return widget.preserveAspectRatio
+        ? AspectRatio(aspectRatio: image.width / image.height, child: preview)
+        : preview;
+  }
 }

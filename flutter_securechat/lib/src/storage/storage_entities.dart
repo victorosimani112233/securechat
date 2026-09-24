@@ -239,6 +239,7 @@ class MessageEntity {
     int? editedAt,
     String? editHistory,
     Object? reactions = _notProvided,
+    Object? caption = _notProvided,
     bool? isViewed,
     bool? isPinned,
     Object? pinnedAt = _notProvided,
@@ -259,7 +260,9 @@ class MessageEntity {
     reactions: identical(reactions, _notProvided)
         ? this.reactions
         : reactions as String?,
-    caption: caption,
+    caption: identical(caption, _notProvided)
+        ? this.caption
+        : caption as String?,
     isViewOnce: isViewOnce,
     isViewed: isViewed ?? this.isViewed,
     isPinned: isPinned ?? this.isPinned,
@@ -371,6 +374,7 @@ class CallLogEntity {
     required this.status,
     required this.timestamp,
     this.duration = 0,
+    this.groupId,
   });
 
   final String id;
@@ -381,6 +385,7 @@ class CallLogEntity {
   final String status;
   final int timestamp;
   final int duration;
+  final String? groupId;
 
   factory CallLogEntity.fromJson(Map<String, Object?> json) => CallLogEntity(
     id: json['id'] as String? ?? '',
@@ -391,6 +396,7 @@ class CallLogEntity {
     status: json['status'] as String? ?? '',
     timestamp: (json['timestamp'] as num?)?.toInt() ?? 0,
     duration: (json['duration'] as num?)?.toInt() ?? 0,
+    groupId: json['groupId'] as String?,
   );
 
   Map<String, Object?> toJson() => {
@@ -402,6 +408,7 @@ class CallLogEntity {
     'status': status,
     'timestamp': timestamp,
     'duration': duration,
+    if (groupId != null) 'groupId': groupId,
   };
 }
 

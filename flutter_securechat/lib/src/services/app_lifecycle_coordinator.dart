@@ -98,7 +98,7 @@ class AppLifecycleCoordinator {
           senderId: userId,
           recipientId: 'server',
           timestamp: DateTime.now(),
-          isOnline: true,
+          isOnline: _session.shareOnline,
           lastSeen: DateTime.now(),
           hideLastSeen: !_session.shareLastSeen,
         ),

@@ -91,7 +91,12 @@ class _MessageBubble extends StatelessWidget {
                       : null,
                   onLongPress: message.isDeleted ? null : onLongPress,
                   child: Padding(
-                    padding: const EdgeInsetsDirectional.fromSTEB(11, 7, 10, 5),
+                    padding: const EdgeInsetsDirectional.fromSTEB(
+                      16,
+                      10,
+                      14,
+                      8,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -153,6 +158,7 @@ class _MessageBubble extends StatelessWidget {
                           _ViewOnceTextContent(message: message)
                         else
                           _HighlightedMessageText(
+                            key: ValueKey('message-text-${message.id}'),
                             text: message.previewText,
                             query: searchQuery,
                           ),
@@ -194,7 +200,10 @@ class _MessageBubble extends StatelessWidget {
                                 size: 15,
                                 color: message.status == MessageStatus.failed
                                     ? scheme.error
-                                    : message.status == MessageStatus.read
+                                    : message.status == MessageStatus.read &&
+                                          AppContainerScope.of(
+                                            context,
+                                          ).session.shareReadReceipts
                                     ? scheme.primary
                                     : scheme.onSurfaceVariant,
                               ),
@@ -243,7 +252,10 @@ class _MessageBubble extends StatelessWidget {
     MessageStatus.sending => context.l10n.sending,
     MessageStatus.sent => context.l10n.sent,
     MessageStatus.delivered => context.l10n.delivered,
-    MessageStatus.read => context.l10n.read,
+    MessageStatus.read =>
+      AppContainerScope.of(context).session.shareReadReceipts
+          ? context.l10n.read
+          : context.l10n.delivered,
     MessageStatus.failed => context.l10n.failed,
   };
 
@@ -354,16 +366,36 @@ class _ViewOnceTextContent extends StatelessWidget {
   );
 }
 
-class _HighlightedMessageText extends StatelessWidget {
-  const _HighlightedMessageText({required this.text, required this.query});
+class _HighlightedMessageText extends StatefulWidget {
+  const _HighlightedMessageText({
+    super.key,
+    required this.text,
+    required this.query,
+  });
 
   final String text;
   final String query;
 
   @override
+  State<_HighlightedMessageText> createState() =>
+      _HighlightedMessageTextState();
+}
+
+class _HighlightedMessageTextState extends State<_HighlightedMessageText> {
+  bool _expanded = false;
+  String get text => widget.text;
+  String get query => widget.query;
+
+  @override
+  void didUpdateWidget(covariant _HighlightedMessageText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != text) _expanded = false;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final clean = query.trim();
-    if (clean.isEmpty) return Text(text);
+    if (clean.isEmpty) return _collapsible(context, TextSpan(text: text));
     final lower = text.toLowerCase();
     final needle = clean.toLowerCase();
     final spans = <InlineSpan>[];
@@ -389,7 +421,58 @@ class _HighlightedMessageText extends StatelessWidget {
       );
       cursor = match + needle.length;
     }
-    return Text.rich(TextSpan(children: spans));
+    return _collapsible(context, TextSpan(children: spans));
+  }
+
+  Widget _collapsible(BuildContext context, TextSpan span) {
+    if (text.length < 100 && '\n'.allMatches(text).length < 6) {
+      return Text.rich(span);
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final painter = TextPainter(
+          text: TextSpan(
+            style: DefaultTextStyle.of(context).style,
+            children: [span],
+          ),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: 8,
+        )..layout(maxWidth: constraints.maxWidth);
+        final long = painter.didExceedMaxLines;
+        painter.dispose();
+        final expanded = _expanded || query.trim().isNotEmpty;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text.rich(
+              span,
+              maxLines: long && !expanded ? 8 : null,
+              overflow: long && !expanded
+                  ? TextOverflow.ellipsis
+                  : TextOverflow.clip,
+            ),
+            if (long && query.trim().isEmpty)
+              TextButton(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 0,
+                    vertical: 8,
+                  ),
+                  alignment: AlignmentDirectional.centerStart,
+                ),
+                onPressed: () => setState(() => _expanded = !_expanded),
+                child: Text(
+                  expanded
+                      ? context.l10n.message_show_less
+                      : context.l10n.message_show_more,
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -434,9 +517,8 @@ class _SwipeToReplyState extends State<_SwipeToReply>
     super.dispose();
   }
 
-  double get _currentOffset => _spring.isAnimating
-      ? _releaseOffset * (1 - _spring.value)
-      : _offset;
+  double get _currentOffset =>
+      _spring.isAnimating ? _releaseOffset * (1 - _spring.value) : _offset;
 
   void _onUpdate(DragUpdateDetails details) {
     final direction = Directionality.of(context) == TextDirection.rtl ? -1 : 1;
@@ -487,11 +569,7 @@ class _SwipeToReplyState extends State<_SwipeToReply>
                   opacity: progress,
                   child: Transform.scale(
                     scale: .7 + (progress * .3),
-                    child: Icon(
-                      Icons.reply,
-                      size: 20,
-                      color: scheme.primary,
-                    ),
+                    child: Icon(Icons.reply, size: 20, color: scheme.primary),
                   ),
                 ),
               ),

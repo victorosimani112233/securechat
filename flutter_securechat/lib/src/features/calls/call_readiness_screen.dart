@@ -134,7 +134,7 @@ class _CallReadinessScreenState extends State<CallReadinessScreen>
           granted ? Icons.check_circle : Icons.arrow_forward,
           color: granted ? AzureTokens.ok : Theme.of(context).colorScheme.error,
         ),
-        onTap: granted ? null : () => _open(kind),
+        onTap: () => _open(kind),
       ),
     );
   }

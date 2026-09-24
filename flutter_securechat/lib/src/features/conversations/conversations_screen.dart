@@ -12,10 +12,13 @@ import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/haptics.dart';
 import '../../widgets/azure_empty_state.dart';
+import '../contacts/contacts_screen.dart';
+import '../contacts/create_group_flow.dart';
+import '../chat/starred_messages_screen.dart';
 
 enum ConversationFilter { none, unread, groups, favorites }
 
-enum _ConversationMenuAction { newChat, newGroup, bulk, scheduled }
+enum _ConversationMenuAction { newChat, newGroup, bulk, scheduled, starred }
 
 class ConversationsScreen extends StatefulWidget {
   const ConversationsScreen({super.key, this.embedded = false});
@@ -108,6 +111,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     icon: const Icon(Icons.more_vert),
                     onSelected: _handleMenu,
                     itemBuilder: (context) => [
+                      _menuItem(
+                        _ConversationMenuAction.starred,
+                        Icons.star_outline,
+                        context.l10n.starred_messages,
+                      ),
                       _menuItem(
                         _ConversationMenuAction.newChat,
                         Icons.person_add_outlined,
@@ -599,7 +607,12 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         MessageStatus.sending => (Icons.schedule, scheme.onSurfaceVariant),
         MessageStatus.sent => (Icons.done, scheme.onSurfaceVariant),
         MessageStatus.delivered => (Icons.done_all, scheme.onSurfaceVariant),
-        MessageStatus.read => (Icons.done_all, scheme.primary),
+        MessageStatus.read => (
+          Icons.done_all,
+          AppContainerScope.of(context).session.shareReadReceipts
+              ? scheme.primary
+              : scheme.onSurfaceVariant,
+        ),
         MessageStatus.failed => (Icons.error_outline, scheme.error),
         null => (Icons.done, scheme.onSurfaceVariant),
       };
@@ -682,15 +695,30 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   ) => PopupMenuItem(
     value: value,
     child: Row(
-      children: [Icon(icon, size: 20), const SizedBox(width: 12), Text(label)],
+      children: [
+        Icon(icon, size: 20),
+        const SizedBox(width: 12),
+        Expanded(child: Text(label)),
+      ],
     ),
   );
 
   void _handleMenu(_ConversationMenuAction action) {
     switch (action) {
+      case _ConversationMenuAction.starred:
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const StarredMessagesScreen(),
+          ),
+        );
       case _ConversationMenuAction.newChat:
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const ContactsScreen(newChat: true),
+          ),
+        );
       case _ConversationMenuAction.newGroup:
-        Navigator.pushNamed(context, '/contacts');
+        showCreateGroupFlow(context);
       case _ConversationMenuAction.bulk:
         Navigator.pushNamed(context, '/bulk-message');
       case _ConversationMenuAction.scheduled:

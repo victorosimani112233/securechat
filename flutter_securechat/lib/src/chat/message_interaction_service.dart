@@ -10,7 +10,8 @@ import 'private_chat_control.dart';
 import 'message_reactions.dart';
 import 'conversation_preview.dart';
 
-export 'message_reactions.dart' show parseReactions, allowedMessageReactions;
+export 'message_reactions.dart'
+    show parseReactions, allowedMessageReactions, isValidMessageReaction;
 
 class MessageInteractionService {
   MessageInteractionService({
@@ -111,7 +112,7 @@ class MessageInteractionService {
   }
 
   Future<bool> _toggleReaction(String messageId, String emoji) async {
-    if (!allowedMessageReactions.contains(emoji)) return false;
+    if (!isValidMessageReaction(emoji)) return false;
     final context = await _context(messageId);
     if (context == null ||
         context.message.contentType == StorageMessageContentType.deleted) {

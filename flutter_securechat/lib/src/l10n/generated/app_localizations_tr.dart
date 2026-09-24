@@ -9,6 +9,12 @@ class AppLocalizationsTr extends AppLocalizations {
   AppLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get calls_filter_video => 'Görüntülü';
+
+  @override
+  String get calls_filter_empty => 'Bu filtrede arama yok';
+
+  @override
   String get group_added_notification => 'Bir gruba eklendiniz.';
 
   @override
@@ -606,7 +612,30 @@ class AppLocalizationsTr extends AppLocalizations {
       'Sohbetleri şifreli olarak yedekle veya geri yükle';
 
   @override
-  String get settings_storage_usage => 'Depolama Kullanımı';
+  String get settings_storage_usage => 'Depolama';
+
+  @override
+  String get create_group_and_add => 'Grubu kur ve Kişileri Ekle';
+
+  @override
+  String get recipient_action_failed =>
+      'İşlem tamamlanamadı. Lütfen tekrar deneyin.';
+
+  @override
+  String get settings_share_online => 'Çevrimiçi bilgimi paylaş';
+
+  @override
+  String get settings_read_receipts => 'Okundu bilgisi';
+
+  @override
+  String get settings_read_receipts_desc =>
+      'Kapalıyken okundu bilgisi gönderilmez ve başkalarının okundu bilgisini göremezsiniz.';
+
+  @override
+  String get message_show_more => 'Daha fazlasını gör';
+
+  @override
+  String get message_show_less => 'Daha az göster';
 
   @override
   String get chat_info_note_label => 'Not';
@@ -721,7 +750,7 @@ class AppLocalizationsTr extends AppLocalizations {
   String get sched_tab_create => 'Oluştur';
 
   @override
-  String get sched_tab_existing => 'Mevcut Planlananlar';
+  String get sched_tab_existing => 'Planlar';
 
   @override
   String get sched_message_placeholder => 'Mesajınızı yazın…';

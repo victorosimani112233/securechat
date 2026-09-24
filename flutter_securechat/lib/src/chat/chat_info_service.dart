@@ -44,6 +44,8 @@ class ChatInfoService {
       _database.messages.getDocumentMessages(id);
   Stream<List<MessageEntity>> watchStarred(String id) =>
       _database.messages.getStarredMessages(id);
+  Stream<List<MessageEntity>> watchAllStarred() =>
+      _database.messages.getAllStarredMessages();
   Stream<List<MessageEntity>> search(String id, String query) =>
       _database.messages.searchMessages(id, query);
   Future<void> updateNote(String id, String note) =>

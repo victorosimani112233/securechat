@@ -17,6 +17,50 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/private_chat_control_support.dart';
 
 void main() {
+  test(
+    'private read receipt is only treated as delivery while sharing is disabled',
+    () async {
+      final fixture = await _Fixture.open(shareReadReceipts: false);
+      addTearDown(fixture.close);
+      await fixture.database.conversations.insert(
+        const ConversationEntity(
+          id: 'alice',
+          peerId: 'alice',
+          peerName: 'Alice',
+          peerPhone: '',
+        ),
+      );
+      await fixture.database.messages.insert(
+        const MessageEntity(
+          id: 'private-read',
+          conversationId: 'alice',
+          senderId: 'me',
+          content: 'Hello',
+          contentType: StorageMessageContentType.text,
+          timestamp: 1,
+          status: StorageMessageStatus.sent,
+          isOutgoing: true,
+        ),
+      );
+      fixture.signaling.addIncoming(
+        await encryptTestPrivateChatControl(
+          crypto: fixture.crypto,
+          control: DeliveryReceiptSignal(
+            senderId: 'alice',
+            recipientId: 'me',
+            timestamp: DateTime.now(),
+            messageId: 'private-read',
+            status: 'READ',
+          ),
+        ),
+      );
+      await fixture.handler.waitForIdle();
+      expect(
+        (await fixture.database.messages.getById('private-read'))!.status,
+        StorageMessageStatus.delivered,
+      );
+    },
+  );
   test('message envelope parser preserves all ordered metadata', () {
     final parsed = parseMessageEnvelope(
       'MSGID:m1:REPLY:r1:EXP:9000:VIEWONCE:MENTION:me,bob:POLL:{"q":"?"}',
@@ -558,7 +602,7 @@ class _Fixture {
   final IncomingMessageHandler handler;
   final List<(String, String)> receivedMediaKeys;
 
-  static Future<_Fixture> open() async {
+  static Future<_Fixture> open({bool shareReadReceipts = true}) async {
     final directory = await Directory.systemTemp.createTemp('incoming_test_');
     final crypto = LocalAeadCryptoService(
       SecretKey(List.generate(32, (index) => index + 3)),
@@ -578,7 +622,11 @@ class _Fixture {
       signaling: signaling,
       crypto: crypto,
       database: database,
-      session: SessionStore(userId: 'me', accessToken: 'token'),
+      session: SessionStore(
+        userId: 'me',
+        accessToken: 'token',
+        shareReadReceipts: shareReadReceipts,
+      ),
       applyCallMediaKey:
           ({required String senderId, required String payload}) async {
             mediaKeys.add((senderId, payload));

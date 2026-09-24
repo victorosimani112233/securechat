@@ -9,6 +9,12 @@ class AppLocalizationsAr extends AppLocalizations {
   AppLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get calls_filter_video => 'فيديو';
+
+  @override
+  String get calls_filter_empty => 'لا توجد مكالمات تطابق هذا الفلتر';
+
+  @override
   String get group_added_notification => 'تمت إضافتك إلى مجموعة.';
 
   @override
@@ -620,7 +626,30 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settings_backup_desc => 'Back up chats encrypted or restore';
 
   @override
-  String get settings_storage_usage => 'Storage Usage';
+  String get settings_storage_usage => 'التخزين';
+
+  @override
+  String get create_group_and_add => 'إنشاء المجموعة وإضافة الأشخاص';
+
+  @override
+  String get recipient_action_failed =>
+      'تعذر إكمال العملية. يرجى المحاولة مرة أخرى.';
+
+  @override
+  String get settings_share_online => 'مشاركة حالة الاتصال';
+
+  @override
+  String get settings_read_receipts => 'إيصالات القراءة';
+
+  @override
+  String get settings_read_receipts_desc =>
+      'عند إيقافها لن ترسل إيصالات القراءة أو ترى إيصالات الآخرين.';
+
+  @override
+  String get message_show_more => 'عرض المزيد';
+
+  @override
+  String get message_show_less => 'عرض أقل';
 
   @override
   String get chat_info_note_label => 'Note';

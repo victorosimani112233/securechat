@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../calls/call_history_service.dart';
+import '../../core/models.dart';
 import '../../media/call_models.dart';
 import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
@@ -10,77 +11,175 @@ import 'call_screen.dart';
 import '../../widgets/azure_surface.dart';
 import '../../widgets/azure_empty_state.dart';
 
-class CallHistoryScreen extends StatelessWidget {
+enum _CallFilter { all, missed, incoming, outgoing, video, group }
+
+class CallHistoryScreen extends StatefulWidget {
   const CallHistoryScreen({super.key, this.embedded = false});
 
   final bool embedded;
 
   @override
+  State<CallHistoryScreen> createState() => _CallHistoryScreenState();
+}
+
+class _CallHistoryScreenState extends State<CallHistoryScreen> {
+  _CallFilter _filter = _CallFilter.all;
+
+  @override
   Widget build(BuildContext context) {
-    final runtime = AppContainerScope.of(context).mediaRuntime;
+    final container = AppContainerScope.of(context);
+    final runtime = container.mediaRuntime;
     return AzureBackdrop(
       child: Scaffold(
         appBar: AppBar(
-          automaticallyImplyLeading: !embedded,
+          automaticallyImplyLeading: !widget.embedded,
           title: Text(context.l10n.nav_calls),
         ),
-        body: runtime == null
-            ? AzureEmptyState(
-                icon: Icons.call_outlined,
-                title: context.l10n.no_call_history,
-                message: context.l10n.calls_empty_body,
-              )
-            : StreamBuilder<List<CallHistoryEntry>>(
-                stream: runtime.callHistory.watchAll(),
-                builder: (context, snapshot) {
-                  final calls = snapshot.data ?? const [];
-                  if (calls.isEmpty) {
-                    return AzureEmptyState(
-                      icon: Icons.call_outlined,
-                      title: context.l10n.no_call_history,
-                      message: context.l10n.calls_empty_body,
-                    );
-                  }
-                  return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-                    itemCount: calls.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 7),
-                    itemBuilder: (context, index) {
-                      final call = calls[index];
-                      final video = call.callType == CallType.video;
-                      // Desen yazinin altindan gecmemeli: opak yuzey.
-                      return AzureSurface(
-                        child: ListTile(
-                          leading: GeneratedAvatar(name: call.peerName),
-                          title: Text(call.peerName),
-                          subtitle: Text(_description(context, call)),
-                          trailing: IconButton(
-                            tooltip: video
-                                ? context.l10n.video_call
-                                : context.l10n.voice_call,
-                            icon: Icon(
-                              video
-                                  ? Icons.videocam_outlined
-                                  : Icons.call_outlined,
-                            ),
-                            onPressed: () => Navigator.of(context).pushNamed(
-                              '/calls',
-                              arguments: CallRouteArguments(
-                                peerId: call.peerId,
-                                peerName: call.peerName,
-                                callType: video
-                                    ? CallType.video
-                                    : CallType.voice,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
+        body: SafeArea(
+          top: false,
+          child: StreamBuilder<List<Conversation>>(
+            stream: container.conversations.watchConversations(),
+            builder: (context, conversations) {
+              final groups = {
+                for (final conversation
+                    in conversations.data ?? <Conversation>[])
+                  if (conversation.isGroup) conversation.id: conversation,
+              };
+              return StreamBuilder<List<CallHistoryEntry>>(
+                stream: runtime?.callHistory.watchAll(),
+                builder: (context, snapshot) => _content(
+                  snapshot.data ?? const [],
+                  groups,
+                  container.session.userId,
+                ),
+              );
+            },
+          ),
+        ),
       ),
+    );
+  }
+
+  String? _groupId(CallHistoryEntry call, Map<String, Conversation> groups) =>
+      call.groupId ?? (groups.containsKey(call.peerId) ? call.peerId : null);
+
+  Widget _content(
+    List<CallHistoryEntry> source,
+    Map<String, Conversation> groups,
+    String? userId,
+  ) {
+    final l10n = context.l10n;
+    final calls = source
+        .where(
+          (call) => switch (_filter) {
+            _CallFilter.all => true,
+            _CallFilter.missed => call.status == CallHistoryStatus.missed,
+            _CallFilter.incoming => call.direction == CallDirection.incoming,
+            _CallFilter.outgoing => call.direction == CallDirection.outgoing,
+            _CallFilter.video => call.callType == CallType.video,
+            _CallFilter.group => _groupId(call, groups) != null,
+          },
+        )
+        .toList(growable: false);
+    final labels = {
+      _CallFilter.all: l10n.conv_filter_all,
+      _CallFilter.missed: l10n.missed,
+      _CallFilter.incoming: l10n.incoming,
+      _CallFilter.outgoing: l10n.outgoing,
+      _CallFilter.video: l10n.calls_filter_video,
+      _CallFilter.group: l10n.group,
+    };
+    return Column(
+      children: [
+        SizedBox(
+          height: (MediaQuery.textScalerOf(context).scale(14) + 28).clamp(
+            48,
+            double.infinity,
+          ),
+          child: ListView(
+            key: const ValueKey('call-history-filters'),
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: [
+              for (final entry in labels.entries)
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 8),
+                  child: FilterChip(
+                    key: ValueKey('call-filter-${entry.key.name}'),
+                    label: Text(entry.value),
+                    selected: _filter == entry.key,
+                    showCheckmark: true,
+                    onSelected: (_) => setState(() => _filter = entry.key),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: calls.isEmpty
+              ? AzureEmptyState(
+                  icon: Icons.call_outlined,
+                  title: source.isEmpty
+                      ? l10n.no_call_history
+                      : l10n.calls_filter_empty,
+                  message: source.isEmpty ? l10n.calls_empty_body : null,
+                )
+              : ListView.separated(
+                  key: ValueKey('call-history-${_filter.name}'),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                  itemCount: calls.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 7),
+                  itemBuilder: (context, index) {
+                    final call = calls[index];
+                    final video = call.callType == CallType.video;
+                    final groupId = _groupId(call, groups);
+                    final group = groups[groupId];
+                    final canCall =
+                        groupId == null ||
+                        (userId != null &&
+                            group != null &&
+                            !group.hasLeftGroup(userId));
+                    return AzureSurface(
+                      key: ValueKey('call-history-entry-${call.id}'),
+                      child: ListTile(
+                        leading: GeneratedAvatar(name: call.peerName),
+                        title: Text(call.peerName),
+                        subtitle: Text(
+                          [
+                            if (groupId != null) l10n.group,
+                            _description(context, call),
+                          ].join(' · '),
+                        ),
+                        trailing: IconButton(
+                          tooltip: video ? l10n.video_call : l10n.voice_call,
+                          icon: Icon(
+                            video
+                                ? Icons.videocam_outlined
+                                : Icons.call_outlined,
+                          ),
+                          onPressed: !canCall
+                              ? null
+                              : () => Navigator.of(context).pushNamed(
+                                  '/calls',
+                                  arguments: CallRouteArguments(
+                                    peerId: groupId ?? call.peerId,
+                                    peerName: call.peerName,
+                                    callType: call.callType,
+                                    isGroupCall: groupId != null,
+                                    peerIds:
+                                        group?.groupMembers
+                                            .where((id) => id != userId)
+                                            .toList() ??
+                                        const [],
+                                  ),
+                                ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 

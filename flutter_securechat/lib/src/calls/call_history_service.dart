@@ -14,6 +14,7 @@ class CallHistoryEntry {
     required this.status,
     required this.timestamp,
     required this.duration,
+    this.groupId,
   });
 
   final String id;
@@ -24,6 +25,7 @@ class CallHistoryEntry {
   final CallHistoryStatus status;
   final DateTime timestamp;
   final Duration duration;
+  final String? groupId;
 }
 
 class CallHistoryService {
@@ -50,6 +52,7 @@ class CallHistoryService {
     status: _status(entry.status),
     timestamp: DateTime.fromMillisecondsSinceEpoch(entry.timestamp),
     duration: Duration(milliseconds: entry.duration),
+    groupId: entry.groupId,
   );
 
   static CallHistoryStatus _status(String value) => switch (value) {

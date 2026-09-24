@@ -28,6 +28,25 @@ import 'package:flutter_securechat/src/widgets/azure_surface.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'privacy switches persist independently and immediately publish hidden presence',
+    () async {
+      final fixture = await _SettingsFixture.open(connected: true);
+      addTearDown(fixture.close);
+      await fixture.settings.setShareLastSeen(true);
+      await fixture.settings.setShareOnline(false);
+      await fixture.settings.setShareReadReceipts(false);
+      final restored = SessionStore()..loadJson(fixture.session.toJson());
+      expect(restored.shareOnline, isFalse);
+      expect(restored.shareReadReceipts, isFalse);
+      expect(restored.shareLastSeen, isTrue);
+      final presence = fixture.signaling.sentMessages
+          .whereType<PresenceUpdateSignal>()
+          .last;
+      expect(presence.isOnline, isFalse);
+      expect(presence.hideLastSeen, isFalse);
+    },
+  );
   setUpAll(() async {
     for (final entry in {
       'Inter': 'assets/fonts/inter_regular.ttf',
@@ -153,6 +172,19 @@ void main() {
       await tester.pumpAndSettle();
       final toggle = find.byKey(const ValueKey('scheduled-messages-enabled'));
       expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      final tabs = find.byType(Tab);
+      expect(tabs, findsNWidgets(3));
+      final bar = tester.getRect(find.byType(TabBar));
+      for (var index = 0; index < 3; index++) {
+        final tab = tester.getRect(tabs.at(index));
+        expect(
+          tab.center.dx,
+          closeTo(bar.left + bar.width * (index + .5) / 3, 1),
+        );
+        expect(tab.left, greaterThanOrEqualTo(bar.left));
+        expect(tab.right, lessThanOrEqualTo(bar.right));
+      }
+      expect(tester.widget<TabBar>(find.byType(TabBar)).isScrollable, isFalse);
       await _settingsScreenshot(tester, 'scheduled-$width');
       for (final enabled in [false, true]) {
         await tester.runAsync(() async {
@@ -164,10 +196,13 @@ void main() {
         expect(tester.widget<SwitchListTile>(toggle).value, enabled);
         expect(fixture.session.scheduledMessagesEnabled, enabled);
       }
-      await tester.ensureVisible(find.text(l10n.sched_tab_history));
+      await tester.tap(find.text(l10n.sched_tab_existing));
       await tester.pumpAndSettle();
+      expect(find.text(l10n.no_scheduled_messages), findsOneWidget);
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
       await tester.tap(find.text(l10n.sched_tab_history));
       await tester.pumpAndSettle();
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 2);
       expect(toggle, findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.tap(

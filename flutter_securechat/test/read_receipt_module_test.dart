@@ -14,6 +14,47 @@ import 'support/private_chat_control_support.dart';
 
 void main() {
   test(
+    'disabled read receipts mark locally without later disclosing old reads',
+    () async {
+      final fixture = await _Fixture.open();
+      addTearDown(fixture.close);
+      final session = SessionStore(
+        userId: 'me',
+        accessToken: 'token',
+        shareReadReceipts: false,
+      );
+      final service = ReadReceiptService(
+        database: fixture.database,
+        session: session,
+        signaling: fixture.signaling,
+        crypto: fixture.crypto,
+        deliveredVisibilityDelay: Duration.zero,
+      );
+      await fixture.insertIncoming('private', senderId: 'alice');
+      expect(await service.markConversationRead('alice'), 0);
+      expect(
+        (await fixture.database.messages.getById('private'))!.status,
+        StorageMessageStatus.read,
+      );
+      expect(
+        (await fixture.database.conversations.getById('alice'))!.unreadCount,
+        0,
+      );
+      expect(fixture.signaling.sentMessages, isEmpty);
+      session.shareReadReceipts = true;
+      expect(await service.markConversationRead('alice'), 0);
+      await fixture.insertIncoming('shared', senderId: 'alice');
+      expect(await service.markConversationRead('alice'), 1);
+      expect(
+        (await fixture.sentControls())
+            .whereType<DeliveryReceiptSignal>()
+            .single
+            .messageId,
+        'shared',
+      );
+    },
+  );
+  test(
     'opening a chat marks incoming messages read and sends one receipt',
     () async {
       final fixture = await _Fixture.open();

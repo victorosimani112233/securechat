@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'shared_content_browser.dart';
 import '../calls/group_call_banner.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -28,6 +29,7 @@ import '../../services/app_container.dart';
 import '../../services/conversation_repository.dart';
 import '../../services/peer_activity_source.dart';
 import '../../widgets/avatar.dart';
+import '../../widgets/local_video_thumbnail.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/azure_options.dart';
 import '../../theme/secure_chat_theme.dart';
@@ -44,7 +46,13 @@ part "chat_message_details.part.dart";
 part "chat_chrome.part.dart";
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  const ChatScreen({
+    super.key,
+    this.initialMessageId,
+    this.openStarred = false,
+  });
+  final String? initialMessageId;
+  final bool openStarred;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -60,6 +68,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   var _nearBottom = true;
   var _unseenCount = 0;
   var _knownMessageCount = -1;
+  bool _initialNavigationDone = false;
   var _searchIndex = 0;
   String? _highlightedMessageId;
   List<LocalMessage> _latestMessages = const [];
@@ -659,6 +668,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final shouldFollow = previousCount < 0 || _nearBottom;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_messageScroll.hasClients) return;
+      if (!_initialNavigationDone &&
+          _accessGranted &&
+          (widget.initialMessageId != null || widget.openStarred)) {
+        _initialNavigationDone = true;
+        _openInitialTarget();
+        return;
+      }
       if (shouldFollow) {
         _messageScroll.jumpTo(_messageScroll.position.maxScrollExtent);
         if (!_nearBottom || _unseenCount != 0) {
@@ -671,6 +687,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         setState(() => _unseenCount += added);
       }
     });
+  }
+
+  Future<void> _openInitialTarget() async {
+    if (widget.initialMessageId != null) {
+      _scrollToMessage(widget.initialMessageId!);
+      return;
+    }
+    final service = AppContainerScope.of(context).chatInfoRuntime?.service;
+    if (service == null) return;
+    final id = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => SharedContentBrowser(
+          service: service,
+          conversationId: _conversation!.id,
+          section: SharedContentSection.starred,
+          closeOnBackground: _conversation!.isLocked,
+        ),
+      ),
+    );
+    if (mounted && id != null) _scrollToMessage(id);
   }
 
   List<LocalMessage> get _searchMatches {
@@ -798,16 +834,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             },
     );
     final selectable = selecting
-        ? Row(
-            children: [
-              Checkbox(
-                value: _forwardSelection.contains(message.id),
-                onChanged: canForward
-                    ? (_) => _toggleForwardSelection(message)
-                    : null,
-              ),
-              Expanded(child: bubble),
-            ],
+        ? GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: canForward ? () => _toggleForwardSelection(message) : null,
+            child: Row(
+              children: [
+                if (canForward)
+                  Checkbox(
+                    value: _forwardSelection.contains(message.id),
+                    onChanged: canForward
+                        ? (_) => _toggleForwardSelection(message)
+                        : null,
+                  ),
+                Expanded(child: IgnorePointer(child: bubble)),
+              ],
+            ),
           )
         : bubble;
     if (selecting || !_canReply(message)) return selectable;
@@ -826,9 +867,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   String _senderLabel(LocalMessage message) {
     if (message.isOutgoing) return context.l10n.chat_you;
     if (_conversation?.isGroup != true) return _conversation!.peerName;
-    final identity = _groupIdentities[message.senderId];
+    return _memberLabel(message.senderId);
+  }
+
+  String _memberLabel(String id) {
+    final identity = _groupIdentities[id];
     final name = identity?.displayName.trim() ?? '';
-    if (name.isNotEmpty && name != message.senderId) return name;
+    if (name.isNotEmpty && name != id) return name;
     final phone = identity?.phoneNumber.trim() ?? '';
     return phone.isNotEmpty ? phone : context.l10n.group_unknown_member;
   }
@@ -1146,7 +1191,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       builder: (_) => _VoiceRecorderSheet(recorder: runtime.voiceNotes),
     );
     if (!mounted || draft == null) return;
-    _notice(context, context.l10n.voice_encrypting);
     try {
       final outcome = await runtime.mediaMessages.sendVoiceNote(
         conversationId: conversation.id,
@@ -1156,9 +1200,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         groupMembers: conversation.groupMembers,
       );
       if (!mounted) return;
-      if (outcome.result is FileTransferSuccess) {
-        _notice(context, context.l10n.voice_sent);
-      } else {
+      if (outcome.result is! FileTransferSuccess) {
         final failure = outcome.result as FileTransferFailure;
         _notice(context, context.l10n.voice_send_failed(failure.message));
       }
@@ -1204,7 +1246,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!mounted || request == null) return;
     final runtime = AppContainerScope.of(context).mediaRuntime;
     if (runtime == null) return;
-    _notice(context, context.l10n.media_encrypting);
     late final List<MediaSendOutcome> outcomes;
     try {
       outcomes = await runtime.mediaMessages.send(
@@ -1224,9 +1265,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final failures = outcomes
         .where((outcome) => outcome.result is FileTransferFailure)
         .toList();
-    if (failures.isEmpty) {
-      _notice(context, context.l10n.media_sent(outcomes.length));
-    } else {
+    if (failures.isNotEmpty) {
       final first = failures.first.result as FileTransferFailure;
       _notice(
         context,
@@ -1243,38 +1282,46 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final runtime = AppContainerScope.of(context).mediaRuntime;
       if (runtime == null) return;
       final snapshot = message.content;
-      await Navigator.push<void>(
-        context,
-        MaterialPageRoute(
-          fullscreenDialog: true,
-          builder: (viewerContext) => Scaffold(
-            backgroundColor: Colors.black,
-            appBar: AppBar(
+      if (!await runtime.mediaMessages.markViewOnceViewed(message)) return;
+      if (!context.mounted) {
+        runtime.mediaMessages.finishViewOnce(message.id);
+        return;
+      }
+      try {
+        await Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (viewerContext) => Scaffold(
               backgroundColor: Colors.black,
-              foregroundColor: Colors.white,
-              leading: IconButton(
-                tooltip: viewerContext.l10n.action_close,
-                onPressed: () => Navigator.pop(viewerContext),
-                icon: const Icon(Icons.close),
+              appBar: AppBar(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                leading: IconButton(
+                  tooltip: viewerContext.l10n.action_close,
+                  onPressed: () => Navigator.pop(viewerContext),
+                  icon: const Icon(Icons.close),
+                ),
+                title: Text(viewerContext.l10n.view_once_protected),
               ),
-              title: Text(viewerContext.l10n.view_once_protected),
-            ),
-            body: SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(28),
-                  child: Text(
-                    snapshot,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white, fontSize: 20),
+              body: SafeArea(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(28),
+                    child: Text(
+                      snapshot,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 20),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      await runtime.mediaMessages.markViewOnceViewed(message);
+        );
+      } finally {
+        runtime.mediaMessages.finishViewOnce(message.id);
+      }
       return;
     }
     if (!message.isFileMessage) return;
@@ -1285,18 +1332,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
     if (message.isViewOnce) {
-      await runtime.mediaMessages.markViewOnceViewed(message);
+      if (!await runtime.mediaMessages.markViewOnceViewed(message)) return;
     }
-    if (!context.mounted) return;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MediaViewerScreen(
-          message: message,
-          fileActions: runtime.localFiles,
+    if (!context.mounted) {
+      if (message.isViewOnce) runtime.mediaMessages.finishViewOnce(message.id);
+      return;
+    }
+    try {
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MediaViewerScreen(
+            message: message,
+            fileActions: runtime.localFiles,
+            onViewOnceClosed: () =>
+                runtime.mediaMessages.finishViewOnce(message.id),
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (message.isViewOnce) runtime.mediaMessages.finishViewOnce(message.id);
+    }
   }
 
   Future<void> _showPollDialog(
@@ -1337,15 +1393,43 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       showDragHandle: true,
       builder: (sheetContext) {
         final bottomSafeArea = MediaQuery.viewPaddingOf(sheetContext).bottom;
-        return SizedBox(
-          height: MediaQuery.sizeOf(sheetContext).height * .82,
+        return ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * .85,
+          ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
+              Flexible(
                 child: ListView(
+                  shrinkWrap: true,
                   key: const ValueKey('message-action-list'),
                   padding: const EdgeInsets.only(bottom: 8),
                   children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceEvenly,
+                        children: [
+                          for (final emoji in allowedMessageReactions.take(5))
+                            IconButton(
+                              tooltip: emoji,
+                              onPressed: () =>
+                                  Navigator.pop(sheetContext, 'emoji:$emoji'),
+                              icon: Text(
+                                emoji,
+                                style: const TextStyle(fontSize: 24),
+                              ),
+                            ),
+                          IconButton(
+                            tooltip: sheetContext.l10n.choose_reaction,
+                            onPressed: () =>
+                                Navigator.pop(sheetContext, 'reaction'),
+                            icon: const Icon(Icons.add_reaction_outlined),
+                          ),
+                        ],
+                      ),
+                    ),
                     ListTile(
                       leading: const Icon(Icons.reply),
                       title: Text(sheetContext.l10n.msg_action_reply),
@@ -1358,11 +1442,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         title: Text(sheetContext.l10n.msg_action_copy),
                         onTap: () => Navigator.pop(sheetContext, 'copy'),
                       ),
-                    ListTile(
-                      leading: const Icon(Icons.emoji_emotions_outlined),
-                      title: Text(sheetContext.l10n.add_reaction),
-                      onTap: () => Navigator.pop(sheetContext, 'reaction'),
-                    ),
                     if (!message.isViewOnce &&
                         !message.isDeleted &&
                         message.contentType != MessageContentType.system)
@@ -1440,7 +1519,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!mounted || action == null) return;
     if (action == 'copy') {
       await Clipboard.setData(ClipboardData(text: message.content));
-      if (mounted) _notice(context, context.l10n.message_copied);
+      await HapticFeedback.selectionClick();
       return;
     }
     if (action == 'forward') {
@@ -1456,6 +1535,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     final service = AppContainerScope.of(context).chatInfoRuntime?.interactions;
     if (service == null) return;
+    if (action.startsWith('emoji:')) {
+      if (!await service.toggleReaction(message.id, action.substring(6)) &&
+          mounted) {
+        _notice(context, context.l10n.reaction_failed);
+      }
+      return;
+    }
     switch (action) {
       case 'reply':
         setState(() => _replying = message);
@@ -1524,10 +1610,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         .where(_canForward)
         .toList(growable: false);
     if (!mounted || selected.isEmpty) return;
-    _notice(
-      context,
-      context.l10n.forward_encrypting(selected.length, target.peerName),
-    );
     final outcomes = await service.forwardAll(
       sources: selected,
       target: target,
@@ -1540,14 +1622,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final encryptionFailures = outcomes
         .where((outcome) => outcome == ForwardMessageOutcome.encryptionFailed)
         .length;
-    _notice(
-      context,
-      encryptionFailures > 0
-          ? context.l10n.forward_encryption_result(sent, encryptionFailures)
-          : sent == outcomes.length
-          ? context.l10n.forward_sent(sent)
-          : context.l10n.forward_partial(sent, outcomes.length - sent),
-    );
+    if (sent != outcomes.length)
+      _notice(
+        context,
+        encryptionFailures > 0
+            ? context.l10n.forward_encryption_result(sent, encryptionFailures)
+            : sent == outcomes.length
+            ? context.l10n.forward_sent(sent)
+            : context.l10n.forward_partial(sent, outcomes.length - sent),
+      );
   }
 
   Future<void> _showMessageInfo(LocalMessage message) => showDialog<void>(
@@ -1556,6 +1639,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       message: message,
       conversation: _conversation!,
       localUserId: AppContainerScope.of(context).session.userId ?? '',
+      recipientLabels: {
+        for (final member in _conversation!.groupMembers)
+          member: _memberLabel(member),
+      },
     ),
   );
 
@@ -1565,24 +1652,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   ) async {
     final emoji = await showDialog<String>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(context.l10n.choose_reaction),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Wrap(
-              spacing: 8,
-              children: ['👍', '❤️', '😂', '😮', '😢', '🙏']
-                  .map(
-                    (value) => IconButton(
-                      onPressed: () => Navigator.pop(context, value),
-                      icon: Text(value, style: const TextStyle(fontSize: 25)),
-                    ),
-                  )
-                  .toList(growable: false),
+      builder: (context) => TextControllerScope(
+        builder: (context, controller) => AlertDialog(
+          title: Text(context.l10n.choose_reaction),
+          content: TextField(
+            key: const ValueKey('reaction-emoji-input'),
+            controller: controller,
+            autofocus: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            maxLength: 1,
+            decoration: InputDecoration(
+              labelText: context.l10n.choose_reaction,
+              prefixIcon: const Icon(Icons.emoji_emotions_outlined),
             ),
+            onSubmitted: (value) {
+              if (isValidMessageReaction(value)) Navigator.pop(context, value);
+            },
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(context.l10n.cancel),
+            ),
+            ValueListenableBuilder(
+              valueListenable: controller,
+              builder: (context, value, _) => FilledButton(
+                onPressed: isValidMessageReaction(value.text)
+                    ? () => Navigator.pop(context, value.text)
+                    : null,
+                child: Text(context.l10n.send),
+              ),
+            ),
+          ],
+        ),
       ),
     );
     if (emoji != null &&
