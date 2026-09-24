@@ -65,6 +65,8 @@ class CallManager {
     JanusClientFactory? janusClientFactory,
     PeerNameResolver? peerNameResolver,
     GroupLocalIdResolver? groupLocalIdResolver,
+    Future<List<String>> Function(String groupId)? groupCallTokens,
+    Future<bool> Function(String groupId, String peerId)? groupMemberValidator,
     GroupCallPrivacyPreparation? preparePrivateGroupCall,
     CallMediaKeyDistributor? distributeCallMediaKey,
     MissedCallLifecycle? missedCalls,
@@ -84,6 +86,8 @@ class CallManager {
        _missedCalls = missedCalls,
        _peerNameResolver = peerNameResolver ?? _identityPeerName,
        _groupLocalIdResolver = groupLocalIdResolver ?? _rejectUnknownGroup,
+       _groupCallTokens = groupCallTokens,
+       _groupMemberValidator = groupMemberValidator,
        _preparePrivateGroupCall = preparePrivateGroupCall,
        _distributeCallMediaKey = distributeCallMediaKey,
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure) {
@@ -108,6 +112,112 @@ class CallManager {
   final JanusClientFactory _janusClientFactory;
   final PeerNameResolver _peerNameResolver;
   final GroupLocalIdResolver _groupLocalIdResolver;
+  final Future<List<String>> Function(String groupId)? _groupCallTokens;
+  final Future<bool> Function(String groupId, String peerId)?
+  _groupMemberValidator;
+  final _statusRequests = <String, Completer<GroupCallStatusResponseSignal?>>{};
+  bool _lateJoining = false;
+
+  void openCurrentCall() => _requestCallOpen();
+
+  Future<ActiveGroupCall?> activeGroupCall(String groupId) async {
+    if (_disposed ||
+        !await _signaling.ensureConnected(timeout: const Duration(seconds: 5)))
+      return null;
+    final tokens = <String>{
+      if (_current?.groupId == groupId && _currentGroupRoutingToken != null)
+        _currentGroupRoutingToken!,
+      ...await _groupCallTokens?.call(groupId) ?? const <String>[],
+    };
+    for (final token in tokens) {
+      final response = await _queryGroupCall(token);
+      if (response == null ||
+          !response.isActive ||
+          response.callId == null ||
+          response.coordinatorId == null ||
+          !const ['VOICE', 'VIDEO'].contains(response.callType))
+        continue;
+      if (_groupMemberValidator != null &&
+          !await _groupMemberValidator(groupId, response.coordinatorId!))
+        continue;
+      return ActiveGroupCall(
+        groupId: groupId,
+        routingToken: token,
+        callId: response.callId!,
+        coordinatorId: response.coordinatorId!,
+        callType: response.callType == 'VIDEO'
+            ? CallType.video
+            : CallType.voice,
+        mediaE2ee: response.mediaE2ee,
+        participants: response.participants,
+      );
+    }
+    return null;
+  }
+
+  Future<GroupCallStatusResponseSignal?> _queryGroupCall(String token) async {
+    final running = _statusRequests[token];
+    if (running != null) return running.future;
+    final pending = Completer<GroupCallStatusResponseSignal?>();
+    _statusRequests[token] = pending;
+    try {
+      if (!await _signaling.send(
+        GroupCallStatusQuerySignal(
+          senderId: _requireUserId(),
+          timestamp: DateTime.now(),
+          groupId: token,
+        ),
+      ))
+        return null;
+      return await pending.future.timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => null,
+      );
+    } finally {
+      _statusRequests.remove(token);
+      if (!pending.isCompleted) pending.complete(null);
+    }
+  }
+
+  Future<bool> joinActiveGroupCall(ActiveGroupCall expected) async {
+    final current = _current;
+    if (_hasLiveCall) {
+      if (_terminating) return false;
+      if (current!.callId != expected.callId) return false;
+      return current.state == CallState.ringing &&
+              current.direction == CallDirection.incoming
+          ? acceptCall()
+          : true;
+    }
+    final active = await activeGroupCall(expected.groupId);
+    if (active == null ||
+        active.callId != expected.callId ||
+        active.routingToken != expected.routingToken ||
+        _hasLiveCall)
+      return false;
+    if (active.participants.length >= maxGroupCallParticipants &&
+        !active.participants.contains(_session.userId))
+      return false;
+    _lateJoining = true;
+    try {
+      await _handleGroupInvite(
+        GroupCallInviteSignal(
+          senderId: active.coordinatorId,
+          recipientId: _requireUserId(),
+          timestamp: DateTime.now(),
+          groupId: active.routingToken,
+          callId: active.callId,
+          callType: active.callType.name.toUpperCase(),
+          participants: const [],
+          mediaE2ee: active.mediaE2ee,
+        ),
+      );
+      return await acceptCall();
+    } finally {
+      _lateJoining = false;
+    }
+  }
+
   final CallMediaKeyDistributor? _distributeCallMediaKey;
 
   /// Aktif cagrinin medya anahtari. Cagri bitince bellekten dusurulur.
@@ -564,11 +674,34 @@ class CallManager {
     }
   }
 
-  Future<bool> acceptCall() async {
+  Future<bool>? _acceptingCall;
+  Future<void>? _incomingNativeReport;
+
+  Future<bool> acceptCall() => _acceptCallOnce(fromNative: false);
+
+  Future<bool> _acceptCallOnce({required bool fromNative}) {
+    final pending = _acceptingCall;
+    if (pending != null) return pending;
+    final task = _acceptCall(fromNative: fromNative);
+    _acceptingCall = task;
+    return task.whenComplete(() => _acceptingCall = null);
+  }
+
+  Future<bool> _acceptCall({required bool fromNative}) async {
     final session = _current;
     if (session == null ||
         session.direction != CallDirection.incoming ||
         session.state != CallState.ringing) {
+      return false;
+    }
+    try {
+      await _incomingNativeReport;
+      if (!fromNative) await _nativeCalls?.answer(session.callId);
+    } catch (error, stackTrace) {
+      _reportCallFailure('answer-native-call', error, stackTrace);
+      return false;
+    }
+    if (_current?.callId != session.callId || _current?.isTerminal == true) {
       return false;
     }
     if (session.isGroupCall) return _acceptGroupCall(session);
@@ -632,6 +765,27 @@ class CallManager {
         if (_current?.callId == session.callId) await groupMedia.close();
         return false;
       }
+      if (_lateJoining) {
+        // Confirm local frame-crypto support before advertising it. No tracks
+        // are published until the coordinator sends a fresh authenticated key.
+        if (_mediaEncryptionRequired) {
+          await groupMedia.enableMediaEncryption(
+            CallMediaKey.generate(callId: session.callId),
+          );
+        }
+        if (!await _signaling.send(
+          GroupCallJoinRequestSignal(
+            senderId: _requireUserId(),
+            recipientId: session.peerId,
+            timestamp: DateTime.now(),
+            groupId: _currentGroupRoutingToken!,
+            callId: session.callId,
+            callType: session.callType.name.toUpperCase(),
+            mediaE2ee: _mediaEncryptionRequired,
+          ),
+        ))
+          throw StateError('Late join request could not be delivered');
+      }
       if (_mediaEncryptionRequired && !_mediaEncryptionActive) {
         await _mediaKeyReady.future.timeout(mediaKeyTimeout);
       }
@@ -644,17 +798,19 @@ class CallManager {
       }
       _groupMediaReady = true;
       final userId = _requireUserId();
-      final capabilitySent = await _signaling.send(
-        GroupCallJoinRequestSignal(
-          senderId: userId,
-          recipientId: session.peerId,
-          timestamp: DateTime.now(),
-          groupId: _currentGroupRoutingToken!,
-          callId: session.callId,
-          callType: session.callType.name.toUpperCase(),
-          mediaE2ee: _mediaEncryptionActive,
-        ),
-      );
+      final capabilitySent =
+          _lateJoining ||
+          await _signaling.send(
+            GroupCallJoinRequestSignal(
+              senderId: userId,
+              recipientId: session.peerId,
+              timestamp: DateTime.now(),
+              groupId: _currentGroupRoutingToken!,
+              callId: session.callId,
+              callType: session.callType.name.toUpperCase(),
+              mediaE2ee: _mediaEncryptionActive,
+            ),
+          );
       if (!capabilitySent) {
         throw StateError('Media encryption capability could not be delivered');
       }
@@ -844,7 +1000,7 @@ class CallManager {
           _track(_handleIce(signal));
         }
       case CallControlSignal():
-        if (_current?.isGroupCall == true) {
+        if (signal.groupId != null || _current?.isGroupCall == true) {
           _queueGroupSignal(() => _handleControl(signal));
         } else {
           _track(_handleControl(signal));
@@ -917,7 +1073,8 @@ class CallManager {
     _pendingOffer = signal.sdp;
     _pendingIce.clear();
     _setSession(incoming);
-    await _nativeCalls?.reportIncoming(incoming);
+    _incomingNativeReport = _nativeCalls?.reportIncoming(incoming);
+    await _incomingNativeReport;
     _missedCalls?.start(incoming);
     await _sendControl(signal.senderId, 'RINGING', reliable: false);
     _startRingTimeout();
@@ -1077,7 +1234,10 @@ class CallManager {
         _hasLiveCall)
       return;
     final localGroupId = await _groupLocalIdResolver(signal.groupId);
-    if (localGroupId == null || localGroupId.isEmpty) {
+    if (localGroupId == null ||
+        localGroupId.isEmpty ||
+        (_groupMemberValidator != null &&
+            !await _groupMemberValidator(localGroupId, signal.senderId))) {
       await _sendControl(
         'server',
         'HANGUP',
@@ -1131,6 +1291,7 @@ class CallManager {
               .toList(),
     );
     _setSession(session);
+    if (_lateJoining) _dropPendingMediaKeysForCall(signal.callId);
     final pending = _takePendingMediaKey(signal.callId, signal.senderId);
     if (_mediaEncryptionRequired && pending != null) {
       await applyIncomingMediaKey(
@@ -1141,7 +1302,8 @@ class CallManager {
     } else if (!_mediaEncryptionRequired) {
       _dropPendingMediaKeysForCall(signal.callId);
     }
-    await _nativeCalls?.reportIncoming(session);
+    _incomingNativeReport = _nativeCalls?.reportIncoming(session);
+    await _incomingNativeReport;
     _missedCalls?.start(session);
     _startRingTimeout();
   }
@@ -1171,9 +1333,19 @@ class CallManager {
         !_isGroupCoordinator ||
         signal.groupId != _currentGroupRoutingToken ||
         signal.callId != session.callId ||
-        signal.callType.toUpperCase() != session.callType.name.toUpperCase() ||
-        !session.peerIds.contains(signal.senderId))
+        signal.callType.toUpperCase() != session.callType.name.toUpperCase())
       return;
+    if (_groupMemberValidator != null &&
+        !await _groupMemberValidator(session.groupId!, signal.senderId))
+      return;
+    if (!session.peerIds.contains(signal.senderId)) {
+      if (_groupMemberValidator == null ||
+          session.peerIds.length >= maxGroupCallParticipants - 1)
+        return;
+      _setSession(
+        session.copyWith(peerIds: [...session.peerIds, signal.senderId]),
+      );
+    }
     if (_mediaEncryptionRequired && !signal.mediaE2ee) {
       throw StateError('Joining peer cannot decrypt required group media');
     }
@@ -1442,6 +1614,10 @@ class CallManager {
   }
 
   Future<void> _handleGroupStatus(GroupCallStatusResponseSignal signal) async {
+    if (signal.senderId != 'server' || signal.recipientId != _session.userId)
+      return;
+    final pending = _statusRequests[signal.groupId];
+    if (pending != null && !pending.isCompleted) pending.complete(signal);
     final session = _current;
     if (session == null ||
         !session.isGroupCall ||
@@ -1827,7 +2003,7 @@ class CallManager {
     switch (action.type) {
       case NativeCallActionType.answer:
         _requestCallOpen();
-        _track(acceptCall());
+        _track(_acceptCallOnce(fromNative: true));
       case NativeCallActionType.end:
         // Sistem bildirimindeki "Reddet" ve aktif cagridaki "Kapat" ayni
         // native aksiyona dusuyor. Henuz kabul edilmemis GELEN bir cagriyi
@@ -1878,6 +2054,10 @@ class CallManager {
   }
 
   Future<void> _dispose() async {
+    for (final request in _statusRequests.values) {
+      if (!request.isCompleted) request.complete(null);
+    }
+    _statusRequests.clear();
     if (!_mediaKeyReady.isCompleted) _mediaKeyReady.complete();
     _ringTimer?.cancel();
     _reconnectTimer?.cancel();

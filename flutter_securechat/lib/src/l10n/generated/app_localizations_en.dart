@@ -9,6 +9,29 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get group_added_notification => 'You were added to a group.';
+
+  @override
+  String get group_create_failed =>
+      'Could not create the group. Check your connection and try again.';
+
+  @override
+  String get group_call_active_voice => 'Voice call in progress';
+
+  @override
+  String get group_call_active_video => 'Video call in progress';
+
+  @override
+  String get group_call_join => 'Join';
+
+  @override
+  String get group_call_return => 'Return to call';
+
+  @override
+  String get group_call_join_failed =>
+      'The call has ended or could not be joined.';
+
+  @override
   String get identity_review_title => 'Verify identity';
 
   @override

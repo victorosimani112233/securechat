@@ -1,4 +1,11 @@
 {
+  "group_added_notification": "Bir gruba eklendiniz.",
+  "group_create_failed": "Grup oluşturulamadı. Bağlantınızı kontrol edip tekrar deneyin.",
+  "group_call_active_voice": "Devam eden sesli arama",
+  "group_call_active_video": "Devam eden görüntülü arama",
+  "group_call_join": "Katıl",
+  "group_call_return": "Aramaya dön",
+  "group_call_join_failed": "Arama artık aktif değil veya katılım sağlanamadı.",
   "@@locale": "tr",
   "identity_review_title": "Kimliği doğrula",
   "identity_review_warning": "Kimlik değişikliği hesap kurtarma, yeni bir cihaz veya saldırı anlamına gelebilir. Onaylamadan önce güncel SHA-256 parmak izini bu kişiyle yüz yüze veya güvenilir, bağımsız bir kanal üzerinden karşılaştırın. Bu sohbetteki bir mesaja güvenmeyin. Karşınızdaki kişi de sizin parmak izinizi kendi cihazında karşılaştırabilir.",

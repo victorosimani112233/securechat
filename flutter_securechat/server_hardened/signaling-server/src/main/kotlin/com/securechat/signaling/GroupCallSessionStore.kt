@@ -35,6 +35,8 @@ object GroupCallSessionStore {
          * uzerinden yapilir.
          */
         val participants: Set<String>,
+        // Call-scoped admission only, never a persistent group directory.
+        val invitedParticipants: Set<String> = participants,
         val joinedParticipants: Set<String> = participants,
         val requiresMediaE2ee: Boolean = false,
         val instanceId: String = java.util.UUID.randomUUID().toString(),
@@ -97,9 +99,14 @@ object GroupCallSessionStore {
             current.callType != callType || current.requiresMediaE2ee != mediaE2ee
         ) return@admission JoinResult.CONTEXT_MISMATCH
         if (recipientId in current.participants) return@admission JoinResult.ALREADY_PRESENT
-        if (current.participants.size >= SfuPolicy.MAX_PARTICIPANTS) return@admission JoinResult.CAPACITY_REACHED
+        if (current.participants.size >= SfuPolicy.MAX_PARTICIPANTS ||
+            (recipientId !in current.invitedParticipants && current.invitedParticipants.size >= 256)
+        ) return@admission JoinResult.CAPACITY_REACHED
         if (callsFor(recipientId) >= MAX_CALLS_PER_USER) return@admission JoinResult.USER_CAPACITY_REACHED
-        active[groupId] = current.copy(participants = current.participants + recipientId)
+        active[groupId] = current.copy(
+            participants = current.participants + recipientId,
+            invitedParticipants = current.invitedParticipants + recipientId,
+        )
         JoinResult.ADDED
         }
     }
@@ -115,11 +122,18 @@ object GroupCallSessionStore {
         if (current.callId != callId || current.coordinatorId != coordinatorId || current.callType != callType) {
             return@synchronized JoinResult.CONTEXT_MISMATCH
         }
-        if (userId !in current.participants) return@synchronized JoinResult.NOT_INVITED
+        if (userId !in current.invitedParticipants) return@synchronized JoinResult.NOT_INVITED
+        if (userId !in current.participants && current.participants.size >= SfuPolicy.MAX_PARTICIPANTS) {
+            return@synchronized JoinResult.CAPACITY_REACHED
+        }
+        if (userId !in current.participants && callsFor(userId) >= MAX_CALLS_PER_USER) {
+            return@synchronized JoinResult.USER_CAPACITY_REACHED
+        }
         if (!mediaE2ee && (current.requiresMediaE2ee || current.mode != "MESH")) {
             return@synchronized JoinResult.ENCRYPTION_REQUIRED
         }
         active[groupId] = current.copy(
+            participants = current.participants + userId,
             joinedParticipants = current.joinedParticipants + userId,
             mediaE2eeParticipants = if (mediaE2ee) current.mediaE2eeParticipants + userId
                 else current.mediaE2eeParticipants - userId,
@@ -224,6 +238,7 @@ object GroupCallSessionStore {
             if (current.participants.size >= minOf(capacity, SfuPolicy.MAX_PARTICIPANTS)) return JoinResult.CAPACITY_REACHED
             active[groupId] = current.copy(
                 participants = current.participants + userId,
+                invitedParticipants = current.invitedParticipants + userId,
                 joinedParticipants = current.joinedParticipants + userId,
                 mediaE2eeParticipants = if (mediaE2ee) {
                     current.mediaE2eeParticipants + userId

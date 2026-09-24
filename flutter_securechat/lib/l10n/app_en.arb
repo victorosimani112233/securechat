@@ -1,4 +1,11 @@
 {
+  "group_added_notification": "You were added to a group.",
+  "group_create_failed": "Could not create the group. Check your connection and try again.",
+  "group_call_active_voice": "Voice call in progress",
+  "group_call_active_video": "Video call in progress",
+  "group_call_join": "Join",
+  "group_call_return": "Return to call",
+  "group_call_join_failed": "The call has ended or could not be joined.",
   "@@locale": "en",
   "identity_review_title": "Verify identity",
   "identity_review_warning": "A changed identity may mean account recovery, a new device, or an attack. Before approving, compare the current SHA-256 fingerprint with this person in person or through a trusted independent channel. Do not rely on a message in this chat. They can compare your fingerprint on their device too.",

@@ -1198,6 +1198,7 @@ class GroupCallStatusResponseSignal extends SignalMessage {
     this.mode,
     this.sfuRoomId,
     this.janusWsUrl,
+    this.mediaE2ee = false,
   });
 
   final String groupId;
@@ -1209,6 +1210,7 @@ class GroupCallStatusResponseSignal extends SignalMessage {
   final String? mode;
   final int? sfuRoomId;
   final String? janusWsUrl;
+  final bool mediaE2ee;
 
   @override
   String get type => 'group_call_status_response';
@@ -1227,6 +1229,7 @@ class GroupCallStatusResponseSignal extends SignalMessage {
         mode: json['mode'] as String?,
         sfuRoomId: (json['sfuRoomId'] as num?)?.toInt(),
         janusWsUrl: json['janusWsUrl'] as String?,
+        mediaE2ee: json['mediaE2ee'] as bool? ?? false,
       );
 
   @override
@@ -1241,6 +1244,7 @@ class GroupCallStatusResponseSignal extends SignalMessage {
     if (mode != null) 'mode': mode,
     if (sfuRoomId != null) 'sfuRoomId': sfuRoomId,
     if (janusWsUrl != null) 'janusWsUrl': janusWsUrl,
+    'mediaE2ee': mediaE2ee,
   };
 }
 

@@ -107,6 +107,18 @@ enum SecureChatContactsAccess {
         self?.handleCallKitReport(call.arguments, incoming: false, result: result)
       case "setNativeCallActive":
         self?.handleCallKitState(call.arguments, active: true, result: result)
+      case "answerNativeCall":
+        guard let callId = (call.arguments as? [String: Any])?["callId"] as? String else {
+          result(FlutterError(code: "INVALID_ARGUMENTS", message: "callId is missing", details: nil))
+          return
+        }
+        self?.callIntegration.answer(callId: callId) { error in
+          if let error = error {
+            result(FlutterError(code: "ANSWER_CALL_FAILED", message: error.localizedDescription, details: nil))
+          } else {
+            result(nil)
+          }
+        }
       case "setCallSpeaker":
         // CallKit owns the call lifecycle, while flutter_webrtc owns the
         // AVAudioSession route. Returning false keeps that route as fallback.
@@ -565,6 +577,7 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   private let requestTransaction: TransactionRequester
   private var uuidByCallId: [String: UUID] = [:]
   private var callIdByUuid: [UUID: String] = [:]
+  private var answerCompletions: [UUID: (Error?) -> Void] = [:]
 
   init(requestTransaction: TransactionRequester? = nil) {
     let controller = CXCallController()
@@ -633,6 +646,22 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
     provider?.reportOutgoingCall(with: uuid, connectedAt: Date())
   }
 
+  func answer(callId: String, completion: @escaping (Error?) -> Void) {
+    guard let uuid = uuidByCallId[callId] else {
+      completion(NSError(domain: "SecureChatCallKit", code: 1,
+                         userInfo: [NSLocalizedDescriptionKey: "Incoming call is unavailable"]))
+      return
+    }
+    answerCompletions[uuid] = completion
+    requestTransaction(CXTransaction(action: CXAnswerCallAction(call: uuid))) { [weak self] error in
+      // Transaction acceptance is not completion of the answer action. Dart
+      // starts media only after the provider configures the audio session.
+      if let error = error {
+        DispatchQueue.main.async { self?.completeAnswer(uuid: uuid, error: error) }
+      }
+    }
+  }
+
   func end(callId: String, completion: @escaping (Error?) -> Void) {
     guard let uuid = uuidByCallId[callId] else {
       completion(nil)
@@ -650,6 +679,9 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   }
 
   func providerDidReset(_ provider: CXProvider) {
+    for uuid in Array(answerCompletions.keys) {
+      completeAnswer(uuid: uuid, error: answerUnavailable())
+    }
     uuidByCallId.removeAll()
     callIdByUuid.removeAll()
   }
@@ -657,10 +689,27 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
     guard configureCallAudio() else {
       action.fail()
+      completeAnswer(uuid: action.callUUID, error: answerUnavailable())
       return
     }
     if let callId = callIdByUuid[action.callUUID] { onAction?("answer", callId) }
     action.fulfill()
+    completeAnswer(uuid: action.callUUID, error: nil)
+  }
+
+  func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
+    if let answer = action as? CXAnswerCallAction {
+      completeAnswer(uuid: answer.callUUID, error: answerUnavailable())
+    }
+  }
+
+  private func answerUnavailable() -> Error {
+    NSError(domain: "SecureChatCallKit", code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Call could not be answered"])
+  }
+
+  private func completeAnswer(uuid: UUID, error: Error?) {
+    answerCompletions.removeValue(forKey: uuid)?(error)
   }
 
   func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
@@ -718,6 +767,7 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   }
 
   private func forget(uuid: UUID) {
+    completeAnswer(uuid: uuid, error: answerUnavailable())
     guard let callId = callIdByUuid.removeValue(forKey: uuid) else { return }
     uuidByCallId.removeValue(forKey: callId)
   }

@@ -10,6 +10,7 @@ import 'package:flutter_securechat/src/media/group_media_engine.dart';
 import 'package:flutter_securechat/src/media/ice_server_fetcher.dart';
 import 'package:flutter_securechat/src/media/janus_client.dart';
 import 'package:flutter_securechat/src/media/media_engine.dart';
+import 'package:flutter_securechat/src/media/native_call_integration.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
@@ -21,6 +22,75 @@ const bob = '00000000-0000-4000-8000-000000000002';
 const carol = '00000000-0000-4000-8000-000000000003';
 
 void main() {
+  test(
+    'app answer activates native call once even when system echoes answer',
+    () async {
+      final f = await _Network.open(nativeAnswer: true);
+      addTearDown(f.dispose);
+      await f.start(peers: [bob]);
+      await _until(() => f.nodes[bob]!.manager.currentSession != null);
+      final results = await Future.wait([
+        f.nodes[bob]!.manager.acceptCall(),
+        f.nodes[bob]!.manager.acceptCall(),
+      ]);
+      expect(results, [true, true]);
+      expect(f.nativeAnswers, 1);
+      await _until(
+        () => f.frames.whereType<GroupCallJoinRequestSignal>().isNotEmpty,
+      );
+      expect(f.frames.whereType<GroupCallJoinRequestSignal>(), hasLength(1));
+      expect(f.failures, isEmpty);
+    },
+  );
+
+  for (final type in CallType.values) {
+    test(
+      '${type.name}: declined member rejoins active call with a fresh media key',
+      () async {
+        final f = await _Network.open();
+        addTearDown(f.dispose);
+        await f.start(type: type);
+        await _until(
+          () =>
+              f.nodes[bob]!.manager.currentSession != null &&
+              f.nodes[carol]!.manager.currentSession != null,
+        );
+        await f.nodes[bob]!.manager.acceptCall();
+        await _until(() => f.nodes[alice]!.media.remoteSdp.contains(bob));
+        f.nodes[alice]!.media.states.add(
+          GroupPeerState(bob, MediaConnectionState.connected),
+        );
+        await f.nodes[carol]!.manager.rejectCall();
+        await _until(
+          () =>
+              !f.nodes[alice]!.manager.currentSession!.peerIds.contains(carol),
+        );
+        final prior = f.nodes[alice]!.media.key;
+        final active = await f.nodes[carol]!.manager.activeGroupCall(
+          'local-group',
+        );
+        expect(active, isNotNull);
+        expect(active!.callType, type);
+        expect(
+          await f.nodes[carol]!.manager.joinActiveGroupCall(active),
+          isTrue,
+        );
+        await _until(() => f.nodes[carol]!.media.remoteSdp.length == 2);
+        expect(f.nodes[carol]!.media.key, f.nodes[alice]!.media.key);
+        expect(f.nodes[carol]!.media.key, isNot(prior));
+        expect(f.failures, isEmpty);
+        await f.nodes[alice]!.manager.endCall();
+        expect(
+          await f.nodes[carol]!.manager.activeGroupCall('local-group'),
+          isNull,
+        );
+        expect(
+          await f.nodes[carol]!.manager.joinActiveGroupCall(active),
+          isFalse,
+        );
+      },
+    );
+  }
   for (final type in CallType.values) {
     test('${type.name}: concurrent joins form every mesh edge once', () async {
       final f = await _Network.open();
@@ -394,9 +464,11 @@ class _Network {
   bool rejectOffers = false;
   bool preparedWhileConnected = false;
   int janusCreated = 0;
+  int nativeAnswers = 0;
 
   static Future<_Network> open({
     bool encrypted = true,
+    bool nativeAnswer = false,
     Duration keyTimeout = const Duration(seconds: 1),
     Duration terminalVisibility = const Duration(minutes: 1),
   }) async {
@@ -420,6 +492,10 @@ class _Network {
         mediaKeyTimeout: keyTimeout,
         groupLocalIdResolver: (token) async =>
             token == f.token ? 'local-group' : null,
+        groupCallTokens: (_) async => [f.token],
+        groupMemberValidator: (_, peer) async =>
+            [alice, bob, carol].contains(peer),
+        nativeCalls: nativeAnswer ? _AnswerNative(f, id) : null,
         preparePrivateGroupCall:
             ({required groupId, required groupName, required peerIds}) async {
               f.preparedWhileConnected = wire.ready;
@@ -526,6 +602,34 @@ class _Wire extends InMemorySignalingService {
   Future<bool> send(SignalMessage message) async {
     final decoded = SignalMessage.decode(message.encode());
     network.frames.add(decoded);
+    if (decoded is GroupCallStatusQuerySignal) {
+      final current = network.nodes[alice]!.manager.currentSession;
+      final active = current != null && !current.isTerminal;
+      network.deliver(
+        GroupCallStatusResponseSignal(
+          recipientId: decoded.senderId,
+          timestamp: DateTime.now(),
+          groupId: decoded.groupId,
+          isActive: active,
+          callId: active ? current.callId : null,
+          coordinatorId: active ? alice : null,
+          callType: active ? current.callType.name.toUpperCase() : null,
+          mediaE2ee:
+              active && network.nodes[alice]!.manager.mediaEncryptionActive,
+          participants: active
+              ? [
+                  alice,
+                  ...current.peerIds.where(
+                    (id) =>
+                        network.nodes[id]!.manager.currentSession?.state !=
+                        CallState.ringing,
+                  ),
+                ]
+              : const [],
+        ),
+      );
+      return true;
+    }
     if (network.rejectOffers && decoded is SdpOfferSignal) return false;
     network.deliver(decoded);
     if (decoded is CallControlSignal && decoded.messageId != null) {
@@ -541,6 +645,36 @@ class _Wire extends InMemorySignalingService {
     }
     return true;
   }
+}
+
+class _AnswerNative implements NativeCallIntegration {
+  _AnswerNative(this.network, this.userId);
+  final _Network network;
+  final String userId;
+  final controller = StreamController<NativeCallAction>.broadcast();
+  @override
+  Stream<NativeCallAction> get actions => controller.stream;
+  @override
+  Future<void> initialize() async {}
+  @override
+  Future<void> reportIncoming(CallSession session) async {}
+  @override
+  Future<void> reportOutgoing(CallSession session) async {}
+  @override
+  Future<void> answer(String callId) async {
+    network.nativeAnswers++;
+    controller.add(
+      NativeCallAction(type: NativeCallActionType.answer, callId: callId),
+    );
+    await Future<void>.delayed(Duration.zero);
+  }
+
+  @override
+  Future<void> setActive(String callId) async {}
+  @override
+  Future<bool> setSpeaker(String callId, bool enabled) async => false;
+  @override
+  Future<void> end(String callId) async {}
 }
 
 class _UnusedMedia implements MediaEngine {

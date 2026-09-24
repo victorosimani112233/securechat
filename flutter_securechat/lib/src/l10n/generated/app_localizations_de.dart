@@ -9,6 +9,29 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get group_added_notification => 'Du wurdest einer Gruppe hinzugefügt.';
+
+  @override
+  String get group_create_failed =>
+      'Die Gruppe konnte nicht erstellt werden. Prüfe deine Verbindung und versuche es erneut.';
+
+  @override
+  String get group_call_active_voice => 'Laufender Sprachanruf';
+
+  @override
+  String get group_call_active_video => 'Laufender Videoanruf';
+
+  @override
+  String get group_call_join => 'Beitreten';
+
+  @override
+  String get group_call_return => 'Zurück zum Anruf';
+
+  @override
+  String get group_call_join_failed =>
+      'Der Anruf ist beendet oder der Beitritt ist fehlgeschlagen.';
+
+  @override
   String get identity_review_title => 'Identität prüfen';
 
   @override

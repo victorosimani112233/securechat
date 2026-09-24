@@ -1466,6 +1466,8 @@ class _FakeNativeCalls implements NativeCallIntegration {
   @override
   Future<void> setActive(String callId) async {}
   @override
+  Future<void> answer(String callId) async {}
+  @override
   Future<bool> setSpeaker(String callId, bool enabled) async {
     speakerRequests.add((callId, enabled));
     return handlesSpeaker;

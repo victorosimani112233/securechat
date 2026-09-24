@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
@@ -11,11 +12,15 @@ import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
 import 'package:flutter_securechat/src/crypto/signal_protocol_crypto_service.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
 import 'package:flutter_securechat/src/chat/private_chat_control.dart';
-import 'package:flutter_securechat/src/contacts/contact_discovery_api.dart';
 import 'package:flutter_securechat/src/contacts/phone_number_sharing_service.dart';
 import 'package:flutter_securechat/src/domain/send_message_use_case.dart';
 import 'package:flutter_securechat/src/groups/private_group_control.dart';
 import 'package:flutter_securechat/src/groups/private_group_route.dart';
+import 'package:flutter_securechat/src/contacts/contact_service.dart';
+import 'package:flutter_securechat/src/network/network_resilience.dart';
+import 'package:flutter_securechat/src/incoming/incoming_message_handler.dart';
+import 'package:flutter_securechat/src/media/file_transfer_manager.dart';
+import 'package:flutter_securechat/src/notifications/message_notification_service.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
@@ -23,6 +28,238 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 
 void main() {
+  test(
+    'missing group recipient key sends no media and commits no partial group',
+    () async {
+      final f = await _SignalFixture.open();
+      addTearDown(f.close);
+      final wire = InMemorySignalingService()..setConnected(true);
+      final queue = OfflineMessageQueue(
+        database: f.aliceDatabase,
+        signaling: wire,
+      );
+      final sender = FileTransferManager(
+        signaling: wire,
+        crypto: f.alice,
+        filesDirectory: Directory('${f.directory.path}/out'),
+        metadataCrypto: LocalAeadCryptoService(SecretKey(List.filled(32, 7))),
+      );
+      addTearDown(() async {
+        await sender.dispose();
+        await queue.close();
+        await wire.dispose();
+      });
+      final result = await sender.sendStream(
+        localUserId: 'alice',
+        recipientId: 'group',
+        stream: Stream.value([1]),
+        fileSize: 1,
+        fileName: 'voice.m4a',
+        mimeType: 'audio/mp4',
+        isGroup: true,
+        groupMembers: ['alice', 'missing'],
+      );
+      expect(result, isA<FileTransferFailure>());
+      expect(wire.sentMessages.whereType<FileTransferSignal>(), isEmpty);
+      final contacts = ContactService(
+        deviceContacts: _NoContacts(),
+        api: _UnusedDirectory(),
+        database: f.aliceDatabase,
+        session: SessionStore(userId: 'alice'),
+        groupControls: PrivateGroupControlSender(
+          crypto: f.alice,
+          signaling: wire,
+        ),
+        offlineQueue: queue,
+      );
+      await expectLater(
+        contacts.createGroup('Partial', [
+          const ContactEntity(
+            id: 'bob',
+            phoneNumber: '',
+            phoneHash: '',
+            displayName: 'Bob',
+            isRegistered: true,
+          ),
+          const ContactEntity(
+            id: 'missing',
+            phoneNumber: '',
+            phoneHash: '',
+            displayName: 'Missing',
+            isRegistered: true,
+          ),
+        ]),
+        throwsStateError,
+      );
+      expect(await f.aliceDatabase.conversations.getAllGroups(), isEmpty);
+      expect(await queue.getPendingCount(), 0);
+      expect(wire.sentMessages, isEmpty);
+    },
+  );
+  for (final privateContent in [true, false]) {
+    test(
+      'new group notifies without chat text, privacy=$privateContent',
+      () async {
+        final f = await _SignalFixture.open();
+        addTearDown(f.close);
+        final wire = InMemorySignalingService()..setConnected(true);
+        final receiver = InMemorySignalingService();
+        final queue = OfflineMessageQueue(
+          database: f.aliceDatabase,
+          signaling: wire,
+        );
+        final session = SessionStore(
+          userId: 'bob',
+          languagePreference: 'tr',
+          showNotificationContent: !privateContent,
+        );
+        final incoming = IncomingMessageHandler(
+          signaling: receiver,
+          crypto: f.bob,
+          database: f.bobDatabase,
+          session: session,
+        )..start();
+        final presenter = _GroupPresenter();
+        final notifications = MessageNotificationCoordinator(
+          incomingMessages: incoming.acceptedMessages,
+          session: session,
+          presenter: presenter,
+          unreadCounts: f.bobDatabase.conversations.unreadCounts,
+        );
+        await notifications.start();
+        notifications.setAppForeground(false);
+        addTearDown(() async {
+          await incoming.close();
+          await notifications.close();
+          await queue.close();
+          await wire.dispose();
+          await receiver.dispose();
+        });
+        final contacts = ContactService(
+          deviceContacts: _NoContacts(),
+          api: _UnusedDirectory(),
+          database: f.aliceDatabase,
+          session: SessionStore(userId: 'alice'),
+          groupControls: PrivateGroupControlSender(
+            crypto: f.alice,
+            signaling: wire,
+          ),
+          offlineQueue: queue,
+        );
+        final group = await contacts.createGroup('Private team', [
+          const ContactEntity(
+            id: 'bob',
+            phoneNumber: '',
+            phoneHash: '',
+            displayName: 'Bob',
+            isRegistered: true,
+          ),
+        ]);
+        receiver.addIncoming(wire.sentMessages.single);
+        await incoming.waitForIdle();
+        await Future<void>.delayed(Duration.zero);
+        await notifications.waitForIdle();
+        expect(
+          (await f.bobDatabase.conversations.getById(group.id))?.unreadCount,
+          1,
+        );
+        expect(presenter.shown, hasLength(1));
+        expect(
+          presenter.shown.single.body,
+          privateContent ? '1 sohbetten 1 yeni mesaj' : 'Bir gruba eklendiniz.',
+        );
+        expect(
+          presenter.shown.single.payload,
+          privateContent ? isNull : group.id,
+        );
+        if (privateContent)
+          expect(presenter.shown.single.title, isNot(contains('Private team')));
+        // A freshly encrypted repeat is valid ratchet traffic, but not a second invitation.
+        await PrivateGroupControlSender(crypto: f.alice, signaling: wire).send(
+          senderId: 'alice',
+          groupId: group.id,
+          groupName: group.peerName,
+          memberIds: ['alice', 'bob'],
+          recipients: ['bob'],
+          action: 'CREATE',
+        );
+        receiver.addIncoming(wire.sentMessages.last);
+        await incoming.waitForIdle();
+        await notifications.waitForIdle();
+        expect(presenter.shown, hasLength(1));
+        expect(
+          (await f.bobDatabase.conversations.getById(group.id))?.unreadCount,
+          1,
+        );
+      },
+    );
+  }
+
+  test(
+    'first group voice attachment distributes SenderKey before chunks and after reset',
+    () async {
+      final f = await _SignalFixture.open();
+      addTearDown(f.close);
+      final sender = InMemorySignalingService()..setConnected(true);
+      final receiver = InMemorySignalingService();
+      final incoming = IncomingMessageHandler(
+        signaling: receiver,
+        crypto: f.bob,
+        database: f.bobDatabase,
+        session: SessionStore(userId: 'bob'),
+      )..start();
+      final outgoing = FileTransferManager(
+        signaling: sender,
+        crypto: f.alice,
+        filesDirectory: Directory('${f.directory.path}/send'),
+        metadataCrypto: LocalAeadCryptoService(SecretKey(List.filled(32, 8))),
+      );
+      final receiving = FileTransferManager(
+        signaling: receiver,
+        crypto: f.bob,
+        filesDirectory: Directory('${f.directory.path}/receive'),
+        metadataCrypto: LocalAeadCryptoService(SecretKey(List.filled(32, 9))),
+        beforeReceive: incoming.waitForIdle,
+      );
+      addTearDown(() async {
+        await outgoing.dispose();
+        await receiving.dispose();
+        await incoming.close();
+        await sender.dispose();
+        await receiver.dispose();
+      });
+      final received = <ReceivedFile>[];
+      final subscription = receiving.receivedFiles.listen(received.add);
+      addTearDown(subscription.cancel);
+      for (var round = 0; round < 2; round++) {
+        if (round == 1)
+          await f.alice.resetLocalSenderKey('voice-group', 'alice');
+        final offset = sender.sentMessages.length;
+        final result = await outgoing.sendStream(
+          localUserId: 'alice',
+          recipientId: 'voice-group',
+          stream: Stream.value([1, 2, 3, round]),
+          fileSize: 4,
+          fileName: 'voice.m4a',
+          mimeType: 'audio/mp4',
+          isGroup: true,
+          groupMembers: ['alice', 'bob'],
+        );
+        expect(result, isA<FileTransferSuccess>());
+        final frames = sender.sentMessages.skip(offset).toList();
+        expect(frames.first, isA<EncryptedSignalMessage>());
+        expect(frames.last, isA<FileTransferSignal>());
+        for (final frame in frames) {
+          receiver.addIncoming(frame);
+        }
+        for (var wait = 0; wait < 100 && received.length <= round; wait++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        expect(received, hasLength(round + 1));
+        expect(await received.last.file.readAsBytes(), [1, 2, 3, round]);
+      }
+    },
+  );
   test(
     'phone disclosure uses the production Signal ratchet without changing text',
     () async {
@@ -443,6 +680,34 @@ class _SignalFixture {
     await aliceDatabase.close();
     await bobDatabase.close();
     await directory.delete(recursive: true);
+  }
+}
+
+class _NoContacts implements DeviceContactsGateway {
+  @override
+  Future<bool> requestPermission() async => true;
+  @override
+  Future<List<DeviceContact>> getAllContacts() async => [];
+}
+
+class _GroupPresenter implements LocalNotificationPresenter {
+  final shown = <LocalMessageNotification>[];
+  @override
+  Stream<String> get taps => const Stream.empty();
+  @override
+  Stream<NotificationDismissal> get dismissals => const Stream.empty();
+  @override
+  Future<void> initialize() async {}
+  @override
+  Future<void> show(LocalMessageNotification notification) async {
+    shown.add(notification);
+  }
+
+  @override
+  Future<void> reconcileDismissals() async {}
+  @override
+  Future<void> cancelAll() async {
+    shown.clear();
   }
 }
 

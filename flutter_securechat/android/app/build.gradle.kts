@@ -35,6 +35,21 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Flutter limits its own binaries, but plugin AARs also contain other
+        // ABIs. Keep the non-split APK consistent with --target-platform.
+        if (providers.gradleProperty("split-per-abi").orNull != "true") {
+            providers.gradleProperty("target-platform").orNull?.let { targets ->
+                val abiByTarget = mapOf(
+                    "android-arm" to "armeabi-v7a",
+                    "android-arm64" to "arm64-v8a",
+                    "android-x64" to "x86_64",
+                )
+                ndk.abiFilters.clear()
+                ndk.abiFilters.addAll(targets.split(",").map { target ->
+                    requireNotNull(abiByTarget[target]) { "Unsupported Android target: $target" }
+                })
+            }
+        }
     }
 
     signingConfigs {

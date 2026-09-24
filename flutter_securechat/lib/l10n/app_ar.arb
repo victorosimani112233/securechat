@@ -1,4 +1,11 @@
 {
+  "group_added_notification": "تمت إضافتك إلى مجموعة.",
+  "group_create_failed": "تعذر إنشاء المجموعة. تحقق من الاتصال وحاول مجدداً.",
+  "group_call_active_voice": "مكالمة صوتية جارية",
+  "group_call_active_video": "مكالمة فيديو جارية",
+  "group_call_join": "انضمام",
+  "group_call_return": "العودة إلى المكالمة",
+  "group_call_join_failed": "انتهت المكالمة أو تعذر الانضمام إليها.",
   "group_leave": "مغادرة المجموعة",
   "group_not_member": "لم تعد عضواً في هذه المجموعة.",
   "group_leave_failed": "تعذر إرسال إشعار المغادرة. تحقق من اتصالك وحاول مجدداً.",

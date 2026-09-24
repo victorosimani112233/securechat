@@ -6,6 +6,7 @@ import '../chat/conversation_preview.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
+import '../crypto/group_sender_key_distribution.dart';
 import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
 import '../network/network_resilience.dart';
@@ -297,28 +298,14 @@ class SendMessageUseCase {
     required DateTime timestamp,
     required String messageId,
   }) async {
-    final distribution = await crypto.createSenderKeyDistribution(
-      groupId: groupId,
+    await distributeGroupSenderKey(
+      crypto: crypto,
       senderId: senderId,
+      groupId: groupId,
+      members: members,
+      timestamp: timestamp,
+      send: (signal) => _sendEncryptedDependency(signal, messageId: messageId),
     );
-    for (final member in members.where((id) => id != senderId)) {
-      final encrypted = await crypto.encryptDirect(
-        recipientId: member,
-        plaintext: distribution,
-      );
-      final sent = await _sendEncryptedDependency(
-        EncryptedSignalMessage(
-          senderId: senderId,
-          recipientId: member,
-          timestamp: timestamp,
-          envelope: encrypted,
-        ),
-        messageId: messageId,
-      );
-      if (!sent) {
-        throw StateError('SenderKey distribution failed for $member');
-      }
-    }
   }
 
   Future<bool> _sendEncryptedDependency(

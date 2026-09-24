@@ -1,4 +1,11 @@
 {
+  "group_added_notification": "Du wurdest einer Gruppe hinzugefügt.",
+  "group_create_failed": "Die Gruppe konnte nicht erstellt werden. Prüfe deine Verbindung und versuche es erneut.",
+  "group_call_active_voice": "Laufender Sprachanruf",
+  "group_call_active_video": "Laufender Videoanruf",
+  "group_call_join": "Beitreten",
+  "group_call_return": "Zurück zum Anruf",
+  "group_call_join_failed": "Der Anruf ist beendet oder der Beitritt ist fehlgeschlagen.",
   "group_leave": "Gruppe verlassen",
   "group_not_member": "Du bist kein Mitglied dieser Gruppe mehr.",
   "group_leave_failed": "Die Austrittsnachricht konnte nicht gesendet werden. Prüfe deine Verbindung und versuche es erneut.",

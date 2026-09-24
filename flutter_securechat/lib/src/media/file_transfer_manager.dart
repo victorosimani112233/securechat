@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 
 import '../core/signal_message.dart';
+import '../crypto/group_sender_key_distribution.dart';
 import '../groups/private_group_route.dart';
 import '../services/crypto_service.dart';
 import '../services/async_operation_tracker.dart';
@@ -93,11 +94,13 @@ class FileTransferManager {
     this.staleTransferAge = const Duration(minutes: 10),
     GroupRoutingResolver? groupRoutingResolver,
     LocalAeadCryptoService? metadataCrypto,
+    Future<void> Function()? beforeReceive,
     AsyncOperationFailureHandler? onAsyncFailure,
   }) : _signaling = signaling,
        _crypto = crypto,
        _filesDirectory = filesDirectory,
        _groupRoutingResolver = groupRoutingResolver,
+       _beforeReceive = beforeReceive,
        _metadataCrypto = _requireMetadataCrypto(crypto, metadataCrypto),
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure) {
     _subscription = signaling.incoming
@@ -110,6 +113,7 @@ class FileTransferManager {
   final CryptoService _crypto;
   final Directory _filesDirectory;
   final GroupRoutingResolver? _groupRoutingResolver;
+  final Future<void> Function()? _beforeReceive;
   final LocalAeadCryptoService _metadataCrypto;
   final int chunkSize;
 
@@ -145,9 +149,7 @@ class FileTransferManager {
 
   /// Tel alanindan sifreli zarfi cikarir. v4 ham, oncesi base64.
   static String _decodeEnvelopeField(String value, String? encryption) =>
-      _isRawEnvelopeWire(encryption)
-      ? value
-      : utf8.decode(base64Decode(value));
+      _isRawEnvelopeWire(encryption) ? value : utf8.decode(base64Decode(value));
 
   Stream<TransferProgress?> get progress => _progress.stream;
   Stream<ReceivedFile> get receivedFiles => _receivedFiles.stream;
@@ -269,6 +271,20 @@ class FileTransferManager {
     );
     var bytesSent = 0;
     try {
+      if (isGroup) {
+        if (!groupMembers.contains(localUserId) ||
+            groupMembers.toSet().length < 2) {
+          return const FileTransferFailure('Group membership is required');
+        }
+        await distributeGroupSenderKey(
+          crypto: _crypto,
+          senderId: localUserId,
+          groupId: recipientId,
+          members: groupMembers,
+          timestamp: DateTime.now(),
+          send: _signaling.send,
+        );
+      }
       for (var index = 0; index < totalChunks; index++) {
         final bytes = await reader.nextChunk();
         if (index < totalChunks - 1 && bytes.length != chunkSize) {
@@ -391,7 +407,12 @@ class FileTransferManager {
           // The core receive path contains failures. This guard prevents one
           // unexpected failure from permanently poisoning the keyed queue.
         })
-        .then((_) => _receiveChunkSerial(signal, transferId));
+        .then((_) async {
+          // Earlier encrypted controls install SenderKeys in another socket
+          // subscriber; preserve their wire order before decrypting media.
+          await _beforeReceive?.call();
+          return _receiveChunkSerial(signal, transferId);
+        });
     late final Future<void> tail;
     tail = result.then<void>((_) {}, onError: (_, _) {}).whenComplete(() {
       if (identical(_receiveTails[transferId], tail)) {

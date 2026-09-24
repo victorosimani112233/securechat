@@ -970,6 +970,8 @@ class IncomingMessageHandler {
             !signal.groupMembers.contains(signal.senderId)) {
           return;
         }
+        final preview = (await _strings.load()).group_added_notification;
+        final timestamp = _boundedTimestamp(signal.timestamp);
         await _database.conversations.insert(
           ConversationEntity(
             id: signal.groupId,
@@ -978,13 +980,26 @@ class IncomingMessageHandler {
             peerPhone: '',
             lastMessage:
                 '${await _groupMemberName(signal.senderId)} grubu oluşturdu',
-            lastMessageTimestamp: _boundedTimestamp(signal.timestamp),
+            lastMessageTimestamp: timestamp,
             unreadCount: signal.senderId == localUserId ? 0 : 1,
             isGroup: true,
             groupMembers: signal.groupMembers.join(','),
             groupAdmins: signal.senderId,
           ),
         );
+        if (signal.senderId != localUserId) {
+          _messageController.add(
+            IncomingMessageEvent(
+              messageId: 'group-created:${signal.groupId}',
+              conversationId: signal.groupId,
+              title: signal.groupName,
+              preview: preview,
+              timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
+              isMuted: false,
+              isMention: false,
+            ),
+          );
+        }
       } else {
         final members = _csv(group.groupMembers);
         final storedAdmins = _csv(group.groupAdmins);

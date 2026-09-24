@@ -25,6 +25,7 @@ abstract interface class NativeCallIntegration {
   Future<void> initialize();
   Future<void> reportIncoming(CallSession session);
   Future<void> reportOutgoing(CallSession session);
+  Future<void> answer(String callId);
   Future<void> setActive(String callId);
   Future<bool> setSpeaker(String callId, bool enabled);
   Future<void> end(String callId);
@@ -69,6 +70,10 @@ class MethodChannelNativeCallIntegration implements NativeCallIntegration {
   @override
   Future<void> setActive(String callId) =>
       _invoke('setNativeCallActive', {'callId': callId});
+
+  @override
+  Future<void> answer(String callId) =>
+      _invoke('answerNativeCall', {'callId': callId});
 
   @override
   Future<bool> setSpeaker(String callId, bool enabled) async =>

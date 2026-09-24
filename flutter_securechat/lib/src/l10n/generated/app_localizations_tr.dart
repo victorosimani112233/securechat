@@ -9,6 +9,29 @@ class AppLocalizationsTr extends AppLocalizations {
   AppLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get group_added_notification => 'Bir gruba eklendiniz.';
+
+  @override
+  String get group_create_failed =>
+      'Grup oluşturulamadı. Bağlantınızı kontrol edip tekrar deneyin.';
+
+  @override
+  String get group_call_active_voice => 'Devam eden sesli arama';
+
+  @override
+  String get group_call_active_video => 'Devam eden görüntülü arama';
+
+  @override
+  String get group_call_join => 'Katıl';
+
+  @override
+  String get group_call_return => 'Aramaya dön';
+
+  @override
+  String get group_call_join_failed =>
+      'Arama artık aktif değil veya katılım sağlanamadı.';
+
+  @override
   String get identity_review_title => 'Kimliği doğrula';
 
   @override

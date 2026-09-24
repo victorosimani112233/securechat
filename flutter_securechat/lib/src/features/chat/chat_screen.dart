@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../calls/group_call_banner.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -398,6 +399,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
         body: Column(
           children: [
+            if (conversation.isGroup &&
+                !conversation.hasLeftGroup(container.session.userId))
+              if (container.mediaRuntime case final media?)
+                GroupCallBanner(
+                  key: ValueKey('group-call-${conversation.id}'),
+                  groupId: conversation.id,
+                  calls: media.calls,
+                ),
             if (conversation.hasLeftGroup(container.session.userId))
               MaterialBanner(
                 content: Text(context.l10n.group_not_member),

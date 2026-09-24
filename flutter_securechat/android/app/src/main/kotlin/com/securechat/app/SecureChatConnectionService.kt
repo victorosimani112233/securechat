@@ -239,6 +239,7 @@ internal data class NativeCallInfo(
 )
 
 internal object NativeCallRegistry {
+    private val pendingAnswers = ConcurrentHashMap.newKeySet<String>()
     data class HintPromotion(val action: String?)
 
     private data class PendingHint(val callId: String, val createdAt: Long)
@@ -333,8 +334,15 @@ internal object NativeCallRegistry {
         calls.values.firstOrNull { it.peerId == peerId }
     fun bind(callId: String, connection: SecureChatConnection) {
         connections[resolve(callId)] = connection
+        if (pendingAnswers.remove(resolve(callId))) connection.onAnswer()
     }
     fun setActive(callId: String) { connections[resolve(callId)]?.setActive() }
+    fun answer(callId: String) {
+        val id = resolve(callId)
+        if (!calls.containsKey(id)) return
+        val connection = connections[id]
+        if (connection != null) connection.onAnswer() else pendingAnswers.add(id)
+    }
     fun setSpeaker(
         callId: String,
         enabled: Boolean,
@@ -351,6 +359,7 @@ internal object NativeCallRegistry {
     fun end(callId: String) { connections[resolve(callId)]?.disconnect(DisconnectCause.LOCAL) }
     fun remove(callId: String) {
         val resolved = resolve(callId)
+        pendingAnswers.remove(resolved)
         connections.remove(resolved)
         if (pendingHint?.callId != callId) calls.remove(resolved)
         aliases.entries.removeIf { it.key == callId || it.value == resolved }

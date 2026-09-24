@@ -406,7 +406,17 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ),
         );
     if (result == null || result.members.isEmpty) return;
-    final group = await service.createGroup(result.name, result.members);
+    late final ConversationEntity group;
+    try {
+      group = await service.createGroup(result.name, result.members);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.group_create_failed)),
+        );
+      }
+      return;
+    }
     if (!mounted) return;
     Navigator.of(context).pushNamed(
       '/chat',

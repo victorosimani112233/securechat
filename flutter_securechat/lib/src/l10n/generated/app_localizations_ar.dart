@@ -9,6 +9,28 @@ class AppLocalizationsAr extends AppLocalizations {
   AppLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get group_added_notification => 'تمت إضافتك إلى مجموعة.';
+
+  @override
+  String get group_create_failed =>
+      'تعذر إنشاء المجموعة. تحقق من الاتصال وحاول مجدداً.';
+
+  @override
+  String get group_call_active_voice => 'مكالمة صوتية جارية';
+
+  @override
+  String get group_call_active_video => 'مكالمة فيديو جارية';
+
+  @override
+  String get group_call_join => 'انضمام';
+
+  @override
+  String get group_call_return => 'العودة إلى المكالمة';
+
+  @override
+  String get group_call_join_failed => 'انتهت المكالمة أو تعذر الانضمام إليها.';
+
+  @override
   String get identity_review_title => 'التحقق من الهوية';
 
   @override

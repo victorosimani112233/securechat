@@ -108,6 +108,12 @@ class OfflineMessageQueue {
 
   Future<int> getPendingCount() => _database.pendingSignals.count();
 
+  /// Include records committed while an earlier flush was taking its snapshot.
+  Future<QueueFlushResult> flushEnqueuedSignals() async {
+    await _activeFlush;
+    return flushQueue();
+  }
+
   Future<QueueFlushResult> flushQueue() {
     final running = _activeFlush;
     if (running != null) return running;

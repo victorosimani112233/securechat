@@ -559,7 +559,7 @@ private suspend fun handleMessage(
                 // Kalici grup dizini yok: yalnizca aktif aramaya daha once davet
                 // edilmis/gecmis participant sorgulayabilir.
                 val active = GroupCallSessionStore.get(groupId)
-                if (active != null && senderId !in active.participants) {
+                if (active != null && senderId !in active.invitedParticipants) {
                     logger.warn("[!] group_call_status_query yetki yok")
                     return
                 }
@@ -570,9 +570,10 @@ private suspend fun handleMessage(
                         put("callId", active.callId)
                         put("coordinatorId", active.coordinatorId)
                         put("callType", active.callType)
+                        put("mediaE2ee", active.requiresMediaE2ee)
                         put("mode", active.mode)
                         putJsonArray("participants") {
-                            active.participants.forEach { add(it) }
+                            active.joinedParticipants.forEach { add(it) }
                         }
                         // GUVENLIK: apiSecret artik gonderilmiyor (C2 fix).
                         if (active.mode == "SFU" && active.sfuRoomId != null) {

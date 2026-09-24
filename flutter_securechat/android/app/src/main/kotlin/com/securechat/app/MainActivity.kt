@@ -75,6 +75,16 @@ class MainActivity : FlutterFragmentActivity() {
                     "reportIncomingCall" -> reportIncomingCall(call.arguments, result)
                     "reportOutgoingCall" -> reportOutgoingCall(call.arguments, result)
                     "setNativeCallActive" -> updateNativeCall(call.arguments, true, result)
+                    "answerNativeCall" -> {
+                        val callId = (call.arguments as? Map<*, *>)?.get("callId")?.toString()
+                        if (callId.isNullOrBlank()) {
+                            result.error("INVALID_ARGUMENTS", "callId is missing", null)
+                        } else {
+                            NativeCallRegistry.answer(callId)
+                            NativeCallRegistry.findByCallId(callId)?.let { callNotifications.showConnecting(it) }
+                            result.success(null)
+                        }
+                    }
                     "setCallSpeaker" -> setCallSpeaker(call.arguments, result)
                     "endNativeCall" -> updateNativeCall(call.arguments, false, result)
                     "startNativeCallRingback" -> result.success(callTones.startRingback())

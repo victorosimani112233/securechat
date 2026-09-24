@@ -102,6 +102,48 @@ abstract class AppLocalizations {
     Locale('tr'),
   ];
 
+  /// No description provided for @group_added_notification.
+  ///
+  /// In en, this message translates to:
+  /// **'You were added to a group.'**
+  String get group_added_notification;
+
+  /// No description provided for @group_create_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not create the group. Check your connection and try again.'**
+  String get group_create_failed;
+
+  /// No description provided for @group_call_active_voice.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice call in progress'**
+  String get group_call_active_voice;
+
+  /// No description provided for @group_call_active_video.
+  ///
+  /// In en, this message translates to:
+  /// **'Video call in progress'**
+  String get group_call_active_video;
+
+  /// No description provided for @group_call_join.
+  ///
+  /// In en, this message translates to:
+  /// **'Join'**
+  String get group_call_join;
+
+  /// No description provided for @group_call_return.
+  ///
+  /// In en, this message translates to:
+  /// **'Return to call'**
+  String get group_call_return;
+
+  /// No description provided for @group_call_join_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'The call has ended or could not be joined.'**
+  String get group_call_join_failed;
+
   /// No description provided for @identity_review_title.
   ///
   /// In en, this message translates to:

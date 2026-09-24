@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import '../core/models.dart';
+import '../groups/private_group_control.dart';
 import '../chat/conversation_preview.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../services/session_store.dart';
@@ -30,6 +31,7 @@ class MediaMessageService {
     NetworkKindProvider? networkKindProvider,
     AsyncOperationFailureHandler? onAsyncFailure,
     PhoneNumberSharingService? phoneSharing,
+    PrivateGroupControlSender? groupControls,
   }) : _database = database,
        _transfers = transfers,
        _session = session,
@@ -37,6 +39,7 @@ class MediaMessageService {
        _storageManagement = storageManagement,
        _networkKindProvider = networkKindProvider,
        _phoneSharing = phoneSharing,
+       _groupControls = groupControls,
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
 
   final SecureChatDatabase _database;
@@ -46,6 +49,7 @@ class MediaMessageService {
   final StorageManagementService? _storageManagement;
   final NetworkKindProvider? _networkKindProvider;
   final PhoneNumberSharingService? _phoneSharing;
+  final PrivateGroupControlSender? _groupControls;
   final AsyncOperationTracker _operations;
   final Random _random = Random.secure();
   StreamSubscription<ReceivedFile>? _receivedSubscription;
@@ -122,6 +126,14 @@ class MediaMessageService {
         // A picker can stay open while a member leaves. Never use its stale
         // recipient list to distribute new media keys to departed members.
         recipients = members;
+        await _groupControls?.send(
+          senderId: localUserId,
+          groupId: conversationId,
+          groupName: group!.peerName,
+          memberIds: members,
+          recipients: members,
+          action: 'CREATE',
+        );
       }
       final attachment = attachments[index];
       final messageId = _newId('media');

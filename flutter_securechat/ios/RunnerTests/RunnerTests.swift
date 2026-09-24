@@ -109,6 +109,37 @@ class RunnerTests: XCTestCase {
   }
 
   @MainActor
+  func testInAppAnswerUsesAnswerTransactionAndPropagatesRejection() async {
+    var transactions: [CXTransaction] = []
+    let rejected = NSError(domain: "test.answer", code: 7)
+    let calls = SecureChatCallKitIntegration { transaction, completion in
+      transactions.append(transaction)
+      completion(transaction.actions[0] is CXAnswerCallAction ? rejected : nil)
+    }
+    let startError = await reportOutgoing(calls)
+    XCTAssertNil(startError)
+    let error: Error? = await withCheckedContinuation { continuation in
+      calls.answer(callId: "test-call") { continuation.resume(returning: $0) }
+    }
+    XCTAssertEqual((error as NSError?)?.domain, rejected.domain)
+    XCTAssertTrue(transactions[1].actions[0] is CXAnswerCallAction)
+    let first = transactions[0].actions[0] as! CXStartCallAction
+    let answer = transactions[1].actions[0] as! CXAnswerCallAction
+    XCTAssertEqual(first.callUUID, answer.callUUID)
+  }
+
+  @MainActor
+  func testAnswerOfUnknownCallFailsWithoutTransaction() async {
+    let calls = SecureChatCallKitIntegration { _, _ in
+      XCTFail("Unknown call must not create a system transaction")
+    }
+    let error: Error? = await withCheckedContinuation { continuation in
+      calls.answer(callId: "missing") { continuation.resume(returning: $0) }
+    }
+    XCTAssertNotNil(error)
+  }
+
+  @MainActor
   func testEndingAlreadyRemovedSystemCallIsIdempotent() async {
     var requests = 0
     let calls = SecureChatCallKitIntegration { transaction, completion in

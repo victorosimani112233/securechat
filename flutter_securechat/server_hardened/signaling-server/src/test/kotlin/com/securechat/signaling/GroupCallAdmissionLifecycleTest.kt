@@ -7,6 +7,24 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 
 class GroupCallAdmissionLifecycleTest {
+    @Test
+    fun `departed invitee can rejoin but outsider and encryption downgrade cannot`() {
+        val added = GroupCallSessionStore.JoinResult.ADDED
+        assertEquals(added, GroupCallSessionStore.invite("g", "c", "host", "VOICE", "member", true))
+        GroupCallSessionStore.removeParticipant("g", "member")
+        assertTrue("member" in GroupCallSessionStore.get("g")!!.invitedParticipants)
+        assertFalse("member" in GroupCallSessionStore.get("g")!!.participants)
+        assertEquals(GroupCallSessionStore.JoinResult.NOT_INVITED,
+            GroupCallSessionStore.confirmJoin("g", "c", "host", "VOICE", "outsider", true))
+        assertEquals(GroupCallSessionStore.JoinResult.ENCRYPTION_REQUIRED,
+            GroupCallSessionStore.confirmJoin("g", "c", "host", "VOICE", "member", false))
+        assertEquals(added, GroupCallSessionStore.confirmJoin("g", "c", "host", "VOICE", "member", true))
+        assertTrue("member" in GroupCallSessionStore.get("g")!!.joinedParticipants)
+        GroupCallSessionStore.end("g")
+        assertEquals(GroupCallSessionStore.JoinResult.CALL_NOT_FOUND,
+            GroupCallSessionStore.confirmJoin("g", "c", "host", "VOICE", "member", true))
+    }
+
     @BeforeEach
     @AfterEach
     fun clearFixtures() {

@@ -5,6 +5,25 @@ const int maxGroupCallParticipants = 8;
 
 enum CallDirection { incoming, outgoing }
 
+class ActiveGroupCall {
+  const ActiveGroupCall({
+    required this.groupId,
+    required this.routingToken,
+    required this.callId,
+    required this.coordinatorId,
+    required this.callType,
+    required this.mediaE2ee,
+    required this.participants,
+  });
+  final String groupId;
+  final String routingToken;
+  final String callId;
+  final String coordinatorId;
+  final CallType callType;
+  final bool mediaE2ee;
+  final List<String> participants;
+}
+
 enum CallState {
   idle,
   initiating,

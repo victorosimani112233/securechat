@@ -1,5 +1,4 @@
 import '../core/signal_message.dart';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
@@ -40,6 +39,7 @@ import '../debug/notification_debug_harness.dart';
 import '../export/export_audit_service.dart';
 import '../groups/group_management_service.dart';
 import '../groups/private_group_control.dart';
+import '../groups/private_group_call_routes.dart';
 import '../media/call_manager.dart';
 import '../media/call_tone_service.dart';
 import '../media/file_transfer_manager.dart';
@@ -550,40 +550,7 @@ class AppContainer {
         crypto: crypto,
         signaling: signaling,
       );
-      Future<String?> resolveLocalGroupId(String routingToken) async {
-        final stored = await database.cryptoState.get(
-          privateGroupCallRouteStateKey(routingToken),
-        );
-        if (stored != null) {
-          try {
-            final data = (jsonDecode(stored) as Map).cast<String, Object?>();
-            final groupId = data['groupId'] as String?;
-            final expiresAt = (data['expiresAt'] as num?)?.toInt() ?? 0;
-            if (groupId != null &&
-                expiresAt > DateTime.now().millisecondsSinceEpoch &&
-                await database.conversations.getById(groupId) != null) {
-              return groupId;
-            }
-          } catch (_) {
-            // Invalid encrypted local route state is deleted below.
-          }
-          await database.cryptoState.delete(
-            privateGroupCallRouteStateKey(routingToken),
-          );
-        }
-        // A private CREATE control and its call invite are ordered on the wire,
-        // but decryption/storage happens asynchronously. Briefly wait for the
-        // authenticated local record instead of accepting an unknown token.
-        for (var attempt = 0; attempt < 10; attempt++) {
-          for (final group in await database.conversations.getAllGroups()) {
-            if (await groupRoutingToken(group.id) == routingToken) {
-              return group.id;
-            }
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
-        return null;
-      }
+      final groupCallRoutes = PrivateGroupCallRoutes(database, session);
 
       Future<String> resolvePeerName(String peerId) async {
         final conversation = await database.conversations.getById(peerId);
@@ -622,6 +589,7 @@ class AppContainer {
           action: privateGroupCallPreparationAction,
           targetMemberId: callRoutingToken,
         );
+        await groupCallRoutes.remember(callRoutingToken, group.id);
         return callRoutingToken;
       }
 
@@ -669,7 +637,9 @@ class AppContainer {
         nativeCalls: nativeCalls,
         janusClientFactory: () => JanusClient(httpClient: httpClients.create()),
         peerNameResolver: resolvePeerName,
-        groupLocalIdResolver: resolveLocalGroupId,
+        groupLocalIdResolver: groupCallRoutes.resolve,
+        groupCallTokens: groupCallRoutes.tokensForGroup,
+        groupMemberValidator: groupCallRoutes.containsMember,
         preparePrivateGroupCall: preparePrivateGroupCall,
         distributeCallMediaKey: distributeCallMediaKey,
         missedCalls: missedCalls,
@@ -692,7 +662,8 @@ class AppContainer {
         crypto: crypto,
         filesDirectory: mediaDirectory,
         metadataCrypto: storageCrypto,
-        groupRoutingResolver: resolveLocalGroupId,
+        groupRoutingResolver: groupCallRoutes.resolve,
+        beforeReceive: incomingMessages.waitForIdle,
         onAsyncFailure: reportAsyncFailure,
       );
       resources.register('file-transfer-manager', fileTransfers.dispose);
@@ -703,6 +674,7 @@ class AppContainer {
         localMediaDirectory: mediaDirectory,
         storageManagement: storageManagement,
         networkKindProvider: networkMonitor,
+        groupControls: privateGroupControls,
         phoneSharing: phoneSharing,
         onAsyncFailure: reportAsyncFailure,
       )..start();
@@ -726,6 +698,8 @@ class AppContainer {
         api: privateDirectory,
         database: database,
         session: session,
+        groupControls: privateGroupControls,
+        offlineQueue: offlineQueue,
       );
       final permissions = AppPermissionService(
         MobileAppPermissionPlatform(

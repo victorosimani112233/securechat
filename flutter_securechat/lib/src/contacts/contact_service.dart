@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:math';
 
 import '../auth/phone_privacy.dart';
+import '../groups/private_group_control.dart';
+import '../network/network_resilience.dart';
 import '../platform/native_bridge.dart';
 import '../services/session_store.dart';
 import '../storage/secure_chat_database.dart';
@@ -146,15 +148,21 @@ class ContactService {
     required ContactDiscoveryApi api,
     required SecureChatDatabase database,
     required SessionStore session,
+    PrivateGroupControlSender? groupControls,
+    OfflineMessageQueue? offlineQueue,
   }) : _deviceContacts = deviceContacts,
        _api = api,
        _database = database,
-       _session = session;
+       _session = session,
+       _groupControls = groupControls,
+       _offlineQueue = offlineQueue;
 
   final DeviceContactsGateway _deviceContacts;
   final ContactDiscoveryApi _api;
   final SecureChatDatabase _database;
   final SessionStore _session;
+  final PrivateGroupControlSender? _groupControls;
+  final OfflineMessageQueue? _offlineQueue;
 
   Stream<List<ContactEntity>> watchRegistered() =>
       _database.contacts.getRegistered();
@@ -281,6 +289,12 @@ class ContactService {
     List<ContactEntity> members,
   ) async {
     if (members.isEmpty) throw ArgumentError('En az bir uye secin');
+    final senderId = _session.userId;
+    final controls = _groupControls;
+    final queue = _offlineQueue;
+    if (senderId == null || controls == null || queue == null) {
+      throw StateError('Authenticated group delivery is unavailable');
+    }
     final id = _newPrivateGroupId();
     final group = ConversationEntity(
       id: id,
@@ -289,12 +303,40 @@ class ContactService {
       peerPhone: '',
       isGroup: true,
       groupMembers: [
-        if (_session.userId != null) _session.userId!,
+        senderId,
         ...members.map((member) => member.id),
       ].toSet().join(','),
-      groupAdmins: _session.userId ?? '',
+      groupAdmins: senderId,
     );
-    await _database.conversations.insert(group);
+    final recipients = members.map((m) => m.id).toSet()..remove(senderId);
+    if (recipients.isEmpty || group.peerName.length > 256) {
+      throw ArgumentError('Invalid group name or members');
+    }
+    final pending = <PendingSignalEntity>[];
+    final now = DateTime.now();
+    // Prepare every encrypted invitation before committing the group. A failed
+    // prekey lookup must not leave a local-only or partially invited group.
+    await controls.send(
+      senderId: senderId,
+      groupId: id,
+      groupName: group.peerName,
+      memberIds: [senderId, ...recipients],
+      recipients: recipients,
+      action: 'CREATE',
+      timestamp: now,
+      sendSignal: (signal) async {
+        pending.add(
+          PendingSignalEntity(
+            id: '$id-invite-${pending.length}',
+            encodedSignal: signal.encode(),
+            createdAt: now.millisecondsSinceEpoch,
+          ),
+        );
+        return true;
+      },
+    );
+    await _database.conversations.insertWithPendingSignals(group, pending);
+    await queue.flushEnqueuedSignals();
     return group;
   }
 }

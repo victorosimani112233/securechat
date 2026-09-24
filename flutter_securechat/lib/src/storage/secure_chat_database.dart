@@ -559,6 +559,18 @@ class ConversationDao {
           .toList(growable: false);
   Future<void> insert(ConversationEntity conversation) =>
       _db._write((s) => s.conversations[conversation.id] = conversation);
+  Future<void> insertWithPendingSignals(
+    ConversationEntity conversation,
+    List<PendingSignalEntity> signals,
+  ) => _db._write((s) {
+    if (s.conversations.containsKey(conversation.id)) {
+      throw StateError('Conversation already exists');
+    }
+    s.conversations[conversation.id] = conversation;
+    for (final signal in signals) {
+      s.pendingSignals[signal.id] = signal;
+    }
+  });
   Future<void> update(ConversationEntity conversation) => insert(conversation);
   Future<void> markAsRead(String conversationId) => _patch(
     conversationId,

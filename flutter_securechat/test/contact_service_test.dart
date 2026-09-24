@@ -2,6 +2,10 @@ import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_securechat/src/auth/phone_privacy.dart';
+import 'package:flutter_securechat/src/core/signal_message.dart';
+import 'package:flutter_securechat/src/groups/private_group_control.dart';
+import 'package:flutter_securechat/src/network/network_resilience.dart';
+import 'package:flutter_securechat/src/services/signaling_service.dart';
 import 'package:flutter_securechat/src/contacts/contact_service.dart';
 import 'package:flutter_securechat/src/contacts/private_contact_discovery.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
@@ -112,11 +116,26 @@ void main() {
   test('group creation persists membership and local admin', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);
+    final signaling = InMemorySignalingService()..setConnected(true);
+    final crypto = LocalAeadCryptoService(SecretKey(List.filled(32, 7)));
+    final queue = OfflineMessageQueue(
+      database: fixture.database,
+      signaling: signaling,
+    );
+    addTearDown(() async {
+      await queue.close();
+      await signaling.dispose();
+    });
     final service = ContactService(
       deviceContacts: const _FakeGateway([]),
       api: _FakeDiscoveryApi(const []),
       database: fixture.database,
       session: SessionStore(userId: 'me', accessToken: 'access'),
+      groupControls: PrivateGroupControlSender(
+        crypto: crypto,
+        signaling: signaling,
+      ),
+      offlineQueue: queue,
     );
     const contact = ContactEntity(
       id: 'alice',
@@ -132,6 +151,34 @@ void main() {
     expect(group.groupMembers, 'me,alice');
     expect(group.groupAdmins, 'me');
     expect(await fixture.database.conversations.getById(group.id), isNotNull);
+    final invite = signaling.sentMessages
+        .whereType<EncryptedSignalMessage>()
+        .single;
+    final decoded = await decodePrivateGroupControl(
+      plaintext: await crypto.decryptDirect(
+        senderId: 'alice',
+        envelope: invite.envelope,
+      ),
+      authenticatedSenderId: 'me',
+      localRecipientId: 'alice',
+    );
+    expect(decoded.action, 'CREATE');
+    expect(decoded.groupId, group.id);
+    expect(decoded.groupMembers, ['me', 'alice']);
+    expect(invite.encode(), isNot(contains('Team')));
+    expect(await queue.getPendingCount(), 0);
+
+    signaling.setConnected(false);
+    final offline = await service.createGroup('Offline', [contact]);
+    expect(await fixture.database.conversations.getById(offline.id), isNotNull);
+    expect(await queue.getPendingCount(), 1);
+    signaling.setConnected(true);
+    await queue.flushEnqueuedSignals();
+    expect(await queue.getPendingCount(), 0);
+    expect(
+      signaling.sentMessages.whereType<EncryptedSignalMessage>(),
+      hasLength(2),
+    );
   });
 
   test('opening a contact preserves the existing chat lock', () async {
