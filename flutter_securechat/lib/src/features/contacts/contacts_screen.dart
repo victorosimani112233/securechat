@@ -71,7 +71,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
             : StreamBuilder<List<ContactEntity>>(
                 stream: service.watchRegistered(),
                 builder: (context, snapshot) {
-                  final contacts = (snapshot.data ?? const [])
+                  final registered = snapshot.data ?? const <ContactEntity>[];
+                  final contacts = registered
                       .where(
                         (contact) =>
                             _query.isEmpty ||
@@ -81,6 +82,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                             contact.phoneNumber.contains(_query),
                       )
                       .toList(growable: false);
+                  final noSearchResults =
+                      registered.isNotEmpty && contacts.isEmpty;
                   return ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
@@ -161,9 +164,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       const SizedBox(height: 16),
                       if (!_syncing && contacts.isEmpty)
                         AzureEmptyState(
-                          icon: Icons.contacts_outlined,
-                          title: context.l10n.no_registered_contacts,
-                          message: context.l10n.contacts_empty_body,
+                          icon: noSearchResults
+                              ? Icons.search_off
+                              : Icons.contacts_outlined,
+                          title: noSearchResults
+                              ? context.l10n.conversations_no_results
+                              : context.l10n.no_registered_contacts,
+                          message: noSearchResults
+                              ? context.l10n.conversations_no_results_body
+                              : context.l10n.contacts_empty_body,
                           topPadding: 48,
                         ),
                       // Satirlar kayan desenin uzerinde ciplak duruyordu.

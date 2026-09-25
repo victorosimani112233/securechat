@@ -236,7 +236,7 @@ void main() {
         await f.nodes[bob]!.manager.acceptCall();
         await _until(() => f.nodes[alice]!.media.remoteSdp.contains(bob));
         f.nodes[alice]!.media.states.add(
-          GroupPeerState(bob, MediaConnectionState.connected),
+          const GroupPeerState(bob, MediaConnectionState.connected),
         );
         await f.nodes[carol]!.manager.rejectCall();
         await _until(

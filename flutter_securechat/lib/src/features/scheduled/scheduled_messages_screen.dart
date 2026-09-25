@@ -22,24 +22,87 @@ class ScheduledMessagesScreen extends StatefulWidget {
 }
 
 class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final TabController _tabs;
   final _content = TextEditingController();
   final _selectedRecipients = <String, String>{};
+  final _editingSourceRecipients = <String>{};
   final _days = <int>{};
   TimeOfDay _time = const TimeOfDay(hour: 9, minute: 0);
   ScheduledRepeat _repeat = ScheduledRepeat.once;
   String? _editingId;
   bool _savingEnabled = false;
+  bool _saving = false;
+  bool _checkingAccess = false;
+  bool _foreground = true;
+  int _accessRevision = 0;
+  StreamSubscription<List<Conversation>>? _conversationSubscription;
+  Map<String, Conversation>? _conversations;
 
   @override
   void initState() {
     super.initState();
     _tabs = TabController(length: 3, vsync: this);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _conversationSubscription ??= AppContainerScope.of(context).conversations
+        .watchConversations()
+        .listen(
+          (items) {
+            if (!mounted) return;
+            final next = {for (final item in items) item.id: item};
+            final accessChanged =
+                _conversations == null ||
+                next.length != _conversations!.length ||
+                next.entries.any(
+                  (entry) =>
+                      _conversations?[entry.key]?.isLocked !=
+                      entry.value.isLocked,
+                );
+            if (accessChanged) {
+              _accessRevision++;
+              if (_editingId != null &&
+                  {
+                    ..._editingSourceRecipients,
+                    ..._selectedRecipients.keys,
+                  }.any(
+                    (id) =>
+                        next[id] == null ||
+                        _conversations?[id]?.isLocked != next[id]?.isLocked,
+                  )) {
+                _clearForm();
+              }
+            }
+            setState(() => _conversations = next);
+          },
+          onError: (Object _) {
+            if (!mounted) return;
+            _accessRevision++;
+            if (_editingId != null) _clearForm();
+            setState(() => _conversations = null);
+          },
+        );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    setState(() => _foreground = state == AppLifecycleState.resumed);
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _accessRevision++;
+      if (_editingId != null) _clearForm();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _conversationSubscription?.cancel();
     _tabs.dispose();
     _content.dispose();
     super.dispose();
@@ -92,12 +155,17 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
                   ),
                 ),
               Expanded(
-                child: runtime == null
+                child: !_foreground
+                    ? const SizedBox.shrink()
+                    : runtime == null
                     ? Center(child: Text(context.l10n.background_unavailable))
                     : TabBarView(
                         controller: _tabs,
                         children: [
-                          _buildForm(runtime.scheduledMessages),
+                          AbsorbPointer(
+                            absorbing: _saving || _checkingAccess,
+                            child: _buildForm(runtime.scheduledMessages),
+                          ),
                           _buildList(runtime.scheduledMessages),
                           _buildHistory(runtime.scheduledMessages),
                         ],
@@ -209,7 +277,8 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
         ),
         const SizedBox(height: 16),
         FilledButton.icon(
-          onPressed: () => _save(service),
+          key: const ValueKey('scheduled-save'),
+          onPressed: _saving || _checkingAccess ? null : () => _save(service),
           icon: const Icon(Icons.schedule_send),
           label: Text(
             _editingId == null ? context.l10n.schedule : context.l10n.update,
@@ -233,23 +302,35 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
           separatorBuilder: (_, _) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
             final item = items[index];
+            final locked = _planRecipients(item).any(
+              (id) =>
+                  _conversations?[id] == null || _conversations![id]!.isLocked,
+            );
             return Card(
               child: ListTile(
-                leading: const CircleAvatar(child: Icon(Icons.schedule)),
+                leading: CircleAvatar(
+                  child: Icon(locked ? Icons.lock_outline : Icons.schedule),
+                ),
                 title: Text(
-                  item.messageContent,
+                  locked
+                      ? context.l10n.sched_history_locked
+                      : item.messageContent,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  '${_formatTrigger(item.nextTriggerTime)} · ${item.recipientNames}',
+                  locked
+                      ? _formatTrigger(item.nextTriggerTime)
+                      : '${_formatTrigger(item.nextTriggerTime)} · ${item.recipientNames}',
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Switch(
                       value: item.isEnabled,
-                      onChanged: (value) => service.setEnabled(item.id, value),
+                      onChanged: _saving || _checkingAccess
+                          ? null
+                          : (value) => service.setEnabled(item.id, value),
                     ),
                     PopupMenuButton<String>(
                       onSelected: (action) {
@@ -398,7 +479,13 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
   }
 
   Future<void> _save(ScheduledMessageService service) async {
+    if (_saving || _checkingAccess) return;
+    setState(() => _saving = true);
     try {
+      if (!await _authorizeRecipients(
+        {..._editingSourceRecipients, ..._selectedRecipients.keys}.toList(),
+      ))
+        return;
       await service.save(
         ScheduledMessageDraft(
           content: _content.text,
@@ -426,12 +513,65 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
           ),
         ),
       );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.background_unavailable)),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
-  void _edit(ScheduledMessageEntity item) {
+  List<String> _planRecipients(ScheduledMessageEntity item) => item.recipientIds
+      .split(',')
+      .map((id) => id.trim())
+      .where((id) => id.isNotEmpty)
+      .toList();
+
+  Future<bool> _authorizeRecipients(List<String> ids) async {
+    if (_conversations == null || !_foreground) return false;
+    final revision = _accessRevision;
+    final runtime = AppContainerScope.of(context).chatAccessRuntime;
+    try {
+      for (final id in ids) {
+        final conversation = _conversations?[id];
+        if (conversation == null) return false;
+        if (!conversation.isLocked) continue;
+        final credentials = runtime.credentials;
+        final hasPassword =
+            credentials != null && await credentials.hasCredential(id);
+        if (!mounted || revision != _accessRevision) return false;
+        final allowed = hasPassword
+            ? await showVerifyChatPasswordDialog(
+                context,
+                chatName: conversation.peerName,
+                verify: (password) => credentials.verifyPassword(id, password),
+              )
+            : await runtime.service.authorize(conversation);
+        if (!mounted || !allowed || revision != _accessRevision) return false;
+      }
+      return mounted && _foreground && revision == _accessRevision;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _edit(ScheduledMessageEntity item) async {
+    if (_saving || _checkingAccess) return;
+    setState(() => _checkingAccess = true);
+    late final bool allowed;
+    try {
+      allowed = await _authorizeRecipients(_planRecipients(item));
+    } finally {
+      if (mounted) setState(() => _checkingAccess = false);
+    }
+    if (!mounted || !allowed) return;
     setState(() {
       _editingId = item.id;
+      _editingSourceRecipients
+        ..clear()
+        ..addAll(_planRecipients(item));
       _content.text = item.messageContent;
       _time = TimeOfDay(hour: item.hour, minute: item.minute);
       _repeat = ScheduledMessageService.parseRepeat(item.repeatType);
@@ -454,6 +594,7 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
     ScheduledMessageService service,
     ScheduledMessageEntity item,
   ) async {
+    if (_saving || _checkingAccess) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -477,6 +618,7 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
   void _clearForm() {
     setState(() {
       _editingId = null;
+      _editingSourceRecipients.clear();
       _content.clear();
       _selectedRecipients.clear();
       _days.clear();

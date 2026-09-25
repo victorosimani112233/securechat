@@ -10,9 +10,16 @@ abstract interface class BackgroundScheduler {
 }
 
 class WorkmanagerBackgroundScheduler implements BackgroundScheduler {
-  const WorkmanagerBackgroundScheduler({required this.callbackDispatcher});
+  const WorkmanagerBackgroundScheduler({
+    required this.callbackDispatcher,
+    this.executingPlanId,
+  });
 
   final Function callbackDispatcher;
+
+  /// Set only on the scheduler owned by a scheduled-message worker.
+  /// Foreground schedulers must remain unscoped so user cancellation still works.
+  final String? executingPlanId;
 
   static const scheduledMessageTask = 'securechat.scheduled-message';
   static const maintenanceTask = 'com.securechat.app.background.maintenance';
@@ -62,7 +69,11 @@ class WorkmanagerBackgroundScheduler implements BackgroundScheduler {
       inputData: {'planId': message.id},
       initialDelay: Duration(milliseconds: delayMs > 0 ? delayMs : 0),
       constraints: Constraints(networkType: NetworkType.connected),
-      existingWorkPolicy: ExistingWorkPolicy.replace,
+      // The installed Android plugin maps append to APPEND_OR_REPLACE, keeping
+      // the current worker alive until delivery draining and teardown finish.
+      existingWorkPolicy: message.id == executingPlanId
+          ? ExistingWorkPolicy.append
+          : ExistingWorkPolicy.replace,
       backoffPolicy: BackoffPolicy.exponential,
       backoffPolicyDelay: const Duration(seconds: 30),
       tag: _scheduledTag,
@@ -70,6 +81,8 @@ class WorkmanagerBackgroundScheduler implements BackgroundScheduler {
   }
 
   @override
-  Future<void> cancelScheduledMessage(String id) =>
-      Workmanager().cancelByUniqueName(_uniqueMessageName(id));
+  Future<void> cancelScheduledMessage(String id) async {
+    if (id == executingPlanId) return;
+    await Workmanager().cancelByUniqueName(_uniqueMessageName(id));
+  }
 }

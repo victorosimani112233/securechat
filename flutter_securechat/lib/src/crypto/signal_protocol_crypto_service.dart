@@ -336,9 +336,25 @@ class SignalProtocolCryptoService
       _decodeBase64(plaintext.substring(second + 1)),
     );
     await _operations.protect('group:$groupId:$senderId', () async {
-      await signal.GroupSessionBuilder(
-        _store,
-      ).process(_senderKeyName(groupId, senderId), message);
+      final name = _senderKeyName(groupId, senderId);
+      final record = await _store.loadSenderKey(name);
+      try {
+        final existing = record.getSenderKeyStateById(message.id);
+        if (!identityBytesEqual(
+          existing.signingKeyPublic.serialize(),
+          message.signatureKey.serialize(),
+        )) {
+          throw signal.InvalidKeyException(
+            'Conflicting sender-key signing key',
+          );
+        }
+        // Repeated distributions must not skip pending messages, discard cached
+        // message keys, or rewind the ratchet and make consumed messages replayable.
+        return;
+      } on signal.InvalidKeyIdException {
+        // A new key ID is a normal sender-key rotation.
+      }
+      await signal.GroupSessionBuilder(_store).process(name, message);
     });
   }
 

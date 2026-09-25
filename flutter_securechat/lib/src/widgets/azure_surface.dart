@@ -80,7 +80,14 @@ List<Widget> azureSections(List<Widget> items, {String? Function(int)? title}) {
       if (title?.call(index) case final String heading)
         _SectionHeading(heading),
       AzureSurface(
-        child: Column(mainAxisSize: MainAxisSize.min, children: filled[index]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Each action owns its row bounds, not the whole visual section.
+            for (final row in filled[index])
+              Semantics(container: true, child: row),
+          ],
+        ),
       ),
       if (index < filled.length - 1) const SizedBox(height: 14),
     ],

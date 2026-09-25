@@ -147,6 +147,7 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
                   const SizedBox(width: 6),
                   IconButton.filled(
                     key: const Key('media-send'),
+                    tooltip: context.l10n.send,
                     onPressed: () => Navigator.pop(
                       context,
                       MediaSendRequest(

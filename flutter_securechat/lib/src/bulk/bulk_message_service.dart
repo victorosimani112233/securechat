@@ -44,13 +44,18 @@ class BulkMessageService implements BulkMessageSender {
     var sent = 0;
     final failed = <String, SendMessageOutcome>{};
     for (final id in ids) {
-      final outcome = await _sender(
-        SendMessageRequest(conversationId: id, content: clean),
-      );
-      if (outcome == SendMessageOutcome.sent) {
-        sent++;
-      } else {
-        failed[id] = outcome;
+      try {
+        final outcome = await _sender(
+          SendMessageRequest(conversationId: id, content: clean),
+        );
+        if (outcome == SendMessageOutcome.sent) {
+          sent++;
+        } else {
+          failed[id] = outcome;
+        }
+      } catch (_) {
+        // Preserve earlier successes so retrying does not resend the whole batch.
+        failed[id] = SendMessageOutcome.deliveryFailed;
       }
     }
     return BulkSendResult(sent: sent, failed: failed);

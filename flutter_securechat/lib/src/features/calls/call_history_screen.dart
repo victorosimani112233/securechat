@@ -73,7 +73,10 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         .where(
           (call) => switch (_filter) {
             _CallFilter.all => true,
-            _CallFilter.missed => call.status == CallHistoryStatus.missed,
+            _CallFilter.missed =>
+              call.status == CallHistoryStatus.missed ||
+                  (call.status == CallHistoryStatus.busy &&
+                      call.direction == CallDirection.incoming),
             _CallFilter.incoming => call.direction == CallDirection.incoming,
             _CallFilter.outgoing => call.direction == CallDirection.outgoing,
             _CallFilter.video => call.callType == CallType.video,

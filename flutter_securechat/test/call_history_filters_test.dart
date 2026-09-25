@@ -111,10 +111,10 @@ void main() {
       }
 
       for (final filter in {
-        'all': 6,
-        'missed': 1,
-        'incoming': 3,
-        'outgoing': 3,
+        'all': 8,
+        'missed': 2,
+        'incoming': 4,
+        'outgoing': 4,
         'video': 2,
         'group': 3,
       }.entries) {
@@ -180,7 +180,7 @@ void main() {
         await db.close();
         await root.delete(recursive: true);
       });
-      final log = CallLogEntity(
+      const log = CallLogEntity(
         id: 'group-call',
         peerId: 'caller',
         peerName: 'Group',
@@ -235,6 +235,12 @@ class _History implements CallHistoryService {
       groupId: 'group-ops',
     ),
     _entry('group-in', groupId: 'group-ops'),
+    _entry('busy-in', status: CallHistoryStatus.busy),
+    _entry(
+      'busy-out',
+      status: CallHistoryStatus.busy,
+      direction: CallDirection.outgoing,
+    ),
     _entry(
       'legacy-group',
       peerId: 'group-ops',

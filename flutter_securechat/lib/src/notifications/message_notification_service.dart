@@ -62,12 +62,16 @@ class MissedCallNotification {
     required this.peerId,
     required this.peerName,
     required this.callType,
+    this.silent = false,
+    this.isGroupCall = false,
   });
   final int id;
   final String callId;
   final String peerId;
   final String peerName;
   final CallType callType;
+  final bool silent;
+  final bool isGroupCall;
 }
 
 abstract interface class LocalNotificationPresenter {
@@ -108,6 +112,7 @@ class PluginLocalNotificationPresenter
   static const highChannelId = 'elcim_messages_v4';
   static const lowChannelId = 'elcim_messages_low_v1';
   static const groupKey = 'elcim_messages';
+  static const quietMissedCallChannelId = 'missed_call_quiet_v1';
 
   /// Her ses icin AYRI kanal.
   ///
@@ -281,9 +286,13 @@ class PluginLocalNotificationPresenter
 
   @override
   Future<void> showMissedCall(MissedCallNotification notification) async {
-    final payload = _encodeMissedCall(notification);
+    // Group calls cannot use the direct-call callback handler.
+    final payload = notification.isGroupCall
+        ? notification.peerId
+        : _encodeMissedCall(notification);
     final l10n = await _strings.load();
-    await _plugin.show(
+    final showNotification = _showNotificationOverride ?? _plugin.show;
+    await showNotification(
       id: notification.id,
       title: notification.callType == CallType.video
           ? l10n.missed_video_call
@@ -291,26 +300,39 @@ class PluginLocalNotificationPresenter
       body: l10n.missed_call_from(notification.peerName),
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          'missed_call_channel',
+          notification.silent
+              ? quietMissedCallChannelId
+              : 'missed_call_channel',
           l10n.missed_calls_channel,
           channelDescription: l10n.missed_calls_channel_desc,
           icon: 'notification_icon',
-          importance: Importance.defaultImportance,
-          priority: Priority.defaultPriority,
+          importance: notification.silent
+              ? Importance.low
+              : Importance.defaultImportance,
+          priority: notification.silent
+              ? Priority.low
+              : Priority.defaultPriority,
+          playSound: !notification.silent,
+          enableVibration: !notification.silent,
+          silent: notification.silent,
           category: AndroidNotificationCategory.missedCall,
           visibility: NotificationVisibility.secret,
-          actions: const [
-            AndroidNotificationAction(
-              'call_back',
-              'Geri Ara',
-              showsUserInterface: true,
-            ),
-          ],
+          actions: notification.isGroupCall
+              ? const []
+              : const [
+                  AndroidNotificationAction(
+                    'call_back',
+                    'Geri Ara',
+                    showsUserInterface: true,
+                  ),
+                ],
         ),
-        iOS: const DarwinNotificationDetails(
-          categoryIdentifier: 'securechat_missed_call',
+        iOS: DarwinNotificationDetails(
+          categoryIdentifier: notification.isGroupCall
+              ? 'securechat_message'
+              : 'securechat_missed_call',
           presentAlert: true,
-          presentSound: true,
+          presentSound: !notification.silent,
         ),
       ),
       payload: payload,

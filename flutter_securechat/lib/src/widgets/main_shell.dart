@@ -59,6 +59,7 @@ class _MainShellState extends State<MainShell> {
 
   Future<void> _select(int value) async {
     if (value == _index || !_pages.hasClients) return;
+    FocusScope.of(context).unfocus();
     await _pages.animateToPage(
       value,
       duration: const Duration(milliseconds: 300),
@@ -133,8 +134,18 @@ class _MainShellState extends State<MainShell> {
             itemCount: _screens.length,
             allowImplicitScrolling: true,
             physics: const PageScrollPhysics(),
-            onPageChanged: (value) => setState(() => _index = value),
-            itemBuilder: (_, index) => _KeepAlivePage(child: _screens[index]),
+            onPageChanged: (value) {
+              // Swipes also leave kept-alive inputs behind on the previous tab.
+              FocusScope.of(context).unfocus();
+              setState(() => _index = value);
+            },
+            itemBuilder: (_, index) => _KeepAlivePage(
+              child: ExcludeFocus(
+                // Dialog dismissal must not restore focus to an offscreen input.
+                excluding: index != _index,
+                child: _screens[index],
+              ),
+            ),
           ),
         ),
         bottomNavigationBar: StreamBuilder<int>(

@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
+
+import 'package:crypto/crypto.dart';
 
 import '../core/signal_message.dart';
 import '../services/crypto_service.dart';
@@ -436,6 +439,7 @@ class CallManager {
   final _openRequests = StreamController<void>.broadcast();
   bool _hasPendingOpenRequest = false;
   final Map<String, Completer<void>> _controlAcks = {};
+  final Map<String, DateTime> _busyCalls = {};
   final AsyncOperationTracker _operations;
   final List<IceCandidateSignal> _pendingIce = [];
   final Random _random = Random.secure();
@@ -1047,8 +1051,22 @@ class CallManager {
 
   Future<void> _handleOffer(SdpOfferSignal signal) async {
     final current = _current;
-    if (current?.isGroupCall == true) {
-      if (!_isCurrentGroupCall(current!.callId) ||
+    // An offer from the current direct peer is not a second incoming call.
+    if (_hasLiveCall &&
+        current?.isGroupCall == false &&
+        current?.peerId == signal.senderId) {
+      return;
+    }
+    final isGroupPeer =
+        current?.isGroupCall == true &&
+        (current!.peerIds.contains(signal.senderId) ||
+            (_groupMemberValidator != null &&
+                await _groupMemberValidator(
+                  current.groupId!,
+                  signal.senderId,
+                )));
+    if (isGroupPeer) {
+      if (!_isCurrentGroupCall(current.callId) ||
           current.isSfuMode ||
           _sfuBinding)
         return;
@@ -1065,8 +1083,15 @@ class CallManager {
     final type = signal.callType.toUpperCase() == 'VIDEO'
         ? CallType.video
         : CallType.voice;
+    final busyKey = sha256
+        .convert(
+          utf8.encode(
+            jsonEncode([current?.callId, signal.senderId, signal.sdp]),
+          ),
+        )
+        .toString();
     final incoming = CallSession(
-      callId: _newId(),
+      callId: _hasLiveCall ? 'busy-$busyKey' : _newId(),
       peerId: signal.senderId,
       peerName: await _peerNameResolver(signal.senderId),
       callType: type,
@@ -1076,13 +1101,12 @@ class CallManager {
       isSpeakerOn: type == CallType.video,
     );
     if (_hasLiveCall) {
-      if (_secondary == null) {
-        _secondary = incoming;
-        _secondaryOffer = signal.sdp;
-        _secondarySessions.add(incoming);
-      } else {
+      try {
         await _sendControl(signal.senderId, 'BUSY', reliable: false);
-        await _saveLog(incoming, CallState.busy);
+      } catch (error, stack) {
+        _reportCallFailure('busy-control', error, stack);
+      } finally {
+        await _recordBusyCall(incoming, 'direct:$busyKey');
       }
       return;
     }
@@ -1095,6 +1119,25 @@ class CallManager {
     _missedCalls?.start(incoming);
     await _sendControl(signal.senderId, 'RINGING', reliable: false);
     _startRingTimeout();
+  }
+
+  Future<void> _recordBusyCall(CallSession incoming, String key) async {
+    final now = DateTime.now();
+    _busyCalls.removeWhere(
+      (_, time) => now.difference(time) > const Duration(minutes: 2),
+    );
+    if (_busyCalls.containsKey(key)) return;
+    if (_busyCalls.length >= 128) _busyCalls.remove(_busyCalls.keys.first);
+    // Claim before awaiting storage so retransmissions cannot double-notify.
+    _busyCalls[key] = now;
+    try {
+      await _saveLog(incoming, CallState.busy);
+      await _missedCalls?.triggerNow(incoming.copyWith(state: CallState.busy));
+    } catch (error, stack) {
+      _busyCalls.remove(key);
+      // A failed notification is unrelated to the active media session.
+      _reportCallFailure('busy-notification', error, stack);
+    }
   }
 
   Future<void> _handleAnswer(SdpAnswerSignal signal) async {
@@ -1222,7 +1265,7 @@ class CallManager {
       }
       return;
     }
-    if (session.peerId != signal.senderId) return;
+    if (signal.groupId != null || session.peerId != signal.senderId) return;
     switch (signal.action.toUpperCase()) {
       case 'ACCEPT':
         _ringTimer?.cancel();
@@ -1245,11 +1288,9 @@ class CallManager {
   }
 
   Future<void> _handleGroupInvite(GroupCallInviteSignal signal) async {
-    if (_current?.callId == signal.callId &&
-        _currentGroupRoutingToken == signal.groupId &&
-        _current?.peerId == signal.senderId &&
-        _hasLiveCall)
-      return;
+    // Group cleanup is token-scoped on the server. A stale invite for our
+    // active room must never remove us from that room.
+    if (_currentGroupRoutingToken == signal.groupId && _hasLiveCall) return;
     final localGroupId = await _groupLocalIdResolver(signal.groupId);
     if (localGroupId == null ||
         localGroupId.isEmpty ||
@@ -1264,18 +1305,42 @@ class CallManager {
       return;
     }
     if (_hasLiveCall) {
-      await _sendControl(
-        signal.senderId,
-        'BUSY',
-        reliable: false,
-        groupId: signal.groupId,
-      );
-      await _sendControl(
-        'server',
-        'HANGUP',
-        reliable: false,
-        groupId: signal.groupId,
-      );
+      try {
+        await _sendControl(
+          signal.senderId,
+          'BUSY',
+          reliable: false,
+          groupId: signal.groupId,
+        );
+        await _sendControl(
+          'server',
+          'HANGUP',
+          reliable: false,
+          groupId: signal.groupId,
+        );
+      } catch (error, stack) {
+        _reportCallFailure('busy-control', error, stack);
+      }
+      try {
+        await _recordBusyCall(
+          CallSession(
+            callId: signal.callId,
+            peerId: signal.senderId,
+            peerName: await _peerNameResolver(localGroupId),
+            callType: signal.callType.toUpperCase() == 'VIDEO'
+                ? CallType.video
+                : CallType.voice,
+            direction: CallDirection.incoming,
+            state: CallState.busy,
+            createdAt: DateTime.now(),
+            isGroupCall: true,
+            groupId: localGroupId,
+          ),
+          'group:${signal.groupId}:${signal.callId}',
+        );
+      } catch (error, stack) {
+        _reportCallFailure('busy-notification', error, stack);
+      }
       return;
     }
     final userId = _requireUserId();

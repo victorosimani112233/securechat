@@ -21,6 +21,8 @@ import 'package:flutter_securechat/src/contacts/contact_service.dart';
 import 'package:flutter_securechat/src/network/network_resilience.dart';
 import 'package:flutter_securechat/src/incoming/incoming_message_handler.dart';
 import 'package:flutter_securechat/src/media/file_transfer_manager.dart';
+import 'package:flutter_securechat/src/media/media_attachment.dart';
+import 'package:flutter_securechat/src/media/media_message_service.dart';
 import 'package:flutter_securechat/src/notifications/message_notification_service.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
@@ -29,6 +31,255 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 
 void main() {
+  group('repeated SenderKey distribution', () {
+    late _SignalFixture fixture;
+    const groupId = 'batch-group';
+    Future<String> distribution() => fixture.alice.createSenderKeyDistribution(
+      groupId: groupId,
+      senderId: 'alice',
+    );
+    Future<void> install(String value) => fixture.bob
+        .processSenderKeyDistribution(senderId: 'alice', plaintext: value);
+    Future<String> encrypt(String value) => fixture.alice.encryptGroup(
+      senderId: 'alice',
+      groupId: groupId,
+      plaintext: value,
+    );
+    Future<String> decrypt(String value) => fixture.bob.decryptGroup(
+      senderId: 'alice',
+      groupId: groupId,
+      envelope: value,
+    );
+
+    setUp(() async {
+      fixture = await _SignalFixture.open();
+    });
+    tearDown(() => fixture.close());
+
+    test('later distributions do not skip pending ciphertext', () async {
+      final messages = <String>[];
+      for (var i = 0; i < 3; i++) {
+        await install(await distribution());
+        messages.add(await encrypt('file-$i'));
+        messages.add(await encrypt('manifest-$i'));
+      }
+      for (var i = 0; i < messages.length; i++) {
+        expect(
+          await decrypt(messages[i]),
+          '${i.isEven ? 'file' : 'manifest'}-${i ~/ 2}',
+        );
+      }
+    });
+
+    test('redistribution preserves skipped keys and rejects replay', () async {
+      final initial = await distribution();
+      await install(initial);
+      final first = await encrypt('first');
+      final second = await encrypt('second');
+      expect(await decrypt(second), 'second');
+      await install(await distribution());
+      expect(await decrypt(first), 'first');
+      // An old authenticated distribution must not rewind consumed keys.
+      await install(initial);
+      await expectLater(
+        decrypt(first),
+        throwsA(isA<signal.DuplicateMessageException>()),
+      );
+      await expectLater(
+        decrypt(second),
+        throwsA(isA<signal.DuplicateMessageException>()),
+      );
+    });
+
+    test('same key ID with a different signing key fails closed', () async {
+      final initial = await distribution();
+      await install(initial);
+      final parsed = signal.SenderKeyDistributionMessageWrapper.fromSerialized(
+        Uint8List.fromList(base64Decode(initial.split(':').last)),
+      );
+      final conflict = signal.SenderKeyDistributionMessageWrapper(
+        parsed.id,
+        parsed.iteration,
+        parsed.chainKey,
+        signal.Curve.generateKeyPair().publicKey,
+      );
+      await expectLater(
+        install('SKDM:$groupId:${base64Encode(conflict.serialize())}'),
+        throwsA(isA<signal.InvalidKeyException>()),
+      );
+      expect(await decrypt(await encrypt('valid')), 'valid');
+    });
+
+    test(
+      'rotation retains older pending keys without replaying consumed ones',
+      () async {
+        final old = await distribution();
+        await install(old);
+        final pending = await encrypt('old pending');
+        await fixture.alice.resetLocalSenderKey(groupId, 'alice');
+        await install(await distribution());
+        final current = await encrypt('new key');
+        expect(await decrypt(current), 'new key');
+        expect(await decrypt(pending), 'old pending');
+        await install(old);
+        await expectLater(
+          decrypt(pending),
+          throwsA(isA<signal.DuplicateMessageException>()),
+        );
+        expect(await decrypt(await encrypt('still current')), 'still current');
+      },
+    );
+  });
+
+  for (final viewOnce in [false, true]) {
+    for (final reverse in [false, true]) {
+      test(
+        'group attachment batch survives controls first (viewOnce=$viewOnce, reverse=$reverse)',
+        () async {
+          final f = await _SignalFixture.open();
+          addTearDown(f.close);
+          final wire = InMemorySignalingService()..setConnected(true);
+          final receiver = InMemorySignalingService();
+          final failures = <Object>[];
+          Future<void> report(String op, Object error, StackTrace stack) async {
+            failures.add(error);
+          }
+
+          final incoming = IncomingMessageHandler(
+            signaling: receiver,
+            crypto: f.bob,
+            database: f.bobDatabase,
+            session: SessionStore(userId: 'bob'),
+            onAsyncFailure: report,
+          )..start();
+          final outgoing = FileTransferManager(
+            signaling: wire,
+            crypto: f.alice,
+            filesDirectory: Directory('${f.directory.path}/out'),
+            metadataCrypto: LocalAeadCryptoService(
+              SecretKey(List.filled(32, 8)),
+            ),
+            onAsyncFailure: report,
+          );
+          final receiving = FileTransferManager(
+            signaling: receiver,
+            crypto: f.bob,
+            filesDirectory: Directory('${f.directory.path}/in'),
+            metadataCrypto: LocalAeadCryptoService(
+              SecretKey(List.filled(32, 9)),
+            ),
+            beforeReceive: incoming.waitForIdle,
+            onAsyncFailure: report,
+          );
+          final sendingMedia = MediaMessageService(
+            database: f.aliceDatabase,
+            transfers: outgoing,
+            session: SessionStore(userId: 'alice'),
+            localMediaDirectory: Directory('${f.directory.path}/alice-media'),
+            groupControls: PrivateGroupControlSender(
+              crypto: f.alice,
+              signaling: wire,
+            ),
+            onAsyncFailure: report,
+          );
+          final receivingMedia = MediaMessageService(
+            database: f.bobDatabase,
+            transfers: receiving,
+            session: SessionStore(userId: 'bob'),
+            localMediaDirectory: Directory('${f.directory.path}/bob-media'),
+            onAsyncFailure: report,
+          )..start();
+          final received = <ReceivedFile>[];
+          final sub = receiving.receivedFiles.listen(received.add);
+          addTearDown(() async {
+            await sendingMedia.close();
+            await receivingMedia.close();
+            await sub.cancel();
+            await outgoing.dispose();
+            await receiving.dispose();
+            await incoming.close();
+            await wire.dispose();
+            await receiver.dispose();
+          });
+          await f.aliceDatabase.conversations.insert(
+            const ConversationEntity(
+              id: 'batch-group',
+              peerId: 'batch-group',
+              peerName: 'Batch',
+              peerPhone: '',
+              isGroup: true,
+              groupMembers: 'alice,bob',
+            ),
+          );
+          final payloads = <String, Uint8List>{};
+          final attachments = <MediaAttachment>[];
+          for (final item in [
+            ('agenda.txt', 280),
+            ('audio.m4a', 6590),
+            ('video.mp4', 41540),
+          ]) {
+            final bytes = Uint8List.fromList(
+              List.generate(item.$2, (i) => i % 251),
+            );
+            payloads[item.$1] = bytes;
+            final file = await File(
+              '${f.directory.path}/${item.$1}',
+            ).writeAsBytes(bytes);
+            attachments.add(await MediaAttachment.fromPath(file.path));
+          }
+          final outcomes = await sendingMedia.send(
+            conversationId: 'batch-group',
+            recipientId: 'batch-group',
+            attachments: attachments,
+            isGroup: true,
+            groupMembers: ['alice', 'bob'],
+            isViewOnce: viewOnce,
+            caption: 'batch caption',
+          );
+          expect(outcomes, hasLength(3));
+          expect(
+            outcomes.map((item) => item.result),
+            everyElement(isA<FileTransferSuccess>()),
+          );
+          // Reproduce queue draining: all direct controls arrive before any media.
+          for (final frame
+              in wire.sentMessages.whereType<EncryptedSignalMessage>()) {
+            receiver.addIncoming(SignalMessage.decode(frame.encode()));
+          }
+          await incoming.waitForIdle();
+          final chunks = wire.sentMessages
+              .whereType<FileTransferSignal>()
+              .toList();
+          for (final chunk in reverse ? chunks.reversed : chunks) {
+            await receiving.receiveChunk(
+              SignalMessage.decode(chunk.encode()) as FileTransferSignal,
+            );
+          }
+          await receivingMedia.waitForIdle();
+          expect(failures, isEmpty);
+          expect(received, hasLength(3));
+          expect(
+            received.map((file) => file.fileName).toSet(),
+            payloads.keys.toSet(),
+          );
+          for (final file in received) {
+            expect(await file.file.readAsBytes(), payloads[file.fileName]);
+            final row = await f.bobDatabase.messages.getById(
+              file.originalMessageId!,
+            );
+            expect(row, isNotNull);
+            expect(row!.isViewOnce, viewOnce);
+            expect(row.status, StorageMessageStatus.delivered);
+            expect(
+              row.caption,
+              file.fileName == 'agenda.txt' ? 'batch caption' : isNull,
+            );
+          }
+        },
+      );
+    }
+  }
+
   for (final mode in [
     (false, false, 600 * 1024),
     (false, true, 600 * 1024),

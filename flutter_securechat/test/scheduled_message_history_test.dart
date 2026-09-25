@@ -25,6 +25,55 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  pendingPlanPrivacyTests();
+
+  test(
+    'editing a disabled schedule preserves its persisted disabled state',
+    () async {
+      final f = await _Fixture.open();
+      addTearDown(f.close);
+      f.session.scheduledMessagesEnabled = false;
+      final plan = await f.save();
+      await f.service.setEnabled(plan.id, false);
+      expect(
+        (await f.database.scheduledMessages.getById(plan.id))!.isEnabled,
+        isFalse,
+      );
+
+      await f.save(id: plan.id, content: 'edited while disabled');
+      await f.reopen();
+
+      final edited = (await f.database.scheduledMessages.getById(plan.id))!;
+      expect(edited.messageContent, 'edited while disabled');
+      expect(edited.createdAt, plan.createdAt);
+      expect(
+        edited.isEnabled,
+        isFalse,
+        reason:
+            'Editing content must not opt a disabled plan back into delivery',
+      );
+    },
+  );
+
+  test('editing a disabled schedule does not register delivery', () async {
+    final f = await _Fixture.open();
+    addTearDown(f.close);
+    f.session.scheduledMessagesEnabled = true;
+    final plan = await f.save();
+    expect(f.scheduler.scheduled, hasLength(1));
+    await f.service.setEnabled(plan.id, false);
+    expect(f.scheduler.cancelled, contains(plan.id));
+    f.scheduler.scheduled.clear();
+
+    await f.save(id: plan.id, content: 'edited while disabled');
+
+    expect(
+      f.scheduler.scheduled,
+      isEmpty,
+      reason:
+          'Global scheduling being enabled must not override a disabled plan',
+    );
+  });
 
   test(
     'one-shot execution stores real outcome, full snapshot and actual time',
@@ -486,6 +535,141 @@ void main() {
         find.byKey(const ValueKey('scheduled-history-unlock')),
         findsOneWidget,
       );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
+}
+
+void pendingPlanPrivacyTests() {
+  testWidgets('saving a plan ignores overlapping submit callbacks', (
+    tester,
+  ) async {
+    final f = (await tester.runAsync(_Fixture.open))!;
+    addTearDown(f.close);
+    await tester.runAsync(() => f.save());
+    await _pumpHistory(tester, f);
+    await tester.tap(find.text('Existing'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    final save = find.byKey(const ValueKey('scheduled-save'));
+    await tester.ensureVisible(save);
+    await tester.pumpAndSettle();
+    final submit = tester.widget<FilledButton>(save).onPressed!;
+    final registrations = f.scheduler.scheduled.length;
+    await tester.runAsync(() async {
+      submit();
+      submit();
+      for (
+        var i = 0;
+        i < 50 && f.scheduler.scheduled.length == registrations;
+        i++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pumpAndSettle();
+    expect(f.scheduler.scheduled.length, registrations + 1);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
+  for (final replaceRecipient in [false, true]) {
+    testWidgets(
+      'locking an original recipient clears an open editor, replaced=$replaceRecipient',
+      (tester) async {
+        final f = (await tester.runAsync(_Fixture.open))!;
+        addTearDown(f.close);
+        await tester.runAsync(() async {
+          await f.save();
+          await f.database.conversations.insert(
+            const ConversationEntity(
+              id: 'bob',
+              peerId: 'bob',
+              peerName: 'Bob',
+              peerPhone: '',
+            ),
+          );
+        });
+        await _pumpHistory(tester, f);
+        await tester.tap(find.text('Existing'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(PopupMenuButton<String>).first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit'));
+        await tester.pumpAndSettle();
+        expect(
+          find.widgetWithText(TextField, 'scheduled secret'),
+          findsOneWidget,
+        );
+        if (replaceRecipient) {
+          await tester.ensureVisible(find.text('Recipients'));
+          await tester.tap(find.text('Recipients'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const ValueKey('recipient-bob')));
+          await tester.tap(find.byKey(const ValueKey('recipient-alice')));
+          await tester.tap(find.byKey(const ValueKey('recipient-confirm')));
+          await tester.pumpAndSettle();
+        }
+        await tester.runAsync(() async {
+          final alice = (await f.database.conversations.getById('alice'))!;
+          await f.database.conversations.update(alice.copyWith(isLocked: true));
+        });
+        await tester.pumpAndSettle();
+        expect(
+          find.widgetWithText(TextField, 'scheduled secret'),
+          findsNothing,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+    );
+  }
+
+  testWidgets(
+    'pending locked plan hides content and requires authentication to edit',
+    (tester) async {
+      final f = (await tester.runAsync(_Fixture.open))!;
+      addTearDown(f.close);
+      await tester.runAsync(() async {
+        await f.save();
+        final alice = (await f.database.conversations.getById('alice'))!;
+        await f.database.conversations.update(alice.copyWith(isLocked: true));
+      });
+      final authenticator = _Authenticator();
+      await _pumpHistory(tester, f, authenticator: authenticator);
+      await tester.tap(find.text('Existing'));
+      await tester.pumpAndSettle();
+      expect(find.text('scheduled secret'), findsNothing);
+      expect(find.textContaining('Alice, QA'), findsNothing);
+      await tester.tap(find.byType(PopupMenuButton<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      expect(authenticator.calls, 1);
+      expect(find.widgetWithText(TextField, 'scheduled secret'), findsNothing);
+      authenticator.allow = true;
+      await tester.tap(find.byType(PopupMenuButton<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      expect(
+        find.widgetWithText(TextField, 'scheduled secret'),
+        findsOneWidget,
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextField, 'scheduled secret'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     },

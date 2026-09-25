@@ -471,6 +471,16 @@ class AppContainer {
         onAsyncFailure: reportAsyncFailure,
       )..start();
       resources.register('incoming-message-handler', incomingMessages.close);
+      final scheduledOutboxRecovery = ScheduledOutboxRecovery(
+        scheduledMessages: database.scheduledMessages,
+        outbox: offlineQueue,
+        signaling: signaling,
+        onAsyncFailure: reportAsyncFailure,
+      );
+      resources.register(
+        'scheduled-outbox-recovery',
+        scheduledOutboxRecovery.close,
+      );
       final messageSender = SendMessageUseCase(
         database: database,
         signaling: signaling,

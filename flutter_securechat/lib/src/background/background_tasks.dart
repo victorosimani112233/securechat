@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
@@ -27,6 +28,7 @@ import '../network/tls_pinning.dart';
 import '../notifications/message_notification_service.dart';
 import '../services/crypto_service.dart';
 import '../services/app_resource_scope.dart';
+import '../services/async_operation_tracker.dart';
 import '../services/key_material_store.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
@@ -46,7 +48,12 @@ void secureChatBackgroundCallbackDispatcher() {
     final override = backgroundTaskExecutorOverride;
     if (override != null) return override(task, inputData);
     if (!Platform.isAndroid && !Platform.isIOS) return true;
-    final runtime = await SecureChatBackgroundRuntime.open();
+    final runtime = await SecureChatBackgroundRuntime.open(
+      executingPlanId:
+          task == WorkmanagerBackgroundScheduler.scheduledMessageTask
+          ? (inputData?['planId'] as String?)
+          : null,
+    );
     try {
       return await runtime.execute(task, inputData);
     } finally {
@@ -67,6 +74,7 @@ class SecureChatBackgroundRuntime {
     required this.incomingMessages,
     required this.notifications,
     required this.preKeyMaintenance,
+    required this.outbox,
     required AppResourceScope resources,
   }) : _resources = resources;
 
@@ -80,10 +88,13 @@ class SecureChatBackgroundRuntime {
   final IncomingMessageHandler incomingMessages;
   final MessageNotificationCoordinator notifications;
   final PreKeyMaintenanceService preKeyMaintenance;
+  final OfflineMessageQueue outbox;
   final AppResourceScope _resources;
   bool _closed = false;
 
-  static Future<SecureChatBackgroundRuntime> open() async {
+  static Future<SecureChatBackgroundRuntime> open({
+    String? executingPlanId,
+  }) async {
     final resources = AppResourceScope();
     var bootstrapComplete = false;
     try {
@@ -112,6 +123,14 @@ class SecureChatBackgroundRuntime {
         callCapable: false,
       );
       resources.register('background-signaling', signaling.dispose);
+      final outbox = OfflineMessageQueue(
+        database: database,
+        signaling: signaling,
+        onAsyncFailure: (operation, error, stackTrace) async {
+          _logBackgroundFailure('BG-OUTBOX', operation, error, stackTrace);
+        },
+      )..start();
+      resources.register('background-outbox', outbox.close);
       final protocolStore = DatabaseCryptoProtocolStore(database);
       final preKeyMaintenance = PreKeyMaintenanceService(
         manager: PreKeyManager(protocolStore),
@@ -186,13 +205,15 @@ class SecureChatBackgroundRuntime {
         signaling: signaling,
         session: session,
         crypto: crypto,
+        reliableQueue: outbox,
         phoneSharing: phoneSharing,
         onAsyncFailure: (operation, error, stackTrace) async {
           _logBackgroundFailure('BG-SEND', operation, error, stackTrace);
         },
       );
-      const scheduler = WorkmanagerBackgroundScheduler(
+      final scheduler = WorkmanagerBackgroundScheduler(
         callbackDispatcher: secureChatBackgroundCallbackDispatcher,
+        executingPlanId: executingPlanId,
       );
       final runtime = SecureChatBackgroundRuntime._(
         database: database,
@@ -222,6 +243,7 @@ class SecureChatBackgroundRuntime {
         incomingMessages: incomingMessages,
         notifications: notifications,
         preKeyMaintenance: preKeyMaintenance,
+        outbox: outbox,
         resources: resources,
       );
       bootstrapComplete = true;
@@ -240,7 +262,14 @@ class SecureChatBackgroundRuntime {
     }
     if (task == WorkmanagerBackgroundScheduler.scheduledMessageTask) {
       final id = input?['planId'] as String?;
-      return id != null && await scheduledMessages.processPlan(id);
+      if (id == null) return false;
+      final processed = await processScheduledBackgroundPlan(
+        planId: id,
+        dao: database.scheduledMessages,
+        service: scheduledMessages,
+      );
+      await _drainOutgoing();
+      return processed;
     }
     if (task == WorkmanagerBackgroundScheduler.senderKeyRotationTask) {
       if (!await _connect()) return false;
@@ -256,6 +285,7 @@ class SecureChatBackgroundRuntime {
       if (await _connect()) {
         await timerUpdates.flush();
         await scheduledMessages.processDue();
+        await _drainOutgoing();
       }
       return true;
     }
@@ -280,6 +310,18 @@ class SecureChatBackgroundRuntime {
     }
   }
 
+  Future<void> _drainOutgoing() async {
+    await outbox.flushEnqueuedSignals();
+    final pending = await waitForBackgroundOutboxReceipts(
+      outbox: outbox,
+      signaling: signaling,
+    );
+    await incomingMessages.waitForIdle();
+    await notifications.waitForIdle();
+    // Local enqueue and a bounded wait are not remote delivery confirmation.
+    if (pending > 0) debugPrint('BG-OUTBOX pending=$pending');
+  }
+
   Future<void> _drainUntilIdle({
     Duration idleFor = const Duration(seconds: 3),
     Duration maxWait = const Duration(seconds: 25),
@@ -300,6 +342,88 @@ class SecureChatBackgroundRuntime {
     if (_closed) return;
     _closed = true;
     await _resources.dispose();
+  }
+}
+
+/// Obsolete work is complete, not a retryable send failure. Foreground execution
+/// or a user edit may remove/disable the plan before Workmanager invokes it.
+Future<bool> processScheduledBackgroundPlan({
+  required String planId,
+  required ScheduledMessageDao dao,
+  required ScheduledMessageService service,
+}) async {
+  final plan = await dao.getById(planId);
+  if (plan == null || !plan.isEnabled) return true;
+  return service.processPlan(planId);
+}
+
+/// Observes persisted receipts, including commits from another runtime. A
+/// timeout/disconnect leaves ciphertext available for the next outbox flush.
+Future<int> waitForBackgroundOutboxReceipts({
+  required OfflineMessageQueue outbox,
+  required SignalingService signaling,
+  Duration maxWait = const Duration(seconds: 5),
+  Duration pollInterval = const Duration(milliseconds: 100),
+}) async {
+  if (maxWait.isNegative || pollInterval <= Duration.zero) {
+    throw ArgumentError('Invalid outbox receipt wait duration');
+  }
+  final elapsed = Stopwatch()..start();
+  while (true) {
+    final pending = await outbox.getPendingCount();
+    final remaining = maxWait - elapsed.elapsed;
+    if (pending == 0 ||
+        !signaling.currentStatus.isConnected ||
+        remaining <= Duration.zero) {
+      return pending;
+    }
+    await Future<void>.delayed(
+      remaining < pollInterval ? remaining : pollInterval,
+    );
+  }
+}
+
+/// A worker can commit a scheduled send while the main socket stays connected.
+/// History is committed after its outbox entries; only new history snapshots
+/// trigger a flush, not the receipt/attempt writes made by that flush itself.
+class ScheduledOutboxRecovery {
+  ScheduledOutboxRecovery({
+    required ScheduledMessageDao scheduledMessages,
+    required OfflineMessageQueue outbox,
+    required SignalingService signaling,
+    AsyncOperationFailureHandler? onAsyncFailure,
+  }) : _operations = AsyncOperationTracker(onFailure: onAsyncFailure) {
+    _subscription = scheduledMessages
+        .watchHistory()
+        .map((history) => history.map((entry) => entry.id).toList())
+        .distinct((previous, next) => listEquals(previous, next))
+        .listen(
+          (_) {
+            if (signaling.currentStatus.isConnected) {
+              _operations.run(
+                'scheduled-outbox.flush',
+                outbox.flushEnqueuedSignals(),
+              );
+            }
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            _operations.run(
+              'scheduled-outbox.history',
+              Future<void>.error(error, stackTrace),
+            );
+          },
+        );
+  }
+
+  final AsyncOperationTracker _operations;
+  late final StreamSubscription<List<String>> _subscription;
+  Future<void>? _closeTask;
+
+  Future<void> close() => _closeTask ??= _close();
+
+  Future<void> _close() async {
+    await _subscription.cancel();
+    await _operations.close();
   }
 }
 

@@ -126,7 +126,10 @@ void main() {
       final groups = (list.childrenDelegate as SliverChildListDelegate).children
           .whereType<AzureSurface>()
           .map(
-            (group) => (group.child as Column).children.map((row) {
+            (group) => (group.child as Column).children.map((boundary) {
+              expect(boundary, isA<Semantics>());
+              expect((boundary as Semantics).container, isTrue);
+              final row = boundary.child!;
               final title = row is ListTile
                   ? row.title
                   : (row as SwitchListTile).title;
@@ -218,6 +221,78 @@ void main() {
       await tester.pumpAndSettle();
     });
   }
+
+  testWidgets('settings section semantics bounds belong to individual rows', (
+    tester,
+  ) async {
+    await _pumpSettingsForSemantics(tester);
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(SettingsScreen)),
+    );
+    final rows = [
+      (label: l10n.settings_chat_theme, type: ListTile),
+      (label: l10n.settings_backdrop, type: SwitchListTile),
+      (label: l10n.settings_fullscreen, type: SwitchListTile),
+    ];
+    final bounds = <Rect>[];
+    for (final row in rows) {
+      final label = find.text(row.label);
+      final tile = find.ancestor(of: label, matching: find.byType(row.type));
+      expect(tile, findsOneWidget);
+      final node = tester.getSemantics(label);
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      final semanticRect = _globalSemanticsRect(node);
+      expect(
+        semanticRect,
+        rectMoreOrLessEquals(tester.getRect(tile)),
+        reason: '${row.label} must not inherit the whole section bounds',
+      );
+      bounds.add(semanticRect);
+    }
+    for (var index = 1; index < bounds.length; index++) {
+      expect(bounds[index - 1].overlaps(bounds[index]), isFalse);
+    }
+  });
+
+  testWidgets(
+    'settings section semantics theme center opens only the theme dialog',
+    (tester) async {
+      final fixture = await _pumpSettingsForSemantics(tester);
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SettingsScreen)),
+      );
+      final backdropBefore = fixture.session.useDoodleBackground;
+      final fullscreenBefore = fixture.session.fullscreenMode;
+      final themeNode = tester.getSemantics(
+        find.text(l10n.settings_chat_theme),
+      );
+      final themeBounds = _globalSemanticsRect(themeNode);
+
+      // Android coordinate automation taps the accessibility node's center,
+      // not the Text widget's center or SemanticsAction.tap callback.
+      await tester.runAsync(() async {
+        await tester.tapAt(themeBounds.center);
+        await fixture.session.persist();
+      });
+      await tester.pumpAndSettle();
+
+      expect(
+        fixture.session.useDoodleBackground,
+        backdropBefore,
+        reason: 'Tapping Theme semantics must not toggle Backdrop',
+      );
+      expect(fixture.session.fullscreenMode, fullscreenBefore);
+      expect(find.byType(SimpleDialog), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(SimpleDialog),
+          matching: find.text(l10n.settings_chat_theme),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'phone privacy switch is reachable and persists on a narrow screen',
@@ -453,6 +528,66 @@ void main() {
       expect(fixture.session.profilePhotoUri, isNull);
     },
   );
+}
+
+Future<_SettingsFixture> _pumpSettingsForSemantics(WidgetTester tester) async {
+  final fixture = (await tester.runAsync(_SettingsFixture.open))!;
+  addTearDown(fixture.close);
+  tester.view.physicalSize = const Size(390, 844);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  final container = AppContainer.testing(
+    session: fixture.session,
+    conversations: InMemoryConversationRepository(
+      conversations: [],
+      messages: {},
+    ),
+    crypto: fixture.crypto,
+    signaling: fixture.signaling,
+    settingsRuntime: AppSettingsRuntime(service: fixture.settings),
+    callReadinessRuntime: const AppCallReadinessRuntime(
+      service: CallReadinessService(
+        platform: NotApplicableCallReadinessPlatform(),
+      ),
+    ),
+    chatAccessRuntime: const AppChatAccessRuntime(
+      service: ChatAccessService(
+        authenticator: AlwaysAllowDeviceOwnerAuthenticator(),
+      ),
+    ),
+  );
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+  await tester.pumpWidget(
+    AppContainerScope(
+      container: container,
+      child: MaterialApp(
+        theme: SecureChatTheme.dark(),
+        locale: const Locale('tr'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const SettingsScreen(),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return fixture;
+}
+
+Rect _globalSemanticsRect(SemanticsNode node) {
+  var rect = node.rect;
+  for (
+    SemanticsNode? ancestor = node;
+    ancestor != null;
+    ancestor = ancestor.parent
+  ) {
+    final transform = ancestor.transform;
+    if (transform != null) rect = MatrixUtils.transformRect(transform, rect);
+  }
+  return rect;
 }
 
 class _SettingsFixture {

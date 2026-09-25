@@ -249,6 +249,7 @@ class _CallActivityCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final failed =
         call.status == CallHistoryStatus.missed ||
+        call.status == CallHistoryStatus.busy ||
         call.status == CallHistoryStatus.rejected ||
         call.status == CallHistoryStatus.failed;
     final accent = failed ? scheme.error : scheme.primary;

@@ -107,6 +107,7 @@ class ScheduledMessageService {
       recipientIds: recipients.join(','),
       recipientNames: recipientNames.values.join(','),
       recipientDisplayNames: recipientNames.values.toList(growable: false),
+      isEnabled: existing?.isEnabled ?? true,
       nextTriggerTime: calculateNextTrigger(
         hour: draft.hour,
         minute: draft.minute,
@@ -117,7 +118,7 @@ class ScheduledMessageService {
       createdAt: existing?.createdAt,
     );
     await _dao.insert(entity);
-    if (_session.scheduledMessagesEnabled) {
+    if (entity.isEnabled && _session.scheduledMessagesEnabled) {
       await _scheduler.scheduleMessage(entity);
     }
     return entity;

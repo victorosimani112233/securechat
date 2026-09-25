@@ -3,11 +3,79 @@ import 'dart:async';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_securechat/src/incoming/incoming_message_handler.dart';
 import 'package:flutter_securechat/src/l10n/service_strings.dart';
+import 'package:flutter_securechat/src/media/call_models.dart';
 import 'package:flutter_securechat/src/notifications/message_notification_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final silent in [false, true]) {
+    for (final group in [false, true]) {
+      test('missed call presentation: silent $silent, group $group', () async {
+        final details = <NotificationDetails>[];
+        final payloads = <String?>[];
+        final presenter = PluginLocalNotificationPresenter(
+          strings: ServiceStrings.fixed('en'),
+          showNotification:
+              ({
+                required int id,
+                String? title,
+                String? body,
+                NotificationDetails? notificationDetails,
+                String? payload,
+              }) async {
+                expect(id, 42);
+                details.add(notificationDetails!);
+                payloads.add(payload);
+              },
+        );
+        addTearDown(presenter.dispose);
+        await presenter.showMissedCall(
+          MissedCallNotification(
+            id: 42,
+            callId: 'missed-call',
+            peerId: group ? 'group-row' : 'peer',
+            peerName: group ? 'Group' : 'Alice',
+            callType: CallType.video,
+            silent: silent,
+            isGroupCall: group,
+          ),
+        );
+        final android = details.single.android!;
+        expect(
+          android.channelId,
+          silent
+              ? PluginLocalNotificationPresenter.quietMissedCallChannelId
+              : 'missed_call_channel',
+        );
+        expect(android.playSound, !silent);
+        expect(android.enableVibration, !silent);
+        expect(android.silent, silent);
+        expect(
+          android.importance,
+          silent ? Importance.low : Importance.defaultImportance,
+        );
+        expect(
+          android.priority,
+          silent ? Priority.low : Priority.defaultPriority,
+        );
+        expect(android.visibility, NotificationVisibility.secret);
+        expect(android.category, AndroidNotificationCategory.missedCall);
+        expect(
+          android.actions!.map((action) => action.id),
+          group ? isEmpty : ['call_back'],
+        );
+        expect(details.single.iOS!.presentSound, !silent);
+        expect(details.single.iOS!.presentAlert, isTrue);
+        expect(
+          details.single.iOS!.categoryIdentifier,
+          group ? 'securechat_message' : 'securechat_missed_call',
+        );
+        expect(payloads.single, group ? 'group-row' : 'missed_call|peer|video');
+      });
+    }
+  }
+
   test(
     'recreated background coordinator uses persistent unread totals',
     () async {

@@ -649,6 +649,20 @@ class ConversationDao {
       }
     }
   });
+  Future<void> recordMissedCall(
+    String conversationId,
+    String message,
+    int timestamp,
+  ) => _patch(
+    conversationId,
+    (current) => _withoutLastMessage(current).copyWith(
+      lastMessage: message,
+      lastMessageTimestamp: timestamp,
+      lastMessageType: StorageMessageContentType.system.name,
+      lastMessageOutgoing: false,
+      unreadCount: current.unreadCount + 1,
+    ),
+  );
   Future<void> updateContactNote(String id, String? note) =>
       _patch(id, (c) => c.copyWith(contactNote: note));
   Future<void> updateCustomNotification(String id, String? uri) =>

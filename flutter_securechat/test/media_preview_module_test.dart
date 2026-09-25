@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_securechat/src/l10n/generated/app_localizations.dart';
 
 import 'package:flutter_securechat/src/core/signal_message.dart';
 import 'package:flutter_securechat/src/chat/conversation_preview.dart';
@@ -17,6 +19,32 @@ import 'package:flutter_securechat/src/storage/storage_entities.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('media preview send action has an accessible label', (
+    tester,
+  ) async {
+    const attachment = MediaAttachment(
+      path: '/test/document.txt',
+      fileName: 'document.txt',
+      mimeType: 'text/plain',
+      fileSize: 2,
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: MediaPreviewScreen(attachments: [attachment]),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Send'), findsOneWidget);
+    expect(
+      tester.widget<IconButton>(find.byKey(const Key('media-send'))).onPressed,
+      isNotNull,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   for (final deliveredEarly in [true, false]) {
     test(

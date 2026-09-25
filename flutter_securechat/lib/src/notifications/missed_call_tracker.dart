@@ -44,6 +44,8 @@ class MissedCallTracker implements MissedCallLifecycle {
   final Duration timeout;
   final Map<String, Timer> _timers = {};
   final Set<String> _recorded = {};
+  final Set<String> _notified = {};
+  final Map<String, Future<void>> _pending = {};
   late final StreamSubscription<MissedCallAction> _callbackSubscription;
   Future<void>? _closeTask;
   bool _closed = false;
@@ -66,27 +68,47 @@ class MissedCallTracker implements MissedCallLifecycle {
 
   @override
   Future<void> triggerNow(CallSession session) async {
+    if (_closed) return;
     cancel(session.callId);
-    if (!_recorded.add(session.callId)) return;
-    final conversation = await _conversations.getByPeerId(session.peerId);
-    if (conversation != null) {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      await _conversations.updateLastMessage(
-        session.peerId,
-        (await _strings.load()).missed_call,
-        now,
-      );
-      await _conversations.incrementUnreadCount(session.peerId);
+    if (_notified.contains(session.callId)) return;
+    final pending = _pending[session.callId];
+    if (pending != null) return pending;
+    final operation = _recordAndNotify(session);
+    _pending[session.callId] = operation;
+    try {
+      await operation;
+    } finally {
+      _pending.remove(session.callId);
     }
+  }
+
+  Future<void> _recordAndNotify(CallSession session) async {
+    final targetId = session.isGroupCall ? session.groupId : session.peerId;
+    if (targetId == null || targetId.isEmpty) return;
+    final missedCall = (await _strings.load()).missed_call;
+    final conversation = session.isGroupCall
+        ? await _conversations.getById(targetId)
+        : await _conversations.getByPeerId(targetId);
+    if (!_recorded.contains(session.callId) && conversation != null) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await _conversations.recordMissedCall(conversation.id, missedCall, now);
+    }
+    // A presentation failure may retry, but must not increment unread again.
+    _recorded.add(session.callId);
     await _presenter.showMissedCall(
       MissedCallNotification(
-        id: _stableNotificationId(session.peerId),
+        id: _stableNotificationId(targetId),
         callId: session.callId,
-        peerId: session.peerId,
-        peerName: session.peerName,
+        peerId: targetId,
+        peerName: session.isGroupCall
+            ? conversation?.peerName ?? session.peerName
+            : session.peerName,
         callType: session.callType,
+        silent: session.state == CallState.busy,
+        isGroupCall: session.isGroupCall,
       ),
     );
+    _notified.add(session.callId);
   }
 
   @override

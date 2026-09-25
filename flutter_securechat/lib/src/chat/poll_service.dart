@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import '../core/signal_message.dart';
+import '../crypto/group_sender_key_distribution.dart';
 import '../domain/send_message_use_case.dart';
 import '../groups/private_group_route.dart';
 import '../services/crypto_service.dart';
@@ -160,7 +161,24 @@ class PollService {
     final plaintext = 'MSGID:${_newId()}:POLLVOTE:$pollMessageId:$optionIndex';
     late final List<SignalMessage> signals;
     try {
+      if (!await _signaling.ensureConnected(
+        timeout: const Duration(seconds: 8),
+      )) {
+        return false;
+      }
       if (conversation.isGroup) {
+        final members = _members(
+          conversation.groupMembers,
+        ).where((id) => id != userId).toList(growable: false);
+        if (members.isEmpty) return false;
+        await distributeGroupSenderKey(
+          crypto: _crypto,
+          senderId: userId,
+          groupId: conversation.id,
+          members: members,
+          timestamp: DateTime.now(),
+          send: _signaling.send,
+        );
         final encrypted = await _crypto.encryptGroup(
           senderId: userId,
           groupId: conversation.id,
@@ -171,9 +189,7 @@ class PollService {
           groupEnvelope: encrypted,
         );
         signals = [];
-        for (final member in _members(
-          conversation.groupMembers,
-        ).where((id) => id != userId)) {
+        for (final member in members) {
           signals.add(
             EncryptedSignalMessage(
               senderId: userId,
@@ -186,7 +202,6 @@ class PollService {
             ),
           );
         }
-        if (signals.isEmpty) return false;
       } else {
         signals = [
           EncryptedSignalMessage(
@@ -208,7 +223,6 @@ class PollService {
       updated.encode(),
       StorageMessageContentType.poll,
     );
-    await _signaling.ensureConnected(timeout: const Duration(seconds: 8));
     for (var attempt = 0; attempt < 3; attempt++) {
       var allSent = true;
       for (final signal in signals) {
