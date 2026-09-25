@@ -87,6 +87,71 @@ void main() {
     );
   });
 
+  test(
+    'white heart toggle survives DAO and encrypted control round trip',
+    () async {
+      final fixture = await _Fixture.open();
+      addTearDown(fixture.close);
+      await fixture.database.conversations.insert(
+        const ConversationEntity(
+          id: 'peer',
+          peerId: 'peer',
+          peerName: 'Peer',
+          peerPhone: '',
+        ),
+      );
+      await fixture.database.messages.insert(
+        const MessageEntity(
+          id: 'heart',
+          conversationId: 'peer',
+          senderId: 'peer',
+          content: 'message',
+          contentType: StorageMessageContentType.text,
+          timestamp: 1,
+          status: StorageMessageStatus.delivered,
+          isOutgoing: false,
+          reactions: '{"❤️":["peer"]}',
+        ),
+      );
+
+      expect(await fixture.service.toggleReaction('heart', '🤍'), isTrue);
+      expect(
+        parseReactions(
+          (await fixture.database.messages.getById('heart'))!.reactions,
+        ),
+        {
+          '❤️': {'peer'},
+          '🤍': {'me'},
+        },
+      );
+      final added =
+          (await fixture.sentControls()).single as MessageReactionSignal;
+      expect(added.messageId, 'heart');
+      expect(added.emoji, '🤍');
+      expect(added.remove, isFalse);
+      expect(
+        fixture.signaling.sentMessages.single,
+        isA<EncryptedSignalMessage>(),
+      );
+
+      expect(await fixture.service.toggleReaction('heart', '🤍'), isTrue);
+      expect(
+        parseReactions(
+          (await fixture.database.messages.getById('heart'))!.reactions,
+        ),
+        {
+          '❤️': {'peer'},
+        },
+      );
+      final controls = await fixture.sentControls();
+      expect(controls, hasLength(2));
+      final removed = controls.last as MessageReactionSignal;
+      expect(removed.messageId, 'heart');
+      expect(removed.emoji, '🤍');
+      expect(removed.remove, isTrue);
+    },
+  );
+
   test('group pin rejects non-admin without changing local state', () async {
     final fixture = await _Fixture.open();
     addTearDown(fixture.close);

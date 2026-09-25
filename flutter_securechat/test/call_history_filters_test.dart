@@ -79,6 +79,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await _capture(tester, 'all-calls-$width');
       Future<void> select(String name) async {
         final finder = find.byKey(ValueKey('call-filter-$name'));
         final bar = tester.state<ScrollableState>(
@@ -125,6 +126,24 @@ void main() {
           find.byKey(ValueKey('call-history-${filter.key}')),
         );
         expect(list.semanticChildCount, filter.value);
+        if (filter.key == 'incoming') {
+          expect(
+            find.byKey(const ValueKey('call-history-entry-missed')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('call-history-entry-busy-in')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('call-history-entry-video')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('call-history-entry-group-in')),
+            findsOneWidget,
+          );
+        }
         expect(tester.takeException(), isNull);
       }
       await _capture(tester, 'group-filter-$width');
@@ -172,7 +191,7 @@ void main() {
   }
 
   for (final dark in [false, true]) {
-    testWidgets('call status borders and icons at 320px, dark=$dark', (
+    testWidgets('muted call backgrounds and contrast, dark=$dark', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(320, 844);
@@ -241,13 +260,27 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(tester.widget<AzureSurface>(row).borderColor, color);
+        final base = AzureSurface.colorOf(tester.element(row));
+        final background = Color.alphaBlend(
+          color.withValues(alpha: dark ? .10 : .08),
+          base,
+        );
+        final accent = Color.lerp(
+          theme.colorScheme.onSurfaceVariant,
+          color,
+          .60,
+        )!;
+        final surface = tester.widget<AzureSurface>(row);
+        expect(surface.borderColor, isNull);
+        expect(surface.backgroundColor, background);
+        expect(background.a, 1);
+        expect(background, isNot(base));
         final statusIcon = find.descendant(
           of: row,
           matching: find.byIcon(icon),
         );
         expect(statusIcon, findsOneWidget);
-        expect(tester.widget<Icon>(statusIcon).color, color);
+        expect(tester.widget<Icon>(statusIcon).color, accent);
         expect(
           find.descendant(of: row, matching: find.textContaining(label)),
           findsOneWidget,
@@ -263,9 +296,29 @@ void main() {
         final material = tester.widget<Material>(
           find.descendant(of: row, matching: find.byType(Material)).first,
         );
-        expect(material.color, AzureSurface.colorOf(tester.element(row)));
-        expect((material.shape! as RoundedRectangleBorder).side.color, color);
+        expect(material.color, background);
+        expect(
+          (material.shape! as RoundedRectangleBorder).side.color,
+          theme.colorScheme.outlineVariant.withValues(alpha: .48),
+        );
         expect((material.shape! as RoundedRectangleBorder).side.width, 1);
+        double contrast(Color foreground) {
+          final first = foreground.computeLuminance();
+          final second = background.computeLuminance();
+          return first > second
+              ? (first + .05) / (second + .05)
+              : (second + .05) / (first + .05);
+        }
+
+        expect(
+          contrast(theme.colorScheme.onSurface),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(theme.colorScheme.onSurfaceVariant),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(contrast(accent), greaterThanOrEqualTo(3));
         expect(tester.takeException(), isNull);
       }
       await tester.pumpWidget(const SizedBox());

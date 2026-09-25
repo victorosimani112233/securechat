@@ -12,6 +12,7 @@ class _MessageBubble extends StatelessWidget {
     this.onReplyTap,
     this.highlighted = false,
     this.searchQuery = '',
+    this.showReactionCounts = false,
   });
 
   final LocalMessage message;
@@ -21,6 +22,7 @@ class _MessageBubble extends StatelessWidget {
   final VoidCallback? onReplyTap;
   final bool highlighted;
   final String searchQuery;
+  final bool showReactionCounts;
   final VoidCallback onTap;
   final ValueChanged<int> onVote;
   final VoidCallback onLongPress;
@@ -231,8 +233,16 @@ class _MessageBubble extends StatelessWidget {
                       children: [
                         for (final entry in reactions.entries)
                           Text(
-                            '${entry.key} ${entry.value.length}',
-                            style: Theme.of(context).textTheme.labelSmall,
+                            showReactionCounts
+                                ? '${entry.key} ${entry.value.length}'
+                                : entry.key,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  fontFamily: 'Apple Color Emoji',
+                                  fontFamilyFallback: const [
+                                    'Noto Color Emoji',
+                                  ],
+                                ),
                           ),
                       ],
                     ),

@@ -9,6 +9,7 @@ import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
+import 'package:flutter_securechat/src/storage/storage_management_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -54,6 +55,7 @@ void main() {
     bool viewed = false,
     bool outgoing = false,
     String? path,
+    String? storedPath,
   }) async {
     final file = await File(
       path ?? '${media.path}/$id.jpg',
@@ -63,7 +65,7 @@ void main() {
       conversationId: 'peer',
       senderId: outgoing ? 'me' : 'peer',
       content: LocalMessage.buildFileContent(
-        filePath: file.path,
+        filePath: storedPath ?? file.path,
         fileName: '$id.jpg',
         mimeType: 'image/jpeg',
         fileSize: 3,
@@ -121,6 +123,80 @@ void main() {
     },
   );
 
+  for (final uri in [false, true]) {
+    for (final startup in [false, true]) {
+      test(
+        'view-once cleanup deletes ${uri ? 'file URI' : 'relocated iOS'} bytes at ${startup ? 'startup' : 'viewer close'}',
+        () async {
+          final actual = File('${media.path}/normalized.jpg');
+          final stored = uri
+              ? actual.uri.toString()
+              : '/var/mobile/Containers/Data/Application/11111111-2222-3333-4444-555555555555/Library/Application Support/media/normalized.jpg';
+          final message = await insert(
+            'normalized',
+            viewed: startup,
+            storedPath: stored,
+          );
+          final storage = StorageManagementService(
+            database,
+            mediaDirectory: media,
+          );
+          expect(
+            await storage.resolveMediaPath(stored),
+            await actual.resolveSymbolicLinks(),
+          );
+          if (startup) {
+            await service.cleanupViewedOnceMedia();
+          } else {
+            expect(await service.markViewOnceViewed(message), isTrue);
+            await service.cleanupViewedOnceMedia();
+            expect(await actual.exists(), isTrue);
+            service.finishViewOnce(message.id);
+            await service.waitForIdle();
+          }
+          expect(await actual.exists(), isFalse);
+          final tombstone = (await database.messages.getById(message.id))!;
+          expect(tombstone.isViewed, isTrue);
+          expect(tombstone.content, isEmpty);
+          expect(tombstone.caption, isNull);
+        },
+      );
+    }
+  }
+
+  test(
+    'strict resolver failure retains retry path and caption until deletion succeeds',
+    () async {
+      await service.close();
+      final storage = _FailingResolver(database, media);
+      service = MediaMessageService(
+        database: database,
+        transfers: transfers,
+        session: SessionStore(userId: 'me'),
+        localMediaDirectory: media,
+        storageManagement: storage,
+      );
+      final message = await insert(
+        'retry',
+        viewed: true,
+        storedPath: File('${media.path}/retry.jpg').uri.toString(),
+      );
+      await expectLater(
+        service.cleanupViewedOnceMedia(),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(storage.strictRequested, isTrue);
+      expect(await File('${media.path}/retry.jpg').exists(), isTrue);
+      final retained = (await database.messages.getById(message.id))!;
+      expect(retained.content, isNotEmpty);
+      expect(retained.caption, 'private caption');
+      storage.fail = false;
+      await service.cleanupViewedOnceMedia();
+      expect(await File('${media.path}/retry.jpg').exists(), isFalse);
+      expect((await database.messages.getById(message.id))!.content, isEmpty);
+    },
+  );
+
   test('atomic claim cannot grant two viewers for a stale message', () async {
     final message = await insert('race');
     final results = await Future.wait([
@@ -165,4 +241,17 @@ void main() {
     expect(await File(message.filePath!).exists(), isTrue);
     expect((await database.messages.getById(message.id))!.content, isNotEmpty);
   });
+}
+
+class _FailingResolver extends StorageManagementService {
+  _FailingResolver(SecureChatDatabase database, Directory media)
+    : super(database, mediaDirectory: media);
+  bool fail = true;
+  bool strictRequested = false;
+  @override
+  Future<String?> resolveMediaPath(String path, {bool strict = false}) {
+    strictRequested = strict;
+    if (fail) throw const FileSystemException('Temporary resolver I/O failure');
+    return super.resolveMediaPath(path, strict: strict);
+  }
 }

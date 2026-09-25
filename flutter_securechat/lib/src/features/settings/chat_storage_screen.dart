@@ -1,15 +1,18 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
+import '../../media/local_file_actions.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_management_service.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/chat_lock_dialog.dart';
 import '../../widgets/local_image_thumbnail.dart';
 import '../../widgets/local_video_thumbnail.dart';
+import '../chat/media_viewer_screen.dart';
 
 class ChatStorageScreen extends StatefulWidget {
   const ChatStorageScreen({
@@ -33,7 +36,13 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
   bool _busy = false;
   bool _failed = false;
   bool _authorized = false;
+  bool _authorizedLocked = false;
+  bool _selecting = false;
+  bool _opening = false;
   bool _foreground = true;
+  final _viewerAllowed = ValueNotifier(false);
+  MaterialPageRoute<void>? _viewerRoute;
+  String? _viewingId;
   int _accessRevision = 0;
   Timer? _expiryTimer;
   StreamSubscription<List<LocalMessage>>? _messagesSubscription;
@@ -50,6 +59,7 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
   void dispose() {
     _expiryTimer?.cancel();
     _messagesSubscription?.cancel();
+    _viewerAllowed.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -57,6 +67,7 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!mounted) return;
+    if (state != AppLifecycleState.resumed) _revokeViewer();
     setState(() {
       _foreground = state == AppLifecycleState.resumed;
       if (state == AppLifecycleState.paused ||
@@ -67,6 +78,8 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
         _messagesSubscription = null;
         _latestMessages = null;
         _authorized = false;
+        _authorizedLocked = false;
+        _selecting = false;
         _files = const [];
         _selected.clear();
       }
@@ -114,6 +127,7 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
             : await runtime.service.authorize(conversation);
         if (!mounted || revision != _accessRevision) return;
         _authorized = allowed;
+        _authorizedLocked = allowed && entity.isLocked;
       }
       if (!_authorized || !mounted) return;
       _observeMessages();
@@ -143,7 +157,9 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
                 for (final message in messages) message.id: message,
               };
               _files = _reconcile(_files);
+              _checkViewer();
               _selected.retainAll(_retained.map((file) => file.message.id));
+              if (_retained.isEmpty) _selecting = false;
               _scheduleExpiryRefresh();
             });
           },
@@ -153,6 +169,8 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
               _files = const [];
               _selected.clear();
               _failed = true;
+              _selecting = false;
+              _revokeViewer();
               _messagesSubscription = null;
             });
           },
@@ -172,6 +190,9 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
             diskBytes: file.diskBytes,
             available:
                 file.available && message.filePath == file.message.filePath,
+            localPath: message.filePath == file.message.filePath
+                ? file.localPath
+                : null,
           ),
     ];
   }
@@ -201,6 +222,8 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
       if (!mounted) return;
       setState(() {
         _selected.retainAll(_retained.map((file) => file.message.id));
+        if (_retained.isEmpty) _selecting = false;
+        _checkViewer();
       });
       _scheduleExpiryRefresh();
     });
@@ -240,19 +263,40 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
                   ),
               ],
             ),
+            if (_selecting)
+              IconButton(
+                tooltip: context.l10n.select_all,
+                onPressed:
+                    !_foreground || !_authorized || _busy || files.isEmpty
+                    ? null
+                    : () => setState(() {
+                        final ids = files
+                            .map((file) => file.message.id)
+                            .toSet();
+                        if (_selected.containsAll(ids)) {
+                          _selected.removeAll(ids);
+                        } else {
+                          _selected.addAll(ids);
+                        }
+                      }),
+                icon: const Icon(Icons.select_all),
+              ),
             IconButton(
-              tooltip: context.l10n.select_all,
-              onPressed: !_foreground || !_authorized || _busy || files.isEmpty
+              key: const ValueKey('storage-selection-mode'),
+              tooltip: _selecting
+                  ? context.l10n.cancel_selection
+                  : context.l10n.clear_media,
+              onPressed:
+                  !_foreground ||
+                      !_authorized ||
+                      _busy ||
+                      (!_selecting && files.isEmpty)
                   ? null
                   : () => setState(() {
-                      final ids = files.map((file) => file.message.id).toSet();
-                      if (_selected.containsAll(ids)) {
-                        _selected.removeAll(ids);
-                      } else {
-                        _selected.addAll(ids);
-                      }
+                      _selecting = !_selecting;
+                      _selected.clear();
                     }),
-              icon: const Icon(Icons.select_all),
+              icon: Icon(_selecting ? Icons.close : Icons.delete_outline),
             ),
           ],
         ),
@@ -318,12 +362,19 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
                           final file = files[index];
                           return _StorageFileTile(
                             file: file,
+                            selecting: _selecting,
                             selected: _selected.contains(file.message.id),
-                            onSelect: () => setState(() {
-                              if (!_selected.add(file.message.id)) {
-                                _selected.remove(file.message.id);
+                            onTap: () {
+                              if (!_selecting) {
+                                _openFile(file);
+                                return;
                               }
-                            }),
+                              setState(() {
+                                if (!_selected.add(file.message.id)) {
+                                  _selected.remove(file.message.id);
+                                }
+                              });
+                            },
                           );
                         },
                       ),
@@ -331,13 +382,15 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
                   },
                 ),
               ),
-        bottomNavigationBar: !_foreground || !_authorized || _selected.isEmpty
+        bottomNavigationBar: !_foreground || !_authorized || !_selecting
             ? null
             : SafeArea(
                 minimum: const EdgeInsets.all(16),
                 child: FilledButton.icon(
                   key: const ValueKey('storage-delete-selected'),
-                  onPressed: _busy ? null : _deleteSelected,
+                  onPressed: _busy || _selected.isEmpty
+                      ? null
+                      : _deleteSelected,
                   icon: const Icon(Icons.delete_outline),
                   label: Text(
                     context.l10n.storage_delete_action(_selected.length),
@@ -349,7 +402,13 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
   }
 
   Future<void> _deleteSelected() async {
-    if (_busy || _selected.isEmpty) return;
+    if (_busy ||
+        !_selecting ||
+        !_foreground ||
+        !_authorized ||
+        _selected.isEmpty)
+      return;
+    final revision = _accessRevision;
     final ids = Set<String>.of(_selected);
     final confirmed = await showDialog<bool>(
       context: context,
@@ -369,7 +428,12 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
         ],
       ),
     );
-    if (confirmed != true || !mounted || !_authorized || !_foreground) return;
+    if (confirmed != true ||
+        !mounted ||
+        !_authorized ||
+        !_foreground ||
+        revision != _accessRevision)
+      return;
     setState(() => _busy = true);
     try {
       final result = await widget.service.cleanSelectedFiles(
@@ -378,6 +442,7 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
       );
       if (!mounted) return;
       _selected.clear();
+      _selecting = false;
       final message = result.failedIds.isEmpty
           ? context.l10n.storage_cleanup_result(
               result.deletedCount,
@@ -402,6 +467,112 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
     }
   }
 
+  void _checkViewer() {
+    final id = _viewingId;
+    if (id != null &&
+        !_retained.any((file) => file.message.id == id && file.canOpen)) {
+      _revokeViewer();
+    }
+  }
+
+  void _revokeViewer() {
+    _viewerAllowed.value = false;
+    final route = _viewerRoute;
+    if (route == null) return;
+    _viewerRoute = null;
+    // Revocation cannot wait for a frame: paused apps stop scheduling frames.
+    if (route.isActive) route.navigator?.removeRoute(route);
+  }
+
+  Future<void> _openFile(ChatStorageFile file) async {
+    if (!_foreground || !_authorized || _selecting || _opening || !file.canOpen)
+      return;
+    final revision = _accessRevision;
+    _opening = true;
+    try {
+      final conversation = await widget.service.getConversation(
+        widget.conversationId,
+      );
+      if (!mounted || !_foreground || revision != _accessRevision) return;
+      if (conversation == null) return;
+      if (conversation.isLocked && !_authorizedLocked) {
+        setState(() {
+          _authorized = false;
+          _files = const [];
+        });
+        await _load();
+        return;
+      }
+      final fresh = await widget.service.fileForOpening(
+        widget.conversationId,
+        file.message.id,
+      );
+      if (!mounted ||
+          !_foreground ||
+          !_authorized ||
+          _selecting ||
+          revision != _accessRevision)
+        return;
+      if (fresh == null ||
+          !fresh.canOpen ||
+          !_retained.any(
+            (item) => item.message.id == file.message.id && item.canOpen,
+          )) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.media_not_found)));
+        return;
+      }
+      final path = fresh.path;
+      if (path == null || path.isEmpty) return;
+      final actions =
+          AppContainerScope.of(context).mediaRuntime?.localFiles ??
+          const NativeLocalFileActions();
+      final mime = fresh.message.fileMimeType ?? 'application/octet-stream';
+      if (!mime.startsWith('image/')) {
+        await actions.open(path: path, mimeType: mime);
+        return;
+      }
+      final message = fresh.message.copyWith(
+        content: LocalMessage.buildFileContent(
+          fileName: fresh.message.fileName ?? '',
+          mimeType: mime,
+          fileSize: fresh.message.fileSize ?? 0,
+          filePath: path,
+        ),
+      );
+      _viewingId = message.id;
+      _viewerAllowed.value = true;
+      final route = MaterialPageRoute<void>(
+        builder: (_) => ValueListenableBuilder<bool>(
+          valueListenable: _viewerAllowed,
+          builder: (_, allowed, _) => allowed
+              ? MediaViewerScreen(message: message, fileActions: actions)
+              : const Scaffold(backgroundColor: Colors.black),
+        ),
+      );
+      _viewerRoute = route;
+      try {
+        await Navigator.of(context).push(route);
+      } finally {
+        _viewerRoute = null;
+        _viewingId = null;
+        unawaited(route.completed.then((_) => FileImage(File(path)).evict()));
+      }
+    } catch (_) {
+      if (mounted &&
+          _foreground &&
+          _authorized &&
+          revision == _accessRevision) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.media_not_found)));
+      }
+    } finally {
+      _opening = false;
+    }
+  }
+
   String _categoryName(StorageFileCategory? category) => switch (category) {
     null => context.l10n.storage_all_files,
     StorageFileCategory.photo => context.l10n.photos,
@@ -414,13 +585,15 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
 class _StorageFileTile extends StatelessWidget {
   const _StorageFileTile({
     required this.file,
+    required this.selecting,
     required this.selected,
-    required this.onSelect,
+    required this.onTap,
   });
 
   final ChatStorageFile file;
+  final bool selecting;
   final bool selected;
-  final VoidCallback onSelect;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -439,9 +612,10 @@ class _StorageFileTile extends StatelessWidget {
     return Semantics(
       key: ValueKey('storage-file-${message.id}'),
       container: true,
-      checked: selected,
+      checked: selecting ? selected : null,
+      button: !selecting,
       label: [name, details, if (missing.isNotEmpty) missing].join(', '),
-      onTap: onSelect,
+      onTap: onTap,
       child: ExcludeSemantics(
         child: Material(
           color: scheme.surfaceContainerLow,
@@ -454,7 +628,7 @@ class _StorageFileTile extends StatelessWidget {
             ),
           ),
           child: InkWell(
-            onTap: onSelect,
+            onTap: onTap,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -466,20 +640,21 @@ class _StorageFileTile extends StatelessWidget {
                         color: scheme.surfaceContainerHighest,
                         child: _preview(context),
                       ),
-                      PositionedDirectional(
-                        top: 6,
-                        end: 6,
-                        child: Checkbox(
-                          value: selected,
-                          onChanged: (_) => onSelect(),
-                          shape: const CircleBorder(),
-                          fillColor: WidgetStateProperty.resolveWith(
-                            (states) => states.contains(WidgetState.selected)
-                                ? scheme.primary
-                                : scheme.surface,
+                      if (selecting)
+                        PositionedDirectional(
+                          top: 6,
+                          end: 6,
+                          child: Checkbox(
+                            value: selected,
+                            onChanged: (_) => onTap(),
+                            shape: const CircleBorder(),
+                            fillColor: WidgetStateProperty.resolveWith(
+                              (states) => states.contains(WidgetState.selected)
+                                  ? scheme.primary
+                                  : scheme.surface,
+                            ),
                           ),
                         ),
-                      ),
                       if (!file.available)
                         PositionedDirectional(
                           bottom: 6,
@@ -542,7 +717,7 @@ class _StorageFileTile extends StatelessWidget {
 
   Widget _preview(BuildContext context) {
     final message = file.message;
-    final path = message.filePath?.trim() ?? '';
+    final path = file.path ?? '';
     // Never construct a decoder for one-time or deferred media.
     if (message.isViewOnce ||
         message.isMediaPreviewDeferred ||

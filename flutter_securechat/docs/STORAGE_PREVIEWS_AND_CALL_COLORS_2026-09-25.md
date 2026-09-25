@@ -17,9 +17,12 @@
 - Canli mesaj degisiklikleri, silinen/korumali hale gelen/suresi kisalan
   icerigin eski onizlemesini kapatir. Mesaj gozlemi sohbet yetkilendirmesi
   sonrasinda baslar; uygulama arka plana gittiginde iptal edilir.
-- Arama kaydi kenarligi ve yon simgesi: giden yesil, gelen mavi,
-  cevapsiz kirmizi. Gelen/mesgul kaydi da kirmizidir. Acik/koyu temaya
-  uygun tonlar kullanilir; anlam yalniz renge bagli birakilmaz.
+- Arama kaydi zemini: giden soluk yesil, gelen soluk mavi, cevapsiz
+  soluk kirmizi. Gelen/mesgul kaydi da kirmizidir. Ilk renkli kenarlik
+  tasarimi yerine normal yuzeye acik temada %8, koyu temada %10 renk
+  karistirilir. Kenarlik notr kalir; yon simgesi de yumusatilir.
+  Acik/koyu temaya uygun tonlar kullanilir; anlam yalniz renge bagli
+  birakilmaz. Diger AzureSurface kullanimlarinin varsayilani degismez.
 
 ## Dogrulama
 
@@ -35,6 +38,13 @@
   iOS fiziksel cihaz/derleme dogrulamasi bu ortamda yapilmadi.
 
 ## APK
+
+Soluk arka plan duzeltmesi icin arama/depolama ekranlarinda **45/45 test
+gecti**. Metin kontrasti en az 4.5:1, yon simgesi kontrasti en az 3:1
+olarak test edildi. 320 piksel acik ve 390 piksel koyu tema widget ekran
+goruntuleri incelendi. Bu son duzeltme icin henuz yeni APK uretilmedi.
+
+Asagidaki APK kaydi onceki renkli kenarlik tasarimina aittir:
 
 **1.0.105 (2105)** ARM32+ARM64 release APK iki bagli Android telefona
 `adb install -r` ile verileri silmeden kuruldu. Her iki cihazdaki surum

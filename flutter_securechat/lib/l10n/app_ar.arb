@@ -1,4 +1,5 @@
 {
+  "hide_keyboard": "إخفاء لوحة المفاتيح",
   "settings_storage_usage": "التخزين",
   "create_group_and_add": "إنشاء المجموعة وإضافة الأشخاص",
   "recipient_action_failed": "تعذر إكمال العملية. يرجى المحاولة مرة أخرى.",

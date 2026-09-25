@@ -45,7 +45,7 @@ void main() {
         isViewOnce: false,
         contentType: StorageMessageContentType.poll,
       ),
-      'Anket: soru',
+      'Anket',
     );
     expect(
       conversationPreview(

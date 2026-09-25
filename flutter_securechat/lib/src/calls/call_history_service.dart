@@ -38,6 +38,8 @@ class CallHistoryService {
   Stream<List<CallHistoryEntry>> watchPeer(String peerId) =>
       _callLogs.getByPeerId(peerId).map(_entries);
 
+  Future<void> delete(String callId) => _callLogs.deleteById(callId);
+
   static List<CallHistoryEntry> _entries(List<CallLogEntity> entries) =>
       entries.map(_entry).toList(growable: false);
 

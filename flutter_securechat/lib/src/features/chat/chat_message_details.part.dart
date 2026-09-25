@@ -59,23 +59,8 @@ class _MediaMessageContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!message.isMediaPreviewDeferred && isImage && path != null)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: 240,
-                  maxHeight: 360,
-                ),
-                child: Image.file(
-                  File(path),
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                ),
-              ),
-            )
-          else if (!message.isMediaPreviewDeferred &&
-              message.fileMimeType?.startsWith('video/') == true &&
+          if (!message.isMediaPreviewDeferred &&
+              (isImage || message.fileMimeType?.startsWith('video/') == true) &&
               path != null)
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
@@ -84,14 +69,33 @@ class _MediaMessageContent extends StatelessWidget {
                   maxWidth: 240,
                   maxHeight: 360,
                 ),
-                child: LocalVideoThumbnail(
-                  path: path,
-                  isViewOnce: false,
-                  preserveAspectRatio: true,
-                  fallback: ListTile(
-                    leading: const Icon(Icons.videocam_outlined),
-                    title: Text(message.fileName ?? context.l10n.file),
-                  ),
+                child: FutureBuilder<String?>(
+                  key: ValueKey('chat-media-path-${message.id}-$path'),
+                  future: resolveChatMediaPath(context, path),
+                  builder: (context, snapshot) {
+                    final fallback = ListTile(
+                      leading: Icon(
+                        isImage
+                            ? Icons.image_not_supported_outlined
+                            : Icons.videocam_outlined,
+                      ),
+                      title: Text(message.fileName ?? context.l10n.file),
+                    );
+                    final localPath = snapshot.data;
+                    if (localPath == null) return fallback;
+                    return isImage
+                        ? Image.file(
+                            File(localPath),
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, _, _) => fallback,
+                          )
+                        : LocalVideoThumbnail(
+                            path: localPath,
+                            isViewOnce: false,
+                            preserveAspectRatio: true,
+                            fallback: fallback,
+                          );
+                  },
                 ),
               ),
             )

@@ -22,7 +22,11 @@ import '../crypto/pre_key_manager.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
 import '../domain/send_message_use_case.dart';
 import '../incoming/incoming_message_handler.dart';
+import '../groups/private_group_call_routes.dart';
 import '../l10n/service_strings.dart';
+import '../media/file_transfer_manager.dart';
+import '../media/media_message_service.dart';
+import '../network/network_monitor.dart';
 import '../network/network_resilience.dart';
 import '../network/tls_pinning.dart';
 import '../notifications/message_notification_service.dart';
@@ -34,6 +38,7 @@ import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import '../storage/secure_chat_database.dart';
 import '../storage/storage_entities.dart';
+import '../storage/storage_management_service.dart';
 import 'background_scheduler.dart';
 import 'scheduled_message_service.dart';
 
@@ -72,6 +77,7 @@ class SecureChatBackgroundRuntime {
     required this.stuckRecovery,
     required this.session,
     required this.incomingMessages,
+    required this.mediaReceiver,
     required this.notifications,
     required this.preKeyMaintenance,
     required this.outbox,
@@ -86,6 +92,7 @@ class SecureChatBackgroundRuntime {
   final StuckMessageRecovery stuckRecovery;
   final SessionStore session;
   final IncomingMessageHandler incomingMessages;
+  final BackgroundMediaReceiver mediaReceiver;
   final MessageNotificationCoordinator notifications;
   final PreKeyMaintenanceService preKeyMaintenance;
   final OfflineMessageQueue outbox;
@@ -181,6 +188,25 @@ class SecureChatBackgroundRuntime {
         'background-incoming-messages',
         incomingMessages.close,
       );
+      final networkMonitor = SystemNetworkMonitor();
+      resources.register('background-network-monitor', networkMonitor.dispose);
+      await networkMonitor.start();
+      final mediaReceiver = BackgroundMediaReceiver(
+        database: database,
+        signaling: signaling,
+        crypto: crypto,
+        metadataCrypto: storageCrypto,
+        session: session,
+        mediaDirectory: Directory('${support.path}/media'),
+        beforeReceive: incomingMessages.waitForIdle,
+        networkKindProvider: networkMonitor,
+        identityResolver: contactIdentityResolver,
+        strings: serviceStrings,
+        onAsyncFailure: (operation, error, stackTrace) async {
+          _logBackgroundFailure('BG-MEDIA', operation, error, stackTrace);
+        },
+      );
+      resources.register('background-media-receiver', mediaReceiver.close);
       final notificationPresenter = PluginLocalNotificationPresenter();
       resources.register(
         'background-notification-presenter',
@@ -188,6 +214,7 @@ class SecureChatBackgroundRuntime {
       );
       final notifications = MessageNotificationCoordinator(
         incomingMessages: incomingMessages.acceptedMessages,
+        mediaMessages: mediaReceiver.messages.acceptedMessages,
         session: session,
         presenter: notificationPresenter,
         unreadCounts: database.conversations.unreadCounts,
@@ -200,6 +227,17 @@ class SecureChatBackgroundRuntime {
       // coordinator in its foreground default would make notifications silent.
       notifications.setAppForeground(false);
       resources.register('background-notifications', notifications.close);
+      // Reverse disposal order: stop chunks and finish media commits while the
+      // notification subscriber and its presenter are still available.
+      resources.register(
+        'background-reception-drain',
+        () => closeBackgroundReception(
+          signaling: signaling,
+          incomingMessages: incomingMessages,
+          mediaReceiver: mediaReceiver,
+          notifications: notifications,
+        ),
+      );
       final sender = SendMessageUseCase(
         database: database,
         signaling: signaling,
@@ -241,6 +279,7 @@ class SecureChatBackgroundRuntime {
         stuckRecovery: StuckMessageRecovery(database),
         session: session,
         incomingMessages: incomingMessages,
+        mediaReceiver: mediaReceiver,
         notifications: notifications,
         preKeyMaintenance: preKeyMaintenance,
         outbox: outbox,
@@ -317,6 +356,7 @@ class SecureChatBackgroundRuntime {
       signaling: signaling,
     );
     await incomingMessages.waitForIdle();
+    await mediaReceiver.messages.waitForIdle();
     await notifications.waitForIdle();
     // Local enqueue and a bounded wait are not remote delivery confirmation.
     if (pending > 0) debugPrint('BG-OUTBOX pending=$pending');
@@ -327,21 +367,105 @@ class SecureChatBackgroundRuntime {
     Duration maxWait = const Duration(seconds: 25),
   }) async {
     await waitForBackgroundDrainIdle(
-      incomingMessages.acceptedMessages,
+      signaling.incoming,
+      transferActivity: mediaReceiver.transfers.activity,
+      hasActiveTransfers: () => mediaReceiver.transfers.hasActiveTransfers,
       idleFor: idleFor,
       maxWait: maxWait,
     );
     // An accepted-message event is emitted after persistence but before every
     // listener has necessarily finished. Drain both owned async pipelines so
     // runtime teardown cannot cancel notification presentation in flight.
-    await incomingMessages.waitForIdle();
-    await notifications.waitForIdle();
+    await closeBackgroundReception(
+      signaling: signaling,
+      incomingMessages: incomingMessages,
+      mediaReceiver: mediaReceiver,
+      notifications: notifications,
+    );
   }
 
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
     await _resources.dispose();
+  }
+}
+
+Future<void> closeBackgroundReception({
+  required SignalingService signaling,
+  required IncomingMessageHandler incomingMessages,
+  required BackgroundMediaReceiver mediaReceiver,
+  required MessageNotificationCoordinator notifications,
+}) async {
+  try {
+    await signaling.disconnect();
+  } finally {
+    try {
+      await incomingMessages.waitForIdle();
+      await incomingMessages.close();
+    } finally {
+      try {
+        await mediaReceiver.close();
+      } finally {
+        await notifications.waitForIdle();
+      }
+    }
+  }
+}
+
+/// The background receive pipeline shares the foreground wire format and
+/// encrypted partial-file store. Close producers before their persistence sink.
+class BackgroundMediaReceiver {
+  BackgroundMediaReceiver({
+    required SecureChatDatabase database,
+    required SignalingService signaling,
+    required CryptoService crypto,
+    required LocalAeadCryptoService metadataCrypto,
+    required SessionStore session,
+    required Directory mediaDirectory,
+    required Future<void> Function() beforeReceive,
+    required NetworkKindProvider networkKindProvider,
+    ContactIdentityResolver? identityResolver,
+    ServiceStrings? strings,
+    AsyncOperationFailureHandler? onAsyncFailure,
+  }) {
+    transfers = FileTransferManager(
+      signaling: signaling,
+      crypto: crypto,
+      metadataCrypto: metadataCrypto,
+      filesDirectory: mediaDirectory,
+      groupRoutingResolver: PrivateGroupCallRoutes(database, session).resolve,
+      beforeReceive: beforeReceive,
+      onAsyncFailure: onAsyncFailure,
+    );
+    messages = MediaMessageService(
+      database: database,
+      transfers: transfers,
+      session: session,
+      localMediaDirectory: mediaDirectory,
+      storageManagement: StorageManagementService(
+        database,
+        mediaDirectory: mediaDirectory,
+      ),
+      networkKindProvider: networkKindProvider,
+      identityResolver: identityResolver,
+      strings: strings,
+      onAsyncFailure: onAsyncFailure,
+    )..start();
+  }
+
+  late final FileTransferManager transfers;
+  late final MediaMessageService messages;
+  Future<void>? _closeTask;
+
+  Future<void> close() => _closeTask ??= _close();
+
+  Future<void> _close() async {
+    try {
+      await transfers.dispose();
+    } finally {
+      await messages.close();
+    }
   }
 }
 
@@ -443,6 +567,8 @@ void _logBackgroundFailure(
 /// continue arriving. Exposed for deterministic timing tests.
 Future<void> waitForBackgroundDrainIdle(
   Stream<Object?> activity, {
+  Stream<bool>? transferActivity,
+  bool Function()? hasActiveTransfers,
   Duration idleFor = const Duration(seconds: 3),
   Duration maxWait = const Duration(seconds: 25),
 }) async {
@@ -452,11 +578,18 @@ Future<void> waitForBackgroundDrainIdle(
   void restartIdleWindow() {
     idle?.cancel();
     idle = Timer(idleFor, () {
+      if (hasActiveTransfers?.call() == true) {
+        restartIdleWindow();
+        return;
+      }
       if (!done.isCompleted) done.complete();
     });
   }
 
   final subscription = activity.listen((_) => restartIdleWindow());
+  final transferSubscription = transferActivity?.listen(
+    (_) => restartIdleWindow(),
+  );
   restartIdleWindow();
   final cap = Timer(maxWait, () {
     if (!done.isCompleted) done.complete();
@@ -467,6 +600,7 @@ Future<void> waitForBackgroundDrainIdle(
     idle?.cancel();
     cap.cancel();
     await subscription.cancel();
+    await transferSubscription?.cancel();
   }
 }
 

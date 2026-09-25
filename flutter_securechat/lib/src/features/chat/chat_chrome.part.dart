@@ -575,6 +575,8 @@ class _ChatComposerState extends State<_ChatComposer> {
                           key: const ValueKey('chat-message-composer'),
                           controller: widget.controller,
                           onTap: widget.onTap,
+                          onTapOutside: (_) =>
+                              FocusManager.instance.primaryFocus?.unfocus(),
                           minLines: 1,
                           maxLines: 4,
                           maxLength: 10000,

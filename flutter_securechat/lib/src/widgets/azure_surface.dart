@@ -18,6 +18,7 @@ class AzureSurface extends StatelessWidget {
     this.radius = 16,
     this.elevation = 1,
     this.borderColor,
+    this.backgroundColor,
     this.padding = EdgeInsets.zero,
   });
 
@@ -25,6 +26,7 @@ class AzureSurface extends StatelessWidget {
   final double radius;
   final double elevation;
   final Color? borderColor;
+  final Color? backgroundColor;
   final EdgeInsetsGeometry padding;
 
   /// Balon ve kartlarin paylastigi opak yuzey rengi.
@@ -42,7 +44,7 @@ class AzureSurface extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: colorOf(context),
+      color: backgroundColor ?? colorOf(context),
       elevation: elevation,
       shadowColor: dark
           ? Colors.black.withValues(alpha: .6)

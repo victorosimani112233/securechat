@@ -686,6 +686,7 @@ class AppContainer {
         networkKindProvider: networkMonitor,
         groupControls: privateGroupControls,
         phoneSharing: phoneSharing,
+        identityResolver: contactIdentityResolver,
         onAsyncFailure: reportAsyncFailure,
       )..start();
       resources.register('media-message-service', mediaMessages.close);
@@ -735,6 +736,7 @@ class AppContainer {
       );
       final messageNotifications = MessageNotificationCoordinator(
         incomingMessages: incomingMessages.acceptedMessages,
+        mediaMessages: mediaMessages.acceptedMessages,
         session: session,
         presenter: notificationPresenter,
         unreadCounts: database.conversations.unreadCounts,
@@ -745,6 +747,14 @@ class AppContainer {
         'message-notification-coordinator',
         messageNotifications.close,
       );
+      resources.register('media-notification-drain', () async {
+        try {
+          await fileTransfers.dispose();
+        } finally {
+          await mediaMessages.close();
+          await messageNotifications.waitForIdle();
+        }
+      });
       final settingsService = SettingsService(
         session: session,
         signaling: signaling,

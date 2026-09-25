@@ -24,6 +24,7 @@ class CallHistoryScreen extends StatefulWidget {
 
 class _CallHistoryScreenState extends State<CallHistoryScreen> {
   _CallFilter _filter = _CallFilter.all;
+  bool _deleting = false;
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +70,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     String? userId,
   ) {
     final l10n = context.l10n;
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
     final calls = source
         .where(
           (call) => switch (_filter) {
@@ -134,11 +136,20 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                     final call = calls[index];
                     final missed = _isMissed(call);
                     final outgoing = call.direction == CallDirection.outgoing;
-                    final accent = missed
+                    final statusColor = missed
                         ? (dark ? Colors.red.shade300 : Colors.red.shade700)
                         : outgoing
                         ? (dark ? Colors.green.shade300 : Colors.green.shade700)
                         : (dark ? Colors.blue.shade300 : Colors.blue.shade700);
+                    final background = Color.alphaBlend(
+                      statusColor.withValues(alpha: dark ? .10 : .08),
+                      AzureSurface.colorOf(context),
+                    );
+                    final accent = Color.lerp(
+                      theme.colorScheme.onSurfaceVariant,
+                      statusColor,
+                      .60,
+                    )!;
                     final video = call.callType == CallType.video;
                     final groupId = _groupId(call, groups);
                     final group = groups[groupId];
@@ -149,8 +160,11 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                             !group.hasLeftGroup(userId));
                     return AzureSurface(
                       key: ValueKey('call-history-entry-${call.id}'),
-                      borderColor: accent,
+                      backgroundColor: background,
                       child: ListTile(
+                        onLongPress: _deleting
+                            ? null
+                            : () => _confirmDelete(call),
                         leading: GeneratedAvatar(name: call.peerName),
                         title: Text(call.peerName),
                         subtitle: Row(
@@ -188,7 +202,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                                 ? Icons.videocam_outlined
                                 : Icons.call_outlined,
                           ),
-                          onPressed: !canCall
+                          onPressed: _deleting || !canCall
                               ? null
                               : () => Navigator.of(context).pushNamed(
                                   '/calls',
@@ -212,6 +226,44 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _confirmDelete(CallHistoryEntry call) async {
+    if (_deleting) return;
+    final history = AppContainerScope.of(context).mediaRuntime?.callHistory;
+    if (history == null) return;
+    setState(() => _deleting = true);
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          scrollable: true,
+          title: Text(context.l10n.conv_delete),
+          content: Text('${call.peerName}\n${_description(context, call)}'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(context.l10n.cancel),
+            ),
+            FilledButton.icon(
+              key: const ValueKey('call-history-delete-confirm'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.delete_outline),
+              label: Text(context.l10n.msg_action_delete_for_me),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true && mounted) await history.delete(call.id);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.recipient_action_failed)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
   }
 
   static bool _isMissed(CallHistoryEntry call) =>

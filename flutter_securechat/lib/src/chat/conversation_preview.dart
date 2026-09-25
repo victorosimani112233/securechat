@@ -16,7 +16,7 @@ String conversationPreview({
 }) {
   if (isViewOnce) return viewOncePreviewLabel;
   return switch (contentType) {
-    StorageMessageContentType.poll => 'Anket: $content',
+    StorageMessageContentType.poll => 'Anket',
     StorageMessageContentType.image => 'Fotoğraf',
     StorageMessageContentType.file => 'Dosya',
     StorageMessageContentType.voiceNote => 'Sesli mesaj',

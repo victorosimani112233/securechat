@@ -1231,13 +1231,51 @@ class MessageDao {
       ),
     );
   });
-  Future<void> updatePinned(String id, bool isPinned, int? pinnedAt) =>
-      _patch(id, (m) => m.copyWith(isPinned: isPinned, pinnedAt: pinnedAt));
+  Future<({bool accepted, bool wasPinned})> updatePinned(
+    String id,
+    bool isPinned,
+    int? pinnedAt, {
+    int? expectedPinnedAt,
+  }) async {
+    var result = (accepted: false, wasPinned: false);
+    await _db._write((s) {
+      final current = s.messages[id];
+      if (current == null ||
+          (expectedPinnedAt != null &&
+              (!current.isPinned || current.pinnedAt != expectedPinnedAt))) {
+        return;
+      }
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (isPinned &&
+          (!_canPin(current, now) ||
+              s.messages.values.any(
+                (other) =>
+                    other.id != id &&
+                    other.conversationId == current.conversationId &&
+                    other.isPinned &&
+                    _canPin(other, now),
+              ))) {
+        return;
+      }
+      result = (accepted: true, wasPinned: current.isPinned);
+      s.messages[id] = current.copyWith(
+        isPinned: isPinned,
+        pinnedAt: isPinned ? (pinnedAt ?? now) : null,
+      );
+    });
+    return result;
+  }
+
+  static bool _canPin(MessageEntity message, int now) =>
+      message.contentType != StorageMessageContentType.deleted &&
+      (message.expiresAt == null || message.expiresAt! > now);
+
   Stream<MessageEntity?> observeLatestPinned(String conversationId) =>
       _db._watch(
         (s) => s.messages.values
             .where((m) => m.conversationId == conversationId)
             .where((m) => m.isPinned && m.pinnedAt != null)
+            .where((m) => _canPin(m, DateTime.now().millisecondsSinceEpoch))
             .sortedBy((m) => -m.pinnedAt!)
             .firstOrNull,
       );
@@ -1245,6 +1283,7 @@ class MessageDao {
       _db._watch(
         (s) => s.messages.values
             .where((m) => m.conversationId == conversationId && m.isPinned)
+            .where((m) => _canPin(m, DateTime.now().millisecondsSinceEpoch))
             .sortedBy((m) => -(m.pinnedAt ?? 0)),
       );
   Future<List<String>> getFileContentsByConversation(

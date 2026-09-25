@@ -9,6 +9,9 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get hide_keyboard => 'Hide keyboard';
+
+  @override
   String get calls_filter_video => 'Video';
 
   @override

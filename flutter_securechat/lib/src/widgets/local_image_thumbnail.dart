@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -45,9 +46,17 @@ class _LocalImageThumbnailState extends State<LocalImageThumbnail> {
     final generation = ++_generation;
     if (widget.isViewOnce || widget.path.trim().isEmpty) return;
     try {
-      final buffer = await ui.ImmutableBuffer.fromFilePath(widget.path);
+      final uri = Uri.tryParse(widget.path);
+      if (uri?.hasScheme == true &&
+          (uri!.scheme != 'file' || uri.host.isNotEmpty))
+        return;
+      final path = uri?.scheme == 'file'
+          ? File.fromUri(uri!).path
+          : widget.path;
+      final buffer = await ui.ImmutableBuffer.fromFilePath(path);
       late final ui.Image image;
       try {
+        if (!mounted || generation != _generation) return;
         final descriptor = await ui.ImageDescriptor.encoded(buffer);
         try {
           final scale = math.min(

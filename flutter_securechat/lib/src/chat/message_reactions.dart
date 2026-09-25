@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:characters/characters.dart';
 
-const allowedMessageReactions = {'👍', '❤️', '😂', '😮', '😢', '🙏'};
+const allowedMessageReactions = {'👍', '🤍', '😂', '😮', '😢', '🙏'};
 
 final _pictograph = RegExp(r'\p{Extended_Pictographic}', unicode: true);
 final _flag = RegExp(r'^[\u{1F1E6}-\u{1F1FF}]{2}$', unicode: true);

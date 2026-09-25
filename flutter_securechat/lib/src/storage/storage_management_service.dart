@@ -97,10 +97,20 @@ class ChatStorageFile {
     required this.message,
     required this.diskBytes,
     required this.available,
+    this.localPath,
   });
   final LocalMessage message;
   final int diskBytes;
   final bool available;
+  final String? localPath;
+  String? get path => localPath ?? message.filePath;
+
+  bool get canOpen =>
+      available &&
+      message.isFileMessage &&
+      !message.isViewOnce &&
+      !message.isMediaPreviewDeferred &&
+      (message.expiresAt == null || message.expiresAt!.isAfter(DateTime.now()));
   StorageFileCategory get category {
     final mime = message.fileMimeType ?? '';
     if (mime.startsWith('image/')) return StorageFileCategory.photo;
@@ -151,27 +161,128 @@ class StorageManagementService {
       final message = LocalMessage.fromJson(entity.toJson());
       if (!message.isFileMessage) continue;
       var bytes = 0;
-      var available = false;
+      File? file;
       final path = message.filePath;
       if (path != null && path.isNotEmpty) {
         try {
-          final file = File(path);
-          available = await file.exists();
-          if (available) bytes = await file.length();
+          file = await _resolveMediaFile(path);
+          if (file != null) bytes = await file.length();
         } on FileSystemException {
-          available = false;
+          file = null;
         }
       }
       result.add(
         ChatStorageFile(
           message: message,
           diskBytes: bytes,
-          available: available,
+          available: file != null,
+          localPath: file?.path,
         ),
       );
     }
     result.sort((a, b) => b.diskBytes.compareTo(a.diskBytes));
     return result;
+  }
+
+  /// Re-read privacy flags and the retained path immediately before opening.
+  /// Chat authorization remains the caller's responsibility.
+  Future<ChatStorageFile?> fileForOpening(
+    String conversationId,
+    String id,
+  ) async {
+    final entity = await _database.messages.getById(id);
+    if (entity == null || entity.conversationId != conversationId) return null;
+    final message = LocalMessage.fromJson(entity.toJson());
+    final candidate = ChatStorageFile(
+      message: message,
+      diskBytes: 0,
+      available: true,
+    );
+    if (!candidate.canOpen) return null;
+    final path = message.filePath;
+    if (path == null || path.isEmpty) return null;
+    try {
+      final file = await _resolveMediaFile(path);
+      if (file == null || !candidate.canOpen) return null;
+      final bytes = await file.length();
+      final latest = await _database.messages.getById(id);
+      if (latest == null || latest.conversationId != conversationId)
+        return null;
+      final current = LocalMessage.fromJson(latest.toJson());
+      if (current.filePath != message.filePath) return null;
+      final result = ChatStorageFile(
+        message: current,
+        diskBytes: bytes,
+        available: true,
+        localPath: file.path,
+      );
+      return result.canOpen ? result : null;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  Future<File?> _resolveMediaFile(String storedPath) async {
+    final root = mediaDirectory;
+    if (root == null) return null;
+    var path = storedPath;
+    final uri = Uri.tryParse(path);
+    if (uri?.hasScheme == true) {
+      if (uri!.scheme != 'file' ||
+          uri.host.isNotEmpty ||
+          uri.hasQuery ||
+          uri.hasFragment) {
+        throw const FileSystemException('Not a local media path');
+      }
+      path = uri.toFilePath();
+    }
+    if (!File(path).isAbsolute ||
+        path.split('/').any((part) => part == '..' || part == '.')) {
+      throw const FileSystemException('Invalid media path');
+    }
+    final safeRoot = await root.resolveSymbolicLinks();
+    var candidate = File(path);
+    if (!await candidate.exists()) {
+      // iOS may relocate the app container after restore/update. Only rebase
+      // the known private media subtree, never arbitrary basenames or paths.
+      const uuid =
+          r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+      final oldContainer = RegExp(
+        '^(?:/(?:private/)?var/mobile|/Users/[^/]+/Library/Developer/CoreSimulator/Devices/$uuid/data)'
+        '/Containers/Data/Application/$uuid/Library/Application Support/media/(.+)\$',
+      ).firstMatch(path);
+      if (oldContainer == null) {
+        if (!path.startsWith('$safeRoot${Platform.pathSeparator}') &&
+            !path.startsWith(
+              '${root.absolute.path}${Platform.pathSeparator}',
+            )) {
+          throw const FileSystemException('Media path outside managed storage');
+        }
+        return null;
+      }
+      candidate = File('$safeRoot/${oldContainer.group(1)!}');
+      if (!await candidate.exists()) return null;
+    }
+    final resolved = File(await candidate.resolveSymbolicLinks());
+    if (!resolved.path.startsWith('$safeRoot${Platform.pathSeparator}')) {
+      throw const FileSystemException('Media path outside managed storage');
+    }
+    return resolved;
+  }
+
+  Future<String?> resolveMediaPath(
+    String storedPath, {
+    bool strict = false,
+  }) async {
+    try {
+      if (strict && mediaDirectory == null) {
+        throw const FileSystemException('Media directory unavailable');
+      }
+      return (await _resolveMediaFile(storedPath))?.path;
+    } on FileSystemException {
+      if (strict) rethrow;
+      return null;
+    }
   }
 
   Future<AutoDownloadPolicy> loadPolicy() async {
@@ -269,25 +380,26 @@ class StorageManagementService {
       if (!message.isFileMessage) continue;
       try {
         final path = message.filePath;
-        if (path != null && path.isNotEmpty && await File(path).exists()) {
-          final root = mediaDirectory;
-          if (root == null)
-            throw const FileSystemException('Media directory unavailable');
-          final safeRoot = await root.resolveSymbolicLinks();
-          final file = File(await File(path).resolveSymbolicLinks());
-          if (!file.path.startsWith('$safeRoot${Platform.pathSeparator}')) {
-            throw const FileSystemException(
-              'Media path outside managed storage',
-            );
-          }
+        final file = path == null || path.isEmpty
+            ? null
+            : await _resolveMediaFile(path);
+        if (path != null && path.isNotEmpty && mediaDirectory == null) {
+          throw const FileSystemException('Media directory unavailable');
+        }
+        if (file != null) {
           var shared = false;
           for (final other in await _database.messages.getAllMessages()) {
             if (other.id == id) continue;
             final otherMessage = LocalMessage.fromJson(other.toJson());
             final otherPath = otherMessage.filePath;
             if (otherPath == null || otherPath.isEmpty) continue;
-            if (await File(otherPath).exists() &&
-                await File(otherPath).resolveSymbolicLinks() == file.path) {
+            File? otherFile;
+            try {
+              otherFile = await _resolveMediaFile(otherPath);
+            } on FileSystemException {
+              continue;
+            }
+            if (otherFile?.path == file.path) {
               shared = true;
               break;
             }
@@ -340,8 +452,8 @@ class StorageManagementService {
     final parts = _parts(content);
     if (parts.path != null && parts.path!.isNotEmpty) {
       try {
-        final file = File(parts.path!);
-        if (await file.exists()) return file.length();
+        final file = await _resolveMediaFile(parts.path!);
+        if (file != null) return file.length();
       } on FileSystemException {}
     }
     return 0;

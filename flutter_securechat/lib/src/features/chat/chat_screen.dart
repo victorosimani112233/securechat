@@ -326,6 +326,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
           ),
           actions: [
+            if (Theme.of(context).platform == TargetPlatform.iOS &&
+                MediaQuery.viewInsetsOf(context).bottom > 0)
+              IconButton(
+                key: const ValueKey('chat-dismiss-keyboard'),
+                tooltip: context.l10n.hide_keyboard,
+                onPressed: () => FocusManager.instance.primaryFocus?.unfocus(),
+                icon: const Icon(Icons.keyboard_hide_outlined),
+              ),
             PopupMenuButton<String>(
               tooltip: context.l10n.cd_more,
               icon: const Icon(Icons.more_vert),
@@ -580,7 +588,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
       );
     }
-    final pinned = messages.where((message) => message.isPinned).lastOrNull;
+    final pinned = messages
+        .where(
+          (message) =>
+              message.isPinned &&
+              !message.isDeleted &&
+              (message.expiresAt == null ||
+                  message.expiresAt!.isAfter(DateTime.now())),
+        )
+        .lastOrNull;
     final canUnpin =
         !conversation.isGroup ||
         conversation.groupAdmins.contains(container.session.userId);
@@ -599,6 +615,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ListView(
                 key: const ValueKey('chat-message-list'),
                 controller: _messageScroll,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
                 children: _messageListChildren(context, messages, calls),
               ),
@@ -808,6 +826,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final canForward = _canForward(message);
     final bubble = _MessageBubble(
       message: message,
+      showReactionCounts: _conversation!.isGroup,
       senderLabel: _conversation!.isGroup && !message.isOutgoing
           ? _senderLabel(message)
           : null,
@@ -1403,6 +1422,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> _showMessageActions(LocalMessage message) async {
     FocusManager.instance.primaryFocus?.unfocus();
+    final conversation = _conversation!;
+    final userId = AppContainerScope.of(context).session.userId;
+    final canPin =
+        !conversation.isGroup ||
+        (!conversation.hasLeftGroup(userId) &&
+            conversation.groupAdmins.contains(userId));
+    final hasOtherPinned = _latestMessages.any(
+      (item) =>
+          item.id != message.id &&
+          item.isPinned &&
+          !item.isDeleted &&
+          (item.expiresAt == null || item.expiresAt!.isAfter(DateTime.now())),
+    );
     final action = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -1428,22 +1460,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       child: Wrap(
                         alignment: WrapAlignment.spaceEvenly,
                         children: [
-                          for (final emoji in allowedMessageReactions.take(5))
+                          for (final emoji in allowedMessageReactions)
                             IconButton(
+                              key: ValueKey('message-reaction-$emoji'),
                               tooltip: emoji,
                               onPressed: () =>
                                   Navigator.pop(sheetContext, 'emoji:$emoji'),
                               icon: Text(
                                 emoji,
-                                style: const TextStyle(fontSize: 24),
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontFamily: 'Apple Color Emoji',
+                                  fontFamilyFallback: ['Noto Color Emoji'],
+                                ),
                               ),
                             ),
-                          IconButton(
-                            tooltip: sheetContext.l10n.choose_reaction,
-                            onPressed: () =>
-                                Navigator.pop(sheetContext, 'reaction'),
-                            icon: const Icon(Icons.add_reaction_outlined),
-                          ),
                         ],
                       ),
                     ),
@@ -1484,19 +1515,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ),
                       onTap: () => Navigator.pop(sheetContext, 'star'),
                     ),
-                    ListTile(
-                      leading: Icon(
-                        message.isPinned
-                            ? Icons.push_pin
-                            : Icons.push_pin_outlined,
+                    if (canPin && (message.isPinned || !hasOtherPinned))
+                      ListTile(
+                        key: const ValueKey('message-action-pin'),
+                        leading: Icon(
+                          message.isPinned
+                              ? Icons.push_pin
+                              : Icons.push_pin_outlined,
+                        ),
+                        title: Text(
+                          message.isPinned
+                              ? sheetContext.l10n.unpin
+                              : sheetContext.l10n.pin,
+                        ),
+                        onTap: () => Navigator.pop(sheetContext, 'pin'),
                       ),
-                      title: Text(
-                        message.isPinned
-                            ? sheetContext.l10n.unpin
-                            : sheetContext.l10n.pin,
-                      ),
-                      onTap: () => Navigator.pop(sheetContext, 'pin'),
-                    ),
                     if (message.isOutgoing &&
                         message.contentType == MessageContentType.text &&
                         !message.isViewOnce &&
@@ -1562,9 +1595,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     switch (action) {
       case 'reply':
         setState(() => _replying = message);
-        return;
-      case 'reaction':
-        await _chooseReaction(service, message);
         return;
       case 'star':
         await service.setStarred(message.id, !message.isStarred);
@@ -1692,55 +1722,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         },
       ),
     );
-  }
-
-  Future<void> _chooseReaction(
-    MessageInteractionService service,
-    LocalMessage message,
-  ) async {
-    final emoji = await showDialog<String>(
-      context: context,
-      builder: (context) => TextControllerScope(
-        builder: (context, controller) => AlertDialog(
-          title: Text(context.l10n.choose_reaction),
-          content: TextField(
-            key: const ValueKey('reaction-emoji-input'),
-            controller: controller,
-            autofocus: true,
-            autocorrect: false,
-            enableSuggestions: false,
-            maxLength: 1,
-            decoration: InputDecoration(
-              labelText: context.l10n.choose_reaction,
-              prefixIcon: const Icon(Icons.emoji_emotions_outlined),
-            ),
-            onSubmitted: (value) {
-              if (isValidMessageReaction(value)) Navigator.pop(context, value);
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(context.l10n.cancel),
-            ),
-            ValueListenableBuilder(
-              valueListenable: controller,
-              builder: (context, value, _) => FilledButton(
-                onPressed: isValidMessageReaction(value.text)
-                    ? () => Navigator.pop(context, value.text)
-                    : null,
-                child: Text(context.l10n.send),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (emoji != null &&
-        !await service.toggleReaction(message.id, emoji) &&
-        mounted) {
-      _notice(context, context.l10n.reaction_failed);
-    }
   }
 
   Future<void> _editMessage(

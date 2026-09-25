@@ -29,6 +29,7 @@ class MessageInteractionService {
   final SessionStore _session;
   final CryptoService _crypto;
   final _reactionTails = <String, Future<void>>{};
+  final _pinTails = <String, Future<void>>{};
 
   Future<void> setStarred(String messageId, bool value) =>
       _database.messages.updateStarred(messageId, value);
@@ -142,32 +143,86 @@ class MessageInteractionService {
   }
 
   Future<bool> setPinned(String messageId, bool value) async {
+    final message = await _database.messages.getById(messageId);
+    if (message == null) return false;
+    final id = message.conversationId;
+    final previous = _pinTails[id] ?? Future<void>.value();
+    final result = previous.then((_) => _setPinned(messageId, value));
+    final tail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _pinTails[id] = tail;
+    return result.whenComplete(() {
+      if (identical(_pinTails[id], tail)) _pinTails.remove(id);
+    });
+  }
+
+  Future<bool> _setPinned(String messageId, bool value) async {
     final context = await _context(messageId);
     if (context == null) return false;
     if (context.conversation.isGroup &&
-        !_csv(context.conversation.groupAdmins).contains(context.userId)) {
+        (!_csv(context.conversation.groupAdmins).contains(context.userId) ||
+            !_csv(
+              context.conversation.groupMembers,
+            ).contains(context.userId))) {
       return false;
     }
     final pinnedAt = value ? DateTime.now() : null;
-    final sent = await _fanout(
-      context,
-      (recipient) => MessagePinSignal(
-        senderId: context.userId,
-        recipientId: recipient,
-        timestamp: DateTime.now(),
-        messageId: messageId,
-        isPinned: value,
-        pinnedAt: pinnedAt,
-        groupId: context.conversation.isGroup ? context.conversation.id : null,
-      ),
-    );
-    if (!sent) return false;
-    await _database.messages.updatePinned(
-      messageId,
-      value,
-      pinnedAt?.millisecondsSinceEpoch,
-    );
-    return true;
+    var wasPinned = false;
+    if (value) {
+      // Claim before sending: local and incoming pins share the same DB guard.
+      final claim = await _database.messages.updatePinned(
+        messageId,
+        true,
+        pinnedAt!.millisecondsSinceEpoch,
+      );
+      if (!claim.accepted) return false;
+      wasPinned = claim.wasPinned;
+    }
+    var mayHaveSent = false;
+    var sent = false;
+    try {
+      sent = await _fanout(
+        context,
+        (recipient) => MessagePinSignal(
+          senderId: context.userId,
+          recipientId: recipient,
+          timestamp: DateTime.now(),
+          messageId: messageId,
+          isPinned: value,
+          pinnedAt: pinnedAt,
+          groupId: context.conversation.isGroup
+              ? context.conversation.id
+              : null,
+        ),
+        onSent: () => mayHaveSent = true,
+      );
+    } catch (_) {
+      // A thrown send can have written to the socket. Do not free its slot.
+      mayHaveSent = true;
+    }
+    if (!sent) {
+      if (value && !wasPinned && !mayHaveSent) {
+        await _database.messages.updatePinned(
+          messageId,
+          false,
+          null,
+          expectedPinnedAt: pinnedAt!.millisecondsSinceEpoch,
+        );
+      }
+      return false;
+    }
+    if (!value) {
+      final update = await _database.messages.updatePinned(
+        messageId,
+        false,
+        null,
+        expectedPinnedAt: context.message.pinnedAt,
+      );
+      return update.accepted;
+    }
+    return (await _database.messages.getById(messageId))?.isPinned == true;
   }
 
   Future<_InteractionContext?> _context(String messageId) async {
@@ -183,8 +238,9 @@ class MessageInteractionService {
 
   Future<bool> _fanout(
     _InteractionContext context,
-    SignalMessage Function(String recipient) build,
-  ) async {
+    SignalMessage Function(String recipient) build, {
+    void Function()? onSent,
+  }) async {
     final recipients = context.conversation.isGroup
         ? _csv(
             context.conversation.groupMembers,
@@ -201,6 +257,7 @@ class MessageInteractionService {
           signaling: _signaling,
           control: build(recipient),
         );
+        if (sent) onSent?.call();
       }
       allSent = allSent && sent;
     }

@@ -6,6 +6,9 @@ import '../core/models.dart';
 import '../groups/private_group_control.dart';
 import '../chat/conversation_preview.dart';
 import '../contacts/phone_number_sharing_service.dart';
+import '../contacts/contact_service.dart';
+import '../incoming/incoming_message_handler.dart';
+import '../l10n/service_strings.dart';
 import '../services/session_store.dart';
 import '../services/async_operation_tracker.dart';
 import '../storage/secure_chat_database.dart';
@@ -32,6 +35,8 @@ class MediaMessageService {
     AsyncOperationFailureHandler? onAsyncFailure,
     PhoneNumberSharingService? phoneSharing,
     PrivateGroupControlSender? groupControls,
+    ContactIdentityResolver? identityResolver,
+    ServiceStrings? strings,
   }) : _database = database,
        _transfers = transfers,
        _session = session,
@@ -40,6 +45,11 @@ class MediaMessageService {
        _networkKindProvider = networkKindProvider,
        _phoneSharing = phoneSharing,
        _groupControls = groupControls,
+       _identityResolver =
+           identityResolver ?? ContactIdentityResolver(database: database),
+       _strings =
+           strings ??
+           ServiceStrings(languageCode: () async => session.languagePreference),
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
 
   final SecureChatDatabase _database;
@@ -50,9 +60,16 @@ class MediaMessageService {
   final NetworkKindProvider? _networkKindProvider;
   final PhoneNumberSharingService? _phoneSharing;
   final PrivateGroupControlSender? _groupControls;
+  final ContactIdentityResolver _identityResolver;
+  final ServiceStrings _strings;
+  final _acceptedMessages = StreamController<IncomingMessageEvent>.broadcast(
+    sync: true,
+  );
+  Stream<IncomingMessageEvent> get acceptedMessages => _acceptedMessages.stream;
   final AsyncOperationTracker _operations;
   final Random _random = Random.secure();
   StreamSubscription<ReceivedFile>? _receivedSubscription;
+  Future<void> _incomingTail = Future<void>.value();
   Future<void>? _closeTask;
   bool _closed = false;
   final _activeViewOnce = <String>{};
@@ -66,12 +83,13 @@ class MediaMessageService {
         cleanupViewedOnceMedia(),
       );
     }
-    _receivedSubscription ??= _transfers.receivedFiles.listen(
-      (received) => _operations.run(
-        'media-message.persist-incoming',
-        _persistIncoming(received),
-      ),
-    );
+    _receivedSubscription ??= _transfers.receivedFiles.listen((received) {
+      // Replays can use different transfer IDs; serialize the message-ID
+      // deduplication and unread update, not just chunk assembly.
+      final pending = _incomingTail.then((_) => _persistIncoming(received));
+      _incomingTail = pending.then<void>((_) {}, onError: (_, _) {});
+      _operations.run('media-message.persist-incoming', pending);
+    });
   }
 
   Future<void> close() {
@@ -92,6 +110,7 @@ class MediaMessageService {
       cleanupViewedOnceMedia(),
     );
     await _operations.close();
+    await _acceptedMessages.close();
   }
 
   /// Deterministic boundary for background/file callbacks already delivered
@@ -296,15 +315,15 @@ class MediaMessageService {
         return;
       final message = LocalMessage.fromJson(entity.toJson());
       final path = message.isFileMessage ? message.filePath : null;
-      if (path != null && path.isNotEmpty && await File(path).exists()) {
-        final root = await _localMediaDirectory.resolveSymbolicLinks();
-        final file = File(await File(path).resolveSymbolicLinks());
-        if (!file.path.startsWith('$root${Platform.pathSeparator}')) {
-          throw const FileSystemException(
-            'View-once media outside managed storage',
-          );
-        }
-        await file.delete();
+      if (path != null && path.isNotEmpty) {
+        final storage =
+            _storageManagement ??
+            StorageManagementService(
+              _database,
+              mediaDirectory: _localMediaDirectory,
+            );
+        final resolved = await storage.resolveMediaPath(path, strict: true);
+        if (resolved != null) await File(resolved).delete();
       }
       // Keep the viewed tombstone to prevent replay, but not the content or
       // caption. Retain the path on deletion failure so startup can retry.
@@ -461,6 +480,35 @@ class MediaMessageService {
       outgoing: false,
     );
     await _database.conversations.incrementUnreadCount(conversationId);
+    // Publish only after the file and chat state exist, so notifications and
+    // background shutdown observe a fully persisted message.
+    final strings = await _strings.load();
+    final identity = await _identityResolver.resolve(received.senderId);
+    final senderName =
+        identity.displayName.isEmpty ||
+            identity.displayName == received.senderId
+        ? strings.group_unknown_member
+        : identity.displayName;
+    _acceptedMessages.add(
+      IncomingMessageEvent(
+        messageId: messageId,
+        conversationId: conversationId,
+        title: conversation.isGroup
+            ? '$senderName (${conversation.peerName})'
+            : senderName,
+        preview: received.isViewOnce
+            ? strings.view_once
+            : voiceNote != null
+            ? strings.voice_message
+            : received.mimeType.startsWith('image/')
+            ? strings.photos
+            : strings.file,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
+        isMuted: conversation.isMuted,
+        isMention: false,
+        customSound: conversation.customNotificationUri,
+      ),
+    );
   }
 
   Future<bool> _shouldDeferIncomingPreview(

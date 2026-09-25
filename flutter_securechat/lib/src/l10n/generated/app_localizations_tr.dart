@@ -9,6 +9,9 @@ class AppLocalizationsTr extends AppLocalizations {
   AppLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get hide_keyboard => 'Klavyeyi kapat';
+
+  @override
   String get calls_filter_video => 'Görüntülü';
 
   @override

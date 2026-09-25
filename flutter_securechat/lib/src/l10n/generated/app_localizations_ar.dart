@@ -9,6 +9,9 @@ class AppLocalizationsAr extends AppLocalizations {
   AppLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get hide_keyboard => 'إخفاء لوحة المفاتيح';
+
+  @override
   String get calls_filter_video => 'فيديو';
 
   @override

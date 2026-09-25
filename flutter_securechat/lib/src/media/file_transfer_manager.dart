@@ -137,6 +137,7 @@ class FileTransferManager {
   final _random = Random.secure();
   late final StreamSubscription<FileTransferSignal> _subscription;
   Future<void>? _disposeTask;
+  bool _closing = false;
   bool _disposed = false;
 
   /// v4 oncesinde sifreli zarf, JSON `data`/`caption` alanina konmadan once
@@ -178,7 +179,7 @@ class FileTransferManager {
   }
 
   void _touchReceivingActivity(String transferId) {
-    if (_disposed) return;
+    if (_closing || _disposed) return;
     _receivingActivity.remove(transferId)?.cancel();
     // A lost final chunk must not hold the background socket indefinitely.
     _receivingActivity[transferId] = Timer(staleTransferAge, () {
@@ -197,7 +198,7 @@ class FileTransferManager {
         signal.chunkIndex == signal.totalChunks - 1) {
       _trace('rx-frame index=${signal.chunkIndex} total=${signal.totalChunks}');
     }
-    if (_disposed) return;
+    if (_closing || _disposed) return;
     _operations.run('file-transfer.receive-chunk', receiveChunk(signal));
   }
 
@@ -285,7 +286,9 @@ class FileTransferManager {
     String? originalMessageId,
     DateTime? absoluteExpiresAt,
   }) async {
-    if (_disposed) return const FileTransferFailure('Dosya aktarimi kapatildi');
+    if (_closing || _disposed) {
+      return const FileTransferFailure('Dosya aktarimi kapatildi');
+    }
     if (fileSize < 0 || fileSize > maximumFileSize) {
       return FileTransferFailure(
         'Dosya boyutu izin verilen siniri asiyor '
@@ -462,7 +465,7 @@ class FileTransferManager {
   }
 
   Future<ReceivedFile?> receiveChunk(FileTransferSignal signal) async {
-    if (_disposed) return null;
+    if (_closing || _disposed) return null;
     final transferId = signal.transferId ?? _legacyTransferId(signal);
     final previous = _receiveTails[transferId] ?? Future<void>.value();
     final result = previous
@@ -888,15 +891,19 @@ class FileTransferManager {
         : 'application/octet-stream';
   }
 
+  /// Drains chunks already delivered to this receiver without stopping it.
+  Future<void> waitForIdle() async {
+    await Future<void>.delayed(Duration.zero);
+    await _operations.waitForIdle();
+    while (_receiveTails.isNotEmpty) {
+      await Future.wait(_receiveTails.values.toList(growable: false));
+    }
+  }
+
   Future<void> dispose() {
     final active = _disposeTask;
     if (active != null) return active;
-    _disposed = true;
-    for (final timer in _receivingActivity.values) {
-      timer.cancel();
-    }
-    _receivingActivity.clear();
-    _publishActivity();
+    _closing = true;
     final operation = _dispose();
     _disposeTask = operation;
     return operation;
@@ -908,6 +915,14 @@ class FileTransferManager {
     while (_receiveTails.isNotEmpty) {
       await Future.wait(_receiveTails.values.toList(growable: false));
     }
+    // Already accepted chunks must publish completion before the persistence
+    // subscriber is closed. Reject new work above without suppressing these.
+    _disposed = true;
+    for (final timer in _receivingActivity.values) {
+      timer.cancel();
+    }
+    _receivingActivity.clear();
+    _publishActivity();
     await _progress.close();
     await _receivedFiles.close();
     await _activity.close();

@@ -6,6 +6,24 @@ import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('media arriving during close cannot enqueue after disposal', () async {
+    final fixture = await _Fixture.start();
+    final closing = fixture.coordinator.close();
+    fixture.media.add(
+      IncomingMessageEvent(
+        messageId: 'late-media',
+        conversationId: 'alice',
+        title: 'Alice',
+        preview: 'Voice message',
+        timestamp: DateTime(2026),
+        isMuted: false,
+        isMention: false,
+      ),
+    );
+    await closing;
+    expect(fixture.presenter.completed, isEmpty);
+  });
+
   test('delayed presentation cannot replace a newer privacy summary', () async {
     final fixture = await _Fixture.start();
     fixture.send('alice');
@@ -100,6 +118,7 @@ class _Fixture {
     : presenter = _DelayedPresenter(failFirst: failFirst);
 
   final input = StreamController<IncomingMessageEvent>.broadcast(sync: true);
+  final media = StreamController<IncomingMessageEvent>.broadcast(sync: true);
   final _DelayedPresenter presenter;
   late final MessageNotificationCoordinator coordinator;
   int _serial = 0;
@@ -111,6 +130,7 @@ class _Fixture {
     final fixture = _Fixture(failFirst: failFirst);
     fixture.coordinator = MessageNotificationCoordinator(
       incomingMessages: fixture.input.stream,
+      mediaMessages: fixture.media.stream,
       session: SessionStore(languagePreference: 'en'),
       presenter: fixture.presenter,
       onAsyncFailure: (operation, _, _) => failures?.add(operation),
@@ -121,6 +141,7 @@ class _Fixture {
       }
       await fixture.coordinator.close();
       await fixture.input.close();
+      await fixture.media.close();
     });
     await fixture.coordinator.start();
     return fixture;

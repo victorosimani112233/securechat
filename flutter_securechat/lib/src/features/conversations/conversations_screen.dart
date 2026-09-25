@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../calls/call_readiness_service.dart';
+import '../../chat/conversation_preview.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
@@ -223,31 +224,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   ),
                 ),
         ),
-        if (_showArchived)
-          _archivedHeader(archived.length)
-        else
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                _chip(context.l10n.conv_filter_all, ConversationFilter.none),
-                _chip(
-                  context.l10n.conv_filter_unread,
-                  ConversationFilter.unread,
-                ),
-                _chip(
-                  context.l10n.conv_filter_groups,
-                  ConversationFilter.groups,
-                ),
-                _chip(
-                  context.l10n.conv_filter_favorites,
-                  ConversationFilter.favorites,
-                ),
-              ],
-            ),
-          ),
+        if (_showArchived) _archivedHeader(archived.length) else _filterBar(),
         Expanded(
           child: loading
               ? const _ConversationShimmerList()
@@ -390,6 +367,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         ? context.l10n.conversation_typing
         : conversation.isLocked
         ? context.l10n.conversation_locked_preview
+        : conversation.lastMessageType == MessageContentType.poll &&
+              conversation.lastMessage != viewOncePreviewLabel
+        ? context.l10n.poll
         : _displayLastMessage(conversation.lastMessage ?? '');
     final scheme = Theme.of(context).colorScheme;
     return AzureGlassPanel(
@@ -555,32 +535,37 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        _formatTimestamp(conversation.lastMessageTimestamp),
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: conversation.hasUnread
-                              ? scheme.primary
-                              : scheme.onSurfaceVariant,
-                          fontWeight: conversation.hasUnread
-                              ? FontWeight.w700
-                              : FontWeight.w400,
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 112),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _formatTimestamp(conversation.lastMessageTimestamp),
+                          textAlign: TextAlign.end,
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: conversation.hasUnread
+                                    ? scheme.primary
+                                    : scheme.onSurfaceVariant,
+                                fontWeight: conversation.hasUnread
+                                    ? FontWeight.w700
+                                    : FontWeight.w400,
+                              ),
                         ),
-                      ),
-                      if (conversation.hasUnread) ...[
-                        const SizedBox(height: 4),
-                        Badge(
-                          label: Text(
-                            conversation.unreadCount > 0
-                                ? conversation.unreadCount.toString()
-                                : ' ',
+                        if (conversation.hasUnread) ...[
+                          const SizedBox(height: 4),
+                          Badge(
+                            label: Text(
+                              conversation.unreadCount > 0
+                                  ? conversation.unreadCount.toString()
+                                  : ' ',
+                            ),
                           ),
-                        ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ],
               ),
@@ -761,14 +746,90 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     });
   }
 
-  Widget _chip(String label, ConversationFilter filter) {
+  Widget _filterBar() {
+    final filters = [
+      (
+        context.l10n.conv_filter_all,
+        ConversationFilter.none,
+        Icons.forum_outlined,
+      ),
+      (
+        context.l10n.conv_filter_unread,
+        ConversationFilter.unread,
+        Icons.mark_chat_unread_outlined,
+      ),
+      (
+        context.l10n.conv_filter_groups,
+        ConversationFilter.groups,
+        Icons.groups_outlined,
+      ),
+      (
+        context.l10n.conv_filter_favorites,
+        ConversationFilter.favorites,
+        Icons.star_outline,
+      ),
+    ];
+    final style = Theme.of(
+      context,
+    ).textTheme.labelLarge!.copyWith(fontSize: 13, letterSpacing: 0);
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: FilterChip(
-        label: Text(label),
-        selected: _filter == filter,
-        showCheckmark: true,
-        onSelected: (_) => setState(() => _filter = filter),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final widths = filters.map((entry) {
+            final painter = TextPainter(
+              text: TextSpan(text: entry.$1, style: style),
+              textDirection: Directionality.of(context),
+              textScaler: MediaQuery.textScalerOf(context),
+              maxLines: 1,
+            )..layout();
+            final width = (painter.width + 18).clamp(48.0, double.infinity);
+            painter.dispose();
+            return width;
+          }).toList();
+          // Keep one row at large accessibility sizes without shrinking text.
+          final compact =
+              widths.fold<double>(0, (sum, width) => sum + width) + 16 >
+              constraints.maxWidth;
+          return Row(
+            key: const ValueKey('conversation-filters'),
+            children: [
+              for (var i = 0; i < filters.length; i++)
+                Expanded(
+                  flex: compact ? 1 : widths[i].ceil(),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Tooltip(
+                      message: filters[i].$1,
+                      child: FilterChip(
+                        key: ValueKey(
+                          'conversation-filter-${filters[i].$2.name}',
+                        ),
+                        padding: EdgeInsets.zero,
+                        labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+                        label: compact
+                            ? Icon(
+                                filters[i].$3,
+                                size: 20,
+                                semanticLabel: filters[i].$1,
+                              )
+                            : Text(
+                                filters[i].$1,
+                                maxLines: 1,
+                                softWrap: false,
+                                style: style,
+                              ),
+                        selected: _filter == filters[i].$2,
+                        showCheckmark: false,
+                        onSelected: (_) =>
+                            setState(() => _filter = filters[i].$2),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1023,13 +1084,14 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 
   String _formatTimestamp(DateTime? value) {
     if (value == null) return '';
+    value = value.toLocal();
     final now = DateTime.now();
     if (value.year == now.year &&
         value.month == now.month &&
         value.day == now.day) {
       return '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
     }
-    return '${value.day.toString().padLeft(2, '0')}.${value.month.toString().padLeft(2, '0')}';
+    return '${value.day.toString().padLeft(2, '0')}.${value.month.toString().padLeft(2, '0')}.${value.year.toString().padLeft(4, '0')}';
   }
 
   String _displayLastMessage(String value) {

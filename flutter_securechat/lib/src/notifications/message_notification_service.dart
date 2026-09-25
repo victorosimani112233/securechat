@@ -375,12 +375,14 @@ class PluginLocalNotificationPresenter
 class MessageNotificationCoordinator {
   MessageNotificationCoordinator({
     required Stream<IncomingMessageEvent> incomingMessages,
+    Stream<IncomingMessageEvent>? mediaMessages,
     required SessionStore session,
     required LocalNotificationPresenter presenter,
     ServiceStrings? strings,
     Future<Map<String, int>> Function()? unreadCounts,
     AsyncOperationFailureHandler? onAsyncFailure,
   }) : _incomingMessages = incomingMessages,
+       _mediaMessages = mediaMessages,
        _session = session,
        _presenter = presenter,
        _unreadCounts = unreadCounts,
@@ -392,6 +394,7 @@ class MessageNotificationCoordinator {
   static const privacyNotificationId = 104729;
 
   final Stream<IncomingMessageEvent> _incomingMessages;
+  final Stream<IncomingMessageEvent>? _mediaMessages;
   final SessionStore _session;
   final LocalNotificationPresenter _presenter;
   final ServiceStrings _strings;
@@ -400,6 +403,7 @@ class MessageNotificationCoordinator {
   Future<void> _operationTail = Future<void>.value();
   final _counts = <String, int>{};
   StreamSubscription<IncomingMessageEvent>? _messageSubscription;
+  StreamSubscription<IncomingMessageEvent>? _mediaSubscription;
   StreamSubscription<NotificationDismissal>? _dismissSubscription;
   bool _isForeground = true;
   String? _activeConversationId;
@@ -414,12 +418,15 @@ class MessageNotificationCoordinator {
     }
     await _presenter.initialize();
     _dismissSubscription ??= _presenter.dismissals.listen(_onDismissed);
-    _messageSubscription ??= _incomingMessages.listen((event) {
-      // Visibility belongs to arrival time, not the time a queued show runs.
-      if (_isForeground && _activeConversationId == event.conversationId)
-        return;
-      _enqueue('notification.present-message', () => _onMessage(event));
-    });
+    _messageSubscription ??= _incomingMessages.listen(_acceptMessage);
+    _mediaSubscription ??= _mediaMessages?.listen(_acceptMessage);
+  }
+
+  void _acceptMessage(IncomingMessageEvent event) {
+    if (_disposed) return;
+    // Visibility belongs to arrival time, not the time a queued show runs.
+    if (_isForeground && _activeConversationId == event.conversationId) return;
+    _enqueue('notification.present-message', () => _onMessage(event));
   }
 
   void setAppForeground(bool foreground) {
@@ -526,8 +533,10 @@ class MessageNotificationCoordinator {
     if (_disposed) return;
     _disposed = true;
     await _messageSubscription?.cancel();
+    await _mediaSubscription?.cancel();
     await _dismissSubscription?.cancel();
     _messageSubscription = null;
+    _mediaSubscription = null;
     _dismissSubscription = null;
     await _operations.close();
   }

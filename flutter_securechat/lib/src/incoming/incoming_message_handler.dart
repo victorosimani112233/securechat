@@ -789,6 +789,7 @@ class IncomingMessageHandler {
         return;
       }
     }
+    // The DAO rejects a different live pin atomically, including local races.
     await _database.messages.updatePinned(
       signal.messageId,
       signal.isPinned,

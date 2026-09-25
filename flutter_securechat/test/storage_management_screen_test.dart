@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_securechat/src/core/models.dart';
+import 'package:flutter_securechat/src/features/chat/media_viewer_screen.dart';
 import 'package:flutter_securechat/src/features/settings/chat_storage_screen.dart';
 import 'package:flutter_securechat/src/features/settings/storage_usage_screen.dart';
 import 'package:flutter_securechat/src/l10n/generated/app_localizations.dart';
@@ -54,6 +55,215 @@ void main() {
     });
   });
   tearDown(() => messenger.setMockMethodCallHandler(_nativeChannel, null));
+
+  testWidgets(
+    'browse tap opens image; only trash enters selection and close restores browsing',
+    (tester) async {
+      final bytes = await _previewPng(tester);
+      final photo = await _mediaFile(tester, 'browse.png', bytes);
+      fixture.service.files
+        ..clear()
+        ..add(
+          _storageFile(
+            'photo',
+            'browse.png',
+            'image/png',
+            bytes.length,
+            path: photo.path,
+          ),
+        );
+      await _pumpScreen(tester, fixture);
+      await _openDetail(tester, selecting: false);
+      expect(find.byType(Checkbox), findsNothing);
+      expect(_deleteSelected, findsNothing);
+      expect(
+        tester.widget<Semantics>(_file('photo')).properties.checked,
+        isNull,
+      );
+      await tester.tap(_file('photo'));
+      await tester.pumpAndSettle();
+      expect(find.byType(MediaViewerScreen), findsOneWidget);
+      expect(fixture.service.openRequests, ['photo']);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('storage-selection-mode')));
+      await tester.pumpAndSettle();
+      expect(find.byType(Checkbox), findsOneWidget);
+      expect(tester.widget<FilledButton>(_deleteSelected).onPressed, isNull);
+      await tester.tap(_file('photo'));
+      await tester.pumpAndSettle();
+      expect(_selected(tester, 'photo'), isTrue);
+      expect(fixture.service.openRequests, ['photo']);
+      await tester.tap(find.byTooltip(_strings(tester).cancel_selection));
+      await tester.pumpAndSettle();
+      expect(find.byType(Checkbox), findsNothing);
+      expect(_deleteSelected, findsNothing);
+      await tester.tap(_file('photo'));
+      await tester.pumpAndSettle();
+      expect(find.byType(MediaViewerScreen), findsOneWidget);
+      expect(fixture.service.openRequests, ['photo', 'photo']);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final (id, mime) in [
+    ('video', 'video/mp4'),
+    ('document', 'application/pdf'),
+    ('audio', 'audio/ogg'),
+  ]) {
+    testWidgets('browse tap opens $id with existing native file facility', (
+      tester,
+    ) async {
+      fixture.service.files
+        ..clear()
+        ..add(_storageFile(id, '$id.bin', mime, 10));
+      await _pumpScreen(tester, fixture);
+      await _openDetail(tester, selecting: false);
+      await tester.tap(_file(id));
+      await tester.pumpAndSettle();
+      expect(
+        nativeCalls
+            .where((call) => call.method == 'openLocalFile')
+            .single
+            .arguments,
+        {'path': '/managed/$id.bin', 'mimeType': mime},
+      );
+      expect(find.byType(Checkbox), findsNothing);
+      expect(_deleteSelected, findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+    'protected deferred missing and expired media cannot open in browse mode',
+    (tester) async {
+      fixture.service.files
+        ..clear()
+        ..addAll([
+          _storageFile('once', 'once.png', 'image/png', 1, viewOnce: true),
+          _storageFile(
+            'deferred',
+            'deferred.png',
+            'image/png',
+            1,
+            deferred: true,
+          ),
+          _storageFile(
+            'missing',
+            'missing.pdf',
+            'application/pdf',
+            1,
+            available: false,
+          ),
+          _storageFile(
+            'expired',
+            'expired.png',
+            'image/png',
+            1,
+            expiresAt: DateTime(2000),
+          ),
+        ]);
+      await _pumpScreen(tester, fixture);
+      await _openDetail(tester, selecting: false);
+      for (final id in ['once', 'deferred', 'missing']) {
+        await tester.tap(_file(id));
+        await tester.pumpAndSettle();
+      }
+      expect(_file('expired'), findsNothing);
+      expect(fixture.service.openRequests, isEmpty);
+      expect(nativeCalls, isEmpty);
+      expect(find.byType(MediaViewerScreen), findsNothing);
+      expect(find.byType(Checkbox), findsNothing);
+    },
+  );
+
+  for (final revoke in [
+    'pause',
+    'expired',
+    'deferred',
+    'view-once',
+    'removed',
+  ]) {
+    testWidgets('open image viewer is revoked on $revoke', (tester) async {
+      addTearDown(
+        () => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        ),
+      );
+      final bytes = await _previewPng(tester);
+      final photo = await _mediaFile(tester, 'revoke.png', bytes);
+      fixture.service.files
+        ..clear()
+        ..add(
+          _storageFile(
+            'photo',
+            'revoke.png',
+            'image/png',
+            bytes.length,
+            path: photo.path,
+          ),
+        );
+      await _pumpScreen(tester, fixture);
+      await _openDetail(tester, selecting: false);
+      await tester.tap(_file('photo'));
+      await tester.pumpAndSettle();
+      expect(find.byType(MediaViewerScreen), findsOneWidget);
+      if (revoke == 'pause') {
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        tester.binding.scheduleForcedFrame();
+      } else {
+        fixture.service.messageUpdates.add([
+          if (revoke != 'removed')
+            _storageFile(
+              'photo',
+              'revoke.png',
+              'image/png',
+              bytes.length,
+              path: photo.path,
+              deferred: revoke == 'deferred',
+              viewOnce: revoke == 'view-once',
+              expiresAt: revoke == 'expired' ? DateTime(2000) : null,
+            ).message,
+        ]);
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(MediaViewerScreen), findsNothing);
+      expect(find.byType(InteractiveViewer), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+    'pending file validation cannot open after background and reauthorization',
+    (tester) async {
+      addTearDown(
+        () => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        ),
+      );
+      fixture.service.files
+        ..clear()
+        ..add(_storageFile('document', 'file.pdf', 'application/pdf', 1));
+      fixture.service.pendingOpen = Completer<ChatStorageFile?>();
+      await _pumpScreen(tester, fixture);
+      await _openDetail(tester, selecting: false);
+      await tester.tap(_file('document'));
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      fixture.service.pendingOpen!.complete(fixture.service.files.single);
+      await tester.pumpAndSettle();
+      expect(
+        nativeCalls.where((call) => call.method == 'openLocalFile'),
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'pull to refresh reloads disk files without duplicating message watchers',
@@ -297,6 +507,33 @@ void main() {
     expect(decodedImage.debugDisposed, isTrue);
     expect(PaintingBinding.instance.imageCache.currentSize, cacheSize);
   });
+
+  testWidgets(
+    'image thumbnail decodes percent-encoded file URI without global caching',
+    (tester) async {
+      final bytes = await _previewPng(tester);
+      final photo = await _mediaFile(tester, 'photo #1.png', bytes);
+      final cacheSize = PaintingBinding.instance.imageCache.currentSize;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: LocalImageThumbnail(
+            key: const ValueKey('storage-preview-uri'),
+            path: photo.uri.toString(),
+            isViewOnce: false,
+            fallback: const SizedBox(),
+          ),
+        ),
+      );
+      await _settleDecode(tester);
+      await _expectPreviewPixels(tester, 'uri');
+      final image = tester.widget<RawImage>(find.byType(RawImage)).image!;
+      expect(PaintingBinding.instance.imageCache.currentSize, cacheSize);
+      await tester.pumpWidget(const SizedBox());
+      expect(image.debugDisposed, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('video grid preview decodes the mocked native frame', (
     tester,
@@ -588,7 +825,7 @@ void main() {
     expect(find.text(strings.storage_delete_action(5)), findsOneWidget);
     await tester.tap(find.byTooltip(strings.select_all));
     await tester.pumpAndSettle();
-    expect(_deleteSelected, findsNothing);
+    expect(tester.widget<FilledButton>(_deleteSelected).onPressed, isNull);
     for (final file in fixture.service.files) {
       await _showFile(tester, file.message.id);
       expect(_selected(tester, file.message.id), isFalse);
@@ -662,7 +899,7 @@ void main() {
         expect(
           tester
               .widget<IconButton>(
-                find.widgetWithIcon(IconButton, Icons.select_all),
+                find.byKey(const ValueKey('storage-selection-mode')),
               )
               .onPressed,
           isNull,
@@ -857,7 +1094,8 @@ void main() {
     await tester.pumpAndSettle();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
-    fixture.auth.allowed = false;
+    // A new successful authorization must not revive the old confirmation.
+    fixture.auth.allowed = true;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     if (find.byType(AlertDialog).evaluate().isNotEmpty) {
@@ -925,7 +1163,7 @@ Finder get _deleteSelected =>
 Finder _file(String id) => find.byKey(ValueKey('storage-file-$id'));
 Finder _preview(String id) => find.byKey(ValueKey('storage-preview-$id'));
 bool _selected(WidgetTester tester, String id) =>
-    tester.widget<Semantics>(_file(id)).properties.checked!;
+    tester.widget<Semantics>(_file(id)).properties.checked ?? false;
 
 Future<void> _showFile(WidgetTester tester, String id) async {
   if (_file(id).evaluate().isEmpty) {
@@ -969,11 +1207,17 @@ void _expectNoFiles(WidgetTester tester, _Fixture fixture) {
   }
 }
 
-Future<void> _openDetail(WidgetTester tester) async {
+Future<void> _openDetail(WidgetTester tester, {bool selecting = true}) async {
   await tester.ensureVisible(_chat);
   await tester.pumpAndSettle();
   await tester.tap(_chat);
   await tester.pumpAndSettle();
+  expect(find.byType(Checkbox), findsNothing);
+  final mode = find.byKey(const ValueKey('storage-selection-mode'));
+  if (selecting && tester.widget<IconButton>(mode).onPressed != null) {
+    await tester.tap(mode);
+    await tester.pumpAndSettle();
+  }
 }
 
 Future<void> _filter(WidgetTester tester, String label) async {
@@ -1133,6 +1377,8 @@ class _StorageService extends Fake implements StorageManagementService {
   final watchRequests = <String>[];
   final messageUpdates = StreamController<List<LocalMessage>>.broadcast();
   final cleanRequests = <(String, Set<String>)>[];
+  final openRequests = <String>[];
+  Completer<ChatStorageFile?>? pendingOpen;
   int analyzeCalls = 0;
 
   ChatStorageBreakdown get summary {
@@ -1159,6 +1405,12 @@ class _StorageService extends Fake implements StorageManagementService {
       id == conversation.id ? conversation : null;
 
   @override
+  Future<String?> resolveMediaPath(
+    String storedPath, {
+    bool strict = false,
+  }) async => storedPath;
+
+  @override
   Stream<List<LocalMessage>> watchChatMessages(String conversationId) {
     watchRequests.add(conversationId);
     return messageUpdates.stream;
@@ -1168,6 +1420,18 @@ class _StorageService extends Fake implements StorageManagementService {
   Future<List<ChatStorageFile>> filesForChat(String conversationId) async {
     fileRequests.add(conversationId);
     return List.of(files);
+  }
+
+  @override
+  Future<ChatStorageFile?> fileForOpening(
+    String conversationId,
+    String id,
+  ) async {
+    openRequests.add(id);
+    if (pendingOpen != null) return pendingOpen!.future;
+    return files
+        .where((file) => file.message.id == id && file.canOpen)
+        .firstOrNull;
   }
 
   @override

@@ -6,8 +6,34 @@ import 'package:flutter/material.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
 import '../../media/local_file_actions.dart';
+import '../../services/app_container.dart';
 import '../../widgets/local_image_view.dart';
 import 'media_preview_screen.dart';
+
+/// Shared by the viewer and inline chat previews. Production resolves only
+/// managed media; standalone viewers still accept ordinary local file URIs.
+Future<String?> resolveChatMediaPath(BuildContext context, String path) async {
+  final storage = context
+      .getInheritedWidgetOfExactType<AppContainerScope>()
+      ?.container
+      .storageRuntime
+      ?.service;
+  if (storage != null) return storage.resolveMediaPath(path);
+  try {
+    final uri = Uri.tryParse(path);
+    if (uri?.hasScheme == true) {
+      if (uri!.scheme != 'file' ||
+          uri.host.isNotEmpty ||
+          uri.hasQuery ||
+          uri.hasFragment)
+        return null;
+      path = File.fromUri(uri).path;
+    }
+    return File(path).isAbsolute ? path : null;
+  } on ArgumentError {
+    return null;
+  }
+}
 
 class MediaViewerScreen extends StatefulWidget {
   const MediaViewerScreen({
@@ -31,6 +57,7 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
   LocalFileActions get fileActions => widget.fileActions;
   bool _consumed = false;
   bool _externalOpen = false;
+  String? _resolvedPath;
 
   @override
   void initState() {
@@ -41,7 +68,7 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
   void _consume() {
     if (!message.isViewOnce || _consumed) return;
     _consumed = true;
-    final path = message.filePath;
+    final path = _resolvedPath;
     if (path != null && path.isNotEmpty)
       unawaited(FileImage(File(path)).evict());
     widget.onViewOnceClosed?.call();
@@ -71,6 +98,23 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
   Widget build(BuildContext context) {
     if (_consumed) return const Scaffold(backgroundColor: Colors.black);
     final path = message.filePath;
+    if (path == null ||
+        message.isMediaPreviewDeferred ||
+        (message.expiresAt != null &&
+            !message.expiresAt!.isAfter(DateTime.now()))) {
+      return _buildViewer(context, null);
+    }
+    return FutureBuilder<String?>(
+      key: ValueKey(path),
+      future: resolveChatMediaPath(context, path),
+      builder: (context, snapshot) {
+        _resolvedPath = snapshot.data;
+        return _buildViewer(context, snapshot.data);
+      },
+    );
+  }
+
+  Widget _buildViewer(BuildContext context, String? path) {
     final mime = message.fileMimeType ?? 'application/octet-stream';
     final isImage = mime.startsWith('image/');
     final exists = path != null && fileActions.exists(path);

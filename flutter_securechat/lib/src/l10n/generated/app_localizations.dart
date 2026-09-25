@@ -102,6 +102,12 @@ abstract class AppLocalizations {
     Locale('tr'),
   ];
 
+  /// No description provided for @hide_keyboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide keyboard'**
+  String get hide_keyboard;
+
   /// No description provided for @calls_filter_video.
   ///
   /// In en, this message translates to:

@@ -66,6 +66,124 @@ void main() {
   );
 
   test(
+    'iOS container relocation resolves previews and shared cleanup without rewriting history',
+    () async {
+      final f = await _fixture();
+      addTearDown(f.close);
+      final directory = await Directory(
+        '${f.root.path}/received_files',
+      ).create();
+      final current = await File(
+        '${directory.path}/photo with spaces.png',
+      ).writeAsBytes([1, 2, 3]);
+      const old =
+          '/var/mobile/Containers/Data/Application/11111111-2222-3333-4444-555555555555/Library/Application Support/media/received_files/photo with spaces.png';
+      await insertMedia(f, 'old', 'c1', File(old), mime: 'image/png');
+      await insertMedia(f, 'current', 'c2', current, mime: 'image/png');
+      final resolved = (await f.service.filesForChat('c1')).single;
+      expect(resolved.available, isTrue);
+      expect(resolved.diskBytes, 3);
+      expect(resolved.path, await current.resolveSymbolicLinks());
+      expect(resolved.message.filePath, old);
+      expect(
+        (await f.service.fileForOpening('c1', 'old'))!.path,
+        resolved.path,
+      );
+      expect(
+        (await f.database.messages.getById('old'))!.content,
+        endsWith(old),
+      );
+      final first = await f.service.cleanSelectedFiles('c1', ['old']);
+      expect(first.deletedCount, 1);
+      expect(first.freedBytes, 0);
+      expect(await current.exists(), isTrue);
+      final last = await f.service.cleanSelectedFiles('c2', ['current']);
+      expect(last.freedBytes, 3);
+      expect(await current.exists(), isFalse);
+    },
+  );
+
+  test(
+    'local file URI resolves encoded filename for preview and cleanup',
+    () async {
+      final f = await _fixture();
+      addTearDown(f.close);
+      final current = await File(
+        '${f.root.path}/photo #1.png',
+      ).writeAsBytes([1, 2]);
+      await insertMedia(
+        f,
+        'uri',
+        'c1',
+        File(current.uri.toString()),
+        mime: 'image/png',
+      );
+      final item = (await f.service.filesForChat('c1')).single;
+      expect(item.available, isTrue);
+      expect(item.path, await current.resolveSymbolicLinks());
+      expect((await f.service.fileForOpening('c1', 'uri'))!.path, item.path);
+      expect((await f.service.cleanSelectedFiles('c1', ['uri'])).freedBytes, 2);
+      expect(await current.exists(), isFalse);
+    },
+  );
+
+  test(
+    'relocation never guesses basenames or escapes the managed root',
+    () async {
+      final f = await _fixture();
+      addTearDown(f.close);
+      final outside = await Directory.systemTemp.createTemp('storage-outside-');
+      addTearDown(() => outside.delete(recursive: true));
+      final secret = await File(
+        '${outside.path}/secret',
+      ).writeAsString('secret');
+      await Link('${f.root.path}/escape').create(secret.path);
+      await File('${f.root.path}/secret').writeAsString('not a match');
+      const old =
+          '/var/mobile/Containers/Data/Application/11111111-2222-3333-4444-555555555555/Library/Application Support/media';
+      for (final (id, path) in [
+        ('external', secret.path),
+        ('traversal', '$old/../secret'),
+        ('symlink', '$old/escape'),
+        ('arbitrary', '/unknown/container/secret'),
+        ('remote', 'https://example.invalid/secret'),
+      ]) {
+        await insertMedia(f, id, 'c1', File(path), mime: 'image/png');
+        expect(await f.service.fileForOpening('c1', id), isNull);
+      }
+      expect(
+        (await f.service.filesForChat('c1')).every((file) => !file.available),
+        isTrue,
+      );
+      expect(await secret.readAsString(), 'secret');
+    },
+  );
+
+  test('opening rechecks message ownership and privacy flags', () async {
+    final f = await _fixture();
+    addTearDown(f.close);
+    final image = await File('${f.root.path}/image.png').writeAsBytes([1]);
+    await insertMedia(f, 'image', 'c1', image, mime: 'image/png');
+    expect(await f.service.fileForOpening('another-chat', 'image'), isNull);
+    final original = (await f.database.messages.getById('image'))!;
+    for (final flags in [
+      {'isViewOnce': true},
+      {'isMediaPreviewDeferred': true},
+      {'expiresAt': 1},
+      {'contentType': 'deleted'},
+    ]) {
+      await f.database.messages.update(
+        MessageEntity.fromJson({...original.toJson(), ...flags}),
+      );
+      expect(await f.service.fileForOpening('c1', 'image'), isNull);
+    }
+    await f.database.messages.update(original);
+    expect(await f.service.fileForOpening('c1', 'image'), isNotNull);
+    await f.database.messages.delete('image');
+    expect(await f.service.fileForOpening('c1', 'image'), isNull);
+  });
+
+  test(
     'cleanup refuses external files and symlink escapes without deleting records',
     () async {
       final f = await _fixture();

@@ -26,28 +26,25 @@ void main() {
     }
   });
 
-  test(
-    'emoji keyboard accepts one grapheme and preserves one reaction per user',
-    () {
-      for (final emoji in ['🫶', '👨‍👩‍👧‍👦', '👍🏽', '🇹🇷', '1️⃣', '❤️']) {
-        expect(isValidMessageReaction(emoji), isTrue, reason: emoji);
-      }
-      for (final invalid in ['', 'hello', 'A', '👍👍', '👍 hi', '1']) {
-        expect(isValidMessageReaction(invalid), isFalse, reason: invalid);
-      }
-      var raw = applyMessageReaction(null, 'me', '🫶', remove: false);
-      raw = applyMessageReaction(raw, 'me', '👨‍👩‍👧‍👦', remove: false);
-      raw = applyMessageReaction(raw, 'other', '🫶', remove: false);
-      expect(parseReactions(raw), {
-        '👨‍👩‍👧‍👦': {'me'},
-        '🫶': {'other'},
-      });
-      raw = applyMessageReaction(raw, 'me', '👨‍👩‍👧‍👦', remove: true);
-      expect(parseReactions(raw), {
-        '🫶': {'other'},
-      });
-    },
-  );
+  test('reactions accept one grapheme and preserve one reaction per user', () {
+    for (final emoji in ['🫶', '👨‍👩‍👧‍👦', '👍🏽', '🇹🇷', '1️⃣', '❤️']) {
+      expect(isValidMessageReaction(emoji), isTrue, reason: emoji);
+    }
+    for (final invalid in ['', 'hello', 'A', '👍👍', '👍 hi', '1']) {
+      expect(isValidMessageReaction(invalid), isFalse, reason: invalid);
+    }
+    var raw = applyMessageReaction(null, 'me', '🫶', remove: false);
+    raw = applyMessageReaction(raw, 'me', '👨‍👩‍👧‍👦', remove: false);
+    raw = applyMessageReaction(raw, 'other', '🫶', remove: false);
+    expect(parseReactions(raw), {
+      '👨‍👩‍👧‍👦': {'me'},
+      '🫶': {'other'},
+    });
+    raw = applyMessageReaction(raw, 'me', '👨‍👩‍👧‍👦', remove: true);
+    expect(parseReactions(raw), {
+      '🫶': {'other'},
+    });
+  });
 
   for (final width in [320.0, 390.0, 768.0]) {
     testWidgets('recipient selection survives search and fits $width', (
@@ -193,7 +190,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.longPress(find.text('Text 0'));
       await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.add_reaction_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.add_reaction_outlined), findsNothing);
+      expect(find.byKey(const ValueKey('message-reaction-🤍')), findsOneWidget);
       await tester.tap(find.text('İlet'));
       await tester.pumpAndSettle();
       expect(find.byType(Checkbox), findsNWidgets(2));

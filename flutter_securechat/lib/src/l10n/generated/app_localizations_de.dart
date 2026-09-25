@@ -9,6 +9,9 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get hide_keyboard => 'Tastatur ausblenden';
+
+  @override
   String get calls_filter_video => 'Video';
 
   @override

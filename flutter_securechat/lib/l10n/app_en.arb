@@ -1,4 +1,5 @@
 {
+  "hide_keyboard": "Hide keyboard",
   "calls_filter_video": "Video",
   "calls_filter_empty": "No calls match this filter",
   "group_added_notification": "You were added to a group.",
