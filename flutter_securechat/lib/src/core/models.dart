@@ -179,6 +179,7 @@ class LocalMessage {
     this.caption,
     this.isViewOnce = false,
     this.isViewed = false,
+    this.isMediaPreviewDeferred = false,
     this.isPinned = false,
     this.pinnedAt,
   });
@@ -200,6 +201,7 @@ class LocalMessage {
   final String? caption;
   final bool isViewOnce;
   final bool isViewed;
+  final bool isMediaPreviewDeferred;
   final bool isPinned;
   final DateTime? pinnedAt;
 
@@ -291,6 +293,7 @@ class LocalMessage {
     String? reactions,
     bool? isStarred,
     bool? isViewed,
+    bool? isMediaPreviewDeferred,
     bool? isPinned,
     DateTime? pinnedAt,
   }) {
@@ -312,6 +315,8 @@ class LocalMessage {
       caption: caption,
       isViewOnce: isViewOnce,
       isViewed: isViewed ?? this.isViewed,
+      isMediaPreviewDeferred:
+          isMediaPreviewDeferred ?? this.isMediaPreviewDeferred,
       isPinned: isPinned ?? this.isPinned,
       pinnedAt: pinnedAt ?? this.pinnedAt,
     );
@@ -335,6 +340,7 @@ class LocalMessage {
     caption: json['caption'] as String?,
     isViewOnce: json['isViewOnce'] as bool? ?? false,
     isViewed: json['isViewed'] as bool? ?? false,
+    isMediaPreviewDeferred: json['isMediaPreviewDeferred'] as bool? ?? false,
     isPinned: json['isPinned'] as bool? ?? false,
     pinnedAt: _dateTimeOrNull(json['pinnedAt']),
   );
@@ -357,6 +363,7 @@ class LocalMessage {
     'caption': caption,
     'isViewOnce': isViewOnce,
     'isViewed': isViewed,
+    'isMediaPreviewDeferred': isMediaPreviewDeferred,
     'isPinned': isPinned,
     'pinnedAt': pinnedAt?.millisecondsSinceEpoch,
   };

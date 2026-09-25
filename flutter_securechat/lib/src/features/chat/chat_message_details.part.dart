@@ -59,7 +59,7 @@ class _MediaMessageContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (isImage && path != null)
+          if (!message.isMediaPreviewDeferred && isImage && path != null)
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: ConstrainedBox(
@@ -74,7 +74,8 @@ class _MediaMessageContent extends StatelessWidget {
                 ),
               ),
             )
-          else if (message.fileMimeType?.startsWith('video/') == true &&
+          else if (!message.isMediaPreviewDeferred &&
+              message.fileMimeType?.startsWith('video/') == true &&
               path != null)
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
@@ -108,6 +109,16 @@ class _MediaMessageContent extends StatelessWidget {
                 ),
               ],
             ),
+          if (message.isMediaPreviewDeferred) ...[
+            const SizedBox(height: 4),
+            Text(
+              context.l10n.tap_to_open,
+              style: TextStyle(
+                color: foreground.withValues(alpha: 0.65),
+                fontSize: 11,
+              ),
+            ),
+          ],
           if (message.caption?.trim().isNotEmpty == true) ...[
             const SizedBox(height: 6),
             Text(message.caption!.trim(), style: TextStyle(color: foreground)),

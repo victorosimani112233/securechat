@@ -711,12 +711,18 @@ void main() {
       url: 'wss://test.invalid',
       accessToken: 'token',
     );
+    final failures = <String>[];
     final manager = FileTransferManager(
       signaling: signaling,
       crypto: LocalAeadCryptoService(
         SecretKey(List<int>.generate(32, (index) => index + 1)),
       ),
       filesDirectory: root,
+      onAsyncFailure: (operation, error, stackTrace) {
+        failures.add(operation);
+        // Even a broken diagnostic backend must not break cleanup.
+        throw StateError('reporter unavailable');
+      },
     );
     addTearDown(manager.dispose);
     final signal = FileTransferSignal(
@@ -731,6 +737,11 @@ void main() {
       encryption: 'flutter-e2ee-v1',
     );
     expect(await manager.receiveChunk(signal), isNull);
+    expect(failures, ['file-transfer.receive']);
+    expect(
+      await Directory('${root.path}/incoming_parts/tampered').exists(),
+      isFalse,
+    );
     expect(await Directory('${root.path}/received_files').exists(), isFalse);
   });
 

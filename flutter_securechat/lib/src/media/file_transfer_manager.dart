@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../core/signal_message.dart';
 import '../crypto/group_sender_key_distribution.dart';
@@ -102,6 +103,7 @@ class FileTransferManager {
        _filesDirectory = filesDirectory,
        _groupRoutingResolver = groupRoutingResolver,
        _beforeReceive = beforeReceive,
+       _onAsyncFailure = onAsyncFailure,
        _metadataCrypto = _requireMetadataCrypto(crypto, metadataCrypto),
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure) {
     _subscription = signaling.incoming
@@ -115,6 +117,7 @@ class FileTransferManager {
   final Directory _filesDirectory;
   final GroupRoutingResolver? _groupRoutingResolver;
   final Future<void> Function()? _beforeReceive;
+  final AsyncOperationFailureHandler? _onAsyncFailure;
   final LocalAeadCryptoService _metadataCrypto;
   final int chunkSize;
 
@@ -122,6 +125,10 @@ class FileTransferManager {
   final Duration staleTransferAge;
   final AsyncOperationTracker _operations;
   final _progress = StreamController<TransferProgress?>.broadcast();
+  final _activity = StreamController<bool>.broadcast(sync: true);
+  final Map<String, Timer> _receivingActivity = {};
+  int _sendingCount = 0;
+  bool _lastActivity = false;
   // A completed receive is published synchronously so downstream owners can
   // register persistence work before receiveChunk completes. The persistence
   // itself remains async and is drained by MediaMessageService.waitForIdle.
@@ -158,9 +165,38 @@ class FileTransferManager {
       _isRawEnvelopeWire(encryption) ? value : utf8.decode(base64Decode(value));
 
   Stream<TransferProgress?> get progress => _progress.stream;
+  Stream<bool> get activity => _activity.stream;
+  bool get hasActiveTransfers =>
+      _sendingCount > 0 || _receivingActivity.isNotEmpty;
   Stream<ReceivedFile> get receivedFiles => _receivedFiles.stream;
 
+  void _publishActivity() {
+    final active = !_disposed && hasActiveTransfers;
+    if (_activity.isClosed || active == _lastActivity) return;
+    _lastActivity = active;
+    _activity.add(active);
+  }
+
+  void _touchReceivingActivity(String transferId) {
+    if (_disposed) return;
+    _receivingActivity.remove(transferId)?.cancel();
+    // A lost final chunk must not hold the background socket indefinitely.
+    _receivingActivity[transferId] = Timer(staleTransferAge, () {
+      _endReceivingActivity(transferId);
+    });
+    _publishActivity();
+  }
+
+  void _endReceivingActivity(String transferId) {
+    _receivingActivity.remove(transferId)?.cancel();
+    _publishActivity();
+  }
+
   void _receiveFromSocket(FileTransferSignal signal) {
+    if (signal.chunkIndex % 32 == 0 ||
+        signal.chunkIndex == signal.totalChunks - 1) {
+      _trace('rx-frame index=${signal.chunkIndex} total=${signal.totalChunks}');
+    }
     if (_disposed) return;
     _operations.run('file-transfer.receive-chunk', receiveChunk(signal));
   }
@@ -210,6 +246,7 @@ class FileTransferManager {
     required String recipientId,
     required File file,
     required String mimeType,
+    String? fileName,
     bool isGroup = false,
     List<String> groupMembers = const [],
     String? caption,
@@ -223,7 +260,7 @@ class FileTransferManager {
       recipientId: recipientId,
       stream: file.openRead(),
       fileSize: size,
-      fileName: file.uri.pathSegments.last,
+      fileName: fileName ?? file.uri.pathSegments.last,
       mimeType: mimeType,
       isGroup: isGroup,
       groupMembers: groupMembers,
@@ -248,6 +285,7 @@ class FileTransferManager {
     String? originalMessageId,
     DateTime? absoluteExpiresAt,
   }) async {
+    if (_disposed) return const FileTransferFailure('Dosya aktarimi kapatildi');
     if (fileSize < 0 || fileSize > maximumFileSize) {
       return FileTransferFailure(
         'Dosya boyutu izin verilen siniri asiyor '
@@ -282,6 +320,8 @@ class FileTransferManager {
       ).toJson(),
     );
     var bytesSent = 0;
+    _sendingCount++;
+    _publishActivity();
     try {
       if (isGroup) {
         if (!groupMembers.contains(localUserId) ||
@@ -390,6 +430,11 @@ class FileTransferManager {
             incoming: false,
           ),
         );
+        if (index % 32 == 0 || isLast) {
+          _trace(
+            'tx-progress group=$isGroup parts=${index + 1} total=$totalChunks',
+          );
+        }
       }
       if (bytesSent != fileSize) {
         return const FileTransferFailure(
@@ -402,11 +447,17 @@ class FileTransferManager {
         mimeType: safeMimeType,
         fileSize: bytesSent,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
+      await _reportFailure('file-transfer.send', error, stackTrace);
       return FileTransferFailure('Sifreli dosya aktarimi basarisiz: $error');
     } finally {
-      await reader.close();
-      _progress.add(null);
+      try {
+        await reader.close();
+        if (!_progress.isClosed) _progress.add(null);
+      } finally {
+        _sendingCount--;
+        _publishActivity();
+      }
     }
   }
 
@@ -450,20 +501,26 @@ class FileTransferManager {
     final maximumWireSize = privateWire
         ? maximumFileSize + chunkSize - 1
         : maximumFileSize;
-    if (signal.fileSize < 0 || signal.fileSize > maximumWireSize) return null;
+    if (signal.fileSize < 0 || signal.fileSize > maximumWireSize) {
+      _trace('rx-reject size');
+      return null;
+    }
     if (signal.totalChunks < 1 ||
         signal.chunkIndex < 0 ||
         signal.chunkIndex >= signal.totalChunks) {
+      _trace('rx-reject index');
       return null;
     }
     if (privateWire &&
         signal.fileSize != signal.totalChunks * transferChunkSize) {
+      _trace('rx-reject chunk-size');
       return null;
     }
     final partDirectory = Directory(
       '${_filesDirectory.path}/incoming_parts/$transferId',
     );
     final metadata = File('${partDirectory.path}/metadata.secure');
+    _touchReceivingActivity(transferId);
     try {
       await partDirectory.create(recursive: true);
       final expected = _TransferMetadata.fromSignal(signal);
@@ -555,6 +612,28 @@ class FileTransferManager {
         }
       }
       if (_disposed) return null;
+      if (signal.chunkIndex == signal.totalChunks - 1 &&
+          completed.length != signal.totalChunks &&
+          const bool.fromEnvironment('SECURECHAT_LOCAL_DIAGNOSTICS')) {
+        final present = completed
+            .map((file) => file.uri.pathSegments.last)
+            .toSet();
+        final missing = <int>[];
+        for (var index = 0; index < signal.totalChunks; index++) {
+          if (!present.contains('$index.part')) missing.add(index);
+        }
+        _trace(
+          'rx-incomplete parts=${completed.length} total=${signal.totalChunks} '
+          'missing=${missing.take(8).join(',')}',
+        );
+      }
+      if (completed.length % 32 == 0 ||
+          completed.length == 1 ||
+          completed.length == signal.totalChunks) {
+        _trace(
+          'rx-progress parts=${completed.length} total=${signal.totalChunks}',
+        );
+      }
       _progress.add(
         TransferProgress(
           transferId: transferId,
@@ -685,14 +764,44 @@ class FileTransferManager {
         groupId: resolvedGroupId,
       );
       if (_disposed) return received;
+      _trace(
+        'rx-complete bytes=$actualFileSize group=${resolvedGroupId != null}',
+      );
       _receivedFiles.add(received);
       _progress.add(null);
       return received;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _endReceivingActivity(transferId);
+      await _reportFailure('file-transfer.receive', error, stackTrace);
       if (await partDirectory.exists())
         await partDirectory.delete(recursive: true);
       if (!_progress.isClosed) _progress.add(null);
       return null;
+    } finally {
+      // Completed, invalid or rejected transfers delete their part directory.
+      // Partial transfers retain activity across the gaps between chunks.
+      if (!await partDirectory.exists()) _endReceivingActivity(transferId);
+    }
+  }
+
+  Future<void> _reportFailure(
+    String operation,
+    Object error,
+    StackTrace stackTrace,
+  ) async {
+    _trace('failure operation=$operation type=${error.runtimeType}');
+    try {
+      // The injected reporter records type/context, not payloads or keys.
+      await _onAsyncFailure?.call(operation, error, stackTrace);
+    } catch (_) {
+      // A diagnostics failure must not interrupt transfer cleanup.
+    }
+  }
+
+  static void _trace(String event) {
+    if (const bool.fromEnvironment('SECURECHAT_LOCAL_DIAGNOSTICS')) {
+      // Local opt-in QA only: no filenames, peer IDs, keys or payloads.
+      debugPrint('SC-FILE $event');
     }
   }
 
@@ -783,6 +892,11 @@ class FileTransferManager {
     final active = _disposeTask;
     if (active != null) return active;
     _disposed = true;
+    for (final timer in _receivingActivity.values) {
+      timer.cancel();
+    }
+    _receivingActivity.clear();
+    _publishActivity();
     final operation = _dispose();
     _disposeTask = operation;
     return operation;
@@ -796,6 +910,7 @@ class FileTransferManager {
     }
     await _progress.close();
     await _receivedFiles.close();
+    await _activity.close();
   }
 }
 

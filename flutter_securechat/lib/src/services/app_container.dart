@@ -762,6 +762,7 @@ class AppContainer {
         callActivity: callManager.sessions.map(
           (call) => call != null && !call.isTerminal,
         ),
+        transferActivity: fileTransfers.activity,
         foregroundMaintenance: backgroundRuntime.runForegroundMaintenance,
         refreshLocalState: database.refreshFromDisk,
         refreshPushRegistration: () async {

@@ -385,6 +385,7 @@ LocalMessage _messageFromEntity(storage.MessageEntity entity) {
     caption: entity.caption,
     isViewOnce: entity.isViewOnce,
     isViewed: entity.isViewed,
+    isMediaPreviewDeferred: entity.isMediaPreviewDeferred,
     isPinned: entity.isPinned,
     pinnedAt: entity.pinnedAt == null
         ? null

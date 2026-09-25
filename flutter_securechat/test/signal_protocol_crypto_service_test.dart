@@ -30,15 +30,17 @@ import 'package:flutter_securechat/src/storage/storage_entities.dart';
 
 void main() {
   for (final mode in [
-    (false, false),
-    (false, true),
-    (true, false),
-    (true, true),
+    (false, false, 600 * 1024),
+    (false, true, 600 * 1024),
+    (true, false, 600 * 1024),
+    (true, true, 600 * 1024),
+    (false, false, 21390950),
+    (true, false, 21390950),
   ]) {
     final isGroup = mode.$1;
     final viewOnce = mode.$2;
     test(
-      'production-sized media fits frames and decrypts (group=$isGroup, viewOnce=$viewOnce)',
+      'production-sized media fits frames and decrypts (group=$isGroup, viewOnce=$viewOnce, bytes=${mode.$3})',
       () async {
         final f = await _SignalFixture.open();
         addTearDown(f.close);
@@ -71,7 +73,7 @@ void main() {
           await receiver.dispose();
         });
         final payload = Uint8List.fromList(
-          List.generate(600 * 1024, (i) => i % 251),
+          List.generate(mode.$3, (i) => i % 251),
         );
         final caption = List.filled(4096, isGroup ? '\u0000' : '\u0800').join();
         final result = await outgoing.sendStream(
@@ -102,13 +104,14 @@ void main() {
         for (final frame in sender.sentMessages) {
           receiver.addIncoming(SignalMessage.decode(frame.encode()));
         }
-        final file = await completed.timeout(const Duration(seconds: 15));
+        final file = await completed.timeout(const Duration(minutes: 2));
         expect(await file.file.readAsBytes(), payload);
         expect(file.groupId, isGroup ? 'photo-group' : null);
         expect(file.isViewOnce, viewOnce);
         expect(file.caption, caption);
         expect(file.originalMessageId, 'photo-message');
       },
+      timeout: const Timeout(Duration(minutes: 4)),
     );
   }
 

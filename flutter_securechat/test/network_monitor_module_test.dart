@@ -178,7 +178,7 @@ void main() {
   });
 
   test(
-    'cellular auto-download denial deletes payload but keeps metadata',
+    'cellular auto-download denial retains payload and defers preview',
     () async {
       final root = await Directory.systemTemp.createTemp(
         'network_media_policy_',
@@ -268,12 +268,15 @@ void main() {
       final incoming = await _waitForMessage(recipientDatabase, wireMessageId);
 
       expect(incoming.contentType, StorageMessageContentType.image);
-      expect(incoming.content.split('|').last, isEmpty);
+      final retainedFile = File(incoming.content.split('|').last);
+      expect(await retainedFile.exists(), isTrue);
+      expect(await retainedFile.readAsBytes(), await source.readAsBytes());
+      expect(incoming.isMediaPreviewDeferred, isTrue);
       expect(
         Directory(
           '${mediaDirectory.path}/received_files',
         ).listSync(recursive: true).whereType<File>(),
-        isEmpty,
+        hasLength(1),
       );
     },
   );

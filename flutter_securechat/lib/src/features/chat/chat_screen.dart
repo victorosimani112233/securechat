@@ -1275,6 +1275,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openMessage(BuildContext context, LocalMessage message) async {
+    if (!_accessGranted) return;
     if (message.isViewOnce && message.contentType == MessageContentType.text) {
       if (message.isOutgoing || message.isViewed || message.content.isEmpty) {
         return;
@@ -1331,10 +1332,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _notice(context, context.l10n.media_not_found);
       return;
     }
+    try {
+      final refreshed = await runtime.mediaMessages.activateMediaPreview(
+        message,
+      );
+      if (!context.mounted || !_accessGranted) return;
+      if (refreshed == null) {
+        _notice(context, context.l10n.media_not_found);
+        return;
+      }
+      message = refreshed;
+    } catch (_) {
+      if (context.mounted && _accessGranted) {
+        _notice(context, context.l10n.media_not_found);
+      }
+      return;
+    }
     if (message.isViewOnce) {
       if (!await runtime.mediaMessages.markViewOnceViewed(message)) return;
     }
-    if (!context.mounted) {
+    if (!context.mounted || !_accessGranted) {
       if (message.isViewOnce) runtime.mediaMessages.finishViewOnce(message.id);
       return;
     }

@@ -91,12 +91,9 @@ class _MessageBubble extends StatelessWidget {
                       : null,
                   onLongPress: message.isDeleted ? null : onLongPress,
                   child: Padding(
-                    padding: const EdgeInsetsDirectional.fromSTEB(
-                      16,
-                      10,
-                      14,
-                      8,
-                    ),
+                    padding: outgoing
+                        ? const EdgeInsetsDirectional.fromSTEB(16, 10, 14, 8)
+                        : const EdgeInsetsDirectional.fromSTEB(12, 8, 12, 6),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [

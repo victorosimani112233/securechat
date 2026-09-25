@@ -247,7 +247,7 @@ void main() {
     );
   }
   for (final mime in ['application/pdf', 'audio/mp4']) {
-    test('non-voice $mime still follows document download policy', () async {
+    test('non-voice $mime keeps bytes and defers preview', () async {
       final root = await Directory.systemTemp.createTemp('non_voice_policy_');
       addTearDown(() => root.delete(recursive: true));
       final crypto = LocalAeadCryptoService(SecretKey(List.filled(32, 8)));
@@ -279,8 +279,8 @@ void main() {
       )..start();
       addTearDown(media.close);
       final file = File('${root.path}/file.bin')..writeAsBytesSync([1, 2, 3]);
-      // A document cannot bypass policy by claiming voice metadata. An audio
-      // attachment with malformed metadata is not a voice message either.
+      // A document cannot bypass preview policy by claiming voice metadata.
+      // Malformed audio metadata must not make an attachment a voice note.
       final caption = mime == 'application/pdf'
           ? const VoiceNoteMetadata(
               duration: Duration(seconds: 1),
@@ -311,9 +311,11 @@ void main() {
       await media.waitForIdle();
       final received = (await database.messages.getById('document'))!;
       expect(received.contentType, StorageMessageContentType.file);
-      expect(LocalMessage.fromJson(received.toJson()).filePath, isEmpty);
+      final local = LocalMessage.fromJson(received.toJson());
+      expect(local.isMediaPreviewDeferred, isTrue);
+      expect(await File(local.filePath!).readAsBytes(), [1, 2, 3]);
       final receivedDirectory = Directory('${root.path}/media/received_files');
-      expect(receivedDirectory.listSync().whereType<File>(), isEmpty);
+      expect(receivedDirectory.listSync().whereType<File>(), hasLength(1));
     });
   }
 }

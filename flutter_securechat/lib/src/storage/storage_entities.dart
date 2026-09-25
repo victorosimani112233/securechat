@@ -206,6 +206,7 @@ class MessageEntity {
     this.caption,
     this.isViewOnce = false,
     this.isViewed = false,
+    this.isMediaPreviewDeferred = false,
     this.isPinned = false,
     this.pinnedAt,
   });
@@ -227,6 +228,7 @@ class MessageEntity {
   final String? caption;
   final bool isViewOnce;
   final bool isViewed;
+  final bool isMediaPreviewDeferred;
   final bool isPinned;
   final int? pinnedAt;
 
@@ -241,6 +243,7 @@ class MessageEntity {
     Object? reactions = _notProvided,
     Object? caption = _notProvided,
     bool? isViewed,
+    bool? isMediaPreviewDeferred,
     bool? isPinned,
     Object? pinnedAt = _notProvided,
   }) => MessageEntity(
@@ -265,6 +268,8 @@ class MessageEntity {
         : caption as String?,
     isViewOnce: isViewOnce,
     isViewed: isViewed ?? this.isViewed,
+    isMediaPreviewDeferred:
+        isMediaPreviewDeferred ?? this.isMediaPreviewDeferred,
     isPinned: isPinned ?? this.isPinned,
     pinnedAt: identical(pinnedAt, _notProvided)
         ? this.pinnedAt
@@ -297,6 +302,7 @@ class MessageEntity {
     caption: json['caption'] as String?,
     isViewOnce: json['isViewOnce'] as bool? ?? false,
     isViewed: json['isViewed'] as bool? ?? false,
+    isMediaPreviewDeferred: json['isMediaPreviewDeferred'] as bool? ?? false,
     isPinned: json['isPinned'] as bool? ?? false,
     pinnedAt: (json['pinnedAt'] as num?)?.toInt(),
   );
@@ -319,6 +325,7 @@ class MessageEntity {
     'caption': caption,
     'isViewOnce': isViewOnce,
     'isViewed': isViewed,
+    'isMediaPreviewDeferred': isMediaPreviewDeferred,
     'isPinned': isPinned,
     'pinnedAt': pinnedAt,
   };

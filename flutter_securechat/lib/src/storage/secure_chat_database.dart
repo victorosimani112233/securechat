@@ -879,6 +879,30 @@ class MessageDao {
       editHistory: editHistory,
     ),
   );
+  Future<MessageEntity?> activateMediaPreview(
+    String id, {
+    required String conversationId,
+  }) async {
+    MessageEntity? activated;
+    await _db._write((s) {
+      final message = s.messages[id];
+      if (message == null ||
+          message.conversationId != conversationId ||
+          (message.contentType != StorageMessageContentType.image &&
+              message.contentType != StorageMessageContentType.file &&
+              message.contentType != StorageMessageContentType.voiceNote) ||
+          (message.expiresAt != null &&
+              message.expiresAt! <= DateTime.now().millisecondsSinceEpoch) ||
+          (message.isViewOnce && (message.isOutgoing || message.isViewed))) {
+        return;
+      }
+      // Patch the current row, never a stale UI snapshot or a removed row.
+      activated = message.copyWith(isMediaPreviewDeferred: false);
+      s.messages[id] = activated!;
+    });
+    return activated;
+  }
+
   Future<bool> markViewOnceAsViewed(String id) async {
     var claimed = false;
     await _db._write((s) {

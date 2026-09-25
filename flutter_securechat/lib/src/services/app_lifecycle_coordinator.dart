@@ -20,6 +20,7 @@ class AppLifecycleCoordinator {
     NetworkStatusMonitor? networkMonitor,
     bool allowLoopbackWhenOffline = false,
     Stream<bool>? callActivity,
+    Stream<bool>? transferActivity,
     AsyncOperationFailureHandler? onAsyncFailure,
   }) : _session = session,
        _signaling = signaling,
@@ -32,7 +33,10 @@ class AppLifecycleCoordinator {
        _allowLoopbackWhenOffline = allowLoopbackWhenOffline,
        _onAsyncFailure = onAsyncFailure {
     _callSubscription = callActivity?.distinct().listen((active) {
-      if (!_disposed) unawaited(_applyCallActivity(active));
+      if (!_disposed) unawaited(_applyActivity(active, isCall: true));
+    });
+    _transferSubscription = transferActivity?.distinct().listen((active) {
+      if (!_disposed) unawaited(_applyActivity(active, isCall: false));
     });
   }
 
@@ -48,13 +52,18 @@ class AppLifecycleCoordinator {
   final AsyncOperationFailureHandler? _onAsyncFailure;
   StreamSubscription<NetworkSnapshot>? _networkSubscription;
   StreamSubscription<bool>? _callSubscription;
+  StreamSubscription<bool>? _transferSubscription;
   bool _callActive = false;
+  bool _transferActive = false;
   Future<void> _transition = Future.value();
   Future<void>? _disposeTask;
   bool _foreground = false;
   bool _disposed = false;
 
   bool get isForeground => _foreground;
+
+  bool get _hasBackgroundActivity =>
+      _session.isLoggedIn && (_callActive || _transferActive);
 
   Future<void> enterForeground() {
     _ensureUsable();
@@ -113,11 +122,12 @@ class AppLifecycleCoordinator {
 
   Future<void> _applyNetworkChange(NetworkSnapshot snapshot) async {
     try {
-      await _serialize(
-        () => _signaling.onNetworkChanged(
+      await _serialize(() async {
+        if (_disposed || (!_foreground && !_hasBackgroundActivity)) return;
+        await _signaling.onNetworkChanged(
           isAvailable: _isSignalingTransportAvailable(snapshot),
-        ),
-      );
+        );
+      });
     } catch (error, stackTrace) {
       final handler = _onAsyncFailure;
       if (handler != null) {
@@ -141,18 +151,22 @@ class AppLifecycleCoordinator {
       isAvailable: _isSignalingTransportAvailable(snapshot),
     );
     _networkSubscription = monitor.changes.listen((snapshot) {
-      if (_disposed || (!_foreground && !_callActive)) return;
+      if (_disposed || (!_foreground && !_hasBackgroundActivity)) return;
       unawaited(_applyNetworkChange(snapshot));
     });
   }
 
-  Future<void> _applyCallActivity(bool active) async {
+  Future<void> _applyActivity(bool active, {required bool isCall}) async {
     try {
       await _serialize(() async {
         if (_disposed) return;
-        _callActive = active;
+        if (isCall) {
+          _callActive = active;
+        } else {
+          _transferActive = active;
+        }
         if (_foreground) return;
-        if (active && _session.isLoggedIn) {
+        if (_hasBackgroundActivity) {
           await _startNetworkMonitor();
         } else {
           await _releaseBackgroundConnection();
@@ -161,7 +175,7 @@ class AppLifecycleCoordinator {
     } catch (error, stackTrace) {
       try {
         await _onAsyncFailure?.call(
-          'lifecycle.call-activity',
+          isCall ? 'lifecycle.call-activity' : 'lifecycle.transfer-activity',
           error,
           stackTrace,
         );
@@ -172,35 +186,35 @@ class AppLifecycleCoordinator {
   }
 
   Future<void> _releaseBackgroundConnection() async {
-    if (_foreground || (!_disposed && _callActive && _session.isLoggedIn))
-      return;
-    await _signaling.disconnect();
-    await _stopNetworkMonitor();
+    if (!_disposed && (_foreground || _hasBackgroundActivity)) return;
+    try {
+      await _signaling.disconnect();
+    } finally {
+      await _stopNetworkMonitor();
+    }
   }
 
   Future<void> _enterBackground() async {
     if (!_foreground) return _releaseBackgroundConnection();
     _foreground = false;
-    if (!_session.isLoggedIn) {
-      if (_signaling.currentStatus.isConnected) await _signaling.disconnect();
-      await _stopNetworkMonitor();
-      return;
+    try {
+      if (_session.isLoggedIn && _signaling.currentStatus.isConnected) {
+        final now = DateTime.now();
+        await _signaling.send(
+          PresenceUpdateSignal(
+            senderId: _session.userId!,
+            recipientId: 'server',
+            timestamp: now,
+            isOnline: false,
+            lastSeen: now,
+            hideLastSeen: !_session.shareLastSeen,
+          ),
+        );
+      }
+    } finally {
+      // Keep active calls/transfers connected without advertising online presence.
+      await _releaseBackgroundConnection();
     }
-    if (_signaling.currentStatus.isConnected) {
-      final now = DateTime.now();
-      await _signaling.send(
-        PresenceUpdateSignal(
-          senderId: _session.userId!,
-          recipientId: 'server',
-          timestamp: now,
-          isOnline: false,
-          lastSeen: now,
-          hideLastSeen: !_session.shareLastSeen,
-        ),
-      );
-    }
-    // A screen lock must not look like a group-call departure to the server.
-    await _releaseBackgroundConnection();
   }
 
   Future<void> _serialize(Future<void> Function() action) {
@@ -218,9 +232,12 @@ class AppLifecycleCoordinator {
   }
 
   Future<void> _stopNetworkMonitor() async {
-    await _networkSubscription?.cancel();
-    _networkSubscription = null;
-    await _networkMonitor?.stop();
+    try {
+      await _networkSubscription?.cancel();
+    } finally {
+      _networkSubscription = null;
+      await _networkMonitor?.stop();
+    }
   }
 
   Future<void> dispose() {
@@ -228,10 +245,17 @@ class AppLifecycleCoordinator {
     if (active != null) return active;
     _disposed = true;
     final operation = _serialize(() async {
-      await _callSubscription?.cancel();
-      _callSubscription = null;
-      await _enterBackground();
-      await _stopNetworkMonitor();
+      try {
+        await _callSubscription?.cancel();
+      } finally {
+        _callSubscription = null;
+        try {
+          await _transferSubscription?.cancel();
+        } finally {
+          _transferSubscription = null;
+          await _enterBackground();
+        }
+      }
     });
     _disposeTask = operation;
     return operation;

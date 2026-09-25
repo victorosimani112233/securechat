@@ -170,6 +170,7 @@ class MediaMessageService {
           localUserId: localUserId,
           recipientId: recipientId,
           file: retained,
+          fileName: attachment.fileName,
           mimeType: attachment.mimeType,
           isGroup: isGroup,
           groupMembers: recipients,
@@ -217,6 +218,21 @@ class MediaMessageService {
       final draftFile = File(draft.attachment.path);
       if (await draftFile.exists()) await draftFile.delete();
     }
+  }
+
+  /// Called only after an explicit open in an authorized chat. This does not
+  /// claim view-once media; the caller must still use [markViewOnceViewed].
+  Future<LocalMessage?> activateMediaPreview(LocalMessage message) async {
+    if (_closed) return null;
+    final entity = await _database.messages.activateMediaPreview(
+      message.id,
+      conversationId: message.conversationId,
+    );
+    if (entity == null) return null;
+    return LocalMessage.fromJson({
+      ...entity.toJson(),
+      'peerId': message.peerId,
+    });
   }
 
   Future<bool> markViewOnceViewed(LocalMessage message) async {
@@ -382,10 +398,11 @@ class MediaMessageService {
     final voiceNote = received.mimeType.startsWith('audio/')
         ? VoiceNoteMetadata.tryDecode(received.caption)
         : null;
-    final filePath = await _retainedIncomingPath(
+    final isMediaPreviewDeferred = await _shouldDeferIncomingPreview(
       received,
       isVoiceNote: voiceNote != null,
     );
+    final filePath = received.file.absolute.path;
     final content = voiceNote == null
         ? LocalMessage.buildFileContent(
             fileName: sanitizeMediaFileName(received.fileName),
@@ -417,6 +434,7 @@ class MediaMessageService {
         expiresAt: received.absoluteExpiresAt?.millisecondsSinceEpoch,
         caption: voiceNote == null ? _cleanCaption(received.caption) : null,
         isViewOnce: received.isViewOnce,
+        isMediaPreviewDeferred: isMediaPreviewDeferred,
       ),
     );
     await _database.conversations.updateLastMessageById(
@@ -435,30 +453,24 @@ class MediaMessageService {
     await _database.conversations.incrementUnreadCount(conversationId);
   }
 
-  Future<String> _retainedIncomingPath(
+  Future<bool> _shouldDeferIncomingPreview(
     ReceivedFile received, {
     required bool isVoiceNote,
   }) async {
-    // Voice messages have already passed encrypted transfer validation. The
-    // document auto-download preference must not delete their only local copy.
-    if (isVoiceNote) return received.file.absolute.path;
+    // Pushed chunks have already consumed bandwidth and passed authentication.
+    // Preserve the only received copy; policy can defer previews, not receipt.
+    // True pre-download opt-out requires a transfer handshake in the protocol.
+    if (isVoiceNote) return false;
     final storage = _storageManagement;
     final network = _networkKindProvider;
-    if (storage == null || network == null) return received.file.absolute.path;
+    if (storage == null || network == null) return false;
     final policy = await storage.loadPolicy();
-    final allowed = storage.shouldDownload(
+    return !storage.shouldDownload(
       policy: policy,
       category: storage.categoryFor(received.mimeType),
       fileSize: received.fileSize,
       network: network.currentNetworkKind,
     );
-    if (allowed) return received.file.absolute.path;
-    try {
-      if (await received.file.exists()) await received.file.delete();
-    } on FileSystemException {
-      // Metadata is still persisted with an empty path, matching Android.
-    }
-    return '';
   }
 
   String _newId(String prefix) {

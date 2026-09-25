@@ -214,7 +214,9 @@ class _SharedContentBrowserState extends State<SharedContentBrowser>
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Center(
         child: Icon(
-          isImage
+          message.isMediaPreviewDeferred
+              ? Icons.insert_drive_file_outlined
+              : isImage
               ? Icons.broken_image_outlined
               : isVideo
               ? Icons.videocam_outlined
@@ -230,7 +232,9 @@ class _SharedContentBrowserState extends State<SharedContentBrowser>
         key: ValueKey('chat-info-message-${message.id}'),
         child: InkWell(
           onTap: () => _focus(message),
-          child: isImage && attachment.path.isNotEmpty
+          child: message.isMediaPreviewDeferred
+              ? fallback()
+              : isImage && attachment.path.isNotEmpty
               ? LocalImageView(
                   path: attachment.path,
                   maxDecodeSize: 384,
