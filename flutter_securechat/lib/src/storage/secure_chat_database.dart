@@ -155,9 +155,21 @@ class SecureChatDatabase {
     }
   }
 
-  Future<void> _repairConversationPreviews() => _write((snapshot) {
+  Future<void> _repairConversationPreviews() => _write(_repairPreviewSnapshot);
+
+  void _repairPreviewSnapshot(_StorageSnapshot snapshot) {
     final latest = <String, MessageEntity>{};
-    for (final message in snapshot.messages.values) {
+    for (final stored in snapshot.messages.values) {
+      var message = stored;
+      // Legacy group status cannot prove delivery to every original recipient.
+      if (message.isOutgoing &&
+          snapshot.conversations[message.conversationId]?.isGroup == true &&
+          message.receiptRecipients == null &&
+          (message.status == StorageMessageStatus.delivered ||
+              message.status == StorageMessageStatus.read)) {
+        message = message.copyWith(status: StorageMessageStatus.sent);
+        snapshot.messages[message.id] = message;
+      }
       final previous = latest[message.conversationId];
       if (previous == null || message.timestamp > previous.timestamp)
         latest[message.conversationId] = message;
@@ -184,7 +196,7 @@ class SecureChatDatabase {
       }
     }
     snapshot.conversations.addAll(repairs);
-  });
+  }
 
   /// Eski tek dosyali JSON deposunu okur; yoksa veya bossa `null` doner.
   static Future<_StorageSnapshot?> _readLegacy(
@@ -315,6 +327,7 @@ class SecureChatDatabase {
           ..clear()
           ..addAll(current.cryptoState);
       }
+      _repairPreviewSnapshot(replacement);
       _snapshot = replacement;
       _fullReset = true;
       for (final collection in replacement.tracked) {
@@ -347,6 +360,7 @@ class SecureChatDatabase {
           'Legacy Room import refused because Flutter storage contains user data',
         );
       }
+      _repairPreviewSnapshot(replacement);
       _snapshot = replacement;
       _fullReset = true;
       for (final collection in replacement.tracked) {
@@ -772,6 +786,87 @@ class MessageDao {
   Future<void> insert(MessageEntity message) =>
       _db._write((s) => s.messages[message.id] = message);
   Future<void> update(MessageEntity message) => insert(message);
+  Future<bool> recordDeliveryReceipt(
+    String messageId, {
+    required String recipientId,
+    required StorageMessageStatus status,
+    required String localUserId,
+  }) async {
+    if (localUserId.isEmpty ||
+        recipientId.isEmpty ||
+        recipientId == localUserId ||
+        (status != StorageMessageStatus.delivered &&
+            status != StorageMessageStatus.read)) {
+      return false;
+    }
+    var accepted = false;
+    await _db._write((s) {
+      final message = s.messages[messageId];
+      if (message == null ||
+          !message.isOutgoing ||
+          message.senderId != localUserId) {
+        return;
+      }
+      final conversation = s.conversations[message.conversationId];
+      if (conversation == null) return;
+      if (!conversation.isGroup && recipientId != conversation.peerId) return;
+      final snapshot = message.receiptRecipients;
+      Set<String>? expected;
+      if (snapshot != null) {
+        expected = snapshot
+            .map((id) => id.trim())
+            .where((id) => id.isNotEmpty && id != localUserId)
+            .toSet();
+        if (!expected.contains(recipientId)) return;
+      } else if (conversation.isGroup) {
+        final members = (conversation.groupMembers ?? '')
+            .split(',')
+            .map((id) => id.trim())
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        if (!members.contains(localUserId) || !members.contains(recipientId)) {
+          return;
+        }
+      } else {
+        expected = {conversation.peerId};
+      }
+
+      final delivered = message.deliveredTo.toSet();
+      final read = message.readBy.toSet();
+      // Only a legacy direct chat has an unambiguous owner of global receipts.
+      if (snapshot == null && !conversation.isGroup) {
+        if (message.status == StorageMessageStatus.read) read.add(recipientId);
+        if (message.status == StorageMessageStatus.delivered) {
+          delivered.add(recipientId);
+        }
+      }
+      if (status == StorageMessageStatus.read) read.add(recipientId);
+      delivered
+        ..add(recipientId)
+        ..addAll(read);
+      var aggregate = StorageMessageStatus.sent;
+      if (expected != null && expected.isNotEmpty) {
+        if (expected.every(read.contains)) {
+          aggregate = StorageMessageStatus.read;
+        } else if (expected.every(delivered.contains)) {
+          aggregate = StorageMessageStatus.delivered;
+        }
+      }
+      s.messages[messageId] = message.copyWith(
+        status: aggregate,
+        deliveredTo: delivered.toList()..sort(),
+        readBy: read.toList()..sort(),
+      );
+      if (conversation.lastMessageTimestamp == message.timestamp) {
+        s.conversations[conversation.id] = conversation.copyWith(
+          lastMessageStatus: aggregate.name,
+        );
+      }
+      accepted = true;
+    });
+    return accepted;
+  }
+
   Future<void> updateStatus(String id, StorageMessageStatus status) =>
       _db._write((s) {
         final message = s.messages[id];

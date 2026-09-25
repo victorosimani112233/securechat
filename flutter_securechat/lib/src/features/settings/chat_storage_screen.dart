@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/models.dart';
@@ -6,6 +8,8 @@ import '../../services/app_container.dart';
 import '../../storage/storage_management_service.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/chat_lock_dialog.dart';
+import '../../widgets/local_image_thumbnail.dart';
+import '../../widgets/local_video_thumbnail.dart';
 
 class ChatStorageScreen extends StatefulWidget {
   const ChatStorageScreen({
@@ -31,6 +35,9 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
   bool _authorized = false;
   bool _foreground = true;
   int _accessRevision = 0;
+  Timer? _expiryTimer;
+  StreamSubscription<List<LocalMessage>>? _messagesSubscription;
+  Map<String, LocalMessage>? _latestMessages;
 
   @override
   void initState() {
@@ -41,6 +48,8 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
 
   @override
   void dispose() {
+    _expiryTimer?.cancel();
+    _messagesSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -53,6 +62,10 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
       if (state == AppLifecycleState.paused ||
           state == AppLifecycleState.hidden) {
         _accessRevision++;
+        _expiryTimer?.cancel();
+        _messagesSubscription?.cancel();
+        _messagesSubscription = null;
+        _latestMessages = null;
         _authorized = false;
         _files = const [];
         _selected.clear();
@@ -103,11 +116,13 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
         _authorized = allowed;
       }
       if (!_authorized || !mounted) return;
+      _observeMessages();
       final files = await widget.service.filesForChat(widget.conversationId);
       if (mounted && revision == _accessRevision)
         setState(() {
-          _files = files;
-          _selected.retainAll(files.map((file) => file.message.id));
+          _files = _reconcile(files);
+          _selected.retainAll(_retained.map((file) => file.message.id));
+          _scheduleExpiryRefresh();
         });
     } catch (_) {
       if (mounted) setState(() => _failed = true);
@@ -116,9 +131,80 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
     }
   }
 
-  List<ChatStorageFile> get _visible => _files
+  void _observeMessages() {
+    if (_messagesSubscription != null) return;
+    _messagesSubscription = widget.service
+        .watchChatMessages(widget.conversationId)
+        .listen(
+          (messages) {
+            if (!mounted || !_authorized) return;
+            setState(() {
+              _latestMessages = {
+                for (final message in messages) message.id: message,
+              };
+              _files = _reconcile(_files);
+              _selected.retainAll(_retained.map((file) => file.message.id));
+              _scheduleExpiryRefresh();
+            });
+          },
+          onError: (Object _, StackTrace _) {
+            if (!mounted) return;
+            setState(() {
+              _files = const [];
+              _selected.clear();
+              _failed = true;
+              _messagesSubscription = null;
+            });
+          },
+          cancelOnError: true,
+        );
+  }
+
+  List<ChatStorageFile> _reconcile(List<ChatStorageFile> files) {
+    final latest = _latestMessages;
+    if (latest == null) return files;
+    return [
+      for (final file in files)
+        if (latest[file.message.id] case final message?
+            when message.isFileMessage)
+          ChatStorageFile(
+            message: message,
+            diskBytes: file.diskBytes,
+            available:
+                file.available && message.filePath == file.message.filePath,
+          ),
+    ];
+  }
+
+  Iterable<ChatStorageFile> get _retained => _files.where((file) {
+    final expiry = file.message.expiresAt;
+    return !file.message.isDeleted &&
+        (expiry == null || expiry.isAfter(DateTime.now()));
+  });
+
+  List<ChatStorageFile> get _visible => _retained
       .where((file) => _filter == null || file.category == _filter)
       .toList();
+
+  void _scheduleExpiryRefresh() {
+    _expiryTimer?.cancel();
+    final now = DateTime.now();
+    final deadlines =
+        _files
+            .map((file) => file.message.expiresAt)
+            .whereType<DateTime>()
+            .where((time) => time.isAfter(now))
+            .toList()
+          ..sort();
+    if (deadlines.isEmpty) return;
+    _expiryTimer = Timer(deadlines.first.difference(now), () {
+      if (!mounted) return;
+      setState(() {
+        _selected.retainAll(_retained.map((file) => file.message.id));
+      });
+      _scheduleExpiryRefresh();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -198,39 +284,52 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
               )
             : files.isEmpty
             ? Center(child: Text(context.l10n.storage_no_files))
-            : ListView.builder(
-                padding: const EdgeInsets.only(bottom: 16),
-                itemCount: files.length,
-                itemBuilder: (context, index) {
-                  final file = files[index];
-                  final message = file.message;
-                  final name = message.isViewOnce
-                      ? context.l10n.view_once_protected
-                      : message.fileName ?? context.l10n.file;
-                  return CheckboxListTile(
-                    key: ValueKey('storage-file-${message.id}'),
-                    value: _selected.contains(message.id),
-                    onChanged: (_) => setState(() {
-                      if (!_selected.add(message.id))
-                        _selected.remove(message.id);
-                    }),
-                    secondary: Icon(
-                      message.isViewOnce
-                          ? Icons.visibility_off_outlined
-                          : _icon(file.category),
-                    ),
-                    title: Text(
-                      name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      '${formatStorageBytes(file.diskBytes)} · '
-                      '${MaterialLocalizations.of(context).formatShortDate(message.timestamp.toLocal())}'
-                      '${!file.available ? ' · ${context.l10n.storage_local_missing}' : ''}',
-                    ),
-                  );
-                },
+            : SafeArea(
+                top: false,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final scaler = MediaQuery.textScalerOf(context);
+                    final columns =
+                        (constraints.maxWidth /
+                                (scaler.scale(14) > 20 ? 240 : 150))
+                            .floor()
+                            .clamp(1, 6);
+                    final width =
+                        (constraints.maxWidth - 32 - (columns - 1) * 12) /
+                        columns;
+                    return RefreshIndicator(
+                      onRefresh: _load,
+                      child: GridView.builder(
+                        key: const ValueKey('storage-files-grid'),
+                        padding: const EdgeInsets.all(16),
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          mainAxisExtent:
+                              width * .8 +
+                              scaler.scale(14) * 2.6 +
+                              scaler.scale(12) * 1.3 +
+                              28,
+                        ),
+                        itemCount: files.length,
+                        itemBuilder: (context, index) {
+                          final file = files[index];
+                          return _StorageFileTile(
+                            file: file,
+                            selected: _selected.contains(file.message.id),
+                            onSelect: () => setState(() {
+                              if (!_selected.add(file.message.id)) {
+                                _selected.remove(file.message.id);
+                              }
+                            }),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
               ),
         bottomNavigationBar: !_foreground || !_authorized || _selected.isEmpty
             ? null
@@ -310,13 +409,207 @@ class _ChatStorageScreenState extends State<ChatStorageScreen>
     StorageFileCategory.audio => context.l10n.storage_audio,
     StorageFileCategory.document => context.l10n.documents,
   };
+}
 
-  static IconData _icon(StorageFileCategory category) => switch (category) {
-    StorageFileCategory.photo => Icons.image_outlined,
-    StorageFileCategory.video => Icons.videocam_outlined,
-    StorageFileCategory.audio => Icons.audiotrack_outlined,
-    StorageFileCategory.document => Icons.description_outlined,
-  };
+class _StorageFileTile extends StatelessWidget {
+  const _StorageFileTile({
+    required this.file,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final ChatStorageFile file;
+  final bool selected;
+  final VoidCallback onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = file.message;
+    final scheme = Theme.of(context).colorScheme;
+    final name = message.isViewOnce
+        ? context.l10n.view_once_protected
+        : (message.fileName?.trim().isNotEmpty == true
+              ? message.fileName!
+              : context.l10n.file);
+    final date = MaterialLocalizations.of(
+      context,
+    ).formatShortDate(message.timestamp.toLocal());
+    final details = '${formatStorageBytes(file.diskBytes)} · $date';
+    final missing = file.available ? '' : context.l10n.storage_local_missing;
+    return Semantics(
+      key: ValueKey('storage-file-${message.id}'),
+      container: true,
+      checked: selected,
+      label: [name, details, if (missing.isNotEmpty) missing].join(', '),
+      onTap: onSelect,
+      child: ExcludeSemantics(
+        child: Material(
+          color: scheme.surfaceContainerLow,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(
+              color: selected ? scheme.primary : scheme.outlineVariant,
+              width: 2,
+            ),
+          ),
+          child: InkWell(
+            onTap: onSelect,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ColoredBox(
+                        color: scheme.surfaceContainerHighest,
+                        child: _preview(context),
+                      ),
+                      PositionedDirectional(
+                        top: 6,
+                        end: 6,
+                        child: Checkbox(
+                          value: selected,
+                          onChanged: (_) => onSelect(),
+                          shape: const CircleBorder(),
+                          fillColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? scheme.primary
+                                : scheme.surface,
+                          ),
+                        ),
+                      ),
+                      if (!file.available)
+                        PositionedDirectional(
+                          bottom: 6,
+                          start: 6,
+                          end: 6,
+                          child: Text(
+                            missing,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        height:
+                            MediaQuery.textScalerOf(context).scale(14) * 2.6,
+                        child: Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            height: 1.3,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        details,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.3,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _preview(BuildContext context) {
+    final message = file.message;
+    final path = message.filePath?.trim() ?? '';
+    // Never construct a decoder for one-time or deferred media.
+    if (message.isViewOnce ||
+        message.isMediaPreviewDeferred ||
+        !file.available ||
+        path.isEmpty) {
+      return _fileType(context);
+    }
+    return switch (file.category) {
+      StorageFileCategory.photo => LocalImageThumbnail(
+        key: ValueKey('storage-preview-${message.id}'),
+        path: path,
+        isViewOnce: false,
+        fallback: _fileType(context),
+      ),
+      StorageFileCategory.video => Center(
+        child: LocalVideoThumbnail(
+          key: ValueKey('storage-preview-${message.id}'),
+          path: path,
+          isViewOnce: false,
+          preserveAspectRatio: true,
+          fallback: _fileType(context),
+        ),
+      ),
+      _ => _fileType(context),
+    };
+  }
+
+  Widget _fileType(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hidden = file.message.isViewOnce;
+    final icon = hidden
+        ? Icons.visibility_off_outlined
+        : switch (file.category) {
+            StorageFileCategory.photo => Icons.image_outlined,
+            StorageFileCategory.video => Icons.videocam_outlined,
+            StorageFileCategory.audio => Icons.audiotrack_outlined,
+            StorageFileCategory.document => Icons.description_outlined,
+          };
+    final name = hidden ? '' : file.message.fileName ?? '';
+    final extension = name.contains('.')
+        ? name.split('.').last.toUpperCase()
+        : '';
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 36, color: scheme.onSurfaceVariant),
+            if (!hidden && RegExp(r'^[A-Z0-9]{1,8}$').hasMatch(extension)) ...[
+              const SizedBox(height: 6),
+              Text(
+                extension,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 String formatStorageBytes(int bytes) {

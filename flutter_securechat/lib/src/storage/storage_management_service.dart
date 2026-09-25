@@ -134,6 +134,15 @@ class StorageManagementService {
   Future<ConversationEntity?> getConversation(String id) =>
       _database.conversations.getById(id);
 
+  Stream<List<LocalMessage>> watchChatMessages(String conversationId) =>
+      _database.messages
+          .getMessages(conversationId)
+          .map(
+            (messages) => messages
+                .map((message) => LocalMessage.fromJson(message.toJson()))
+                .toList(growable: false),
+          );
+
   Future<List<ChatStorageFile>> filesForChat(String conversationId) async {
     final result = <ChatStorageFile>[];
     for (final entity in await _database.messages.getMessagesImmediate(

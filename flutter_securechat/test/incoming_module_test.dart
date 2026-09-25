@@ -17,6 +17,103 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/private_chat_control_support.dart';
 
 void main() {
+  for (final shareReads in [true, false]) {
+    test(
+      'private group receipts track each recipient (sharing $shareReads)',
+      () async {
+        final fixture = await _Fixture.open(shareReadReceipts: shareReads);
+        addTearDown(fixture.close);
+        await fixture.database.conversations.insert(
+          const ConversationEntity(
+            id: 'group-receipts',
+            peerId: 'group-receipts',
+            peerName: 'Test group',
+            peerPhone: '',
+            isGroup: true,
+            groupMembers: 'me,alice,bob',
+          ),
+        );
+        await fixture.database.messages.insert(
+          const MessageEntity(
+            id: 'group-out',
+            conversationId: 'group-receipts',
+            senderId: 'me',
+            content: 'Hello group',
+            contentType: StorageMessageContentType.text,
+            timestamp: 1,
+            status: StorageMessageStatus.sent,
+            isOutgoing: true,
+            receiptRecipients: ['alice', 'bob'],
+          ),
+        );
+        for (final recipient in ['alice', 'bob']) {
+          await fixture.database.pendingSignals.put(
+            PendingSignalEntity(
+              id: List.filled(43, recipient == 'alice' ? 'A' : 'B').join(),
+              encodedSignal: '{}',
+              createdAt: 1,
+              messageId: 'group-out',
+              recipientId: recipient,
+              retainUntilReceipt: true,
+            ),
+          );
+        }
+        Future<void> receipt(String sender, String status) async {
+          fixture.signaling.addIncoming(
+            await encryptTestPrivateChatControl(
+              crypto: fixture.crypto,
+              control: DeliveryReceiptSignal(
+                senderId: sender,
+                recipientId: 'me',
+                timestamp: DateTime.now(),
+                messageId: 'group-out',
+                status: status,
+              ),
+            ),
+          );
+          await fixture.handler.waitForIdle();
+        }
+
+        await receipt('outsider', 'READ');
+        expect(await fixture.database.pendingSignals.count(), 2);
+        expect(
+          (await fixture.database.messages.getById('group-out'))!.readBy,
+          isEmpty,
+        );
+
+        await receipt('alice', 'READ');
+        var message = (await fixture.database.messages.getById('group-out'))!;
+        expect(message.status, StorageMessageStatus.sent);
+        expect(message.deliveredTo, ['alice']);
+        expect(message.readBy, shareReads ? ['alice'] : isEmpty);
+        expect(await fixture.database.pendingSignals.count(), 1);
+        await receipt('alice', 'DELIVERED');
+        await receipt('alice', 'READ');
+        expect(await fixture.database.pendingSignals.count(), 1);
+
+        await receipt('bob', 'DELIVERED');
+        message = (await fixture.database.messages.getById('group-out'))!;
+        expect(message.status, StorageMessageStatus.delivered);
+        expect(message.deliveredTo, unorderedEquals(['alice', 'bob']));
+        expect(message.readBy, shareReads ? ['alice'] : isEmpty);
+        expect(await fixture.database.pendingSignals.count(), 0);
+
+        await receipt('bob', 'READ');
+        await receipt('alice', 'DELIVERED');
+        message = (await fixture.database.messages.getById('group-out'))!;
+        expect(
+          message.status,
+          shareReads
+              ? StorageMessageStatus.read
+              : StorageMessageStatus.delivered,
+        );
+        expect(
+          message.readBy,
+          shareReads ? unorderedEquals(['alice', 'bob']) : isEmpty,
+        );
+      },
+    );
+  }
   test(
     'private read receipt is only treated as delivery while sharing is disabled',
     () async {

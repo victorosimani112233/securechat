@@ -209,6 +209,9 @@ class MessageEntity {
     this.isMediaPreviewDeferred = false,
     this.isPinned = false,
     this.pinnedAt,
+    this.receiptRecipients,
+    this.deliveredTo = const [],
+    this.readBy = const [],
   });
 
   final String id;
@@ -231,6 +234,9 @@ class MessageEntity {
   final bool isMediaPreviewDeferred;
   final bool isPinned;
   final int? pinnedAt;
+  final List<String>? receiptRecipients;
+  final List<String> deliveredTo;
+  final List<String> readBy;
 
   MessageEntity copyWith({
     String? content,
@@ -246,6 +252,9 @@ class MessageEntity {
     bool? isMediaPreviewDeferred,
     bool? isPinned,
     Object? pinnedAt = _notProvided,
+    Object? receiptRecipients = _notProvided,
+    List<String>? deliveredTo,
+    List<String>? readBy,
   }) => MessageEntity(
     id: id,
     conversationId: conversationId,
@@ -274,6 +283,11 @@ class MessageEntity {
     pinnedAt: identical(pinnedAt, _notProvided)
         ? this.pinnedAt
         : pinnedAt as int?,
+    receiptRecipients: identical(receiptRecipients, _notProvided)
+        ? this.receiptRecipients
+        : receiptRecipients as List<String>?,
+    deliveredTo: deliveredTo ?? this.deliveredTo,
+    readBy: readBy ?? this.readBy,
   );
 
   factory MessageEntity.fromJson(Map<String, Object?> json) => MessageEntity(
@@ -305,6 +319,17 @@ class MessageEntity {
     isMediaPreviewDeferred: json['isMediaPreviewDeferred'] as bool? ?? false,
     isPinned: json['isPinned'] as bool? ?? false,
     pinnedAt: (json['pinnedAt'] as num?)?.toInt(),
+    receiptRecipients: (json['receiptRecipients'] as List?)
+        ?.cast<String>()
+        .toList(growable: false),
+    deliveredTo:
+        (json['deliveredTo'] as List?)?.cast<String>().toList(
+          growable: false,
+        ) ??
+        const [],
+    readBy:
+        (json['readBy'] as List?)?.cast<String>().toList(growable: false) ??
+        const [],
   );
 
   Map<String, Object?> toJson() => {
@@ -328,6 +353,9 @@ class MessageEntity {
     'isMediaPreviewDeferred': isMediaPreviewDeferred,
     'isPinned': isPinned,
     'pinnedAt': pinnedAt,
+    'receiptRecipients': receiptRecipients,
+    'deliveredTo': deliveredTo,
+    'readBy': readBy,
   };
 }
 

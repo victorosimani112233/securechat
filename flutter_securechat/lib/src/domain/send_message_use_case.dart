@@ -87,6 +87,11 @@ class SendMessageUseCase {
     if (isGroup && !_members(conversation?.groupMembers).contains(senderId)) {
       return SendMessageOutcome.deliveryFailed;
     }
+    final recipients = List<String>.unmodifiable(
+      isGroup
+          ? _members(conversation?.groupMembers).where((id) => id != senderId)
+          : [request.conversationId],
+    );
     final expiresAt =
         conversation != null && conversation.disappearingDuration > 0
         ? now.millisecondsSinceEpoch + conversation.disappearingDuration
@@ -101,6 +106,7 @@ class SendMessageUseCase {
       timestamp: now.millisecondsSinceEpoch,
       status: StorageMessageStatus.sending,
       isOutgoing: true,
+      receiptRecipients: recipients,
       replyToId: request.replyToId,
       expiresAt: expiresAt,
       isViewOnce: request.isViewOnce,
@@ -206,9 +212,6 @@ class SendMessageUseCase {
               plaintext: envelopeContent,
             );
       if (isGroup) {
-        final recipients = _members(
-          conversation?.groupMembers,
-        ).where((member) => member != senderId).toSet();
         if (recipients.isEmpty) {
           throw StateError('Group message has no recipient');
         }

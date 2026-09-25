@@ -691,12 +691,8 @@ class IncomingMessageHandler {
   }
 
   Future<void> _receipt(DeliveryReceiptSignal signal) async {
-    final current = await _database.messages.getById(signal.messageId);
-    if (current == null || !current.isOutgoing) return;
-    final conversation = await _database.conversations.getById(
-      current.conversationId,
-    );
-    if (!_senderAllowed(conversation, signal.senderId)) return;
+    final localUserId = _session.userId;
+    if (localUserId == null) return;
     final next = switch (signal.status.toUpperCase()) {
       'READ' =>
         _session.shareReadReceipts
@@ -706,12 +702,17 @@ class IncomingMessageHandler {
       _ => null,
     };
     if (next == null) return;
+    final accepted = await _database.messages.recordDeliveryReceipt(
+      signal.messageId,
+      recipientId: signal.senderId,
+      status: next,
+      localUserId: localUserId,
+    );
+    if (!accepted) return;
     await _database.pendingSignals.deleteDelivered(
       signal.messageId,
       signal.senderId,
     );
-    if (_statusRank(next) <= _statusRank(current.status)) return;
-    await _database.messages.updateStatus(signal.messageId, next);
   }
 
   Future<void> _delete(MessageDeleteSignal signal) async {
@@ -1330,14 +1331,6 @@ String _notificationPreview(ParsedMessageEnvelope parsed) =>
       isViewOnce: parsed.isViewOnce,
       contentType: parsed.contentType,
     );
-
-int _statusRank(StorageMessageStatus status) => switch (status) {
-  StorageMessageStatus.failed => -1,
-  StorageMessageStatus.sending => 0,
-  StorageMessageStatus.sent => 1,
-  StorageMessageStatus.delivered => 2,
-  StorageMessageStatus.read => 3,
-};
 
 Set<String> _csv(String? value) =>
     value?.split(',').where((id) => id.isNotEmpty).toSet() ?? <String>{};

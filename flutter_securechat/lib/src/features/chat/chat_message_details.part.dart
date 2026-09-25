@@ -266,29 +266,44 @@ class _MessageInfoDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final recipients = conversation.isGroup
-        ? conversation.groupMembers
-              .where((member) => member != localUserId)
-              .map(
-                (member) =>
-                    recipientLabels[member] ??
-                    context.l10n.group_unknown_member,
-              )
-              .toList(growable: false)
-        : [
-            conversation.peerName.isNotEmpty &&
-                    conversation.peerName != conversation.peerId
-                ? conversation.peerName
-                : conversation.peerPhone.isNotEmpty
-                ? conversation.peerPhone
-                : context.l10n.group_unknown_member,
-          ];
-    final delivered =
-        message.status == MessageStatus.delivered ||
-        message.status == MessageStatus.read;
-    final read =
-        message.status == MessageStatus.read &&
-        AppContainerScope.of(context).session.shareReadReceipts;
+    final shareReads = AppContainerScope.of(context).session.shareReadReceipts;
+    final expected = (message.receiptRecipients ?? const <String>[])
+        .where((id) => id.isNotEmpty && id != localUserId)
+        .toSet();
+    bool validRecipient(String id) =>
+        id.isNotEmpty &&
+        id != localUserId &&
+        (message.receiptRecipients == null || expected.contains(id));
+    final deliveredIds = {
+      ...message.deliveredTo,
+      ...message.readBy,
+    }.where(validRecipient).toSet();
+    final readIds = shareReads
+        ? message.readBy.where(validRecipient).toSet()
+        : <String>{};
+    String label(String id) => conversation.isGroup
+        ? recipientLabels[id] ?? context.l10n.group_unknown_member
+        : conversation.peerName.isNotEmpty &&
+              conversation.peerName != conversation.peerId
+        ? conversation.peerName
+        : conversation.peerPhone.isNotEmpty
+        ? conversation.peerPhone
+        : context.l10n.group_unknown_member;
+    // Old direct status has one unambiguous recipient; a group status does not.
+    if (!conversation.isGroup && validRecipient(conversation.peerId)) {
+      if (message.status == MessageStatus.delivered ||
+          message.status == MessageStatus.read) {
+        deliveredIds.add(conversation.peerId);
+      }
+      if (shareReads && message.status == MessageStatus.read) {
+        readIds.add(conversation.peerId);
+      }
+    }
+    final deliveredRecipients = deliveredIds.map(label).toList(growable: false);
+    final readRecipients = readIds.map(label).toList(growable: false);
+    final total = conversation.isGroup && expected.isNotEmpty
+        ? expected.length
+        : null;
     final localizations = MaterialLocalizations.of(context);
     final sentAt =
         '${localizations.formatFullDate(message.timestamp)} · '
@@ -316,17 +331,21 @@ class _MessageInfoDialog extends StatelessWidget {
               Text(sentAt),
               const Divider(height: 24),
               _ReceiptSection(
+                key: const ValueKey('message-info-delivered'),
                 icon: Icons.done_all,
-                title: context.l10n.read,
-                active: read,
-                recipients: recipients,
+                title: context.l10n.delivered,
+                active: deliveredRecipients.isNotEmpty,
+                recipients: deliveredRecipients,
+                recipientCount: total,
               ),
               const Divider(height: 24),
               _ReceiptSection(
+                key: const ValueKey('message-info-read'),
                 icon: Icons.done_all,
-                title: context.l10n.delivered,
-                active: delivered,
-                recipients: recipients,
+                title: context.l10n.read,
+                active: readRecipients.isNotEmpty,
+                recipients: readRecipients,
+                recipientCount: shareReads ? total : null,
               ),
               if (message.status == MessageStatus.failed) ...[
                 const Divider(height: 24),
@@ -351,16 +370,19 @@ class _MessageInfoDialog extends StatelessWidget {
 
 class _ReceiptSection extends StatelessWidget {
   const _ReceiptSection({
+    super.key,
     required this.icon,
     required this.title,
     required this.active,
     required this.recipients,
+    this.recipientCount,
   });
 
   final IconData icon;
   final String title;
   final bool active;
   final List<String> recipients;
+  final int? recipientCount;
 
   @override
   Widget build(BuildContext context) {
@@ -374,10 +396,16 @@ class _ReceiptSection extends StatelessWidget {
           children: [
             Icon(icon, size: 18, color: color),
             const SizedBox(width: 6),
-            Text(
-              title,
-              style: TextStyle(color: color, fontWeight: FontWeight.bold),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(color: color, fontWeight: FontWeight.bold),
+              ),
             ),
+            if (recipientCount != null) ...[
+              const SizedBox(width: 8),
+              Text('${recipients.length}/$recipientCount'),
+            ],
           ],
         ),
         const SizedBox(height: 8),

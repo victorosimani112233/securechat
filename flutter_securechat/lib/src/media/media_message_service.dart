@@ -124,12 +124,15 @@ class MediaMessageService {
     if (!isGroup) await _phoneSharing?.shareWith(recipientId);
     final outcomes = <MediaSendOutcome>[];
     for (var index = 0; index < attachments.length; index++) {
-      var recipients = groupMembers;
+      var recipients = <String>[recipientId];
+      var transferMembers = const <String>[];
       if (isGroup) {
         final group = await _database.conversations.getById(conversationId);
         final members = (group?.groupMembers ?? '')
             .split(',')
+            .map((id) => id.trim())
             .where((id) => id.isNotEmpty)
+            .toSet()
             .toList();
         if (group?.isGroup != true ||
             !members.contains(localUserId) ||
@@ -138,7 +141,11 @@ class MediaMessageService {
         }
         // A picker can stay open while a member leaves. Never use its stale
         // recipient list to distribute new media keys to departed members.
-        recipients = members;
+        recipients = List<String>.unmodifiable(
+          members.where((id) => id != localUserId),
+        );
+        // Transfer membership validation includes self; receipt targets do not.
+        transferMembers = List<String>.unmodifiable(members);
         await _groupControls?.send(
           senderId: localUserId,
           groupId: conversationId,
@@ -163,6 +170,7 @@ class MediaMessageService {
         isViewOnce: isViewOnce,
         voiceNote: voiceNote,
         status: StorageMessageStatus.sending,
+        receiptRecipients: recipients,
       );
       late final FileTransferResult result;
       try {
@@ -173,7 +181,7 @@ class MediaMessageService {
           fileName: attachment.fileName,
           mimeType: attachment.mimeType,
           isGroup: isGroup,
-          groupMembers: recipients,
+          groupMembers: transferMembers,
           caption: wireCaption,
           isViewOnce: isViewOnce,
           originalMessageId: messageId,
@@ -326,6 +334,7 @@ class MediaMessageService {
     required bool isViewOnce,
     required VoiceNoteMetadata? voiceNote,
     required StorageMessageStatus status,
+    required List<String> receiptRecipients,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final content = voiceNote == null
@@ -356,6 +365,7 @@ class MediaMessageService {
         timestamp: now,
         status: status,
         isOutgoing: true,
+        receiptRecipients: receiptRecipients,
         caption: caption,
         isViewOnce: isViewOnce,
       ),

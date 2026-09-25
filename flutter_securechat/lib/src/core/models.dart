@@ -161,6 +161,8 @@ class Conversation {
 }
 
 class LocalMessage {
+  static const _unchangedRecipients = Object();
+
   const LocalMessage({
     required this.id,
     required this.conversationId,
@@ -180,6 +182,9 @@ class LocalMessage {
     this.isViewOnce = false,
     this.isViewed = false,
     this.isMediaPreviewDeferred = false,
+    this.receiptRecipients,
+    this.deliveredTo = const [],
+    this.readBy = const [],
     this.isPinned = false,
     this.pinnedAt,
   });
@@ -202,6 +207,9 @@ class LocalMessage {
   final bool isViewOnce;
   final bool isViewed;
   final bool isMediaPreviewDeferred;
+  final List<String>? receiptRecipients;
+  final List<String> deliveredTo;
+  final List<String> readBy;
   final bool isPinned;
   final DateTime? pinnedAt;
 
@@ -294,6 +302,9 @@ class LocalMessage {
     bool? isStarred,
     bool? isViewed,
     bool? isMediaPreviewDeferred,
+    Object? receiptRecipients = _unchangedRecipients,
+    List<String>? deliveredTo,
+    List<String>? readBy,
     bool? isPinned,
     DateTime? pinnedAt,
   }) {
@@ -317,6 +328,13 @@ class LocalMessage {
       isViewed: isViewed ?? this.isViewed,
       isMediaPreviewDeferred:
           isMediaPreviewDeferred ?? this.isMediaPreviewDeferred,
+      receiptRecipients: identical(receiptRecipients, _unchangedRecipients)
+          ? this.receiptRecipients
+          : receiptRecipients == null
+          ? null
+          : List<String>.from(receiptRecipients as List),
+      deliveredTo: deliveredTo ?? this.deliveredTo,
+      readBy: readBy ?? this.readBy,
       isPinned: isPinned ?? this.isPinned,
       pinnedAt: pinnedAt ?? this.pinnedAt,
     );
@@ -341,6 +359,11 @@ class LocalMessage {
     isViewOnce: json['isViewOnce'] as bool? ?? false,
     isViewed: json['isViewed'] as bool? ?? false,
     isMediaPreviewDeferred: json['isMediaPreviewDeferred'] as bool? ?? false,
+    receiptRecipients: json['receiptRecipients'] == null
+        ? null
+        : _stringList(json['receiptRecipients']),
+    deliveredTo: _stringList(json['deliveredTo']),
+    readBy: _stringList(json['readBy']),
     isPinned: json['isPinned'] as bool? ?? false,
     pinnedAt: _dateTimeOrNull(json['pinnedAt']),
   );
@@ -364,6 +387,9 @@ class LocalMessage {
     'isViewOnce': isViewOnce,
     'isViewed': isViewed,
     'isMediaPreviewDeferred': isMediaPreviewDeferred,
+    'receiptRecipients': receiptRecipients,
+    'deliveredTo': deliveredTo,
+    'readBy': readBy,
     'isPinned': isPinned,
     'pinnedAt': pinnedAt?.millisecondsSinceEpoch,
   };

@@ -16,6 +16,8 @@ import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_securechat/src/theme/secure_chat_theme.dart';
+import 'package:flutter_securechat/src/widgets/avatar.dart';
+import 'package:flutter_securechat/src/widgets/azure_surface.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_app_container.dart';
@@ -165,6 +167,107 @@ void main() {
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  for (final dark in [false, true]) {
+    testWidgets('call status borders and icons at 320px, dark=$dark', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final history = _History()
+        ..items = [
+          _entry('out', direction: CallDirection.outgoing),
+          _entry('in'),
+          _entry('missed', status: CallHistoryStatus.missed),
+          _entry('busy-in', status: CallHistoryStatus.busy),
+          _entry(
+            'missed-out',
+            direction: CallDirection.outgoing,
+            status: CallHistoryStatus.missed,
+          ),
+          _entry(
+            'busy-out',
+            direction: CallDirection.outgoing,
+            status: CallHistoryStatus.busy,
+          ),
+        ];
+      addTearDown(history.changes.close);
+      final theme = dark ? SecureChatTheme.dark() : SecureChatTheme.light();
+      await tester.pumpWidget(
+        AppContainerScope(
+          container: createWidgetTestContainer(mediaRuntime: _Media(history)),
+          child: MaterialApp(
+            theme: theme,
+            locale: const Locale('tr'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.4)),
+              child: child!,
+            ),
+            home: const CallHistoryScreen(embedded: true),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final green = dark ? Colors.green.shade300 : Colors.green.shade700;
+      final blue = dark ? Colors.blue.shade300 : Colors.blue.shade700;
+      final red = dark ? Colors.red.shade300 : Colors.red.shade700;
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(CallHistoryScreen)),
+      );
+      for (final (id, color, icon, label) in [
+        ('out', green, Icons.call_made, l10n.outgoing),
+        ('in', blue, Icons.call_received, l10n.incoming),
+        ('missed', red, Icons.call_missed, l10n.missed),
+        ('busy-in', red, Icons.call_missed, l10n.busy),
+        ('missed-out', red, Icons.call_missed, l10n.missed),
+        ('busy-out', green, Icons.call_made, l10n.busy),
+      ]) {
+        final row = find.byKey(ValueKey('call-history-entry-$id'));
+        await tester.scrollUntilVisible(
+          row,
+          100,
+          scrollable: find.descendant(
+            of: find.byKey(const ValueKey('call-history-all')),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.widget<AzureSurface>(row).borderColor, color);
+        final statusIcon = find.descendant(
+          of: row,
+          matching: find.byIcon(icon),
+        );
+        expect(statusIcon, findsOneWidget);
+        expect(tester.widget<Icon>(statusIcon).color, color);
+        expect(
+          find.descendant(of: row, matching: find.textContaining(label)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: row, matching: find.byType(GeneratedAvatar)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: row, matching: find.byIcon(Icons.call_outlined)),
+          findsOneWidget,
+        );
+        final material = tester.widget<Material>(
+          find.descendant(of: row, matching: find.byType(Material)).first,
+        );
+        expect(material.color, AzureSurface.colorOf(tester.element(row)));
+        expect((material.shape! as RoundedRectangleBorder).side.color, color);
+        expect((material.shape! as RoundedRectangleBorder).side.width, 1);
+        expect(tester.takeException(), isNull);
+      }
       await tester.pumpWidget(const SizedBox());
     });
   }

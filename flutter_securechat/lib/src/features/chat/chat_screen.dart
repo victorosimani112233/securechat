@@ -1650,18 +1650,49 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
   }
 
-  Future<void> _showMessageInfo(LocalMessage message) => showDialog<void>(
-    context: context,
-    builder: (_) => _MessageInfoDialog(
-      message: message,
-      conversation: _conversation!,
-      localUserId: AppContainerScope.of(context).session.userId ?? '',
-      recipientLabels: {
-        for (final member in _conversation!.groupMembers)
-          member: _memberLabel(member),
-      },
-    ),
-  );
+  Future<void> _showMessageInfo(LocalMessage message) {
+    final container = AppContainerScope.of(context);
+    final conversation = _conversation!;
+    final messages = container.conversations.watchMessages(conversation.id);
+    return showDialog<void>(
+      context: context,
+      builder: (context) => StreamBuilder<List<LocalMessage>>(
+        stream: messages,
+        initialData: [message],
+        builder: (context, snapshot) {
+          final current = snapshot.data
+              ?.where((item) => item.id == message.id && !item.isDeleted)
+              .firstOrNull;
+          if (snapshot.hasError || current == null) {
+            return AlertDialog(
+              title: Text(context.l10n.message_info),
+              content: Text(context.l10n.no_records),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(context.l10n.action_close),
+                ),
+              ],
+            );
+          }
+          return _MessageInfoDialog(
+            message: current,
+            conversation: conversation,
+            localUserId: container.session.userId ?? '',
+            recipientLabels: {
+              for (final member in {
+                ...conversation.groupMembers,
+                ...current.receiptRecipients ?? const <String>[],
+                ...current.deliveredTo,
+                ...current.readBy,
+              })
+                member: _memberLabel(member),
+            },
+          );
+        },
+      ),
+    );
+  }
 
   Future<void> _chooseReaction(
     MessageInteractionService service,

@@ -69,14 +69,12 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     String? userId,
   ) {
     final l10n = context.l10n;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final calls = source
         .where(
           (call) => switch (_filter) {
             _CallFilter.all => true,
-            _CallFilter.missed =>
-              call.status == CallHistoryStatus.missed ||
-                  (call.status == CallHistoryStatus.busy &&
-                      call.direction == CallDirection.incoming),
+            _CallFilter.missed => _isMissed(call),
             _CallFilter.incoming => call.direction == CallDirection.incoming,
             _CallFilter.outgoing => call.direction == CallDirection.outgoing,
             _CallFilter.video => call.callType == CallType.video,
@@ -134,6 +132,13 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                   separatorBuilder: (_, _) => const SizedBox(height: 7),
                   itemBuilder: (context, index) {
                     final call = calls[index];
+                    final missed = _isMissed(call);
+                    final outgoing = call.direction == CallDirection.outgoing;
+                    final accent = missed
+                        ? (dark ? Colors.red.shade300 : Colors.red.shade700)
+                        : outgoing
+                        ? (dark ? Colors.green.shade300 : Colors.green.shade700)
+                        : (dark ? Colors.blue.shade300 : Colors.blue.shade700);
                     final video = call.callType == CallType.video;
                     final groupId = _groupId(call, groups);
                     final group = groups[groupId];
@@ -144,14 +149,37 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                             !group.hasLeftGroup(userId));
                     return AzureSurface(
                       key: ValueKey('call-history-entry-${call.id}'),
+                      borderColor: accent,
                       child: ListTile(
                         leading: GeneratedAvatar(name: call.peerName),
                         title: Text(call.peerName),
-                        subtitle: Text(
-                          [
-                            if (groupId != null) l10n.group,
-                            _description(context, call),
-                          ].join(' · '),
+                        subtitle: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(
+                                top: 2,
+                                end: 6,
+                              ),
+                              child: Icon(
+                                missed
+                                    ? Icons.call_missed
+                                    : outgoing
+                                    ? Icons.call_made
+                                    : Icons.call_received,
+                                size: 16,
+                                color: accent,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                [
+                                  if (groupId != null) l10n.group,
+                                  _description(context, call),
+                                ].join(' · '),
+                              ),
+                            ),
+                          ],
                         ),
                         trailing: IconButton(
                           tooltip: video ? l10n.video_call : l10n.voice_call,
@@ -185,6 +213,11 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       ],
     );
   }
+
+  static bool _isMissed(CallHistoryEntry call) =>
+      call.status == CallHistoryStatus.missed ||
+      (call.status == CallHistoryStatus.busy &&
+          call.direction == CallDirection.incoming);
 
   static String _description(BuildContext context, CallHistoryEntry call) {
     final direction = call.direction == CallDirection.outgoing

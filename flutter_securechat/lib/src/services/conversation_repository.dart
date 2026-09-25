@@ -262,19 +262,39 @@ class StorageConversationRepository implements ConversationRepository {
 
   @override
   Stream<List<LocalMessage>> watchMessages(String conversationId) {
-    return _db.messages
-        .getMessages(conversationId)
-        .map((items) => items.map(_messageFromEntity).toList(growable: false));
+    return _db.messages.getMessages(conversationId).asyncMap((items) async {
+      final conversation = await _db.conversations.getById(conversationId);
+      return items
+          .map(
+            (item) => _messageFromEntity(
+              item,
+              isGroup: conversation?.isGroup ?? false,
+            ),
+          )
+          .toList(growable: false);
+    });
   }
 
   @override
   Future<List<LocalMessage>> searchAllMessages(
     String query, {
     int limit = 100,
-  }) async => (await _db.messages.searchAllMessages(
-    query,
-    limit: limit,
-  )).map(_messageFromEntity).toList(growable: false);
+  }) async {
+    final items = await _db.messages.searchAllMessages(query, limit: limit);
+    final groups = <String>{};
+    for (final id in items.map((item) => item.conversationId).toSet()) {
+      if ((await _db.conversations.getById(id))?.isGroup == true)
+        groups.add(id);
+    }
+    return items
+        .map(
+          (item) => _messageFromEntity(
+            item,
+            isGroup: groups.contains(item.conversationId),
+          ),
+        )
+        .toList(growable: false);
+  }
 
   @override
   Future<void> sendText(
@@ -362,7 +382,10 @@ Conversation _conversationFromEntity(storage.ConversationEntity entity) {
   );
 }
 
-LocalMessage _messageFromEntity(storage.MessageEntity entity) {
+LocalMessage _messageFromEntity(
+  storage.MessageEntity entity, {
+  bool isGroup = false,
+}) {
   return LocalMessage(
     id: entity.id,
     conversationId: entity.conversationId,
@@ -371,7 +394,14 @@ LocalMessage _messageFromEntity(storage.MessageEntity entity) {
     content: entity.content,
     contentType: _contentTypeFromStorage(entity.contentType),
     timestamp: DateTime.fromMillisecondsSinceEpoch(entity.timestamp),
-    status: _statusFromStorage(entity.status),
+    status:
+        isGroup &&
+            entity.isOutgoing &&
+            entity.receiptRecipients == null &&
+            (entity.status == storage.StorageMessageStatus.read ||
+                entity.status == storage.StorageMessageStatus.delivered)
+        ? MessageStatus.sent
+        : _statusFromStorage(entity.status),
     isOutgoing: entity.isOutgoing,
     replyToId: entity.replyToId,
     isStarred: entity.isStarred,
@@ -386,6 +416,9 @@ LocalMessage _messageFromEntity(storage.MessageEntity entity) {
     isViewOnce: entity.isViewOnce,
     isViewed: entity.isViewed,
     isMediaPreviewDeferred: entity.isMediaPreviewDeferred,
+    receiptRecipients: entity.receiptRecipients,
+    deliveredTo: entity.deliveredTo,
+    readBy: entity.readBy,
     isPinned: entity.isPinned,
     pinnedAt: entity.pinnedAt == null
         ? null
