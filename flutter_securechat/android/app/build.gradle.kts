@@ -31,7 +31,10 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // Matches the Kotlin application and is required by self-managed Telecom.
         minSdk = 26
-        targetSdk = flutter.targetSdkVersion
+        // Toolchain degeri yerine acik surum: Flutter yukseldiginde hedef
+        // sessizce kaymasin ve davranis degisiklikleri fark edilmeden
+        // gelmesin. Play yeni uygulamalar icin 35+ istiyor.
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

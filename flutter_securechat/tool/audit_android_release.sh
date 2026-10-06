@@ -12,6 +12,15 @@ for command_name in unzip readelf rg sha256sum; do
   fi
 done
 
+# Gomulu private key taramasi `--pcre2` istiyor. PCRE2'siz bir ripgrep
+# derlemesi hata verip cikiyor; `if rg ...` bunu "eslesme yok" olarak okuyup
+# kontrolu sessizce atliyordu. Destek burada kanitlanir.
+if ! printf 'x' | rg -q --pcre2 'x' 2>/dev/null; then
+  echo "Release audit: ripgrep PCRE2 destegi olmadan private-key taramasi yapilamaz." >&2
+  echo "Kurulum: cargo install ripgrep --locked --features pcre2 --force" >&2
+  exit 2
+fi
+
 if [[ ! -f "$AAB" ]]; then
   echo "Release AAB bulunamadi: $AAB" >&2
   exit 2
@@ -68,22 +77,29 @@ if find "$AUDIT_DIR" -type f \
   exit 5
 fi
 
-if rg -a -l \
+# Cikis kodu ayrimi: 0 = iz bulundu, 1 = temiz, digeri = arac hatasi.
+# Arac hatasini "temiz" saymak, denetimin kendisini sessizce devre disi
+# birakir; bu yuzden fail-closed.
+rg -a -l \
   'DIRECTORY_OPRF_PRIVATE_KEY=|OFFLINE_QUEUE_ENCRYPTION_KEY=|JWT_SECRET=|POSTGRES_PASSWORD=|REDIS_PASSWORD=' \
-  "$AUDIT_DIR" >/dev/null; then
-  echo "AAB icinde yasak server-secret izi bulundu." >&2
-  exit 5
-fi
+  "$AUDIT_DIR" >/dev/null && secret_status=0 || secret_status=$?
+case "$secret_status" in
+  0) echo "AAB icinde yasak server-secret izi bulundu." >&2; exit 5 ;;
+  1) ;;
+  *) echo "Release audit: server-secret taramasi hata verdi (rg exit $secret_status)." >&2; exit 2 ;;
+esac
 
 # Apache Tika gibi MIME veritabanlari PEM baslik metnini dosya imzasi olarak
 # tasiyabilir. Yalniz basligi degil, arkasindan gercek key body gorunmesini
 # reddederek bu guvenli resource'u private-key false positive'i yapmayiz.
-if rg -a -U -l --pcre2 \
+rg -a -U -l --pcre2 \
   -- '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----\r?\n[A-Za-z0-9+/=]{40,}' \
-  "$AUDIT_DIR" >/dev/null; then
-  echo "AAB icinde gomulu private key bulundu." >&2
-  exit 5
-fi
+  "$AUDIT_DIR" >/dev/null && key_status=0 || key_status=$?
+case "$key_status" in
+  0) echo "AAB icinde gomulu private key bulundu." >&2; exit 5 ;;
+  1) ;;
+  *) echo "Release audit: private-key taramasi hata verdi (rg exit $key_status)." >&2; exit 2 ;;
+esac
 
 sha256sum "$AAB"
 echo "Android release audit: PASS ($native_count stripped native library)"

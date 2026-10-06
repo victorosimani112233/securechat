@@ -63,3 +63,6 @@ __pycache__/
 *.pyc
 .venv/
 node_modules/
+
+# Sunucu dagitim paketleri ve denetim ciktilari; 291 MB, repoya girmemeli.
+exports/
