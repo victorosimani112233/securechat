@@ -393,6 +393,9 @@ class AppContainer {
         apiBaseUrl: Uri.parse(config.apiBaseUrl),
         httpClient: httpClients.create(),
         accessTokenProvider: () async => session.accessToken,
+        // Yenileme hatasi sessizce yutulursa sunucudaki havuz tukenirken
+        // istemcide hicbir iz kalmaz; diagnostics'e dusmesi gerekir.
+        onFailure: reportAsyncFailure,
       );
       final contactIdentityResolver = ContactIdentityResolver(
         database: database,

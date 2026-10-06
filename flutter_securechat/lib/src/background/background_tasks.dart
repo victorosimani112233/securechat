@@ -17,6 +17,7 @@ import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
 import '../crypto/crypto_protocol_store.dart';
 import '../crypto/libsignal_protocol_store.dart';
+import '../auth/auth_api.dart';
 import '../crypto/pre_key_maintenance_service.dart';
 import '../crypto/pre_key_manager.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
@@ -81,6 +82,7 @@ class SecureChatBackgroundRuntime {
     required this.notifications,
     required this.preKeyMaintenance,
     required this.outbox,
+    required this.refreshAccessToken,
     required AppResourceScope resources,
   }) : _resources = resources;
 
@@ -96,6 +98,10 @@ class SecureChatBackgroundRuntime {
   final MessageNotificationCoordinator notifications;
   final PreKeyMaintenanceService preKeyMaintenance;
   final OfflineMessageQueue outbox;
+
+  /// Saklanan access token olduysa yenileyip kalici hale getirir.
+  /// Bu isolate'in tek token tazeleme yolu.
+  final Future<String?> Function() refreshAccessToken;
   final AppResourceScope _resources;
   bool _closed = false;
 
@@ -138,12 +144,36 @@ class SecureChatBackgroundRuntime {
         },
       )..start();
       resources.register('background-outbox', outbox.close);
+      // Access token TTL'i bir saat, bu isolate ise 15 dakikada bir kosuyor.
+      // Yenileme yolu olmadigi surece cihaz bir saatten uzun arka planda
+      // kaldiktan sonra buradaki HER istek 401 aliyordu: prekey yenileme,
+      // WebSocket baglantisi ve onun arkasindaki timer flush / zamanli mesaj
+      // / giden kuyruk drenaji sessizce atlaniyordu.
+      final authApi = AuthApi(
+        baseUrl: config.apiBaseUrl,
+        client: httpClients.create(),
+      );
+      Future<String?> refreshAccessToken() async {
+        final refresh = session.refreshToken;
+        if (refresh == null || refresh.isEmpty) return null;
+        final pair = await authApi.refresh(refresh);
+        await session.updateTokensAndPersist(
+          accessToken: pair.accessToken,
+          refreshToken: pair.refreshToken,
+        );
+        return pair.accessToken;
+      }
+
       final protocolStore = DatabaseCryptoProtocolStore(database);
       final preKeyMaintenance = PreKeyMaintenanceService(
         manager: PreKeyManager(protocolStore),
         apiBaseUrl: Uri.parse(config.apiBaseUrl),
         httpClient: httpClients.create(),
         accessTokenProvider: () async => session.accessToken,
+        refreshAccessToken: refreshAccessToken,
+        onFailure: (operation, error, stackTrace) {
+          _logBackgroundFailure('BG-PREKEY', operation, error, stackTrace);
+        },
       );
       final crypto = SignalProtocolCryptoService(
         store: PersistentSignalProtocolStore(protocolStore),
@@ -283,6 +313,7 @@ class SecureChatBackgroundRuntime {
         notifications: notifications,
         preKeyMaintenance: preKeyMaintenance,
         outbox: outbox,
+        refreshAccessToken: refreshAccessToken,
         resources: resources,
       );
       bootstrapComplete = true;
@@ -294,6 +325,7 @@ class SecureChatBackgroundRuntime {
 
   Future<bool> execute(String task, Map<String, dynamic>? input) async {
     if (_closed) throw StateError('Background runtime is closed');
+    await _ensureFreshAccessToken();
     if (task == WorkmanagerBackgroundScheduler.pushDrainTask) {
       if (!await _connect()) return false;
       await _drainUntilIdle();
@@ -331,6 +363,23 @@ class SecureChatBackgroundRuntime {
     return true;
   }
 
+  /// Her task calismasinin basinda token'i bir kez tazeler.
+  ///
+  /// Tek tek tuketicilere yenileme eklemek yerine buradan tazelenir: boylece
+  /// `preKeyMaintenance`, `HttpPreKeyBundleProvider` ve `_connect` ayni taze
+  /// token'i `session.accessToken` uzerinden okur.
+  Future<void> _ensureFreshAccessToken() async {
+    if (!session.isLoggedIn) return;
+    try {
+      await refreshAccessToken();
+    } catch (error, stackTrace) {
+      // Yenileme basarisizsa eldeki token ile devam edilir; refresh token
+      // gercekten gecersizse zaten oturum kapatilmasi gerekir ve bunu
+      // background isolate tek basina karar vermemeli.
+      _logBackgroundFailure('BG-AUTH', 'refreshAccessToken', error, stackTrace);
+    }
+  }
+
   Future<bool> _connect() async {
     if (signaling.currentStatus.isConnected) return true;
     final userId = session.userId;
@@ -342,6 +391,7 @@ class SecureChatBackgroundRuntime {
         url: AppConfig.current.signalingUrl,
         accessToken: token,
         tokenProvider: () async => session.accessToken,
+        refreshToken: refreshAccessToken,
       );
       return signaling.ensureConnected(timeout: const Duration(seconds: 8));
     } catch (_) {
