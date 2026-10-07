@@ -25,8 +25,14 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | `GET /metrics` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Prometheus; istemciye acilmaz. |
 | `GET /ready` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Readiness; bagimlilik durumu operator bilgisidir, bu yuzden metrics bearer token ardinda. |
 | `POST /api/v1/account/delete` | `auth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kimlik dogrulamali hesap silme. |
+| `POST /api/v1/account/recovery-email/request` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kurtarma e-postasi kaydi baslatir; hesap sahibi olmak gerekir. |
+| `POST /api/v1/account/recovery-email/status` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Yalniz cagiranin KENDI hesabi icin bagli/bagli degil doner. Guard sart: guard'siz olsaydi hangi hesabin kurtarma e-postasi oldugunu soyleyen bir numaralandirma kehaneti olurdu. |
+| `POST /api/v1/account/recovery-email/verify` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kurtarma e-postasi kaydini dogrular. |
 | `POST /api/v1/admin/accounts/{userId}/remove` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyonla hesap kaldirma; kullanici silme yoluyla ayni temizlik. |
 | `POST /api/v1/admin/reports/{reportId}/close` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyon karari kaydi. |
+| `POST /api/v1/auth/login/complete` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Dogrulanmis giristen sonra access+refresh basar. |
+| `POST /api/v1/auth/login/request` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | E-posta ile giris baslatir. Token'i olmayan bir istemci cagirdigi icin guard yok; siniri rate limit (`recovery_request`) ve sunucunun hesap varligini sizdirmayan sabit cevabi kuruyor. |
+| `POST /api/v1/auth/login/verify` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/secure_account_recovery_coordinator.dart` | Giris kodunu tuketir. Guard yerine gecen sey kodun kendisi. |
 | `POST /api/v1/auth/logout` | `auth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Refresh tokeni iptali. |
 | `POST /api/v1/auth/refresh` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Refresh tokeni tuketir ve dondurur. Access token gecerli olmadiginda da cagrilabilmesi gerekir, bu yuzden requireAuth yok. |
 | `POST /api/v1/directory/evaluate` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Sabit boyutlu korlenmis kisi degerlendirmesi. |
@@ -63,7 +69,7 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 
 ## Sonuc
 
-- Route: 34/34 eslenmis
+- Route: 40/40 eslenmis
 - Eslenmemis: yok
 - Guard uyusmazligi: yok
 - Servis guard'i ardinda olup istemci cagiriyor diye beyan edilen: yok

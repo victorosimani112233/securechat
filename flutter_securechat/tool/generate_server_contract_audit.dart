@@ -40,6 +40,16 @@ enum Guard {
   /// token'i gecmez; token tanimsizsa route 404 doner.
   adminToken,
 
+  /// `call.recoveryPrincipal()` — access token'i `AuthService.accessClaims`
+  /// ile dogrular ve gecersizse 401 doner, yani gucu `requireAuth` ile
+  /// ayni; farki userId yaninda epoch'u da dondurmesi.
+  ///
+  /// Ayri bir deger olmasi gerekiyor cunku ayri bir YAZIM. Bu kod tabaninda
+  /// "access token'i kontrol et" bes ayri sekilde yazilmis durumda; tespit
+  /// bu yuzden tahminle degil her yazimi acikca tanıyarak yapiliyor. Bu alt
+  /// kume, tespit edilemedigi surece denetime hic gorunmuyordu.
+  recoveryPrincipal,
+
   /// Guard yok ve olmamasi dogru: istek govdesinden bir kimlik tuketip
   /// token basan kayit/dogrulama yollari. Henuz token'i olmayan bir
   /// istemci cagirir.
@@ -70,10 +80,16 @@ const _serverRoot =
     'com/securechat/signaling/HttpRoutes.kt';
 
 /// HttpRoutes.kt disinda route tanimlayan ve denetime giren dosyalar.
-const _extraRouteSources = [
-  'flutter_securechat/server_hardened/signaling-server/src/main/kotlin/'
-      'com/securechat/signaling/AbuseReports.kt',
-];
+/// Route taranacak paket dizini.
+///
+/// Burada BILEREK dosya listesi yok. Liste tutuldugunda, listeye eklenmeyen
+/// yeni bir dosyaya konan route denetime hic gorunmez — ve denetimin tum
+/// amaci bir route'un fark edilmeden durmasini engellemek. Olculdu: route
+/// tanimi su an uc dosyada (HttpRoutes, AbuseReports, RecoveryAuthRoutes) ve
+/// bunlardan biri kuratorlu listede yoktu.
+const _routeSourceDirectory =
+    'flutter_securechat/server_hardened/signaling-server/src/main/kotlin/'
+    'com/securechat/signaling';
 
 const _routeContracts = <String, RouteContract>{
   'GET /': (
@@ -309,6 +325,52 @@ const _routeContracts = <String, RouteContract>{
     evidence: _serverRoot,
     note: 'PQXDH yetenek sorgusu. KULLANILMIYOR; kaldirilacak.',
   ),
+  // --- Hesap kurtarma ve e-posta girisi (RecoveryAuthRoutes.kt) ---
+  //
+  // Bu alti route denetime HIC gorunmuyordu: uretec yalnizca HttpRoutes.kt
+  // ve kuratorlu bir dosya listesini tariyordu, RecoveryAuthRoutes.kt
+  // listede yoktu. Ucu giris yolu. Paket dizini taranmaya baslandiginda
+  // ortaya ciktilar.
+  'POST /api/v1/account/recovery-email/request': (
+    status: 'COVERED',
+    guard: Guard.recoveryPrincipal,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note: 'Kurtarma e-postasi kaydi baslatir; hesap sahibi olmak gerekir.',
+  ),
+  'POST /api/v1/account/recovery-email/verify': (
+    status: 'COVERED',
+    guard: Guard.recoveryPrincipal,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note: 'Kurtarma e-postasi kaydini dogrular.',
+  ),
+  'POST /api/v1/account/recovery-email/status': (
+    status: 'COVERED',
+    guard: Guard.recoveryPrincipal,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note: 'Yalniz cagiranin KENDI hesabi icin bagli/bagli degil doner. '
+        'Guard sart: guard\'siz olsaydi hangi hesabin kurtarma e-postasi '
+        'oldugunu soyleyen bir numaralandirma kehaneti olurdu.',
+  ),
+  'POST /api/v1/auth/login/request': (
+    status: 'COVERED',
+    guard: Guard.preAuth,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note: 'E-posta ile giris baslatir. Token\'i olmayan bir istemci '
+        'cagirdigi icin guard yok; siniri rate limit (`recovery_request`) '
+        've sunucunun hesap varligini sizdirmayan sabit cevabi kuruyor.',
+  ),
+  'POST /api/v1/auth/login/verify': (
+    status: 'COVERED',
+    guard: Guard.preAuth,
+    evidence: 'flutter_securechat/lib/src/auth/secure_account_recovery_coordinator.dart',
+    note: 'Giris kodunu tuketir. Guard yerine gecen sey kodun kendisi.',
+  ),
+  'POST /api/v1/auth/login/complete': (
+    status: 'COVERED',
+    guard: Guard.preAuth,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note: 'Dogrulanmis giristen sonra access+refresh basar.',
+  ),
   'WS /ws': (
     status: 'COVERED',
     guard: Guard.auth,
@@ -388,6 +450,7 @@ Guard _detectGuard(String body) {
   if (body.contains('requirePrincipal(')) return Guard.principal;
   if (body.contains('requireAuth(')) return Guard.auth;
   if (body.contains('MetricsAccess.isAuthorized')) return Guard.bearerToken;
+  if (body.contains('recoveryPrincipal()')) return Guard.recoveryPrincipal;
   // Kodda ayrim yok; tablo preAuth mi public mi oldugunu soyler.
   return Guard.public;
 }
@@ -429,19 +492,42 @@ void main() {
     }
   }
 
-  final parsed = _parseHttpRoutes(routesFile.readAsStringSync());
-  final actualRoutes = {...parsed.routes};
-  final guards = {...parsed.guards};
-  for (final path in _extraRouteSources) {
-    final file = File('${repositoryRoot.path}/$path');
-    if (!file.existsSync()) {
-      stderr.writeln('Eksik sozlesme kaynagi: ${file.path}');
-      exitCode = 2;
-      return;
+  // Paketteki HER .kt dosyasi taranir; route hicbir dosyada saklanamaz.
+  final sourceDirectory = Directory(
+    '${repositoryRoot.path}/$_routeSourceDirectory',
+  );
+  if (!sourceDirectory.existsSync()) {
+    stderr.writeln('Eksik kaynak dizini: ${sourceDirectory.path}');
+    exitCode = 2;
+    return;
+  }
+  final actualRoutes = <String>{};
+  final guards = <String, Guard>{};
+  final routeOrigins = <String, String>{};
+  final kotlinSources = sourceDirectory
+      .listSync(recursive: true)
+      .whereType<File>()
+      .where((file) => file.path.endsWith('.kt'))
+      .toList()
+    ..sort((a, b) => a.path.compareTo(b.path));
+  for (final file in kotlinSources) {
+    final parsed = _parseHttpRoutes(file.readAsStringSync());
+    for (final route in parsed.routes) {
+      // Ayni yolun iki dosyada tanimlanmasi sessiz bir golgeleme olurdu:
+      // hangisinin kazandigi Ktor'daki kayit sirasina bagli kalir.
+      final previous = routeOrigins[route];
+      if (previous != null) {
+        stderr.writeln(
+          'Ayni route iki kaynakta tanimli: $route '
+          '($previous ve ${file.uri.pathSegments.last})',
+        );
+        exitCode = 2;
+        return;
+      }
+      routeOrigins[route] = file.uri.pathSegments.last;
     }
-    final extra = _parseHttpRoutes(file.readAsStringSync());
-    actualRoutes.addAll(extra.routes);
-    guards.addAll(extra.guards);
+    actualRoutes.addAll(parsed.routes);
+    guards.addAll(parsed.guards);
   }
 
   final wsSource = websocketFile.readAsStringSync();
