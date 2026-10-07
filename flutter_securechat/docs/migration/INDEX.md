@@ -24,9 +24,11 @@ dosyada ve hepsi sealed-sender/imzalama işi.
 
 | Ne | Nerede | Durum |
 |---|---|---|
-| Dar C ABI (Account + Session) | `native/securechat_crypto/src/lib.rs` | 5 Rust testi geçiyor |
-| Dart FFI katmanı | `lib/src/crypto/vodozemac/securechat_crypto_ffi.dart` | 14 Dart testi geçiyor |
-| Feasibility ölçümü | — | Android arm64 `.so` 0.55 MB stripped |
+| C ABI — Olm + Megolm | `native/securechat_crypto/src/{lib,megolm}.rs` | 10 Rust testi |
+| Dart FFI katmanı | `lib/src/crypto/vodozemac/securechat_crypto_ffi.dart` | 22 Dart testi |
+| Depolama + migration | `lib/src/crypto/vodozemac/vodozemac_{protocol_store,migration}.dart` | 24 Dart testi |
+| Android artefaktları | `android/app/src/main/jniLibs/` | 3 ABI, release audit PASS |
+| C başlığı | `native/securechat_crypto/include/securechat_crypto.h` | ABI 2 |
 
 Doğrulama:
 
@@ -76,14 +78,24 @@ Android ve Linux'ta `DynamicLibrary.open('libsecurechat_crypto.so')`.
 
 ## Görevler
 
-Kritik yol: 01 → 03 → 04 → 02. Geri kalanı paralel.
+Kritik yol: **01 → 03 → 02 → 04**. Geri kalanı paralel.
 
-| # | Görev | Bağımlılık | Tahmin |
-|---|---|---|---|
-| [01](TASK_01_native_build.md) | Native derleme + 5 hedef vendor'lama | — | 2-3 gün |
-| [02](TASK_02_megolm.md) | Megolm grup akışı (C ABI + Dart) | 01 | 3-5 gün |
-| [03](TASK_03_storage.md) | Depolama şeması + migration | 01 | 3-4 gün |
-| [04](TASK_04_crypto_service.md) | Kripto servisi yeniden yazımı | 03 | 4-6 gün |
+Sıralama düzeltildi: 04 başlangıçta 02'den önce yazılmıştı, ama kripto
+servisinin public yüzeyinde altı grup metodu var
+(`createSenderKeyDistribution`, `processSenderKeyDistribution`,
+`encryptGroup`, `encryptGroupWire`, `decryptGroup`, `resetLocalSenderKey`)
+ve hepsi libsignal'ın `GroupSessionBuilder`/`GroupCipher`'ı üzerine kurulu.
+Megolm olmadan 04 yarıda kalırdı. Yalnız direct mesajları taşımak da
+çözüm değil: iki kripto kütüphanesi aynı anda yüklü kalır, iki ratchet
+implementasyonu ve iki identity anahtar seti olur, üstelik GPL libsignal
+duracağı için lisans kazancı gerçekleşmez.
+
+| # | Görev | Bağımlılık | Tahmin | Durum |
+|---|---|---|---|---|
+| [01](TASK_01_native_build.md) | Native derleme + 5 hedef vendor'lama | — | 2-3 gün | Android tamam, iOS Mac'te |
+| [03](TASK_03_storage.md) | Depolama şeması + migration | 01 | 3-4 gün | tamam |
+| [02](TASK_02_megolm.md) | Megolm grup akışı (C ABI + Dart) | 01, 03 | 3-5 gün | tamam |
+| [04](TASK_04_crypto_service.md) | Kripto servisi yeniden yazımı | 02, 03 | 4-6 gün | sırada |
 | [05](TASK_05_server.md) | Sunucu sözleşmesi + AGPL temizliği | 04 | 2-3 gün |
 | [06](TASK_06_pushkit.md) | iOS PushKit + APNs VoIP | — | ~1 hafta |
 | [07](TASK_07_localization.md) | 432 çevrilmemiş string | — | 1 gün |

@@ -254,6 +254,199 @@ void main() {
     });
   });
 
+  group('grup oturumu', () {
+    test('giden oturum olusturulur ve kalici olur', () async {
+      final key = await store.withGroupSession(
+        'grup-1',
+        (session) async => session.sessionKey,
+      );
+
+      final sameKey = await store.withGroupSession(
+        'grup-1',
+        (session) async => session.sessionKey,
+      );
+
+      // Ayni grup icin ayni oturum devam etmeli, her cagri yeni oturum
+      // kurmamali: yoksa her mesaj yeni bir dagitim gerektirirdi.
+      expect(sameKey, key);
+    });
+
+    test('mesaj indeksi acilislar arasinda korunur', () async {
+      await store.withGroupSession(
+        'grup-1',
+        (session) async =>
+            session.encrypt(Uint8List.fromList(utf8.encode('ilk'))),
+      );
+      final sessionKey = await store.withGroupSession(
+        'grup-1',
+        (session) async => session.sessionKey,
+      );
+      await store.acceptGroupSessionKey(
+        groupId: 'grup-1',
+        senderId: 'ben',
+        sessionKey: sessionKey,
+      );
+      final sessionId = crypto.inboundGroupSession(sessionKey).sessionId;
+
+      final message = await store.withGroupSession(
+        'grup-1',
+        (session) async =>
+            session.encrypt(Uint8List.fromList(utf8.encode('ikinci'))),
+      );
+      final plaintext = await store.decryptGroupMessage(
+        groupId: 'grup-1',
+        senderId: 'ben',
+        sessionId: sessionId,
+        message: message,
+      );
+
+      expect(utf8.decode(plaintext), 'ikinci');
+    });
+
+    test('replay reddedilir', () async {
+      final sessionKey = await store.withGroupSession(
+        'grup-1',
+        (session) async => session.sessionKey,
+      );
+      await store.acceptGroupSessionKey(
+        groupId: 'grup-1',
+        senderId: 'alice',
+        sessionKey: sessionKey,
+      );
+      final sessionId = crypto.inboundGroupSession(sessionKey).sessionId;
+      final message = await store.withGroupSession(
+        'grup-1',
+        (session) async =>
+            session.encrypt(Uint8List.fromList(utf8.encode('bir kez'))),
+      );
+
+      // Ilk cozme gecer.
+      expect(
+        utf8.decode(
+          await store.decryptGroupMessage(
+            groupId: 'grup-1',
+            senderId: 'alice',
+            sessionId: sessionId,
+            message: message,
+          ),
+        ),
+        'bir kez',
+      );
+
+      // Ayni mesaj ikinci kez reddedilmeli: vodozemac bunu kendisi takip
+      // etmiyor, kontrol store'da.
+      await expectLater(
+        store.decryptGroupMessage(
+          groupId: 'grup-1',
+          senderId: 'alice',
+          sessionId: sessionId,
+          message: message,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('replay'),
+          ),
+        ),
+      );
+    });
+
+    test('dagitimi tekrar gondermek replay korumasini sifirlamaz', () async {
+      final sessionKey = await store.withGroupSession(
+        'grup-1',
+        (session) async => session.sessionKey,
+      );
+      await store.acceptGroupSessionKey(
+        groupId: 'grup-1',
+        senderId: 'alice',
+        sessionKey: sessionKey,
+      );
+      final sessionId = crypto.inboundGroupSession(sessionKey).sessionId;
+      final message = await store.withGroupSession(
+        'grup-1',
+        (session) async =>
+            session.encrypt(Uint8List.fromList(utf8.encode('x'))),
+      );
+      await store.decryptGroupMessage(
+        groupId: 'grup-1',
+        senderId: 'alice',
+        sessionId: sessionId,
+        message: message,
+      );
+
+      // Saldirgan ayni dagitimi tekrar gonderirse gorulen indeks
+      // sifirlanmamali; aksi halde bu replay'e acik kapi olurdu.
+      await store.acceptGroupSessionKey(
+        groupId: 'grup-1',
+        senderId: 'alice',
+        sessionKey: sessionKey,
+      );
+
+      await expectLater(
+        store.decryptGroupMessage(
+          groupId: 'grup-1',
+          senderId: 'alice',
+          sessionId: sessionId,
+          message: message,
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('bilinmeyen grup oturumu acikca hata verir', () {
+      expect(
+        () => store.decryptGroupMessage(
+          groupId: 'grup-1',
+          senderId: 'alice',
+          sessionId: 'yok',
+          message: 'x',
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('giden oturum sifirlanirsa yeni anahtar uretilir', () async {
+      final first = await store.withGroupSession(
+        'grup-1',
+        (session) async => session.sessionKey,
+      );
+
+      await store.resetGroupSession('grup-1');
+      final second = await store.withGroupSession(
+        'grup-1',
+        (session) async => session.sessionKey,
+      );
+
+      // Uye cikarildiginda ayrilan uye yeni mesajlari cozememeli.
+      expect(second, isNot(first));
+    });
+
+    test('grup oturumlari topluca silinebilir', () async {
+      final sessionKey = await store.withGroupSession(
+        'grup-1',
+        (session) async => session.sessionKey,
+      );
+      await store.acceptGroupSessionKey(
+        groupId: 'grup-1',
+        senderId: 'alice',
+        sessionKey: sessionKey,
+      );
+
+      await store.deleteGroupSessions('grup-1');
+
+      expect(
+        () => store.decryptGroupMessage(
+          groupId: 'grup-1',
+          senderId: 'alice',
+          sessionId: crypto.inboundGroupSession(sessionKey).sessionId,
+          message: 'x',
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
   group('migration', () {
     test('ilk kosuda kosar, ikincide kosmaz', () async {
       final migration = VodozemacMigration(database);

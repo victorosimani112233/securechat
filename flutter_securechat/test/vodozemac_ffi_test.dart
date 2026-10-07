@@ -275,6 +275,121 @@ void main() {
     );
   });
 
+  group('Megolm grup oturumu', () {
+    test('dagitim anahtariyla kurulan gelen oturum ayni kimlige sahip', () {
+      final outbound = crypto.createGroupSession();
+      addTearDown(outbound.dispose);
+      final inbound = crypto.inboundGroupSession(outbound.sessionKey);
+      addTearDown(inbound.dispose);
+
+      expect(inbound.sessionId, outbound.sessionId);
+    });
+
+    test('grup mesaji sifrelenir ve uyede cozulur', () {
+      final outbound = crypto.createGroupSession();
+      addTearDown(outbound.dispose);
+      final inbound = crypto.inboundGroupSession(outbound.sessionKey);
+      addTearDown(inbound.dispose);
+
+      final message = outbound.encrypt(
+        Uint8List.fromList(utf8.encode('gruba mesaj')),
+      );
+      final decrypted = inbound.decrypt(message);
+
+      expect(utf8.decode(decrypted.plaintext), 'gruba mesaj');
+      expect(decrypted.messageIndex, 0);
+    });
+
+    test('mesaj indeksi her sifrelemede ilerler', () {
+      final outbound = crypto.createGroupSession();
+      addTearDown(outbound.dispose);
+      final inbound = crypto.inboundGroupSession(outbound.sessionKey);
+      addTearDown(inbound.dispose);
+      final payload = Uint8List.fromList(utf8.encode('ayni'));
+
+      final indices = [
+        for (var i = 0; i < 3; i++)
+          inbound.decrypt(outbound.encrypt(payload)).messageIndex,
+      ];
+
+      // Replay tespiti buna dayaniyor: indeks tekrar etmemeli.
+      expect(indices, [0, 1, 2]);
+    });
+
+    test('ayni plaintext her seferinde farkli ciphertext uretir', () {
+      final outbound = crypto.createGroupSession();
+      addTearDown(outbound.dispose);
+      final payload = Uint8List.fromList(utf8.encode('ayni metin'));
+
+      expect(outbound.encrypt(payload), isNot(outbound.encrypt(payload)));
+    });
+
+    test('pickle gidip gelince oturumlar devam eder', () {
+      final outbound = crypto.createGroupSession();
+      addTearDown(outbound.dispose);
+      final inbound = crypto.inboundGroupSession(outbound.sessionKey);
+      addTearDown(inbound.dispose);
+      outbound.encrypt(Uint8List.fromList(utf8.encode('ilk')));
+
+      final restoredOut = crypto.groupSessionFromPickle(
+        outbound.pickle(pickleKey),
+        pickleKey,
+      );
+      addTearDown(restoredOut.dispose);
+      final restoredIn = crypto.inboundGroupSessionFromPickle(
+        inbound.pickle(pickleKey),
+        pickleKey,
+      );
+      addTearDown(restoredIn.dispose);
+
+      final decrypted = restoredIn.decrypt(
+        restoredOut.encrypt(Uint8List.fromList(utf8.encode('ikinci'))),
+      );
+
+      // Indeks kayipsiz tasindi: ilk mesaj 0 idi, bu 1 olmali.
+      expect(utf8.decode(decrypted.plaintext), 'ikinci');
+      expect(decrypted.messageIndex, 1);
+    });
+
+    test('baska oturumun mesaji cozulmez', () {
+      final first = crypto.createGroupSession();
+      addTearDown(first.dispose);
+      final second = crypto.createGroupSession();
+      addTearDown(second.dispose);
+      final inbound = crypto.inboundGroupSession(second.sessionKey);
+      addTearDown(inbound.dispose);
+
+      expect(
+        () => inbound.decrypt(
+          first.encrypt(Uint8List.fromList(utf8.encode('yabanci'))),
+        ),
+        throwsA(isA<SecureChatCryptoException>()),
+      );
+    });
+
+    test('gecersiz oturum anahtari reddedilir', () {
+      expect(
+        () => crypto.inboundGroupSession('bu-anahtar-degil'),
+        throwsA(
+          isA<SecureChatCryptoException>().having(
+            (error) => error.message,
+            'message',
+            contains('cozulemedi'),
+          ),
+        ),
+      );
+    });
+
+    test('dispose edilmis grup oturumu kullanilamaz', () {
+      final outbound = crypto.createGroupSession();
+      outbound.dispose();
+
+      expect(outbound.isDisposed, isTrue);
+      expect(() => outbound.sessionKey, throwsA(isA<SecureChatCryptoException>()));
+      outbound.dispose();
+    });
+  });
+
   test('dispose edilmis handle kullanilamaz', () {
     final account = crypto.createAccount();
     account.dispose();

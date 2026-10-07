@@ -23,6 +23,8 @@ use std::cell::RefCell;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
 
+mod megolm;
+
 use vodozemac::olm::{Account, OlmMessage, PreKeyMessage, Session, SessionConfig};
 use vodozemac::Curve25519PublicKey;
 
@@ -30,14 +32,14 @@ thread_local! {
     static LAST_ERROR: RefCell<Option<CString>> = const { RefCell::new(None) };
 }
 
-fn set_error(message: impl Into<String>) {
+pub(crate) fn set_error(message: impl Into<String>) {
     let text = message.into();
     let encoded = CString::new(text)
         .unwrap_or_else(|_| CString::new("hata mesaji NUL bayti tasiyordu").expect("statik mesaj"));
     LAST_ERROR.with(|slot| *slot.borrow_mut() = Some(encoded));
 }
 
-fn clear_error() {
+pub(crate) fn clear_error() {
     LAST_ERROR.with(|slot| *slot.borrow_mut() = None);
 }
 
@@ -66,14 +68,14 @@ pub unsafe extern "C" fn sc_string_free(value: *mut c_char) {
 /// doğrular; eşleşmezse yanlış `.so` ile sessizce çalışmak yerine açık hata.
 #[no_mangle]
 pub extern "C" fn sc_abi_version() -> u32 {
-    1
+    2
 }
 
 // ---------------------------------------------------------------------------
 // Yardimcilar
 // ---------------------------------------------------------------------------
 
-fn to_c_string(value: String) -> *mut c_char {
+pub(crate) fn to_c_string(value: String) -> *mut c_char {
     match CString::new(value) {
         Ok(encoded) => encoded.into_raw(),
         Err(_) => {
@@ -83,7 +85,7 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
-unsafe fn borrow_str<'a>(value: *const c_char, name: &str) -> Option<&'a str> {
+pub(crate) unsafe fn borrow_str<'a>(value: *const c_char, name: &str) -> Option<&'a str> {
     if value.is_null() {
         set_error(format!("{name} null olamaz"));
         return None;
@@ -97,7 +99,7 @@ unsafe fn borrow_str<'a>(value: *const c_char, name: &str) -> Option<&'a str> {
     }
 }
 
-unsafe fn borrow_key<'a>(value: *const u8) -> Option<&'a [u8; 32]> {
+pub(crate) unsafe fn borrow_key<'a>(value: *const u8) -> Option<&'a [u8; 32]> {
     if value.is_null() {
         set_error("pickle anahtari null olamaz");
         return None;
@@ -105,7 +107,7 @@ unsafe fn borrow_key<'a>(value: *const u8) -> Option<&'a [u8; 32]> {
     Some(&*(value as *const [u8; 32]))
 }
 
-unsafe fn borrow_bytes<'a>(value: *const u8, len: usize) -> Option<&'a [u8]> {
+pub(crate) unsafe fn borrow_bytes<'a>(value: *const u8, len: usize) -> Option<&'a [u8]> {
     if value.is_null() && len != 0 {
         set_error("bayt tamponu null olamaz");
         return None;
@@ -608,7 +610,11 @@ mod tests {
 
     #[test]
     fn abi_surumu_sabit() {
-        assert_eq!(sc_abi_version(), 1);
+        // 1 = Olm (Account + Session). 2 = Megolm grup oturumlari eklendi.
+        // Degistirilirse `include/securechat_crypto.h` ve Dart tarafindaki
+        // `expectedAbiVersion` birlikte guncellenmeli; Dart testi ucunu de
+        // birbirine bagliyor.
+        assert_eq!(sc_abi_version(), 2);
     }
 
     #[test]

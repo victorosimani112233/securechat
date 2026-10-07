@@ -38,6 +38,8 @@ class SecureChatDatabase {
     pendingSignals = PendingSignalDao._(this);
     vodozemacAccount = VodozemacAccountDao._(this);
     vodozemacSessions = VodozemacSessionDao._(this);
+    vodozemacGroupSessions = VodozemacGroupSessionDao._(this);
+    vodozemacInboundGroupSessions = VodozemacInboundGroupSessionDao._(this);
   }
 
   final EncryptedRecordStore _store;
@@ -120,6 +122,8 @@ class SecureChatDatabase {
   /// devralana kadar iki depo birlikte yasar.
   late final VodozemacAccountDao vodozemacAccount;
   late final VodozemacSessionDao vodozemacSessions;
+  late final VodozemacGroupSessionDao vodozemacGroupSessions;
+  late final VodozemacInboundGroupSessionDao vodozemacInboundGroupSessions;
 
   /// Artimli deponun dosya yolu. Eski JSON dosyasi YERINDE BIRAKILIR:
   /// gecis dogrulanana kadar geri donus yolu acik kalmali.
@@ -270,6 +274,14 @@ class SecureChatDatabase {
         'vodozemacSessions',
         VodozemacSessionEntity.fromJson,
       ),
+      vodozemacGroupSessions: byString(
+        'vodozemacGroupSessions',
+        VodozemacGroupSessionEntity.fromJson,
+      ),
+      vodozemacInboundGroupSessions: byString(
+        'vodozemacInboundGroupSessions',
+        VodozemacInboundGroupSessionEntity.fromJson,
+      ),
     );
   }
 
@@ -402,6 +414,8 @@ class SecureChatDatabase {
     snapshot.senderKeys.clear();
     snapshot.vodozemacAccount.clear();
     snapshot.vodozemacSessions.clear();
+    snapshot.vodozemacGroupSessions.clear();
+    snapshot.vodozemacInboundGroupSessions.clear();
     snapshot.cryptoState.removeWhere(
       (key, _) =>
           key == 'local_registration_id' ||
@@ -439,6 +453,8 @@ class SecureChatDatabase {
     snapshot.senderKeys.clear();
     snapshot.vodozemacAccount.clear();
     snapshot.vodozemacSessions.clear();
+    snapshot.vodozemacGroupSessions.clear();
+    snapshot.vodozemacInboundGroupSessions.clear();
     snapshot.cryptoState.removeWhere(
       (key, _) => key.startsWith('pending_sender_key_rotation:'),
     );
@@ -1732,6 +1748,46 @@ class VodozemacSessionDao {
   Future<int> count() async => _db._snapshot.vodozemacSessions.length;
 }
 
+/// Giden grup oturumlari — grup basina bir tane.
+class VodozemacGroupSessionDao {
+  VodozemacGroupSessionDao._(this._db);
+  final SecureChatDatabase _db;
+
+  Future<VodozemacGroupSessionEntity?> get(String groupId) async =>
+      _db._snapshot.vodozemacGroupSessions[groupId];
+
+  Future<void> upsert(VodozemacGroupSessionEntity session) =>
+      _db._write((s) => s.vodozemacGroupSessions[session.groupId] = session);
+
+  Future<void> delete(String groupId) =>
+      _db._write((s) => s.vodozemacGroupSessions.remove(groupId));
+}
+
+/// Gelen grup oturumlari — gonderen ve oturum basina bir tane.
+class VodozemacInboundGroupSessionDao {
+  VodozemacInboundGroupSessionDao._(this._db);
+  final SecureChatDatabase _db;
+
+  Future<VodozemacInboundGroupSessionEntity?> get(
+    String groupId,
+    String senderId,
+    String sessionId,
+  ) async =>
+      _db._snapshot.vodozemacInboundGroupSessions[VodozemacInboundGroupSessionEntity
+          .keyFor(groupId, senderId, sessionId)];
+
+  Future<void> upsert(VodozemacInboundGroupSessionEntity session) =>
+      _db._write(
+        (s) => s.vodozemacInboundGroupSessions[session.key] = session,
+      );
+
+  Future<void> deleteForGroup(String groupId) => _db._write(
+    (s) => s.vodozemacInboundGroupSessions.removeWhere(
+      (_, session) => session.groupId == groupId,
+    ),
+  );
+}
+
 class _StorageSnapshot {
   _StorageSnapshot({
     required Map<String, ConversationEntity> conversations,
@@ -1751,6 +1807,9 @@ class _StorageSnapshot {
     required Map<String, String> cryptoState,
     required Map<String, VodozemacAccountEntity> vodozemacAccount,
     required Map<String, VodozemacSessionEntity> vodozemacSessions,
+    required Map<String, VodozemacGroupSessionEntity> vodozemacGroupSessions,
+    required Map<String, VodozemacInboundGroupSessionEntity>
+    vodozemacInboundGroupSessions,
   }) : conversations = _TrackedMap(
          'conversations',
          conversations,
@@ -1852,6 +1911,18 @@ class _StorageSnapshot {
          vodozemacSessions,
          (value) => value.toJson(),
          (key) => key,
+       ),
+       vodozemacGroupSessions = _TrackedMap(
+         'vodozemacGroupSessions',
+         vodozemacGroupSessions,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       vodozemacInboundGroupSessions = _TrackedMap(
+         'vodozemacInboundGroupSessions',
+         vodozemacInboundGroupSessions,
+         (value) => value.toJson(),
+         (key) => key,
        );
 
   final _TrackedMap<String, ConversationEntity> conversations;
@@ -1872,6 +1943,10 @@ class _StorageSnapshot {
   final _TrackedMap<String, String> cryptoState;
   final _TrackedMap<String, VodozemacAccountEntity> vodozemacAccount;
   final _TrackedMap<String, VodozemacSessionEntity> vodozemacSessions;
+  final _TrackedMap<String, VodozemacGroupSessionEntity>
+  vodozemacGroupSessions;
+  final _TrackedMap<String, VodozemacInboundGroupSessionEntity>
+  vodozemacInboundGroupSessions;
 
   /// Degisiklik izleyen tum koleksiyonlar.
   List<_Tracked> get tracked => [
@@ -1908,7 +1983,9 @@ class _StorageSnapshot {
       senderKeys.isEmpty &&
       pendingSignals.isEmpty &&
       vodozemacAccount.isEmpty &&
-      vodozemacSessions.isEmpty;
+      vodozemacSessions.isEmpty &&
+      vodozemacGroupSessions.isEmpty &&
+      vodozemacInboundGroupSessions.isEmpty;
 
   factory _StorageSnapshot.empty() => _StorageSnapshot(
     conversations: {},
@@ -1928,6 +2005,8 @@ class _StorageSnapshot {
     pendingSignals: {},
     vodozemacAccount: {},
     vodozemacSessions: {},
+    vodozemacGroupSessions: {},
+    vodozemacInboundGroupSessions: {},
   );
 
   factory _StorageSnapshot.fromJson(Map<String, Object?> json) {
@@ -2011,6 +2090,16 @@ class _StorageSnapshot {
       vodozemacSessions: _mapByString(
         json['vodozemacSessions'],
         VodozemacSessionEntity.fromJson,
+        (entity) => entity.key,
+      ),
+      vodozemacGroupSessions: _mapByString(
+        json['vodozemacGroupSessions'],
+        VodozemacGroupSessionEntity.fromJson,
+        (entity) => entity.groupId,
+      ),
+      vodozemacInboundGroupSessions: _mapByString(
+        json['vodozemacInboundGroupSessions'],
+        VodozemacInboundGroupSessionEntity.fromJson,
         (entity) => entity.key,
       ),
     );

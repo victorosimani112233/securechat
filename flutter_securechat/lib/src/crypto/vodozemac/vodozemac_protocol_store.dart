@@ -150,4 +150,129 @@ class VodozemacProtocolStore {
   /// Bir peer ile butun oturumlari siler. Kimlik degisiminde kullanilir.
   Future<void> deleteSessionsForPeer(String peerId) =>
       _database.vodozemacSessions.deleteForPeer(peerId);
+
+  // -------------------------------------------------------------------------
+  // Megolm — grup oturumlari
+  // -------------------------------------------------------------------------
+
+  /// Grup icin giden oturumu acar, [action]'i kosar, SONRA yeniden
+  /// pickle'layip saklar. Oturum yoksa olusturulur.
+  ///
+  /// Her `encrypt` mesaj indeksini ilerletir ve yazilmazsa ayni indeks tekrar
+  /// kullanilir; o yuzden kaydetme burada, cagirana birakilmadan yapilir.
+  Future<T> withGroupSession<T>(
+    String groupId,
+    Future<T> Function(MegolmGroupSession session) action,
+  ) async {
+    final stored = await _database.vodozemacGroupSessions.get(groupId);
+    final session = stored == null
+        ? _crypto.createGroupSession()
+        : _crypto.groupSessionFromPickle(stored.pickle, _pickleKey);
+    try {
+      final result = await action(session);
+      await _database.vodozemacGroupSessions.upsert(
+        VodozemacGroupSessionEntity(
+          groupId: groupId,
+          sessionId: session.sessionId,
+          pickle: session.pickle(_pickleKey),
+        ),
+      );
+      return result;
+    } finally {
+      session.dispose();
+    }
+  }
+
+  /// Grubun giden oturumunu siler; sonraki [withGroupSession] yenisini kurar.
+  /// Uye cikarmada kullanilir: ayrilan uye yeni mesajlari cozememeli.
+  Future<void> resetGroupSession(String groupId) =>
+      _database.vodozemacGroupSessions.delete(groupId);
+
+  /// Bir gonderenden gelen oturum anahtarini kaydeder.
+  ///
+  /// libsignal'daki `processSenderKeyDistribution` karsiligi.
+  Future<void> acceptGroupSessionKey({
+    required String groupId,
+    required String senderId,
+    required String sessionKey,
+  }) async {
+    final session = _crypto.inboundGroupSession(sessionKey);
+    try {
+      final existing = await _database.vodozemacInboundGroupSessions.get(
+        groupId,
+        senderId,
+        session.sessionId,
+      );
+      // Ayni oturum tekrar dagitilirsa gorulen indeksi SIFIRLAMA: aksi halde
+      // dagitimi tekrar gondermek replay korumasini devre disi birakmanin
+      // yolu olurdu.
+      if (existing != null) return;
+      await _database.vodozemacInboundGroupSessions.upsert(
+        VodozemacInboundGroupSessionEntity(
+          groupId: groupId,
+          senderId: senderId,
+          sessionId: session.sessionId,
+          pickle: session.pickle(_pickleKey),
+          highestMessageIndex: -1,
+        ),
+      );
+    } finally {
+      session.dispose();
+    }
+  }
+
+  /// Grup mesajini cozer ve REPLAY'i reddeder.
+  ///
+  /// Megolm bir oturumda her plaintext'i tek bir indeksle sifreler, yani ayni
+  /// indeksin ikinci kez gorulmesi tekrar oynatmadir. vodozemac bunu kendisi
+  /// takip etmiyor; gorulen en yuksek indeks saklanir ve burada kontrol
+  /// edilir. Kontrolu cagirana birakmak, unutuldugunda sessizce replay'e
+  /// acik bir sistem verirdi.
+  ///
+  /// @throws StateError oturum bilinmiyorsa veya mesaj replay ise.
+  Future<Uint8List> decryptGroupMessage({
+    required String groupId,
+    required String senderId,
+    required String sessionId,
+    required String message,
+  }) async {
+    final stored = await _database.vodozemacInboundGroupSessions.get(
+      groupId,
+      senderId,
+      sessionId,
+    );
+    if (stored == null) {
+      throw StateError(
+        'grup oturumu bilinmiyor: $groupId / $senderId / $sessionId',
+      );
+    }
+    final session = _crypto.inboundGroupSessionFromPickle(
+      stored.pickle,
+      _pickleKey,
+    );
+    try {
+      final decrypted = session.decrypt(message);
+      if (decrypted.messageIndex <= stored.highestMessageIndex) {
+        throw StateError(
+          'replay reddedildi: indeks ${decrypted.messageIndex}, '
+          'gorulen en yuksek ${stored.highestMessageIndex}',
+        );
+      }
+      await _database.vodozemacInboundGroupSessions.upsert(
+        stored.copyWith(
+          pickle: session.pickle(_pickleKey),
+          highestMessageIndex: decrypted.messageIndex,
+        ),
+      );
+      return decrypted.plaintext;
+    } finally {
+      session.dispose();
+    }
+  }
+
+  /// Bir grubun butun gelen oturumlarini siler.
+  Future<void> deleteGroupSessions(String groupId) async {
+    await _database.vodozemacGroupSessions.delete(groupId);
+    await _database.vodozemacInboundGroupSessions.deleteForGroup(groupId);
+  }
 }

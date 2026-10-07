@@ -96,6 +96,53 @@ char *sc_session_decrypt(ScSession *session,
                          size_t message_type,
                          const char *body);
 
+/* --- Megolm: grup oturumlari (ABI 2) --------------------------------- */
+
+typedef struct ScGroupSession ScGroupSession;
+typedef struct ScInboundGroupSession ScInboundGroupSession;
+
+/* Giden grup oturumu: olusturan taraf mesajlari bununla sifreler. */
+ScGroupSession *sc_group_session_new(void);
+void sc_group_session_free(ScGroupSession *session);
+ScGroupSession *sc_group_session_from_pickle(const char *pickle,
+                                             const uint8_t *pickle_key);
+char *sc_group_session_pickle(const ScGroupSession *session,
+                              const uint8_t *pickle_key);
+char *sc_group_session_id(const ScGroupSession *session);
+
+/* Uyelere dagitilacak oturum anahtari, base64. libsignal'daki
+ * SenderKeyDistributionMessage karsiligi; her aliciya ayri ayri, uctan uca
+ * sifreli direct kanal uzerinden gonderilir. */
+char *sc_group_session_key(const ScGroupSession *session);
+
+/* Mesaj indeksini ilerletir; cagiran oturumu yeniden pickle'layip saklamak
+ * ZORUNDA, aksi halde ayni indeks tekrar kullanilir. */
+char *sc_group_session_encrypt(ScGroupSession *session,
+                               const uint8_t *plaintext,
+                               size_t plaintext_len);
+
+/* Gelen grup oturumu: dagitilan anahtardan kurulur. */
+ScInboundGroupSession *sc_inbound_group_session_new(const char *session_key);
+void sc_inbound_group_session_free(ScInboundGroupSession *session);
+ScInboundGroupSession *sc_inbound_group_session_from_pickle(
+    const char *pickle, const uint8_t *pickle_key);
+char *sc_inbound_group_session_pickle(const ScInboundGroupSession *session,
+                                      const uint8_t *pickle_key);
+char *sc_inbound_group_session_id(const ScInboundGroupSession *session);
+
+/* {"plaintext":"<b64>","messageIndex":<u32>}
+ *
+ * messageIndex REPLAY TESPITI icindir: bir oturumda her plaintext tek bir
+ * indeksle sifrelenir, yani ayni indeksin ikinci kez gorulmesi tekrar
+ * oynatmadir. Cagiran bunu saklayip kontrol etmek zorunda; kutuphane
+ * kendisi takip etmiyor.
+ *
+ * GECMIS PAYLASIMI YOK: vodozemac'in export_at/import fonksiyonlari bir
+ * oturum anahtarinin daha erken bir indeksten paylasilmasina izin veriyor ve
+ * bu yeni katilana gecmisi acar. ABI'ye bilerek konmadi. */
+char *sc_inbound_group_session_decrypt(ScInboundGroupSession *session,
+                                       const char *message);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,89 +1,79 @@
 # 02 — Megolm grup akışı
 
-**Bağımlılık:** 01 · **Tahmin:** 3-5 gün
-
-## Amaç
-
-C ABI'ye ve Dart katmanına Megolm'u eklemek: mevcut SenderKey tabanlı grup
-mesajlaşmasının karşılığı.
+**Durum: TAMAM** · **Bağımlılık:** 01, 03
 
 ## Eşleme
 
 ```
 libsignal                        vodozemac
-GroupCipher                      GroupSession (giden)
+GroupCipher (giden)              GroupSession
                                  InboundGroupSession (gelen)
-SenderKeyDistributionMessage     SessionKey  (ilk dagitim)
-                                 ExportedSessionKey (gecmis paylasimi)
+SenderKeyDistributionMessage     SessionKey
 SenderKeyRecord                  GroupSessionPickle / InboundGroupSessionPickle
 ```
 
-Rust tarafında kullanılacak tipler `vodozemac::megolm` altında:
-`GroupSession`, `GroupSessionPickle`, `InboundGroupSession`, `MegolmMessage`,
-`SessionKey`, `ExportedSessionKey`, `SessionConfig`.
+## Yapıldı
 
-## Yapılacaklar
+**C ABI** — `native/securechat_crypto/src/megolm.rs`, 13 fonksiyon.
+`lib.rs` sözleşmesi birebir korundu: `null` = hata, `sc_last_error()`,
+`sc_string_free`, her unsafe fonksiyonda `# Safety`. 5 Rust testi.
 
-1. `native/securechat_crypto/src/lib.rs` desenini izleyerek
-   `src/megolm.rs` ekle. Mevcut dosyadaki sözleşmeyi birebir koru:
-   pointer dönenlerde `null` = hata, ayrıntı `sc_last_error()`, stringler
-   `sc_string_free` ile serbest, handle'lar `*_free` ile yok edilir.
+**ABI sürümü 2**'ye çıkarıldı. Üç yer birlikte güncellendi — Rust gövdesi,
+`include/securechat_crypto.h`, Dart `expectedAbiVersion` — ve
+`test/vodozemac_ffi_test.dart` içindeki tutarlılık testi üçünü bağlıyor.
 
-2. Fonksiyonlar (öneri):
-   ```
-   sc_group_session_new() -> *mut GroupSession
-   sc_group_session_free / _pickle / _from_pickle
-   sc_group_session_id / _message_index
-   sc_group_session_key(gs) -> *mut c_char          // ilk dagitim
-   sc_group_session_encrypt(gs, bytes, len) -> *mut c_char  // base64
-   sc_inbound_group_session_new(session_key_b64) -> *mut InboundGroupSession
-   sc_inbound_group_session_import(exported_key_b64) -> *mut InboundGroupSession
-   sc_inbound_group_session_free / _pickle / _from_pickle
-   sc_inbound_group_session_decrypt(igs, message_b64) -> *mut c_char
-   ```
+**Dart** — `MegolmGroupSession`, `MegolmInboundSession`, `MegolmDecrypted`.
+8 test.
 
-3. `sc_abi_version()` değerini **2**'ye yükselt ve
-   `securechat_crypto_ffi.dart` içindeki `expectedAbiVersion` sabitini
-   birlikte güncelle. İkisi ayrı düşerse yanlış `.so` sessizce çalışır.
+**Depolama** — `VodozemacGroupSessionEntity` (grup başına giden oturum) ve
+`VodozemacInboundGroupSessionEntity` (gönderen + oturum başına gelen).
+Koleksiyonlar, DAO'lar ve iki temizleme noktası güncellendi.
 
-4. Dart tarafında `OlmAccount`/`OlmSession` desenini izleyen
-   `MegolmGroupSession` ve `MegolmInboundSession` sınıfları; `dispose()`
-   ve dispose sonrası kullanım kontrolü dahil.
+**Store** — `withGroupSession`, `acceptGroupSessionKey`,
+`decryptGroupMessage`, `resetGroupSession`, `deleteGroupSessions`. 7 test.
 
-5. Rust testleri + Dart testleri: grup oturumu kur, anahtar dağıt, şifrele,
-   başka bir tarafta çöz, pickle gidip gel, mesaj indeksi ilerliyor mu.
+## İki güvenlik kararı
 
-## Tuzaklar
+**Geçmiş paylaşımı ABI'ye konmadı.** vodozemac `export_at` ve `import` ile
+bir oturum anahtarının **daha erken bir indeksten** paylaşılmasına izin
+veriyor; bu yeni katılana geçmiş mesajları açar ve 2016 NCC Group
+denetiminin Megolm'da işaret ettiği zayıflığın dayandığı yer de burası.
+Ürün geçmiş paylaşmıyor, o yüzden o iki fonksiyon hiç dışa açılmadı:
+yalnızca güncel `session_key` dağıtılabilir.
 
-**Megolm'un bilinen zayıflığı:** oturum anahtarı daha erken bir indeksten
-paylaşılabiliyor, bu da geçmiş paylaşımına izin veriyor. 2016 NCC Group
-denetimi Megolm'da unknown key-share saldırısı buldu. Grup anahtarını hangi
-indeksten paylaştığına dikkat et; geçmiş paylaşımı istemiyorsan
-`ExportedSessionKey` yerine yalnızca güncel `SessionKey` dağıt.
+**Replay koruması store'un içinde.** Megolm bir oturumda her plaintext'i
+tek bir indeksle şifreliyor, yani aynı indeksin ikinci kez görülmesi tekrar
+oynatmadır — ve **vodozemac bunu kendisi takip etmiyor.** Kontrolü çağırana
+bırakmak, unutulduğunda sessizce replay'e açık bir sistem verirdi.
+`decryptGroupMessage` görülen en yüksek indeksi saklıyor ve küçük veya eşit
+indeksi reddediyor.
 
-**Her `encrypt` mesaj indeksini ilerletir.** Pickle'ı her çağrıdan sonra
-sakla.
+Buna bağlı bir incelik: `acceptGroupSessionKey` aynı oturum tekrar
+dağıtılırsa görülen indeksi **sıfırlamıyor**. Aksi halde saldırgan dağıtımı
+tekrar göndererek replay korumasını devre dışı bırakabilirdi. Testli.
 
-## Bitirme ölçütü
+## Doğrulama
 
-- ABI sürümü iki tarafta da 2
-- Rust ve Dart testleri geçiyor
-- Üç taraflı bir grupta mesaj dağıtımı testte doğrulanmış
-
----
-
-## Ortak zemin
-
-Önce [INDEX.md](INDEX.md) oku — mimari kararlar ve herkesi ilgilendiren
-tuzaklar orada. Özellikle: vodozemac base64'ü padding'siz üretir, one-time
-key'ler Account pickle'ının içinde durur, her encrypt/decrypt sonrası
-yeniden pickle gerekir, ve Famedly'nin AGPL Dart binding'ine bakılmaz.
-
-## Bitirme ölçütü
-
-```bash
-cd /home/user497/securechat/flutter_securechat
-export PATH="/home/user497/flutter/bin:$PATH"
-flutter analyze --no-pub     # temiz olmali
-flutter test --no-pub        # tamami gecmeli
 ```
+cargo test        10/10
+cargo clippy      0 hata (-D warnings)
+flutter test      1253/1253
+Android artefakt  3 ABI, ABI 2, release audit PASS
+```
+
+## 04 için notlar
+
+Servisin altı grup metodunun karşılığı artık hazır:
+
+```
+createSenderKeyDistribution  -> withGroupSession(...).sessionKey
+processSenderKeyDistribution -> acceptGroupSessionKey(...)
+encryptGroup / encryptGroupWire -> withGroupSession(...).encrypt(...)
+decryptGroup                 -> decryptGroupMessage(...)
+resetLocalSenderKey          -> resetGroupSession(...)
+```
+
+`decryptGroupMessage` **sessionId istiyor**: Megolm mesajı hangi oturuma ait
+olduğunu kendi içinde taşımıyor, o yüzden kablo formatında taşınması gerekiyor.
+libsignal'ın `SenderKeyDistributionMessage.id` alanıyla aynı rol. Kablo
+formatı değişikliği 04'ün kapsamında.

@@ -19,7 +19,9 @@ import 'package:ffi/ffi.dart';
 
 /// Dart tarafinin bekledigi ABI surumu. Yanlis `.so` ile sessizce calismak
 /// yerine acik hata verilir.
-const int expectedAbiVersion = 1;
+///
+/// 1 = Olm (Account + Session). 2 = Megolm grup oturumlari eklendi.
+const int expectedAbiVersion = 2;
 
 final class _Bindings {
   _Bindings(DynamicLibrary library)
@@ -118,7 +120,59 @@ final class _Bindings {
       sessionDecrypt = library.lookupFunction<
         Pointer<Utf8> Function(Pointer<Void>, Size, Pointer<Utf8>),
         Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
-      >('sc_session_decrypt');
+      >('sc_session_decrypt'),
+      groupSessionNew = library
+          .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
+            'sc_group_session_new',
+          ),
+      groupSessionFree = library.lookupFunction<
+        Void Function(Pointer<Void>),
+        void Function(Pointer<Void>)
+      >('sc_group_session_free'),
+      groupSessionFromPickle = library.lookupFunction<
+        Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>),
+        Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>)
+      >('sc_group_session_from_pickle'),
+      groupSessionPickle = library.lookupFunction<
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Uint8>),
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Uint8>)
+      >('sc_group_session_pickle'),
+      groupSessionId = library.lookupFunction<
+        Pointer<Utf8> Function(Pointer<Void>),
+        Pointer<Utf8> Function(Pointer<Void>)
+      >('sc_group_session_id'),
+      groupSessionKey = library.lookupFunction<
+        Pointer<Utf8> Function(Pointer<Void>),
+        Pointer<Utf8> Function(Pointer<Void>)
+      >('sc_group_session_key'),
+      groupSessionEncrypt = library.lookupFunction<
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Uint8>, Size),
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Uint8>, int)
+      >('sc_group_session_encrypt'),
+      inboundGroupSessionNew = library.lookupFunction<
+        Pointer<Void> Function(Pointer<Utf8>),
+        Pointer<Void> Function(Pointer<Utf8>)
+      >('sc_inbound_group_session_new'),
+      inboundGroupSessionFree = library.lookupFunction<
+        Void Function(Pointer<Void>),
+        void Function(Pointer<Void>)
+      >('sc_inbound_group_session_free'),
+      inboundGroupSessionFromPickle = library.lookupFunction<
+        Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>),
+        Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>)
+      >('sc_inbound_group_session_from_pickle'),
+      inboundGroupSessionPickle = library.lookupFunction<
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Uint8>),
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Uint8>)
+      >('sc_inbound_group_session_pickle'),
+      inboundGroupSessionId = library.lookupFunction<
+        Pointer<Utf8> Function(Pointer<Void>),
+        Pointer<Utf8> Function(Pointer<Void>)
+      >('sc_inbound_group_session_id'),
+      inboundGroupSessionDecrypt = library.lookupFunction<
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+      >('sc_inbound_group_session_decrypt');
 
   final int Function() abiVersion;
   final Pointer<Utf8> Function() lastError;
@@ -151,6 +205,25 @@ final class _Bindings {
   sessionEncrypt;
   final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
   sessionDecrypt;
+  final Pointer<Void> Function() groupSessionNew;
+  final void Function(Pointer<Void>) groupSessionFree;
+  final Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>)
+  groupSessionFromPickle;
+  final Pointer<Utf8> Function(Pointer<Void>, Pointer<Uint8>)
+  groupSessionPickle;
+  final Pointer<Utf8> Function(Pointer<Void>) groupSessionId;
+  final Pointer<Utf8> Function(Pointer<Void>) groupSessionKey;
+  final Pointer<Utf8> Function(Pointer<Void>, Pointer<Uint8>, int)
+  groupSessionEncrypt;
+  final Pointer<Void> Function(Pointer<Utf8>) inboundGroupSessionNew;
+  final void Function(Pointer<Void>) inboundGroupSessionFree;
+  final Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>)
+  inboundGroupSessionFromPickle;
+  final Pointer<Utf8> Function(Pointer<Void>, Pointer<Uint8>)
+  inboundGroupSessionPickle;
+  final Pointer<Utf8> Function(Pointer<Void>) inboundGroupSessionId;
+  final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  inboundGroupSessionDecrypt;
 }
 
 /// Native katmanin bildirdigi hata. Mesaj `sc_last_error()` kaynaklidir.
@@ -215,6 +288,63 @@ class SecureChatCrypto {
       final handle = _bindings.accountFromPickle(pickleNative, keyNative);
       if (handle == nullptr) _throw('accountFromPickle');
       return OlmAccount._(this, handle);
+    } finally {
+      calloc.free(pickleNative);
+      calloc.free(keyNative);
+    }
+  }
+
+  /// Yeni bir giden grup oturumu acar. Olusturan taraf mesajlari bununla
+  /// sifreler ve [MegolmGroupSession.sessionKey] ile uyelere dagitir.
+  MegolmGroupSession createGroupSession() {
+    final handle = _bindings.groupSessionNew();
+    if (handle == nullptr) _throw('createGroupSession');
+    return MegolmGroupSession._(this, handle);
+  }
+
+  MegolmGroupSession groupSessionFromPickle(
+    String pickle,
+    Uint8List pickleKey,
+  ) {
+    _requireKey(pickleKey);
+    final pickleNative = pickle.toNativeUtf8();
+    final keyNative = _allocateKey(pickleKey);
+    try {
+      final handle = _bindings.groupSessionFromPickle(pickleNative, keyNative);
+      if (handle == nullptr) _throw('groupSessionFromPickle');
+      return MegolmGroupSession._(this, handle);
+    } finally {
+      calloc.free(pickleNative);
+      calloc.free(keyNative);
+    }
+  }
+
+  /// Dagitilan oturum anahtarindan gelen grup oturumu kurar.
+  MegolmInboundSession inboundGroupSession(String sessionKey) {
+    final native = sessionKey.toNativeUtf8();
+    try {
+      final handle = _bindings.inboundGroupSessionNew(native);
+      if (handle == nullptr) _throw('inboundGroupSession');
+      return MegolmInboundSession._(this, handle);
+    } finally {
+      calloc.free(native);
+    }
+  }
+
+  MegolmInboundSession inboundGroupSessionFromPickle(
+    String pickle,
+    Uint8List pickleKey,
+  ) {
+    _requireKey(pickleKey);
+    final pickleNative = pickle.toNativeUtf8();
+    final keyNative = _allocateKey(pickleKey);
+    try {
+      final handle = _bindings.inboundGroupSessionFromPickle(
+        pickleNative,
+        keyNative,
+      );
+      if (handle == nullptr) _throw('inboundGroupSessionFromPickle');
+      return MegolmInboundSession._(this, handle);
     } finally {
       calloc.free(pickleNative);
       calloc.free(keyNative);
@@ -539,6 +669,165 @@ class OlmSession {
   void _check() {
     if (_handle == nullptr) {
       throw const SecureChatCryptoException('session', 'oturum dispose edildi');
+    }
+  }
+}
+
+
+/// Megolm cozme sonucu.
+class MegolmDecrypted {
+  const MegolmDecrypted({required this.plaintext, required this.messageIndex});
+
+  final Uint8List plaintext;
+
+  /// REPLAY TESPITI icin: bir oturumda her plaintext tek bir indeksle
+  /// sifrelenir, yani ayni indeksin ikinci kez gorulmesi tekrar oynatmadir.
+  /// Cagiran bunu saklayip kontrol etmek zorunda; kutuphane takip etmiyor.
+  final int messageIndex;
+}
+
+/// Giden grup oturumu — Megolm. libsignal'daki `GroupCipher` karsiligi.
+///
+/// [encrypt] mesaj indeksini ilerletir. Her cagridan sonra [pickle] cagirip
+/// sonucu saklamak ZORUNLU; aksi halde ayni indeks tekrar kullanilir.
+class MegolmGroupSession {
+  MegolmGroupSession._(this._crypto, this._handle);
+
+  final SecureChatCrypto _crypto;
+  Pointer<Void> _handle;
+
+  bool get isDisposed => _handle == nullptr;
+
+  String get sessionId {
+    _check();
+    return _crypto._takeString(
+      _crypto._bindings.groupSessionId(_handle),
+      'groupSessionId',
+    );
+  }
+
+  /// Uyelere dagitilacak oturum anahtari.
+  ///
+  /// libsignal'daki `SenderKeyDistributionMessage` karsiligi: her aliciya
+  /// ayri ayri, uctan uca sifreli direct kanal uzerinden gonderilir.
+  String get sessionKey {
+    _check();
+    return _crypto._takeString(
+      _crypto._bindings.groupSessionKey(_handle),
+      'groupSessionKey',
+    );
+  }
+
+  /// Sifreler; donen base64 Megolm mesaji.
+  String encrypt(Uint8List plaintext) {
+    _check();
+    final native = calloc<Uint8>(plaintext.length == 0 ? 1 : plaintext.length);
+    native.asTypedList(plaintext.length).setAll(0, plaintext);
+    try {
+      return _crypto._takeString(
+        _crypto._bindings.groupSessionEncrypt(
+          _handle,
+          native,
+          plaintext.length,
+        ),
+        'groupSessionEncrypt',
+      );
+    } finally {
+      calloc.free(native);
+    }
+  }
+
+  String pickle(Uint8List pickleKey) {
+    _check();
+    SecureChatCrypto._requireKey(pickleKey);
+    final keyNative = _crypto._allocateKey(pickleKey);
+    try {
+      return _crypto._takeString(
+        _crypto._bindings.groupSessionPickle(_handle, keyNative),
+        'groupSessionPickle',
+      );
+    } finally {
+      calloc.free(keyNative);
+    }
+  }
+
+  void dispose() {
+    if (_handle == nullptr) return;
+    _crypto._bindings.groupSessionFree(_handle);
+    _handle = nullptr;
+  }
+
+  void _check() {
+    if (_handle == nullptr) {
+      throw const SecureChatCryptoException(
+        'groupSession',
+        'grup oturumu dispose edildi',
+      );
+    }
+  }
+}
+
+/// Gelen grup oturumu — dagitilan anahtardan kurulur.
+class MegolmInboundSession {
+  MegolmInboundSession._(this._crypto, this._handle);
+
+  final SecureChatCrypto _crypto;
+  Pointer<Void> _handle;
+
+  bool get isDisposed => _handle == nullptr;
+
+  String get sessionId {
+    _check();
+    return _crypto._takeString(
+      _crypto._bindings.inboundGroupSessionId(_handle),
+      'inboundGroupSessionId',
+    );
+  }
+
+  MegolmDecrypted decrypt(String message) {
+    _check();
+    final native = message.toNativeUtf8();
+    try {
+      final raw = _crypto._takeString(
+        _crypto._bindings.inboundGroupSessionDecrypt(_handle, native),
+        'inboundGroupSessionDecrypt',
+      );
+      final decoded = jsonDecode(raw) as Map<String, Object?>;
+      return MegolmDecrypted(
+        plaintext: base64Decode(decoded['plaintext']! as String),
+        messageIndex: decoded['messageIndex']! as int,
+      );
+    } finally {
+      calloc.free(native);
+    }
+  }
+
+  String pickle(Uint8List pickleKey) {
+    _check();
+    SecureChatCrypto._requireKey(pickleKey);
+    final keyNative = _crypto._allocateKey(pickleKey);
+    try {
+      return _crypto._takeString(
+        _crypto._bindings.inboundGroupSessionPickle(_handle, keyNative),
+        'inboundGroupSessionPickle',
+      );
+    } finally {
+      calloc.free(keyNative);
+    }
+  }
+
+  void dispose() {
+    if (_handle == nullptr) return;
+    _crypto._bindings.inboundGroupSessionFree(_handle);
+    _handle = nullptr;
+  }
+
+  void _check() {
+    if (_handle == nullptr) {
+      throw const SecureChatCryptoException(
+        'inboundGroupSession',
+        'gelen grup oturumu dispose edildi',
+      );
     }
   }
 }
