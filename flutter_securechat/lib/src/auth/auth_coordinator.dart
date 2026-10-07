@@ -144,6 +144,22 @@ class AuthCoordinator {
     await _api.deleteAccount(accessToken: access);
   }
 
+  /// Suresi dolmus access token'da bir kez yenileyip tekrar dener.
+  Future<void> submitAbuseReport(Map<String, Object?> report) async {
+    final access = _session.accessToken;
+    if (access == null || access.isEmpty) {
+      throw StateError('Bildirim için geçerli oturum bulunamadı.');
+    }
+    try {
+      await _api.submitAbuseReport(accessToken: access, report: report);
+    } on AuthApiException catch (error) {
+      if (error.statusCode != 401) rethrow;
+      final refreshed = await refreshAccessToken();
+      if (refreshed == null) rethrow;
+      await _api.submitAbuseReport(accessToken: refreshed, report: report);
+    }
+  }
+
   Future<void> clearLocalAuthentication() async {
     await _signaling.disconnect();
     try {

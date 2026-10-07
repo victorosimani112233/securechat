@@ -41,6 +41,8 @@ import '../groups/group_management_service.dart';
 import '../groups/private_group_control.dart';
 import '../groups/private_group_call_routes.dart';
 import '../media/call_manager.dart';
+import '../safety/abuse_report.dart';
+import '../safety/block_list.dart';
 import '../media/call_tone_service.dart';
 import '../media/file_transfer_manager.dart';
 import '../media/group_media_engine.dart';
@@ -110,6 +112,7 @@ class AppContainer {
     this.debugRuntime,
     required this.chatAccessRuntime,
     required this.callReadinessRuntime,
+    this.safety,
     this.resources,
   });
 
@@ -143,6 +146,7 @@ class AppContainer {
     AppDebugRuntime? debugRuntime,
     required AppChatAccessRuntime chatAccessRuntime,
     required AppCallReadinessRuntime callReadinessRuntime,
+    AbuseReportService? safety,
   }) => AppContainer._(
     session: session,
     conversations: conversations,
@@ -172,6 +176,7 @@ class AppContainer {
     debugRuntime: debugRuntime,
     chatAccessRuntime: chatAccessRuntime,
     callReadinessRuntime: callReadinessRuntime,
+    safety: safety,
     resources: null,
   );
 
@@ -204,6 +209,7 @@ class AppContainer {
     AppDebugRuntime? debugRuntime,
     required AppChatAccessRuntime chatAccessRuntime,
     required AppCallReadinessRuntime callReadinessRuntime,
+    required AbuseReportService safety,
     required AppResourceScope resources,
   }) {
     final container = AppContainer._(
@@ -235,6 +241,7 @@ class AppContainer {
       debugRuntime: debugRuntime,
       chatAccessRuntime: chatAccessRuntime,
       callReadinessRuntime: callReadinessRuntime,
+      safety: safety,
       resources: resources,
     );
     container._validateProductionGraph();
@@ -278,6 +285,9 @@ class AppContainer {
   final AppDebugRuntime? debugRuntime;
   final AppChatAccessRuntime chatAccessRuntime;
   final AppCallReadinessRuntime callReadinessRuntime;
+
+  /// Engelleme ve kotuye kullanim bildirimi.
+  final AbuseReportService? safety;
   final AppResourceScope? resources;
   Future<void>? _disposeTask;
 
@@ -316,6 +326,7 @@ class AppContainer {
       'account-data': accountDataRuntime,
       'notifications': notificationRuntime,
       'diagnostics': diagnosticsRuntime,
+      'safety': safety,
     };
     final missing = requiredFeatures.entries
         .where((entry) => entry.value == null)
@@ -656,6 +667,7 @@ class AppContainer {
         preparePrivateGroupCall: preparePrivateGroupCall,
         distributeCallMediaKey: distributeCallMediaKey,
         missedCalls: missedCalls,
+        isBlocked: BlockList(database.cryptoState).isBlockedNow,
         onAsyncFailure: reportAsyncFailure,
       );
       resources.register('call-manager', callManager.dispose);
@@ -945,6 +957,11 @@ class AppContainer {
           service: CallReadinessService(
             platform: NativeCallReadinessPlatform(),
           ),
+        ),
+        safety: AbuseReportService(
+          submit: authCoordinator.submitAbuseReport,
+          blockList: BlockList(database.cryptoState),
+          localUserId: () => session.userId,
         ),
         resources: resources,
       );

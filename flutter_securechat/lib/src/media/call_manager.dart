@@ -73,6 +73,7 @@ class CallManager {
     GroupCallPrivacyPreparation? preparePrivateGroupCall,
     CallMediaKeyDistributor? distributeCallMediaKey,
     MissedCallLifecycle? missedCalls,
+    bool Function(String userId)? isBlocked,
     this.ringTimeout = const Duration(seconds: 60),
     this.reconnectTimeout = const Duration(seconds: 15),
     this.terminalVisibility = const Duration(milliseconds: 900),
@@ -87,6 +88,7 @@ class CallManager {
        _nativeCalls = nativeCalls,
        _janusClientFactory = janusClientFactory ?? JanusClient.new,
        _missedCalls = missedCalls,
+       _isBlocked = isBlocked,
        _peerNameResolver = peerNameResolver ?? _identityPeerName,
        _groupLocalIdResolver = groupLocalIdResolver ?? _rejectUnknownGroup,
        _groupCallTokens = groupCallTokens,
@@ -430,6 +432,11 @@ class CallManager {
 
   final GroupCallPrivacyPreparation? _preparePrivateGroupCall;
   final MissedCallLifecycle? _missedCalls;
+
+  /// Engellenen kisinin aramasi calmaz, cevapsiz olarak da kaydedilmez ve
+  /// arayana RINGING/BUSY gonderilmez; arayan icin cagri cevapsiz kalir.
+  /// Senkron: arada bekleme olursa ayni anda gelen ICE adaylari kaybolur.
+  final bool Function(String userId)? _isBlocked;
   final Duration ringTimeout;
   final Duration reconnectTimeout;
   final Duration terminalVisibility;
@@ -1080,6 +1087,10 @@ class CallManager {
       }
       return;
     }
+    if (_isBlocked?.call(signal.senderId) == true) {
+      await _dismissBlockedRing();
+      return;
+    }
     final type = signal.callType.toUpperCase() == 'VIDEO'
         ? CallType.video
         : CallType.voice;
@@ -1119,6 +1130,14 @@ class CallManager {
     _missedCalls?.start(incoming);
     await _sendControl(signal.senderId, 'RINGING', reliable: false);
     _startRingTimeout();
+  }
+
+  Future<void> _dismissBlockedRing() async {
+    try {
+      await _nativeCalls?.dismissPendingIncoming();
+    } catch (error, stack) {
+      _reportCallFailure('blocked-dismiss', error, stack);
+    }
   }
 
   Future<void> _recordBusyCall(CallSession incoming, String key) async {
@@ -1291,6 +1310,10 @@ class CallManager {
     // Group cleanup is token-scoped on the server. A stale invite for our
     // active room must never remove us from that room.
     if (_currentGroupRoutingToken == signal.groupId && _hasLiveCall) return;
+    if (_isBlocked?.call(signal.senderId) == true) {
+      await _dismissBlockedRing();
+      return;
+    }
     final localGroupId = await _groupLocalIdResolver(signal.groupId);
     if (localGroupId == null ||
         localGroupId.isEmpty ||

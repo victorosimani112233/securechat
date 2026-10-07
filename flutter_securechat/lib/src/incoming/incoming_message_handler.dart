@@ -16,6 +16,7 @@ import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
 import '../l10n/service_strings.dart';
 import '../media/call_media_key.dart';
+import '../safety/block_list.dart';
 import '../services/crypto_service.dart';
 import '../services/async_operation_tracker.dart';
 import '../services/session_store.dart';
@@ -111,6 +112,7 @@ class IncomingMessageHandler {
        _phoneSharing = phoneSharing,
        _applyCallMediaKey = applyCallMediaKey,
        _onUndecryptableMessage = onUndecryptableMessage,
+       _blockList = BlockList(database.cryptoState),
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
 
   final SignalingService _signaling;
@@ -122,6 +124,7 @@ class IncomingMessageHandler {
   final PhoneNumberSharingService? _phoneSharing;
   final CallMediaKeyReceiver? _applyCallMediaKey;
   final Future<void> Function(String conversationId)? _onUndecryptableMessage;
+  final BlockList _blockList;
   final AsyncOperationTracker _operations;
   final _typingController = StreamController<Map<String, bool>>.broadcast();
   final _presenceController =
@@ -571,6 +574,13 @@ class IncomingMessageHandler {
         // Malformed, mis-bound or unauthenticated control data is fail-closed.
         return const _EncryptedProcessingResult.rejected();
       }
+      return const _EncryptedProcessingResult(processed: true);
+    }
+    // Engellenen kisi: oturum, sender key ve grup kontrolu yukarida islendi
+    // ki engel kalkinca sohbet kirik kalmasin. Gorunur icerik, tepki,
+    // duzenleme, yaziyor ve okundu bilgisi burada atilir. Teslim makbuzu
+    // gonderilmez; karsi taraf mesajin ulastigini gormez.
+    if (await _blockList.isBlocked(signal.senderId)) {
       return const _EncryptedProcessingResult(processed: true);
     }
     if (isPrivateChatControl(plaintext)) {

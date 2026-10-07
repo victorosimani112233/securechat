@@ -125,6 +125,9 @@ enum SecureChatContactsAccess {
         result(false)
       case "endNativeCall":
         self?.handleCallKitState(call.arguments, active: false, result: result)
+      case "dismissIncomingCallHint":
+        // iOS'ta Dart'tan once kimliksiz calan bir cagri yok; yapilacak is yok.
+        result(nil)
       case "startNativeCallRingback":
         result(self?.callTones.startRingback() ?? false)
       case "stopNativeCallTones":

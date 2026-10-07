@@ -9,6 +9,7 @@ import '../contacts/phone_number_sharing_service.dart';
 import '../contacts/contact_service.dart';
 import '../incoming/incoming_message_handler.dart';
 import '../l10n/service_strings.dart';
+import '../safety/block_list.dart';
 import '../services/session_store.dart';
 import '../services/async_operation_tracker.dart';
 import '../storage/secure_chat_database.dart';
@@ -406,6 +407,15 @@ class MediaMessageService {
   }
 
   Future<void> _persistIncoming(ReceivedFile received) async {
+    if (await BlockList(_database.cryptoState).isBlocked(received.senderId)) {
+      // Engellenen kisinin dosyasi sohbete eklenmez ve diskte birakilmaz.
+      try {
+        await received.file.delete();
+      } on FileSystemException {
+        // Dosya zaten yoksa yapilacak bir sey kalmadi.
+      }
+      return;
+    }
     final conversationId = received.groupId ?? received.senderId;
     final messageId = received.originalMessageId?.trim().isNotEmpty == true
         ? received.originalMessageId!.trim()

@@ -29,6 +29,10 @@ abstract interface class NativeCallIntegration {
   Future<void> setActive(String callId);
   Future<bool> setSpeaker(String callId, bool enabled);
   Future<void> end(String callId);
+
+  /// Push ile arayan bilinmeden baslamis bir calmayi iz birakmadan kapatir.
+  /// Arayan engelliyse kullanilir.
+  Future<void> dismissPendingIncoming();
 }
 
 class MethodChannelNativeCallIntegration implements NativeCallIntegration {
@@ -86,6 +90,9 @@ class MethodChannelNativeCallIntegration implements NativeCallIntegration {
   @override
   Future<void> end(String callId) =>
       _invoke('endNativeCall', {'callId': callId});
+
+  @override
+  Future<void> dismissPendingIncoming() => _invoke('dismissIncomingCallHint');
 
   Future<void> _invoke(String method, [Map<String, Object?>? arguments]) async {
     await _channel.invokeMethod<void>(method, arguments);

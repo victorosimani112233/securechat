@@ -1633,6 +1633,10 @@ class CryptoStateDao {
 
   Future<String?> get(String key) async => _db._snapshot.cryptoState[key];
 
+  /// Bekleme noktasi yaratmadan okur; siralamaya duyarli sinyal isleyicileri
+  /// (gelen cagri) icin. Anlik goruntu okuma sirasinda yine tazelenir.
+  String? getNow(String key) => _db._snapshot.cryptoState[key];
+
   Future<void> put(String key, String value) =>
       _db._write((snapshot) => snapshot.cryptoState[key] = value);
 

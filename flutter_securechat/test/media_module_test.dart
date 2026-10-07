@@ -167,6 +167,51 @@ void main() {
     );
   });
 
+  test('call from a blocked user never rings and gets no reply', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.dispose);
+    final signaling = InMemorySignalingService();
+    await signaling.connect(
+      userId: 'me',
+      url: 'wss://test.invalid',
+      accessToken: 'token',
+    );
+    final nativeCalls = _FakeNativeCalls();
+    final manager = CallManager(
+      session: SessionStore(userId: 'me', accessToken: 'token'),
+      signaling: signaling,
+      media: _FakeMediaEngine(),
+      iceServers: const StaticIceServerProvider([]),
+      callLogs: fixture.database.callLogs,
+      nativeCalls: nativeCalls,
+      isBlocked: (userId) => userId == 'blocked',
+    );
+    addTearDown(manager.dispose);
+    signaling.sentMessages.clear();
+
+    signaling.addIncoming(
+      SdpOfferSignal(
+        senderId: 'blocked',
+        recipientId: 'me',
+        timestamp: DateTime.now(),
+        sdp: 'remote-offer',
+        callType: 'VOICE',
+      ),
+    );
+    await _flush();
+
+    expect(manager.currentSession, isNull);
+    expect(nativeCalls.reported, isEmpty);
+    expect(nativeCalls.dismissed, 1);
+    expect(signaling.sentMessages.whereType<CallControlSignal>(), isEmpty);
+    expect(
+      await CallHistoryService(
+        fixture.database.callLogs,
+      ).watchPeer('blocked').first,
+      isEmpty,
+    );
+  });
+
   test('native open action requests the active Flutter call route', () async {
     final fixture = await _Fixture.open();
     addTearDown(fixture.dispose);
@@ -1470,8 +1515,12 @@ class _FakeNativeCalls implements NativeCallIntegration {
   Stream<NativeCallAction> get actions => _actions.stream;
   @override
   Future<void> initialize() async {}
+  final reported = <CallSession>[];
+  var dismissed = 0;
+
   @override
-  Future<void> reportIncoming(CallSession session) async {}
+  Future<void> reportIncoming(CallSession session) async =>
+      reported.add(session);
   @override
   Future<void> reportOutgoing(CallSession session) async {}
   @override
@@ -1486,6 +1535,9 @@ class _FakeNativeCalls implements NativeCallIntegration {
 
   @override
   Future<void> end(String callId) async {}
+
+  @override
+  Future<void> dismissPendingIncoming() async => dismissed++;
 }
 
 class _Fixture {

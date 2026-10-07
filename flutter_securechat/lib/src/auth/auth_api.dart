@@ -183,6 +183,20 @@ class AuthApi {
     if (response.statusCode != 200) throw response.error();
   }
 
+  /// Kotuye kullanim bildirimi. Govde mesaj icerigi tasimaz; yalniz hedef
+  /// hesap(lar), sebep ve kullanicinin yazdigi kisa not gider.
+  Future<void> submitAbuseReport({
+    required String accessToken,
+    required Map<String, Object?> report,
+  }) async {
+    final response = await _post(
+      '/api/v1/reports',
+      report,
+      bearerToken: accessToken,
+    );
+    if (response.statusCode != 202) throw response.error();
+  }
+
   Future<void> uploadPreKeys(
     SerializedPreKeyBundle bundle,
     String accessToken,

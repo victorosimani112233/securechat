@@ -2129,4 +2129,80 @@ class AppLocalizationsTr extends AppLocalizations {
   String storage_cleanup_failed(int arg1) {
     return '$arg1 kayıt silinemedi. Diğer dosyalar güncellendi; yeniden deneyebilirsiniz.';
   }
+
+  @override
+  String get safety_block => 'Engelle';
+
+  @override
+  String get safety_unblock => 'Engeli kaldır';
+
+  @override
+  String get safety_block_confirm_title => 'Bu kişi engellensin mi?';
+
+  @override
+  String get safety_block_confirm_body =>
+      'Engellenen kişi sana artık arama yapamaz ve mesaj gönderemez. Engellendiği kendisine bildirilmez.';
+
+  @override
+  String get safety_blocked_notice => 'Kişi engellendi';
+
+  @override
+  String get safety_unblocked_notice => 'Engel kaldırıldı';
+
+  @override
+  String get safety_blocked_banner =>
+      'Bu kişiyi engelledin. Mesaj ve arama gönderemez, alamazsın.';
+
+  @override
+  String get safety_report => 'Bildir';
+
+  @override
+  String get safety_report_group => 'Grubu bildir';
+
+  @override
+  String get safety_report_title => 'Neden bildiriyorsun?';
+
+  @override
+  String get safety_report_e2ee_note =>
+      'Mesajlar uçtan uca şifrelidir. Bildirim hesabı ve seçtiğin sebebi içerir, mesaj içeriği içermez.';
+
+  @override
+  String get safety_reason_spam => 'Spam';
+
+  @override
+  String get safety_reason_harassment => 'Taciz veya zorbalık';
+
+  @override
+  String get safety_reason_inappropriate => 'Uygunsuz içerik';
+
+  @override
+  String get safety_reason_child_safety => 'Çocuk güvenliği';
+
+  @override
+  String get safety_reason_impersonation => 'Kimliğe bürünme';
+
+  @override
+  String get safety_reason_other => 'Diğer';
+
+  @override
+  String get safety_report_note_hint => 'Ayrıntı ekle (isteğe bağlı)';
+
+  @override
+  String get safety_report_also_block => 'Bu kişiyi de engelle';
+
+  @override
+  String get safety_report_submit => 'Bildirimi gönder';
+
+  @override
+  String get safety_report_sent =>
+      'Bildirim gönderildi. Bildirimler 24 saat içinde incelenir.';
+
+  @override
+  String get safety_report_failed => 'Bildirim gönderilemedi. Tekrar dene.';
+
+  @override
+  String get safety_blocked_contacts => 'Engellenen kişiler';
+
+  @override
+  String get safety_blocked_contacts_empty => 'Engellenen kişi yok';
 }

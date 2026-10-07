@@ -15,6 +15,7 @@ import '../../widgets/azure_backdrop.dart';
 import '../../widgets/chat_lock_dialog.dart';
 import 'shared_content_browser.dart';
 import 'peer_identity_review_screen.dart';
+import '../safety/safety_ui.dart';
 
 class ChatInfoResult {
   const ChatInfoResult.focusMessage(this.messageId) : lockEnabled = false;
@@ -37,6 +38,17 @@ class ChatInfoScreen extends StatefulWidget {
 
 class _ChatInfoScreenState extends State<ChatInfoScreen> {
   var _changingLock = false;
+  String? _blockStateLoadedFor;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context)?.settings.arguments as Conversation?;
+    if (route == null || route.isGroup) return;
+    if (_blockStateLoadedFor == route.peerId) return;
+    _blockStateLoadedFor = route.peerId;
+    _loadBlocked(route.peerId);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -111,8 +123,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
             context,
             MaterialPageRoute<void>(
               builder: (_) => PeerIdentityReviewScreen(
-                service: AppContainerScope.of(context).crypto
-                    as PeerIdentityReviewService,
+                service:
+                    AppContainerScope.of(context).crypto
+                        as PeerIdentityReviewService,
                 peerId: c.peerId,
                 peerName: c.peerName,
                 strings: widget.identityReviewStrings,
@@ -171,8 +184,58 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => _soundSheet(service, c),
         ),
+      if (!c.isGroup) ...[
+        const Divider(),
+        ListTile(
+          key: const ValueKey('chat-info-block'),
+          leading: Icon(
+            Icons.block,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          title: Text(
+            _peerBlocked
+                ? context.l10n.safety_unblock
+                : context.l10n.safety_block,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+          onTap: () async {
+            final blocked = await toggleBlockFlow(context, c.peerId);
+            if (blocked != null && mounted) {
+              setState(() => _peerBlocked = blocked);
+            }
+          },
+        ),
+        ListTile(
+          key: const ValueKey('chat-info-report'),
+          leading: Icon(
+            Icons.flag_outlined,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          title: Text(
+            context.l10n.safety_report,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+          onTap: () async {
+            await reportUserFlow(context, c.peerId);
+            await _loadBlocked(c.peerId);
+          },
+        ),
+      ],
     ],
   );
+
+  bool _peerBlocked = false;
+
+  Future<void> _loadBlocked(String peerId) async {
+    final blocked =
+        await AppContainerScope.of(
+          context,
+        ).safety?.blockList.isBlocked(peerId) ??
+        false;
+    if (mounted && blocked != _peerBlocked) {
+      setState(() => _peerBlocked = blocked);
+    }
+  }
 
   /// Sohbete ozel bildirim sesi secimi.
   ///

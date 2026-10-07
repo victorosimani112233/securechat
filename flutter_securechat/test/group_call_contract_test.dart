@@ -855,6 +855,9 @@ class _AnswerNative implements NativeCallIntegration {
   Future<bool> setSpeaker(String callId, bool enabled) async => false;
   @override
   Future<void> end(String callId) async {}
+
+  @override
+  Future<void> dismissPendingIncoming() async {}
 }
 
 class _UnusedMedia implements MediaEngine {

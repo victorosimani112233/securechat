@@ -87,6 +87,10 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "setCallSpeaker" -> setCallSpeaker(call.arguments, result)
                     "endNativeCall" -> updateNativeCall(call.arguments, false, result)
+                    "dismissIncomingCallHint" -> {
+                        if (NativeCallRegistry.dismissHint()) callNotifications.cancel()
+                        result.success(null)
+                    }
                     "startNativeCallRingback" -> result.success(callTones.startRingback())
                     "stopNativeCallTones" -> {
                         callTones.stop()

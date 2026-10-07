@@ -36,6 +36,7 @@ import '../../theme/secure_chat_theme.dart';
 import '../../widgets/haptics.dart';
 import '../../widgets/chat_lock_dialog.dart';
 import '../calls/call_screen.dart';
+import '../safety/safety_ui.dart';
 import 'chat_info_screen.dart';
 import 'media_preview_screen.dart';
 import 'media_viewer_screen.dart';
@@ -85,6 +86,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   LocalMessage? _replying;
   AppNotificationRuntime? _notificationRuntime;
   Conversation? _conversation;
+
+  /// Direkt sohbette karsi taraf engelli mi. Engelliyken yazma alani ve
+  /// arama kapanir; gelen icerik zaten alicida atilir.
+  bool _peerBlocked = false;
   StreamSubscription<List<Conversation>>? _conversationSubscription;
   StreamSubscription<Map<String, ContactIdentity>>? _groupIdentitySubscription;
   Map<String, ContactIdentity> _groupIdentities = const {};
@@ -136,6 +141,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (_conversation?.id != routeConversation.id) {
       final container = AppContainerScope.of(context);
       _conversation = routeConversation;
+      _peerBlocked = false;
+      if (!routeConversation.isGroup) unawaited(_refreshBlocked(container));
       _groupIdentitySubscription?.cancel();
       _groupIdentities = const {};
       _groupIdentitySubscription = routeConversation.isGroup
@@ -347,7 +354,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 return [
                   PopupMenuItem(
                     value: 'voice_call',
-                    enabled: !conversation.hasLeftGroup(userId),
+                    enabled:
+                        !conversation.hasLeftGroup(userId) && !_peerBlocked,
                     child: Row(
                       children: [
                         const Icon(Icons.call_outlined),
@@ -358,7 +366,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                   PopupMenuItem(
                     value: 'video_call',
-                    enabled: !conversation.hasLeftGroup(userId),
+                    enabled:
+                        !conversation.hasLeftGroup(userId) && !_peerBlocked,
                     child: Row(
                       children: [
                         const Icon(Icons.videocam_outlined),
@@ -409,6 +418,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     value: 'clear',
                     child: Text(context.l10n.clear_chat),
                   ),
+                  if (!conversation.isGroup)
+                    PopupMenuItem(
+                      value: 'block',
+                      child: Text(
+                        _peerBlocked
+                            ? context.l10n.safety_unblock
+                            : context.l10n.safety_block,
+                      ),
+                    ),
+                  PopupMenuItem(
+                    value: 'report',
+                    child: Text(
+                      conversation.isGroup
+                          ? context.l10n.safety_report_group
+                          : context.l10n.safety_report,
+                    ),
+                  ),
                 ];
               },
             ),
@@ -428,6 +454,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               MaterialBanner(
                 content: Text(context.l10n.group_not_member),
                 actions: const [SizedBox.shrink()],
+              )
+            else if (_peerBlocked)
+              MaterialBanner(
+                key: const ValueKey('chat-blocked-banner'),
+                content: Text(context.l10n.safety_blocked_banner),
+                actions: [
+                  TextButton(
+                    onPressed: () =>
+                        _handleMenu(context, conversation, 'block'),
+                    child: Text(context.l10n.safety_unblock),
+                  ),
+                ],
               )
             else if (conversation.isReadOnly)
               MaterialBanner(
@@ -555,6 +593,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 },
               ),
             if (_forwardSelection.isEmpty &&
+                !_peerBlocked &&
                 !conversation.hasLeftGroup(container.session.userId))
               _ChatComposer(
                 controller: _input,
@@ -1046,6 +1085,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     Conversation conversation,
   ) =>
       conversation.hasLeftGroup(container.session.userId) ||
+      (!conversation.isGroup && _peerBlocked) ||
       (conversation.isReadOnly &&
           !conversation.groupAdmins.contains(container.session.userId));
 
@@ -1807,6 +1847,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _refreshBlocked(AppContainer container) async {
+    final conversation = _conversation;
+    if (conversation == null || conversation.isGroup) return;
+    final blocked =
+        await container.safety?.blockList.isBlocked(conversation.peerId) ??
+        false;
+    if (!mounted || _conversation?.id != conversation.id) return;
+    if (blocked != _peerBlocked) setState(() => _peerBlocked = blocked);
+  }
+
   void _notice(BuildContext context, String message) {
     ScaffoldMessenger.of(
       context,
@@ -1852,6 +1902,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     if (value == 'chat_info') {
       await _openChatInfo(conversation);
+      return;
+    }
+    if (value == 'block') {
+      final blocked = await toggleBlockFlow(context, conversation.peerId);
+      if (blocked != null && mounted) setState(() => _peerBlocked = blocked);
+      return;
+    }
+    if (value == 'report') {
+      if (conversation.isGroup) {
+        await reportGroupFlow(
+          context,
+          admins: conversation.groupAdmins,
+          members: conversation.groupMembers,
+        );
+      } else {
+        await reportUserFlow(context, conversation.peerId);
+        if (mounted) await _refreshBlocked(container);
+      }
       return;
     }
     if (value == 'toggle_export') {

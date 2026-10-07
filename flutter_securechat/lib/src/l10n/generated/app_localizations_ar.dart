@@ -2143,4 +2143,80 @@ class AppLocalizationsAr extends AppLocalizations {
   String storage_cleanup_failed(int arg1) {
     return 'تعذّر حذف $arg1 سجل. تم تحديث الملفات الأخرى؛ يمكنك المحاولة مجددًا.';
   }
+
+  @override
+  String get safety_block => 'Block';
+
+  @override
+  String get safety_unblock => 'Unblock';
+
+  @override
+  String get safety_block_confirm_title => 'Block this contact?';
+
+  @override
+  String get safety_block_confirm_body =>
+      'Blocked contacts can no longer call you or send you messages. They are not notified.';
+
+  @override
+  String get safety_blocked_notice => 'Contact blocked';
+
+  @override
+  String get safety_unblocked_notice => 'Contact unblocked';
+
+  @override
+  String get safety_blocked_banner =>
+      'You blocked this contact. You can no longer send or receive messages or calls.';
+
+  @override
+  String get safety_report => 'Report';
+
+  @override
+  String get safety_report_group => 'Report group';
+
+  @override
+  String get safety_report_title => 'Why are you reporting?';
+
+  @override
+  String get safety_report_e2ee_note =>
+      'Messages are end-to-end encrypted. Your report includes the account and the reason you choose, but no message content.';
+
+  @override
+  String get safety_reason_spam => 'Spam';
+
+  @override
+  String get safety_reason_harassment => 'Harassment or bullying';
+
+  @override
+  String get safety_reason_inappropriate => 'Inappropriate content';
+
+  @override
+  String get safety_reason_child_safety => 'Child safety';
+
+  @override
+  String get safety_reason_impersonation => 'Impersonation';
+
+  @override
+  String get safety_reason_other => 'Other';
+
+  @override
+  String get safety_report_note_hint => 'Add details (optional)';
+
+  @override
+  String get safety_report_also_block => 'Also block this contact';
+
+  @override
+  String get safety_report_submit => 'Send report';
+
+  @override
+  String get safety_report_sent =>
+      'Report sent. Reports are reviewed within 24 hours.';
+
+  @override
+  String get safety_report_failed => 'The report could not be sent. Try again.';
+
+  @override
+  String get safety_blocked_contacts => 'Blocked contacts';
+
+  @override
+  String get safety_blocked_contacts_empty => 'No blocked contacts';
 }

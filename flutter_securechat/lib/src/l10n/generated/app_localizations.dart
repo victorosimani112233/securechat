@@ -3929,6 +3929,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{arg1} records could not be removed. Other files were updated; you can retry.'**
   String storage_cleanup_failed(int arg1);
+
+  /// No description provided for @safety_block.
+  ///
+  /// In en, this message translates to:
+  /// **'Block'**
+  String get safety_block;
+
+  /// No description provided for @safety_unblock.
+  ///
+  /// In en, this message translates to:
+  /// **'Unblock'**
+  String get safety_unblock;
+
+  /// No description provided for @safety_block_confirm_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Block this contact?'**
+  String get safety_block_confirm_title;
+
+  /// No description provided for @safety_block_confirm_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Blocked contacts can no longer call you or send you messages. They are not notified.'**
+  String get safety_block_confirm_body;
+
+  /// No description provided for @safety_blocked_notice.
+  ///
+  /// In en, this message translates to:
+  /// **'Contact blocked'**
+  String get safety_blocked_notice;
+
+  /// No description provided for @safety_unblocked_notice.
+  ///
+  /// In en, this message translates to:
+  /// **'Contact unblocked'**
+  String get safety_unblocked_notice;
+
+  /// No description provided for @safety_blocked_banner.
+  ///
+  /// In en, this message translates to:
+  /// **'You blocked this contact. You can no longer send or receive messages or calls.'**
+  String get safety_blocked_banner;
+
+  /// No description provided for @safety_report.
+  ///
+  /// In en, this message translates to:
+  /// **'Report'**
+  String get safety_report;
+
+  /// No description provided for @safety_report_group.
+  ///
+  /// In en, this message translates to:
+  /// **'Report group'**
+  String get safety_report_group;
+
+  /// No description provided for @safety_report_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Why are you reporting?'**
+  String get safety_report_title;
+
+  /// No description provided for @safety_report_e2ee_note.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages are end-to-end encrypted. Your report includes the account and the reason you choose, but no message content.'**
+  String get safety_report_e2ee_note;
+
+  /// No description provided for @safety_reason_spam.
+  ///
+  /// In en, this message translates to:
+  /// **'Spam'**
+  String get safety_reason_spam;
+
+  /// No description provided for @safety_reason_harassment.
+  ///
+  /// In en, this message translates to:
+  /// **'Harassment or bullying'**
+  String get safety_reason_harassment;
+
+  /// No description provided for @safety_reason_inappropriate.
+  ///
+  /// In en, this message translates to:
+  /// **'Inappropriate content'**
+  String get safety_reason_inappropriate;
+
+  /// No description provided for @safety_reason_child_safety.
+  ///
+  /// In en, this message translates to:
+  /// **'Child safety'**
+  String get safety_reason_child_safety;
+
+  /// No description provided for @safety_reason_impersonation.
+  ///
+  /// In en, this message translates to:
+  /// **'Impersonation'**
+  String get safety_reason_impersonation;
+
+  /// No description provided for @safety_reason_other.
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get safety_reason_other;
+
+  /// No description provided for @safety_report_note_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add details (optional)'**
+  String get safety_report_note_hint;
+
+  /// No description provided for @safety_report_also_block.
+  ///
+  /// In en, this message translates to:
+  /// **'Also block this contact'**
+  String get safety_report_also_block;
+
+  /// No description provided for @safety_report_submit.
+  ///
+  /// In en, this message translates to:
+  /// **'Send report'**
+  String get safety_report_submit;
+
+  /// No description provided for @safety_report_sent.
+  ///
+  /// In en, this message translates to:
+  /// **'Report sent. Reports are reviewed within 24 hours.'**
+  String get safety_report_sent;
+
+  /// No description provided for @safety_report_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'The report could not be sent. Try again.'**
+  String get safety_report_failed;
+
+  /// No description provided for @safety_blocked_contacts.
+  ///
+  /// In en, this message translates to:
+  /// **'Blocked contacts'**
+  String get safety_blocked_contacts;
+
+  /// No description provided for @safety_blocked_contacts_empty.
+  ///
+  /// In en, this message translates to:
+  /// **'No blocked contacts'**
+  String get safety_blocked_contacts_empty;
 }
 
 class _AppLocalizationsDelegate

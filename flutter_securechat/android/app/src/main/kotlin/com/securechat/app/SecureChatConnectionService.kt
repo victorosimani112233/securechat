@@ -327,6 +327,21 @@ internal object NativeCallRegistry {
         return true
     }
 
+    /**
+     * Push ile kimliksiz calmaya baslamis cagriyi, Dart arayanin engelli
+     * oldugunu gordugunde sessizce kapatir. Kullaniciya cevapsiz cagri
+     * olarak da yansimaz.
+     */
+    @Synchronized
+    fun dismissHint(): Boolean {
+        val hint = pendingHint ?: return false
+        pendingHint = null
+        calls.remove(hint.callId)
+        hintActions.remove(hint.callId)
+        connections.remove(hint.callId)?.disconnect(DisconnectCause.CANCELED)
+        return true
+    }
+
     @Synchronized
     fun promoteHint(info: NativeCallInfo): HintPromotion? {
         val hint = pendingHint ?: return null

@@ -13,6 +13,7 @@ import '../../widgets/azure_backdrop.dart';
 import '../../widgets/chat_lock_dialog.dart';
 import '../chat/chat_info_screen.dart';
 import '../chat/shared_content_browser.dart';
+import '../safety/safety_ui.dart';
 
 class GroupInfoScreen extends StatelessWidget {
   const GroupInfoScreen({super.key});
@@ -236,6 +237,16 @@ class _GroupInfoBody extends StatelessWidget {
                     : null,
               ),
             const Divider(),
+            ListTile(
+              key: const ValueKey('group-report'),
+              leading: const Icon(Icons.flag_outlined),
+              title: Text(context.l10n.safety_report_group),
+              onTap: () => reportGroupFlow(
+                context,
+                admins: _csv(group.groupAdmins),
+                members: _csv(group.groupMembers),
+              ),
+            ),
             if (groups.isLocalMember(group))
               ListTile(
                 leading: Icon(
@@ -470,3 +481,8 @@ class _GroupInfoBody extends StatelessWidget {
   static List<String> _split(String? value) =>
       value?.split(',').where((id) => id.isNotEmpty).toList() ?? const [];
 }
+
+List<String> _csv(String? value) => [
+  for (final id in (value ?? '').split(','))
+    if (id.trim().isNotEmpty) id.trim(),
+];

@@ -2171,4 +2171,81 @@ class AppLocalizationsDe extends AppLocalizations {
   String storage_cleanup_failed(int arg1) {
     return '$arg1 Einträge konnten nicht entfernt werden. Andere Dateien wurden aktualisiert; bitte erneut versuchen.';
   }
+
+  @override
+  String get safety_block => 'Blockieren';
+
+  @override
+  String get safety_unblock => 'Blockierung aufheben';
+
+  @override
+  String get safety_block_confirm_title => 'Diesen Kontakt blockieren?';
+
+  @override
+  String get safety_block_confirm_body =>
+      'Blockierte Kontakte können dich nicht mehr anrufen und dir keine Nachrichten senden. Sie werden nicht benachrichtigt.';
+
+  @override
+  String get safety_blocked_notice => 'Kontakt blockiert';
+
+  @override
+  String get safety_unblocked_notice => 'Blockierung aufgehoben';
+
+  @override
+  String get safety_blocked_banner =>
+      'Du hast diesen Kontakt blockiert. Du kannst keine Nachrichten oder Anrufe senden oder empfangen.';
+
+  @override
+  String get safety_report => 'Melden';
+
+  @override
+  String get safety_report_group => 'Gruppe melden';
+
+  @override
+  String get safety_report_title => 'Warum meldest du?';
+
+  @override
+  String get safety_report_e2ee_note =>
+      'Nachrichten sind Ende-zu-Ende-verschlüsselt. Deine Meldung enthält das Konto und den gewählten Grund, aber keine Nachrichteninhalte.';
+
+  @override
+  String get safety_reason_spam => 'Spam';
+
+  @override
+  String get safety_reason_harassment => 'Belästigung oder Mobbing';
+
+  @override
+  String get safety_reason_inappropriate => 'Unangemessene Inhalte';
+
+  @override
+  String get safety_reason_child_safety => 'Kinderschutz';
+
+  @override
+  String get safety_reason_impersonation => 'Identitätsbetrug';
+
+  @override
+  String get safety_reason_other => 'Sonstiges';
+
+  @override
+  String get safety_report_note_hint => 'Details hinzufügen (optional)';
+
+  @override
+  String get safety_report_also_block => 'Kontakt auch blockieren';
+
+  @override
+  String get safety_report_submit => 'Meldung senden';
+
+  @override
+  String get safety_report_sent =>
+      'Meldung gesendet. Meldungen werden innerhalb von 24 Stunden geprüft.';
+
+  @override
+  String get safety_report_failed =>
+      'Die Meldung konnte nicht gesendet werden. Versuche es erneut.';
+
+  @override
+  String get safety_blocked_contacts => 'Blockierte Kontakte';
+
+  @override
+  String get safety_blocked_contacts_empty => 'Keine blockierten Kontakte';
 }

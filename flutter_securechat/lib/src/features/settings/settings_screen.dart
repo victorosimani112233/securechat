@@ -13,6 +13,7 @@ import '../../widgets/azure_options.dart';
 import '../../widgets/notification_sound_picker.dart';
 import '../../widgets/azure_surface.dart';
 import '../auth/recovery_enrollment_screen.dart';
+import '../safety/safety_ui.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -373,6 +374,17 @@ class SettingsScreen extends StatelessWidget {
             shrinkWrap: true,
             children: [
               _SheetHeading(context.l10n.settings_privacy),
+              ListTile(
+                key: const ValueKey('settings-blocked-contacts'),
+                leading: const Icon(Icons.block),
+                title: Text(context.l10n.safety_blocked_contacts),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BlockedContactsScreen(),
+                  ),
+                ),
+              ),
               SwitchListTile(
                 key: const ValueKey('settings-share-phone-number'),
                 secondary: const Icon(Icons.phone_outlined),
