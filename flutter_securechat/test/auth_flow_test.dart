@@ -16,6 +16,56 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 
 void main() {
+  test('oturum diskten tazelenince digerinin yazdigi token gorulur', () async {
+    // Refresh token TEK KULLANIMLIK: sunucu her yenilemede
+    // `rotateRefreshGeneration` cagiriyor. On plan ve arka plan AYRI
+    // isolate'ler ve oturumu yalniz acilista bellege aliyorlar, dolayisiyla
+    // biri yeniledigi anda digerinin elindeki token oluyor.
+    //
+    // Cihazda olculen sonuc: yarisi kaybeden taraf kalici 401 aliyor, mesaj
+    // gonderemiyor ve WebSocket'e baglanamiyordu. Tazeleme olmadan o
+    // durumdan cikis yok, cunku elindeki token bir daha gecerli olmuyor.
+    final directory = await Directory.systemTemp.createTemp('session-race');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/session.securejson');
+    final crypto = LocalAeadCryptoService(
+      SecretKey(List<int>.generate(32, (index) => index + 9)),
+    );
+
+    final first = await PersistentSessionStore.open(file: file, crypto: crypto);
+    first.login(
+      userId: 'kullanici',
+      displayName: 'Ad',
+      phoneNumber: '+900000000000',
+      accessToken: 'ilk-access',
+      refreshToken: 'ilk-refresh',
+    );
+    await first.updateTokensAndPersist(
+      accessToken: 'ilk-access',
+      refreshToken: 'ilk-refresh',
+    );
+
+    // Ikinci isolate ayni dosyayi acar ve yeniler.
+    final second = await PersistentSessionStore.open(
+      file: file,
+      crypto: crypto,
+    );
+    await second.updateTokensAndPersist(
+      accessToken: 'yeni-access',
+      refreshToken: 'yeni-refresh',
+    );
+    await second.close();
+
+    // Birincinin bellegi hala bayat.
+    expect(first.accessToken, 'ilk-access');
+
+    await first.reloadFromDisk();
+
+    expect(first.accessToken, 'yeni-access');
+    expect(first.refreshToken, 'yeni-refresh');
+    await first.close();
+  });
+
   test(
     'phone normalization and local discovery hash match privacy contract',
     () async {
@@ -392,4 +442,6 @@ class _RecordingOlmKeyPublisher implements OlmKeyPublisher {
 
   @override
   Future<void> publishIfNeeded() async => calls++;
+
 }
+

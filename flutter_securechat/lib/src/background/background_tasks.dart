@@ -156,14 +156,26 @@ class SecureChatBackgroundRuntime {
         client: httpClients.create(),
       );
       Future<String?> refreshAccessToken() async {
+        // Diger isolate yenilemis olabilir; once diskten tazele. Refresh
+        // token tek kullanimlik, tazelemeden yenilemek olu bir token
+        // gondermek demek.
+        await session.reloadFromDisk();
         final refresh = session.refreshToken;
         if (refresh == null || refresh.isEmpty) return null;
-        final pair = await authApi.refresh(refresh);
-        await session.updateTokensAndPersist(
-          accessToken: pair.accessToken,
-          refreshToken: pair.refreshToken,
-        );
-        return pair.accessToken;
+        try {
+          final pair = await authApi.refresh(refresh);
+          await session.updateTokensAndPersist(
+            accessToken: pair.accessToken,
+            refreshToken: pair.refreshToken,
+          );
+          return pair.accessToken;
+        } catch (_) {
+          // Yarisi kaybetmis olabiliriz: diger isolate bizden sonra
+          // yeniledi ve elimizdeki token oldu. Kazananin yazdigi token'i
+          // al. Bunu yapmadan, kaybeden taraf kalici 401'e sikisiyordu.
+          await session.reloadFromDisk();
+          return session.accessToken;
+        }
       }
 
       // Gecis ON PLANDA da kosuyor; burada da yoklanmasi gerekiyor cunku

@@ -121,14 +121,28 @@ class AuthCoordinator {
   }
 
   Future<String?> refreshAccessToken() async {
+    // Arka plan isolate'i yenilemis olabilir; once diskten tazele. Refresh
+    // token tek kullanimlik (sunucu her yenilemede generation'i donduruyor),
+    // dolayisiyla bayat bir token gondermek 401 demek.
+    await _session.reloadFromDisk();
     final refresh = _session.refreshToken;
     if (refresh == null || refresh.isEmpty) return null;
-    final pair = await _api.refresh(refresh);
-    await _session.updateTokensAndPersist(
-      accessToken: pair.accessToken,
-      refreshToken: pair.refreshToken,
-    );
-    return pair.accessToken;
+    try {
+      final pair = await _api.refresh(refresh);
+      await _session.updateTokensAndPersist(
+        accessToken: pair.accessToken,
+        refreshToken: pair.refreshToken,
+      );
+      return pair.accessToken;
+    } catch (_) {
+      // Yarisi kaybetmis olabiliriz: diger isolate bizden sonra yeniledi ve
+      // elimizdeki token oldu. Kazananin yazdigini al; bunu yapmadan
+      // kaybeden taraf kalici 401'e sikisiyordu.
+      await _session.reloadFromDisk();
+      final recovered = _session.accessToken;
+      if (recovered != null && recovered.isNotEmpty) return recovered;
+      rethrow;
+    }
   }
 
   Future<void> logout() async {

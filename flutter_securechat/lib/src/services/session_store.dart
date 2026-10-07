@@ -109,6 +109,9 @@ class SessionStore {
     this.refreshToken = refreshToken;
   }
 
+  /// Kalici depodan tazeler. Bellekte tutan uygulamalarda bos gecer.
+  Future<void> reloadFromDisk() async {}
+
   Future<void> clearAndPersist() async => clear();
 
   /// Persists in-memory changes when this is a disk-backed session store.
@@ -225,6 +228,23 @@ class PersistentSessionStore extends SessionStore {
       }
     }
     return store;
+  }
+
+  /// Oturumu diskten yeniden okur.
+  ///
+  /// On plan ve arka plan AYRI isolate'ler ve her biri oturumu yalnizca
+  /// acilista bellege aliyor. Refresh token TEK KULLANIMLIK (sunucu her
+  /// yenilemede `rotateRefreshGeneration` cagiriyor), dolayisiyla biri
+  /// yeniledigi anda digerinin elindeki token oluyor. Tazelemeden yenilemek,
+  /// kaybeden tarafi kalici 401'e sokuyordu.
+  @override
+  Future<void> reloadFromDisk() async {
+    if (_closed) return;
+    if (!await _file.exists()) return;
+    final envelope = await _file.readAsString();
+    if (envelope.trim().isEmpty) return;
+    final plaintext = await _crypto.decryptStorageJson(envelope);
+    loadJson(jsonDecode(plaintext) as Map<String, Object?>);
   }
 
   @override
