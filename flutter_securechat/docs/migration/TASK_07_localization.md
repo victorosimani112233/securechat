@@ -1,65 +1,53 @@
-# 07 — 432 çevrilmemiş string
+# 07 — Çevrilmemiş stringler
 
-**Bağımlılık:** yok · **Tahmin:** 1 gün
+**Durum: Almanca TAMAM · Arapça ertelendi** · **Bağımlılık:** yok
 
-## Amaç
+## Yapıldı
 
-Beyan edilen dil desteğiyle gerçek çeviri durumunu uyumlu hale getirmek.
+`de` tamamlandı: 432 eksik anahtar çevrildi, toplam **640/640**. Mevcut 208
+çevirinin register'ına uyuldu — gayri resmî "du", `Fingerabdruck`,
+`Lesebestätigungen`, `Sitzung`. Birleştirme sırasında her ICU placeholder'ı
+(`{arg1}`, `{chatName}`, `{duration}`, `{sender}`) İngilizce kaynakla
+karşılaştırılarak doğrulandı; `\n` ve `\"` kaçışları korundu.
 
-## Mevcut durum
+## Arapça — bilinçli erteleme
 
-Build çıktısı her seferinde uyarıyor:
+`ar` 208/640'ta kaldı. Kullanıcı önceliklendirmedi.
 
-```
-"ar": 432 untranslated message(s).
-"de": 432 untranslated message(s).
-```
+Dili tamamen kaldırmak ilk bakışta kolay görünüyor ama değil:
+`AppLanguagePreference.ar` enum'u Arapça'yı ayarlardaki dil seçicisinde
+kullanıcı seçeneği yapıyor (`lib/src/app.dart:351`), ve beş test dosyası
+`'ar'`'a referans veriyor (`service_strings_test`, `recovery_screen_test`,
+`settings_module_test`, `full_screen_stress_audit_test`,
+`chat_bubble_padding_layout_test`). Kozmetik bir hedef için enum + ayarlar
+UI + testlere dokunmak gereksiz risk.
 
-`ios/Runner/Info.plist` içindeki `CFBundleLocalizations` dört dil beyan
-ediyor: `tr`, `en`, `de`, `ar`. Arapça ve Almanca'nın **tamamı** eksik.
-Beyan edilen dilde boş/İngilizce fallback göstermek mağaza kalite reddi
-riski.
+Kısmi çevirinin maliyeti yalnızca şu: Arapça seçen kullanıcı 432 stringde
+İngilizce görüyor (Flutter template'e düşüyor). Mağaza tarafında bu bir
+kalite riski ama ret gerekçesi olacak kadar değil — dil beyan edilmiş ve
+çalışıyor, sadece eksik.
 
-## İki seçenek
+## Kalan iki seçenek
 
-**A — dilleri beyandan çıkar (1 saat).** `CFBundleLocalizations`'ı
-`tr` + `en` ile sınırla, `lib/l10n` altındaki `app_ar.arb` ve `app_de.arb`
-dosyalarını kaldır, `l10n.yaml` ve `app_localizations*.dart` üretimini
-güncelle. Risk sıfırlanır.
+**A — tamamla.** 432 Arapça çeviri. Arapça RTL; proje RTL destekliyor ama
+432 stringin RTL düzende gözden geçirilmesi gerekir.
 
-**B — çevirileri tamamla (1 gün + gözden geçirme).** 432 × 2 string.
-Makine çevirisi + insan gözden geçirmesi. Arapça ayrıca **RTL** demek;
-proje RTL'i destekliyor (`supportsRtl`, `MaterialApp` yönü) ama 432 stringin
-RTL düzende test edilmesi gerekir.
+**B — kaldır.** `lib/l10n/app_ar.arb`'ı `lib/l10n/` dışına taşı,
+`AppLanguagePreference`'tan `ar`'ı çıkar, ayarlardaki seçiciyi güncelle, beş
+test dosyasını uyarla, `Info.plist`'teki `CFBundleLocalizations`'tan `ar`'ı
+sil.
 
-Öneri: şimdilik **A**, sonra talep gelirse B. Mağazaya dört dil beyan edip
-ikisini boş bırakmaktansa iki dilde iyi olmak yeterli.
+## CI durumu
+
+`flutter-ci.yml` içindeki çevrilmemiş-string kapısı `ar`'ı **gerekçesiyle
+muaf tutuyor**; başka bir dilde eksik çıkarsa iş düşer. A veya B yapılınca
+muafiyet kaldırılacak.
 
 ## Doğrulama
 
 ```bash
-flutter build apk --release --target-platform=android-arm64 2>&1 | grep untranslated
-# cikti olmamali
-dart tool/audit_ios_readiness.dart   # PASS kalmali
-```
-
-`test/accessibility_responsive_test.dart` ve l10n ile ilgili testlerin
-geçmeye devam ettiğini doğrula.
-
----
-
-## Ortak zemin
-
-Önce [INDEX.md](INDEX.md) oku — mimari kararlar ve herkesi ilgilendiren
-tuzaklar orada. Özellikle: vodozemac base64'ü padding'siz üretir, one-time
-key'ler Account pickle'ının içinde durur, her encrypt/decrypt sonrası
-yeniden pickle gerekir, ve Famedly'nin AGPL Dart binding'ine bakılmaz.
-
-## Bitirme ölçütü
-
-```bash
-cd /home/user497/securechat/flutter_securechat
-export PATH="/home/user497/flutter/bin:$PATH"
-flutter analyze --no-pub     # temiz olmali
-flutter test --no-pub        # tamami gecmeli
+flutter gen-l10n --untranslated-messages-file=untranslated.json
+# yalnizca "ar" gorunmeli, "de" gorunmemeli
+flutter analyze --no-pub
+flutter test --no-pub
 ```

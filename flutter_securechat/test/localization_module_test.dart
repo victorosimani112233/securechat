@@ -45,11 +45,16 @@ void main() {
     }
   });
 
-  testWidgets('partial German catalog falls back to English', (tester) async {
+  /// Almanca katalog TAMAMLANDI: 640/640. Bu test eskiden Almanca'nin
+  /// eksik oldugunu ve Ingilizce'ye dustugunu sart kosuyordu; o durum
+  /// gectigi icin degismez yeniden yazildi. Artik iki yonu de koruyor:
+  /// Almanca'da bir anahtarin kaybolmasi da, Arapca'nin sessizce
+  /// tamamlanmis sayilmasi da burada yakalanir.
+  Future<AppLocalizations> pumpLocale(WidgetTester tester, Locale locale) async {
     late AppLocalizations strings;
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('de'),
+        locale: locale,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Builder(
@@ -60,8 +65,23 @@ void main() {
         ),
       ),
     );
+    return strings;
+  }
+
+  testWidgets('German catalog is complete', (tester) async {
+    final strings = await pumpLocale(tester, const Locale('de'));
 
     expect(strings.group_info, 'Gruppeninfo');
+    // Eskiden 'Settings' idi, yani Ingilizce'ye dusuyordu.
+    expect(strings.settings_title, 'Einstellungen');
+  });
+
+  testWidgets('partial Arabic catalog falls back to English', (tester) async {
+    final strings = await pumpLocale(tester, const Locale('ar'));
+
+    // Arapca 208/640; cevrilmis anahtar Arapca, cevrilmemis olan sablona
+    // duser. Arapca tamamlandiginda bu testin ikinci beklentisi guncellenir.
+    expect(strings.group_info, 'معلومات المجموعة');
     expect(strings.settings_title, 'Settings');
   });
 
