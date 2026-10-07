@@ -20,7 +20,7 @@ Linux uzerinde statik sozlesmeyi kanitlar; Xcode derlemesi yerine gecmez.
 - Rehberden yalniz ad ve telefon okunur; contact thumbnail alinmaz.
 - Native open/share yalniz `Application Support/media` ve `crash_logs` altindaki normal dosyalari kabul eder; symlink escape reddedilir.
 - CallKit/Telecom privacy modunda kisi adi ve account ID yerine generic etiket kullanir.
-- Privacy manifest tracking=false, app-functionality veri kategorileri ve app-container file metadata icin `C617.1` beyanini tasir.
+- Privacy manifest tracking=false, app-functionality veri kategorileri ve app-container file metadata icin `C617.1` ve gecen sure olcumu icin `35F9.1` beyanini tasir.
 
 ## Platform davranisi
 

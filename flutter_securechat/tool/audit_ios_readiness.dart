@@ -170,6 +170,10 @@ IosReadinessResult auditIosReadiness(Directory root) {
     'NSPrivacyCollectedDataTypeDeviceID',
     'NSPrivacyAccessedAPICategoryFileTimestamp',
     '<string>C617.1</string>',
+    // flutter_webrtc ve WebRTC.xcframework mach_absolute_time kullanir;
+    // ikisi de kendi privacy manifest'ini tasimaz.
+    'NSPrivacyAccessedAPICategorySystemBootTime',
+    '<string>35F9.1</string>',
   ]) {
     if (!privacy.contains(required)) {
       failures.add('Privacy manifest beyanı eksik: $required');
@@ -367,7 +371,7 @@ IosReadinessResult auditIosReadiness(Directory root) {
       '- CallKit/Telecom privacy modunda kisi adi ve account ID yerine generic etiket kullanir.',
     )
     ..writeln(
-      '- Privacy manifest tracking=false, app-functionality veri kategorileri ve app-container file metadata icin `C617.1` beyanini tasir.',
+      '- Privacy manifest tracking=false, app-functionality veri kategorileri ve app-container file metadata icin `C617.1` ve gecen sure olcumu icin `35F9.1` beyanini tasir.',
     )
     ..writeln()
     ..writeln('## Platform davranisi')
