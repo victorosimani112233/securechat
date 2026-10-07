@@ -165,11 +165,6 @@ class PrivateDirectoryRegistryIntegrationTest {
                     "modern_prekey_bundles",
                     "modern_one_time_prekeys",
                     "modern_last_resort_kyber_prekeys",
-                    "sealed_sender_mailboxes",
-                    // Emekli mailbox tombstone'u: yalniz HMAC indeksi ve sona
-                    // erme zamani; hesap bagi tasimadigi icin sosyal grafik
-                    // yuzeyi olusturmaz.
-                    "sealed_sender_retired_mailboxes",
                     "account_recovery_bindings",
                     "account_recovery_challenges",
                     "account_recovery_quotas",
@@ -177,17 +172,6 @@ class PrivateDirectoryRegistryIntegrationTest {
                 ),
                 tables,
             )
-            // Tombstone hicbir kosulda bir hesaba geri baglanmamalidir.
-            val retiredColumns = connection.prepareStatement(
-                """SELECT column_name FROM information_schema.columns
-                   WHERE table_schema = 'public'
-                     AND table_name = 'sealed_sender_retired_mailboxes'""",
-            ).use { statement ->
-                statement.executeQuery().use { rows ->
-                    buildSet { while (rows.next()) add(rows.getString(1)) }
-                }
-            }
-            assertEquals(setOf("mailbox_index", "retired_until"), retiredColumns)
             assertEquals(
                 setOf(
                     "user_id",
@@ -225,10 +209,6 @@ class PrivateDirectoryRegistryIntegrationTest {
             assertEquals(
                 setOf("recipient_index", "device_id", "session_record"),
                 columns(connection, "bot_signal_session"),
-            )
-            assertEquals(
-                setOf("user_id", "mailbox_index", "write_key_index", "protocol_version", "generation"),
-                columns(connection, "sealed_sender_mailboxes"),
             )
             assertEquals(
                 setOf("user_id", "key_id", "public_key", "signature"),

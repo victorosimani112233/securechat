@@ -8,18 +8,18 @@ Sunucuyu yeni istemci sözleşmesine uyarlamak ve AGPL bağımlılığını kald
 
 ## AGPL temizliği
 
-`org.signal:libsignal-client` yalnızca üç dosyada:
+`org.signal:libsignal-client` üç dosyadaydı. **İkisi artık silindi**
+(`SealedSenderCertificateIssuer.kt` ve `tools/SealedSenderOfflineKeygen.kt`,
+sealed sender kaldırılırken). Geriye tek kullanım kaldı:
 
 ```
 signaling-server/src/main/kotlin/com/securechat/signaling/
   RecoveryRecordCipher.kt
-  SealedSenderCertificateIssuer.kt
-  tools/SealedSenderOfflineKeygen.kt
 ```
 
-Hepsi sealed-sender ve imzalama işi. İstemci Signal protokolünden çıktığı
-için bunlar da kalkıyor. Bağımlılık `signaling-server/build.gradle.kts:53`
-ve `gradle/libs.versions.toml:130`.
+Bağımlılık `signaling-server/build.gradle.kts:53` ve
+`gradle/libs.versions.toml:130`; bu dosya da taşındıktan sonra ikisi birlikte
+düşecek.
 
 `RecoveryRecordCipher` dikkat: hesap kurtarma için Curve/Ed25519 imza
 doğrulaması yapıyor olabilir — libsignal yerine izin verici bir kütüphaneye
@@ -34,7 +34,8 @@ doğrulaması yapıyor olabilir — libsignal yerine izin verici bir kütüphane
 /api/v1/prekeys/status      degismez
 /api/v1/users/{id}/prekeys  bundle sekli degisiyor: identity + one-time +
                             fallback (signed prekey yerine)
-/api/v2/*                   PQXDH ve sealed sender — KULLANILMIYOR, kaldirilacak
+/api/v2/sealed-sender/*     KALDIRILDI (bu is bitti)
+/api/v2/prekeys/*           PQXDH — KULLANILMIYOR, kaldirilacak
 ```
 
 **Önemli:** `HttpRoutes.kt:938`'deki `/api/v1/users/{userId}/prekeys`

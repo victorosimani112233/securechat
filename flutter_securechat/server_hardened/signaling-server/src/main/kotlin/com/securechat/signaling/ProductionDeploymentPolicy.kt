@@ -40,8 +40,6 @@ object ProductionDeploymentPolicy {
             }
         }
 
-        requireOfflineSealedSenderTrustRoot(environment)
-
         requireTlsRelay(environment)
 
         val firebasePath = environment["FIREBASE_SERVICE_ACCOUNT_PATH"]
@@ -62,28 +60,6 @@ object ProductionDeploymentPolicy {
     internal fun requireDevelopmentStillProtectsMessages(environment: Map<String, String>) {
         require(environment["ALLOW_LEGACY_PLAINTEXT_QUEUE"]?.equals("true", ignoreCase = true) != true) {
             "Legacy plaintext queues stay forbidden in the development profile"
-        }
-    }
-
-    /**
-     * Sealed Sender trust root'u production'da cevrimdisi kalmalidir.
-     *
-     * Trust root public key'i istemci binary'sine pinlenir; ozel anahtari ele
-     * geciren biri istedigi hesap adina gecerli sender certificate uretebilir
-     * ve bu ancak yeni bir uygulama surumuyle geri alinabilir. Relay'in
-     * calismak icin ozel anahtara ihtiyaci yoktur: cevrimdisi imzalanmis
-     * sertifika yeterlidir. Anahtarin ortamda bulunmasi, yanlislikla
-     * kopyalanmis olmasi ihtimaline karsi baslangicta reddedilir.
-     */
-    internal fun requireOfflineSealedSenderTrustRoot(environment: Map<String, String>) {
-        require(!environment["SEALED_SENDER_SERVER_CERTIFICATE"].isNullOrBlank()) {
-            "Production requires an offline-issued SEALED_SENDER_SERVER_CERTIFICATE"
-        }
-        require(!environment["SEALED_SENDER_TRUST_ROOT_PUBLIC_KEY"].isNullOrBlank()) {
-            "SEALED_SENDER_TRUST_ROOT_PUBLIC_KEY is required to validate the server certificate"
-        }
-        require(environment["SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY"].isNullOrBlank()) {
-            "The Sealed Sender trust-root private key must not be present on the relay"
         }
     }
 

@@ -16,10 +16,6 @@ bagimsiz uretilmelidir:
 - `PRIVACY_INDEX_KEY`: HMAC blind index ve pseudonym anahtari.
 - `OFFLINE_QUEUE_ENCRYPTION_KEY`: Redis offline envelope AES-256-GCM anahtari.
 - `FCM_TOKEN_ENCRYPTION_KEY`: push token `v4` AES-256-GCM anahtari.
-- `SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY`: istemcide public kismi pinlenen,
-  sender-certificate kok imza anahtari.
-- `SEALED_SENDER_SERVER_PRIVATE_KEY`: kisa omurlu sender certificate imzalayan
-  ara sunucu anahtari; trust-root ile ayni olamaz.
 - `BOT_MASTER_KEY`: bot identity/session private state anahtari.
 - `BOT_QUEUE_ENCRYPTION_KEY`: bot queue/idempotency zarf anahtari.
 
@@ -50,17 +46,11 @@ alias veya certificate yoksa PKCS#8'e geri dusmeden startup'i durdurur. PKCS#8
 backend'inde host+DB'nin birlikte ele gecirilmesi telefon sozluk saldirisini
 yeniden mumkun kilar; bu backend production release icin kabul edilmez.
 
-Sealed Sender anahtarlarini ve mobil build'e verilecek public trust root'u
-uretin (cikti dizini yeni/bos ve repository disinda olmali):
-
-```bash
-dart tool/generate_sealed_sender_keys.dart /srv/securechat/secrets
-```
-
-Uretilen iki private dosya yalniz signaling container'ina read-only secret
-olarak baglanir. Komutun yazdigi `SECURECHAT_SEALED_SENDER_TRUST_ROOT` degeri
-Android/iOS release `--dart-define` girdisidir; private anahtar mobil bundle'a
-konmaz.
+> **Sealed Sender kaldirildi.** Istemci kripto cekirdegi vodozemac'a
+> (Olm + Megolm) tasindi ve o yiginda sealed sender'in karsiligi yok. Bu
+> adimda eskiden bir cevrimdisi anahtar toreni vardi; trust root, sender
+> certificate ve `SECURECHAT_SEALED_SENDER_TRUST_ROOT` dart-define'i artik
+> gerekmiyor. Mailbox tablolari V24 ile dusuruldu.
 
 Izole gelistirme anahtari ornegi (uretilen PEM/DER veya Base64 degeri repoya
 eklenmez):
@@ -168,7 +158,8 @@ Yalniz `deploy/deploy_privacy_stack.sh --check-only` kapisi kullanilir;
    kolonlarini fiziksel olarak kaldirir; eski satir bulursa veri silmeden
    migration'i durdurur. V15-V19 credential/bot/directory state ve kotalarini
    dayanikli hale getirir; V20 official Rust libsignal public PQXDH bundle'ini,
-   V21 ham capability saklamayan Sealed Sender mailbox indeksini ekler.
+   V21 ham capability saklamayan Sealed Sender mailbox indeksini ekler. V24
+   sealed sender emekli oldugu icin o mailbox tablolarini geri dusurur.
 5. PostgreSQL+Redis health check gecmeden listener acilmaz.
 6. Migration tamamlandiktan sonra signaling instance'larini olcekle.
 7. Bot API'yi en son baslat; private session/client dogrulamasi

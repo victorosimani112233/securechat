@@ -81,8 +81,6 @@ class DeploymentProfileTest {
             "SMTP_TLS" to "starttls",
             "FIREBASE_SERVICE_ACCOUNT_PATH" to "/run/secrets/firebase_service_account",
             "TURN_HOST" to "relay.example.invalid",
-            "SEALED_SENDER_SERVER_CERTIFICATE" to "Zm9ybWF0LWNoZWNrZWQtZWxzZXdoZXJl",
-            "SEALED_SENDER_TRUST_ROOT_PUBLIC_KEY" to "Zm9ybWF0LWNoZWNrZWQtZWxzZXdoZXJl",
         )
 
         assertDoesNotThrow { ProductionDeploymentPolicy.validate(production) }

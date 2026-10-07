@@ -307,48 +307,6 @@ class ConnectionManager(
         }
     }
 
-    /**
-     * Anonim capability endpoint'inden gelen zarfi alicinin kuyruguna koyar.
-     *
-     * Sunucu ciphertext'i **acmaz ve bicimini dogrulamaz**: Sealed Sender
-     * zarfini yalniz alicinin cihazi cozebilir, dolayisiyla burada yapilacak
-     * her "dogrulama" ya anlamsiz ya da E2EE sinirini delen bir denemedir.
-     * Uygulanan tek kisit boyut ve kodlama sinirlaridir. Bozuk bir zarf
-     * alicida reddedilir.
-     *
-     * Bu metoda ve kuyruk degerine hicbir gonderen hesap kimligi girmez.
-     */
-    suspend fun routeSealedMessage(
-        recipientId: String,
-        sealedCiphertext: String,
-        deliveryId: String,
-    ): Boolean {
-        if (!DELIVERY_ID_REGEX.matches(deliveryId)) return false
-        val messageJson = buildJsonObject {
-            put("type", RELIABLE_MESSAGE_TYPE)
-            put("senderId", SEALED_SENDER_ID)
-            put("recipientId", recipientId)
-            put("timestamp", System.currentTimeMillis())
-            put("envelope", "SEALED:v1:$sealedCiphertext")
-            put("deliveryId", deliveryId)
-        }.toString()
-        val deliverable = queueReliableMessage(recipientId, messageJson) ?: return false
-        Metrics.messagesQueued.increment()
-        val recipientSession = connections[recipientId]
-        if (recipientSession == null) {
-            notifyWakeUp(recipientId, RELIABLE_MESSAGE_TYPE)
-            return true
-        }
-        return try {
-            recipientSession.send(Frame.Text(deliverable))
-            Metrics.messagesRouted.increment()
-            true
-        } catch (_: Exception) {
-            notifyWakeUp(recipientId, RELIABLE_MESSAGE_TYPE)
-            true
-        }
-    }
-
     fun isOnline(userId: String): Boolean = connections.containsKey(userId)
     fun getOnlineCount(): Int = connections.size
     fun connections(): Map<String, WebSocketSession> = connections
@@ -800,7 +758,6 @@ class ConnectionManager(
         private const val ACTIVE_CALL_TTL_SECONDS = 300L
         private const val RELIABLE_MESSAGE_TYPE = "encrypted_message"
         private const val LEGACY_SENDER_ID = "legacy"
-        private const val SEALED_SENDER_ID = "sealed"
         private val DELIVERY_ID_REGEX = Regex("^[A-Za-z0-9_-]{43}$")
         /**
          * Suresi dolmus kayitlari silen ortak Lua parcasi.

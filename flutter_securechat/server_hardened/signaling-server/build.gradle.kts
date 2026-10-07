@@ -199,6 +199,17 @@ val runDummyServer by tasks.registering(JavaExec::class) {
 
 tasks.test {
     useJUnitPlatform()
+    // Gradle'in varsayilan test JVM heap'i 512 MB. Kuyruk tasma testi
+    // tasarimi geregi ~128 MB ciphertext'i siraya alir ve bu sinira carpip
+    // worker JVM'ini OutOfMemoryError ile dusururdu; hata tek bir teste
+    // degil "Gradle Test Executor" cokmesi olarak raporlanir, yani sebebi
+    // gizler. Sinir acikca yukseltiliyor.
+    maxHeapSize = "2g"
+    // Takilan bir test build'i sessizce sonsuza kadar durdurmamali. Timeout
+    // olmadan hang, isimsiz bir "Gradle Test Executor" cokmesi ya da hic
+    // bitmeyen bir task olarak gorunur; sebebi ancak jstack ile bulunur.
+    // En uzun mesru test (Lincheck) ~30 saniye, yani 120 saniye genis pay.
+    systemProperty("junit.jupiter.execution.timeout.default", "120s")
     environment("RECOVERY_INDEX_KEY", "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=")
     environment("RECOVERY_ENCRYPTION_KEY", "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=")
     dependsOn(generateTestDirectoryOprfKey)

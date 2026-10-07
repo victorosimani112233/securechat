@@ -124,17 +124,11 @@ object PrivacyRetentionWorker {
                     statement.setInt(2, config.apiClientRetentionDays)
                     statement.executeUpdate()
                 }
-                // Emeklilik penceresi kapanan mailbox tombstone'lari. Satir
-                // hesapla iliskili degildir, yine de suresiz tutulmasi
-                // gereksiz bir kalici izdir.
-                val retiredMailboxes = connection.prepareStatement(
-                    "DELETE FROM sealed_sender_retired_mailboxes WHERE retired_until <= NOW()",
-                ).use { statement -> statement.executeUpdate() }
                 connection.commit()
                 val pushCutoff = System.currentTimeMillis() -
                     config.pushTokenRetentionDays * 86_400_000L
                 tokenStore?.purgeExpiredMemory(pushCutoff)
-                RetentionResult(botPreKeys, pushTokens, apiClients, retiredMailboxes)
+                RetentionResult(botPreKeys, pushTokens, apiClients)
             } catch (error: Exception) {
                 connection.rollback()
                 throw error
@@ -145,11 +139,10 @@ object PrivacyRetentionWorker {
             if (result.total > 0) {
                 retentionLog.info(
                     "[Privacy] Retention cleanup: consumed_prekeys={}, push_tokens={}, " +
-                        "api_clients={}, retired_mailboxes={}",
+                        "api_clients={}",
                     result.consumedPreKeyRows,
                     result.pushTokenRows,
                     result.apiClientRows,
-                    result.retiredMailboxRows,
                 )
             }
         }
@@ -172,8 +165,7 @@ data class RetentionResult(
     val consumedPreKeyRows: Int,
     val pushTokenRows: Int,
     val apiClientRows: Int,
-    val retiredMailboxRows: Int = 0,
 ) {
     val total: Int
-        get() = consumedPreKeyRows + pushTokenRows + apiClientRows + retiredMailboxRows
+        get() = consumedPreKeyRows + pushTokenRows + apiClientRows
 }

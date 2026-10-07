@@ -519,9 +519,10 @@ private suspend fun handleMessage(
             return
         }
 
-        // Sealed Sender ciphertext authenticated user socketine yazilirsa
-        // sender UUID bu socketten yeniden linklenir. Sessiz identified
-        // fallback yerine yalniz anonim HTTP relay kabul edilir.
+        // Sealed Sender mimarisi kaldirildi; vodozemac'ta karsiligi yok ve
+        // bu zarfi acabilecek bir istemci de kalmadi. Guard BILEREK duruyor:
+        // eski bir istemci hala gonderirse cerceve sessizce tasinmasin ve
+        // sender UUID bu socketten yeniden linklenmesin.
         if (type == "encrypted_message" &&
             element["envelope"]?.jsonPrimitive?.contentOrNull?.startsWith("SEALED:v1:") == true
         ) {

@@ -17,8 +17,9 @@ ratchet), Least Authority denetimli (Mayıs 2022), Matrix'in tamamında
 üretimde. Bedeli: **post-quantum yok**. İzin verici lisansla PQ veren kimse
 yok; PQ bir gün şart olursa yol MLS.
 
-Göç ayrıca sunucudan da AGPL'i siliyor: `libsignal-client` yalnızca üç
-dosyada ve hepsi sealed-sender/imzalama işi.
+Göç ayrıca sunucudan da AGPL'i siliyor: `libsignal-client` üç dosyadaydı,
+ikisi sealed sender kaldırılırken silindi; geriye yalnızca
+`RecoveryRecordCipher.kt` kaldı.
 
 ## Bitmiş olanlar — bunlara dokunma
 

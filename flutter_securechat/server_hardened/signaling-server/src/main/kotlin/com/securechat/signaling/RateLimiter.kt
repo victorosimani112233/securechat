@@ -36,10 +36,6 @@ object RateLimiter {
         // Upload + refresh yazma yolu; sinirsizken tek hesap one_time_prekeys
         // tablosunu sinirsiz buyutebiliyordu.
         "prekey_write" to RateLimit(30, 3600),        // 30 yazma/saat per account
-        "sealed_mailbox_write" to RateLimit(48, 86_400), // idempotent startup registration + rotation
-        "sealed_certificate" to RateLimit(12, 3_600), // short-lived cert refresh
-        "sealed_relay_mailbox" to RateLimit(600, 60), // capability-level abuse bound
-        "sealed_relay_ip" to RateLimit(600, 60),      // anonymous ingress flood bound
         "ws_message" to RateLimit(50, 1),             // 50 msg/sn per userId (DoS koruma)
         "ws_connect" to RateLimit(10, 1),             // 10 yeni WS baglanti/sn per IP
         "otp_request" to RateLimit(5, 600),           // 5 req/10dk per IP (OTP istegi)

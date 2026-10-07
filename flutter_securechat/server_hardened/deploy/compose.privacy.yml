@@ -82,14 +82,6 @@ services:
       PRIVACY_INDEX_KEY_FILE: /run/secrets/privacy_index_key
       OFFLINE_QUEUE_ENCRYPTION_KEY_FILE: /run/secrets/offline_queue_key
       FCM_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/fcm_token_key
-      # Sealed Sender: trust root ozel anahtari bu makinede BULUNMAZ.
-      # Sertifika cevrimdisi bir makinede trust root ile bir kez imzalanir ve
-      # yalniz sonucu buraya konur. Boylece relay ele gecse bile saldirgan yeni
-      # sender certificate uretemez; trust root public key'i istemci binary'sine
-      # pinli oldugu icin aksi durumda geri alinamaz bir sahtecilik olurdu.
-      SEALED_SENDER_SERVER_CERTIFICATE_FILE: /run/secrets/sealed_sender_server_certificate
-      SEALED_SENDER_TRUST_ROOT_PUBLIC_KEY_FILE: /run/secrets/sealed_sender_trust_root_public_key
-      SEALED_SENDER_SERVER_PRIVATE_KEY_FILE: /run/secrets/sealed_sender_server_private_key
       METRICS_BEARER_TOKEN_FILE: /run/secrets/metrics_token
       SMTP_HOST: ${SMTP_HOST:?Set the TLS SMTP host}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -127,9 +119,6 @@ services:
       - privacy_index_key
       - offline_queue_key
       - fcm_token_key
-      - sealed_sender_server_certificate
-      - sealed_sender_trust_root_public_key
-      - sealed_sender_server_private_key
       - metrics_token
       - smtp_password
       - firebase_service_account
@@ -211,12 +200,6 @@ secrets:
     file: "${OFFLINE_QUEUE_KEY_FILE:?Set a read-only secret file}"
   fcm_token_key:
     file: "${FCM_TOKEN_KEY_FILE:?Set a read-only secret file}"
-  sealed_sender_server_certificate:
-    file: "${SEALED_SENDER_SERVER_CERTIFICATE_FILE:?Set the offline-issued server certificate file}"
-  sealed_sender_trust_root_public_key:
-    file: "${SEALED_SENDER_TRUST_ROOT_PUBLIC_KEY_FILE:?Set the pinned trust-root public key file}"
-  sealed_sender_server_private_key:
-    file: "${SEALED_SENDER_SERVER_PRIVATE_KEY_FILE:?Set a read-only secret file}"
   metrics_token:
     file: "${METRICS_TOKEN_FILE:?Set a read-only secret file}"
   smtp_password:

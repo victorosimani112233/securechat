@@ -12,8 +12,6 @@ internal object PurposeSeparatedSecrets {
         "JWT_SECRET",
         "TURN_SECRET",
         "METRICS_BEARER_TOKEN",
-        "SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY",
-        "SEALED_SENDER_SERVER_PRIVATE_KEY",
     )
 
     private val authenticationSecretNames = setOf(
@@ -30,8 +28,6 @@ internal object PurposeSeparatedSecrets {
         "PRIVACY_INDEX_KEY",
         "OFFLINE_QUEUE_ENCRYPTION_KEY",
         "FCM_TOKEN_ENCRYPTION_KEY",
-        "SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY",
-        "SEALED_SENDER_SERVER_PRIVATE_KEY",
     )
 
     fun validate(environment: Map<String, String> = System.getenv()) {

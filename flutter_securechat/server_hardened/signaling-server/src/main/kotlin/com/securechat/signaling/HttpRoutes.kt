@@ -38,7 +38,6 @@ private const val PREKEY_BODY_LIMIT = 64 * 1024
 private const val MODERN_PREKEY_BODY_LIMIT = 512 * 1024
 
 /** Sealed Sender ciphertext plus bounded JSON/Base64 overhead. */
-private const val SEALED_SENDER_BODY_LIMIT = 384 * 1024
 
 /** Tek yuklemede kabul edilen en fazla one-time prekey sayisi. */
 internal const val MAX_ONE_TIME_PREKEYS = 200
@@ -248,30 +247,6 @@ data class ModernPreKeyStatusResponse(val initialized: Boolean, val remaining: I
 
 @Serializable
 data class ModernPreKeyUploadResponse(val status: String, val remaining: Int)
-
-@Serializable
-data class AnonymousMailboxRegistrationRequest(
-    val protocolVersion: Int,
-    val mailboxId: String,
-    val writeKey: String,
-    val generation: Int,
-)
-
-@Serializable
-data class SealedSenderRelayRequest(
-    val protocolVersion: Int,
-    val mailboxId: String,
-    val deliveryId: String,
-    val ciphertext: String,
-)
-
-@Serializable
-data class SealedSenderCertificateResponse(
-    val protocolVersion: Int,
-    val certificate: String,
-    val expiresAt: Long,
-    val serverKeyId: Int,
-)
 
 internal fun List<ModernOneTimePreKeyEntry>.hasSaneModernOneTimeKeys(): Boolean {
     if (size > MAX_ONE_TIME_PREKEYS || distinctBy { it.keyId }.size != size) return false
@@ -924,14 +899,18 @@ fun Application.configureRoutes(
             }
         }
 
-        // Diger client baska bir kullanicinin prekey bundle'ini ister
-        // Klasik X3DH bundle'i. V2 (PQXDH + Sealed Sender) yayina girdikten
-        // sonra bu yol yalniz henuz PQXDH konusmayan bot servis hesaplari
-        // icindir. Kullanici token'i ile acik birakilmasi, bir istemcinin
-        // peer'ini post-quantum olmayan ve sealed sender tasimayan oturuma
-        // dusurmesine izin verirdi: V2'deki downgrade korumasini uygulama
-        // katmaninda etkisiz kilan sessiz bir yan yol. Servis assertion'i
-        // ayri bir anahtarla imzalanir ve kullanici token'i yerine gecemez.
+        // Diger client baska bir kullanicinin prekey bundle'ini ister.
+        //
+        // Bu yolun ardinda bir zamanlar bir V2 plani vardi (PQXDH + Sealed
+        // Sender) ve yorum bu yolu "eski surum" diye tarif ediyordu. O plan
+        // artik yok: istemci kripto cekirdegi vodozemac'a tasindi, sealed
+        // sender kaldirildi ve vodozemac post-quantum tasimiyor. Yani bu
+        // artik bir gecis yolu degil, tek prekey yolu.
+        //
+        // Yine de kullanici token'i ile DEGIL servis assertion'i ile acik
+        // kalmasi gerekiyor: assertion ayri bir anahtarla imzalanir ve
+        // kullanici token'i onun yerine gecemez, boylece sira bir hesap
+        // baskasinin bundle'ini cekemez.
         get("/api/v1/users/{userId}/prekeys") {
             val fetcherId = requireServicePrincipal(
                 call,
@@ -1139,145 +1118,6 @@ fun Application.configureRoutes(
             } else {
                 call.respond(HttpStatusCode.NotFound, mapOf("error" to "modern_bundle_not_found"))
             }
-        }
-
-        post("/api/v2/sealed-sender/mailbox") {
-            val authedUserId = requireAuth(call) ?: return@post
-            if (!RateLimiter.allow("sealed_mailbox_write", authedUserId)) {
-                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
-                return@post
-            }
-            val request = call.receiveBounded<AnonymousMailboxRegistrationRequest>(
-                SMALL_BODY_LIMIT,
-                ignoreUnknownKeys = false,
-            ) ?: return@post
-            try {
-                AnonymousMailboxStore.register(
-                    authedUserId,
-                    AnonymousMailboxStore.Registration(
-                        mailboxId = request.mailboxId,
-                        writeKey = request.writeKey,
-                        protocolVersion = request.protocolVersion,
-                        generation = request.generation,
-                    ),
-                )
-                call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
-            } catch (error: IllegalArgumentException) {
-                // Bicimsel hata istemcinin duzeltebilecegi bir seydir; eskimis
-                // veya emekli bir capability ise sunucu durumuyla catismadir.
-                // Ikisi ayni kodla donunce istemci yeniden kayit mi yoksa
-                // rotasyon mu gerektigini ayirt edemiyordu.
-                val conflict = error.message?.let {
-                    it.startsWith("Stale mailbox") ||
-                        it.startsWith("Conflicting mailbox") ||
-                        it.startsWith("Retired mailbox")
-                } == true
-                if (conflict) {
-                    call.respond(HttpStatusCode.Conflict, mapOf("error" to "mailbox_generation_conflict"))
-                } else {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_mailbox"))
-                }
-            } catch (error: Exception) {
-                logger.warn("[SealedSender] Mailbox registration failed: {}", error.javaClass.simpleName)
-                call.respond(HttpStatusCode.Conflict, mapOf("error" to "mailbox_registration_failed"))
-            }
-        }
-
-        get("/api/v2/users/{userId}/sealed-sender/capability") {
-            val fetcherId = requireAuth(call) ?: return@get
-            if (!RateLimiter.allow("prekey_capability", fetcherId)) {
-                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
-                return@get
-            }
-            val targetUserId = call.parameters["userId"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "user_id_required"))
-                return@get
-            }
-            if (AnonymousMailboxStore.hasMailbox(targetUserId) &&
-                ModernPreKeyStore.hasBundle(targetUserId)
-            ) {
-                call.respond(HttpStatusCode.NoContent)
-            } else {
-                call.respond(HttpStatusCode.NotFound, mapOf("error" to "sealed_sender_unavailable"))
-            }
-        }
-
-        get("/api/v2/sealed-sender/certificate") {
-            val authedUserId = requireAuth(call) ?: return@get
-            if (!RateLimiter.allow("sealed_certificate", authedUserId)) {
-                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "rate_limited"))
-                return@get
-            }
-            val identity = ModernPreKeyStore.identityFor(authedUserId)
-            if (identity == null || !AnonymousMailboxStore.hasMailbox(authedUserId)) {
-                call.respond(HttpStatusCode.Conflict, mapOf("error" to "sealed_sender_not_initialized"))
-                return@get
-            }
-            try {
-                val issued = SealedSenderCertificateIssuer.issue(
-                    senderId = authedUserId,
-                    senderIdentityPublicKey = identity.publicKey,
-                )
-                call.respond(
-                    SealedSenderCertificateResponse(
-                        protocolVersion = 1,
-                        certificate = java.util.Base64.getEncoder()
-                            .encodeToString(issued.certificate),
-                        expiresAt = issued.expiresAt,
-                        serverKeyId = issued.serverKeyId,
-                    ),
-                )
-            } catch (error: Exception) {
-                logger.warn("[SealedSender] Certificate issuance failed: {}", error.javaClass.simpleName)
-                call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "certificate_unavailable"))
-            }
-        }
-
-        // Deliberately unauthenticated: the random write capability authorizes
-        // one destination without revealing a sender account credential.
-        post("/api/v2/sealed-sender/messages") {
-            val ip = call.clientAddress()
-            val request = call.receiveBounded<SealedSenderRelayRequest>(
-                SEALED_SENDER_BODY_LIMIT,
-                ignoreUnknownKeys = false,
-            ) ?: return@post
-            val writeKey = call.request.headers["Authorization"]
-                ?.removePrefix("Bearer ")
-                ?.trim()
-                .orEmpty()
-            val fieldsValid = request.protocolVersion == 1 &&
-                request.mailboxId.matches(Regex("^[A-Za-z0-9_-]{43}$")) &&
-                request.deliveryId.matches(Regex("^[A-Za-z0-9_-]{43}$")) &&
-                decodedSize(request.ciphertext) in 32..(256 * 1024)
-            if (!fieldsValid) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_relay_request"))
-                return@post
-            }
-            if (!RateLimiter.allow("sealed_relay_ip", ip) ||
-                !RateLimiter.allow("sealed_relay_mailbox", request.mailboxId)
-            ) {
-                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "relay_unavailable"))
-                return@post
-            }
-            val recipientId = AnonymousMailboxStore.authorize(request.mailboxId, writeKey)
-            if (recipientId == null) {
-                // Missing mailbox and wrong key intentionally share one result.
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "relay_unauthorized"))
-                return@post
-            }
-            // Kuyruk doluysa bekleyen ciphertext korunur ve yeni mesaj
-            // reddedilir; gonderen geri cekilip yeniden dener.
-            if (!connectionManager.routeSealedMessage(
-                    recipientId = recipientId,
-                    sealedCiphertext = request.ciphertext,
-                    deliveryId = request.deliveryId,
-                )
-            ) {
-                call.response.header("Retry-After", "30")
-                call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "relay_unavailable"))
-                return@post
-            }
-            call.respond(HttpStatusCode.Accepted, mapOf("status" to "queued"))
         }
 
         // --- SFU Room Bilgisi — AUTH GEREKLI ---

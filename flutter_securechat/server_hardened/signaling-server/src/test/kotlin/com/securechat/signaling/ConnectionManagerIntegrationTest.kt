@@ -400,23 +400,34 @@ class ConnectionManagerIntegrationTest {
 
     @Test
     fun `a full queue refuses new ciphertext instead of dropping waiting messages`() = runBlocking {
-        // Anonim relay kimlik dogrulamasi istemez. Tasmada en eski kayitlar
-        // silinseydi, capability'yi bilen herkes alicinin bekleyen butun
-        // mesajlarini birkac dakikada temizletebilirdi. Dogru davranis
-        // gonderene "simdi olmaz" demektir.
+        // Tasmada en eski kayitlar silinseydi, alicinin bekleyen butun
+        // mesajlarini yeterince cok cerceve gonderip temizletmek mumkun
+        // olurdu. Dogru davranis yeni cerceveyi reddetmektir.
+        //
+        // Not: bu test once anonim sealed-sender relay'i uzerinden
+        // kosuyordu. Sealed sender kaldirildi, ama olculen degismez relay'e
+        // ozgu degil — kuyruk tasmasi hangi yoldan gelirse gelsin bekleyeni
+        // dusurmemeli. Kimlik dogrulamali route uzerinden kosmaya devam
+        // ediyor.
         val recipient = UUID.randomUUID().toString()
-        val chunk = "A".repeat(2 * 1024 * 1024)
+        // Yuk BIR KEZ ayrilir ve her turda yeniden kullanilir. Her iterasyonda
+        // yeni bir 2 MB string uretmek test JVM'ini heap'ten dusurur.
+        val ciphertext = "A".repeat(2 * 1024 * 1024)
+        fun bigEnvelope(marker: String) =
+            """{"type":"encrypted_message","messageId":"$marker","ciphertext":"$ciphertext"}"""
 
-        val firstAccepted = manager.routeSealedMessage(recipient, chunk, "B".repeat(43))
-        assertTrue(firstAccepted, "ilk mesaj kabul edilmeliydi")
+        manager.routeMessage(recipient, bigEnvelope("first"))
         val firstToken = RedisManager.use { jedis ->
             jedis.zrange(ServerPrivacy.queueKey("delivery", recipient), 0, 0).single()
         }
 
+        // Kuyruk sinirina kadar doldur; sinir asilinca yeni cerceve
+        // kuyruga YAZILMAMALI.
         var rejected = false
         for (index in 0 until 64) {
-            val deliveryId = index.toString().padStart(43, 'C')
-            if (!manager.routeSealedMessage(recipient, chunk, deliveryId)) {
+            val before = queueSize("delivery", recipient)
+            manager.routeMessage(recipient, bigEnvelope("bulk-$index"))
+            if (queueSize("delivery", recipient) == before) {
                 rejected = true
                 break
             }

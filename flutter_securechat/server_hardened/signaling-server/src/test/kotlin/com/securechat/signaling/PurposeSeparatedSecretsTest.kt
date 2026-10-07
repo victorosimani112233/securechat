@@ -14,8 +14,6 @@ class PurposeSeparatedSecretsTest {
         "PRIVACY_INDEX_KEY" to key(1),
         "OFFLINE_QUEUE_ENCRYPTION_KEY" to key(65),
         "FCM_TOKEN_ENCRYPTION_KEY" to key(129),
-        "SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY" to key(193),
-        "SEALED_SENDER_SERVER_PRIVATE_KEY" to key(225),
         "JWT_SECRET" to "jwt-secret-material-with-more-than-32-bytes",
         "TURN_SECRET" to "turn-secret-material-with-more-than-32-bytes",
         "METRICS_BEARER_TOKEN" to "metrics-bearer-material-with-more-than-32-bytes",

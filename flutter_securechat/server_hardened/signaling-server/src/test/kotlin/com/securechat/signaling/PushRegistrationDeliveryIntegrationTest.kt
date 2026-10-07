@@ -64,7 +64,6 @@ class PushRegistrationDeliveryIntegrationTest {
         redisInitialized = true
         ServerPrivacy.initialize()
         PurposeSeparatedSecrets.validate()
-        SealedSenderCertificateIssuer.initialize()
         PrivateDirectory.initialize()
         MetricsAccess.initialize()
         AuthService.initialize()

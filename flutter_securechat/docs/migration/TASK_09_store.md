@@ -53,11 +53,12 @@ o adres sizin değil, DMARC raporları oraya gidiyor. Düzelt.
   90 günlük yenileme pinlemeyi kırar.
 - **Sürüm numarası.** `pubspec.yaml` 1.0.76, eski build'ler 1.0.108'e kadar
   çıkmış. Yukarı al.
-- **Production sunucu profili.** Trust root özel anahtarı hâlâ ortamda
-  (`ProductionDeploymentPolicy.kt:85` bunu production'da reddediyor).
-  Geçişte anahtarları **taşıma, yenilerini üret** — hepsi internete bakan bir
-  makinenin `/proc/*/environ` içinde yaşadı. SoftHSM2 + postgres TLS +
-  çevrimdışı sealed sender töreni gerekiyor.
+- **Production sunucu profili.** Trust root özel anahtarı sorunu
+  **kapandı**: sealed sender kaldırıldı, o anahtarlar artık hiçbir amaca
+  hizmet etmiyor ve `PurposeSeparatedSecrets` zorunlu listesinden çıktı.
+  Çevrimdışı sealed sender töreni de gerekmiyor. Kalan engel SoftHSM2 +
+  postgres TLS. Yine de canlı kutudaki eski secret dosyalarını **silin** —
+  internete bakan bir makinenin `/proc/*/environ` içinde yaşadılar.
 
 ### Form işi
 Play: Data Safety formu (eşlemesi `server_hardened/deploy/site/README.md`

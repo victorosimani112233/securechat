@@ -146,26 +146,14 @@ container icine mount edilmelidir.
 
 ## Faz 4 — Secret'lar
 
-### 4a. Cevrimdisi makinede: Sealed Sender anahtarlari
+> **Cevrimdisi Sealed Sender toreni KALDIRILDI.** Istemci kripto cekirdegi
+> vodozemac'a tasindigi icin sealed sender mimarisi emekliye ayrildi; trust
+> root ve server sertifikasi diye bir sey artik yok. Eskiden bu fazin ilk
+> adimi olan cevrimdisi anahtar uretimi ve ona bagli uc secret dosyasi
+> gerekmiyor. Bu, production profiline gecisin oniindeki engellerden birini
+> de ortadan kaldirdi.
 
-```bash
-java -cp signaling-server-all.jar \
-  com.securechat.signaling.tools.SealedSenderOfflineKeygen /media/usb/sealed-sender
-```
-
-Uretilen dort dosyadan:
-
-| Dosya | Nereye |
-|---|---|
-| `trust_root_private_key` | **Cevrimdisi kasada kalir. Sunucuya asla kopyalanmaz.** |
-| `trust_root_public_key` | Sunucu + mobil build (`SECURECHAT_SEALED_SENDER_TRUST_ROOT`) |
-| `server_private_key` | Sunucu |
-| `server_certificate` | Sunucu |
-
-Sunucuda trust root private key bulunursa `ProductionDeploymentPolicy`
-baslamayi reddeder — bu kasitli.
-
-### 4b. VDS'te: kalan secret'lar
+### 4a. VDS'te: secret'lar
 
 ```bash
 ./generate_test_secrets.sh /srv/securechat/secrets
@@ -178,9 +166,6 @@ iki amaca verilmesini reddeder). Elle eklenecekler:
 cd /srv/securechat/secrets
 printf '%s' '<smtp sifresi>' > smtp_password
 cp /path/firebase-service-account.json firebase_service_account
-cp /media/usb/sealed-sender/server_certificate     sealed_sender_server_certificate
-cp /media/usb/sealed-sender/trust_root_public_key  sealed_sender_trust_root_public_key
-cp /media/usb/sealed-sender/server_private_key     sealed_sender_server_private_key
 chmod 0600 *
 ```
 
@@ -345,7 +330,6 @@ Iki gercek cihazla fonksiyonel tur:
 | Belirti | Sebep |
 |---|---|
 | Sunucu aciliyor gibi, aninda kapaniyor | `ProductionDeploymentPolicy` kapilarindan biri — log'un ilk satirina bak |
-| `Production requires an offline-issued SEALED_SENDER_SERVER_CERTIFICATE` | Faz 4a atlanmis |
 | `The Sealed Sender trust-root private key must not be present` | Trust root private key yanlislikla sunucuya kopyalanmis |
 | DB'ye hic baglanamiyor | Faz 2'deki truststore adimi atlanmis |
 | `reuses secret material assigned to ...` | Ayni deger iki secret dosyasina yazilmis |

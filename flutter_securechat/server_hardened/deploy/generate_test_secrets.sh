@@ -9,7 +9,6 @@
 # Uretmedigi uc girdi vardir, cunku disaridan gelirler:
 #   - smtp_password            (e-posta saglayicin)
 #   - firebase_service_account (Firebase konsolundan inen JSON)
-#   - sealed sender ucusu      (cevrimdisi makinede SealedSenderOfflineKeygen)
 set -euo pipefail
 
 target="${1:-}"
@@ -83,9 +82,6 @@ $(cd "$target" && ls -1 | sed 's/^/  /')
 Hala elle konmasi gerekenler:
   smtp_password             e-posta saglayicinin SMTP sifresi
   firebase_service_account  Firebase konsolundan inen JSON
-  sealed_sender_server_certificate    ) cevrimdisi makinede
-  sealed_sender_trust_root_public_key ) SealedSenderOfflineKeygen
-  sealed_sender_server_private_key    ) ciktisindan kopyala
 
 directory_hsm_pin degeri SoftHSM token'i olustururken --pin olarak
 kullanilacak ayni deger olmalidir.

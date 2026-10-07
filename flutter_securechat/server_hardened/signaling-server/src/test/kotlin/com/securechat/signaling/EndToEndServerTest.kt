@@ -86,7 +86,6 @@ class EndToEndServerTest {
 
         ServerPrivacy.initialize()
         PurposeSeparatedSecrets.validate()
-        SealedSenderCertificateIssuer.initialize()
         PrivateDirectory.initialize()
         MetricsAccess.initialize()
         AuthService.initialize()
@@ -291,84 +290,6 @@ class EndToEndServerTest {
     }
 
     @Test
-    fun `anonymous mailbox relay queues a sealed frame without a sender account credential`() = e2e {
-        val mailbox = "A".repeat(43)
-        val writeKey = "B".repeat(43)
-        val deliveryId = "C".repeat(43)
-        val ciphertext = Base64.getEncoder().encodeToString(ByteArray(64) { it.toByte() })
-        val registration = client.post("/api/v2/sealed-sender/mailbox") {
-            header("Authorization", "Bearer $bobToken")
-            header("Content-Type", "application/json")
-            setBody(
-                """{"protocolVersion":1,"mailboxId":"$mailbox","writeKey":"$writeKey","generation":1}""",
-            )
-        }
-        assertEquals(HttpStatusCode.OK, registration.status)
-
-        val webSocketClient = wsClient()
-        val recipientSession = webSocketClient.webSocketSession("/ws?userId=$bob") {
-            header("Authorization", "Bearer $bobToken")
-        }
-        assertTrue(awaitOnline(bob, timeoutMillis = 5_000))
-
-        val relay = client.post("/api/v2/sealed-sender/messages") {
-            header("Authorization", "Bearer $writeKey")
-            header("Content-Type", "application/json")
-            setBody(
-                """{"protocolVersion":1,"mailboxId":"$mailbox","deliveryId":"$deliveryId","ciphertext":"$ciphertext"}""",
-            )
-        }
-        assertEquals(HttpStatusCode.Accepted, relay.status)
-
-        val delivered = withTimeoutOrNull(10_000) {
-            var found: String? = null
-            while (found == null) {
-                val frame = recipientSession.incoming.receiveCatching().getOrNull() ?: break
-                val text = (frame as? Frame.Text)?.readText() ?: continue
-                if (text.contains(ciphertext)) found = text
-            }
-            found
-        }
-        assertNotNull(delivered)
-        assertTrue(delivered!!.contains("\"senderId\":\"sealed\""), delivered)
-        assertTrue(delivered.contains("\"envelope\":\"SEALED:v1:$ciphertext\""), delivered)
-        assertFalse(delivered.contains(alice), delivered)
-        val deliveryToken = json.parseToJsonElement(delivered).jsonObject["deliveryToken"]!!
-            .jsonPrimitive.content
-        assertTrue(connectionManager.acknowledgeDelivery(bob, deliveryToken))
-        recipientSession.close()
-    }
-
-    @Test
-    fun `anonymous relay does not reveal whether a mailbox or write key was wrong`() = e2e {
-        val registeredMailbox = "A".repeat(43)
-        val registration = client.post("/api/v2/sealed-sender/mailbox") {
-            header("Authorization", "Bearer $bobToken")
-            header("Content-Type", "application/json")
-            setBody(
-                """{"protocolVersion":1,"mailboxId":"$registeredMailbox","writeKey":"${"B".repeat(43)}","generation":1}""",
-            )
-        }
-        assertEquals(HttpStatusCode.OK, registration.status)
-        val ciphertext = Base64.getEncoder().encodeToString(ByteArray(64) { (it + 1).toByte() })
-        suspend fun relay(mailbox: String, key: String) =
-            client.post("/api/v2/sealed-sender/messages") {
-                header("Authorization", "Bearer $key")
-                header("Content-Type", "application/json")
-                setBody(
-                    """{"protocolVersion":1,"mailboxId":"$mailbox","deliveryId":"${"D".repeat(43)}","ciphertext":"$ciphertext"}""",
-                )
-            }
-
-        val missingMailbox = relay("E".repeat(43), "F".repeat(43))
-        val wrongKey = relay(registeredMailbox, "G".repeat(43))
-
-        assertEquals(HttpStatusCode.Unauthorized, missingMailbox.status)
-        assertEquals(HttpStatusCode.Unauthorized, wrongKey.status)
-        assertEquals(missingMailbox.bodyAsText(), wrongKey.bodyAsText())
-    }
-
-    @Test
     fun `the ice configuration only offers tls relays`() = e2e {
         val response = client.get("/api/v1/ice/config") {
             header("Authorization", "Bearer $aliceToken")
@@ -537,6 +458,8 @@ class EndToEndServerTest {
     }
 
     @Test
+    // Sealed Sender mimarisi kaldirildi; bu guard BILEREK duruyor. Eski bir
+    // istemci hala SEALED:v1: zarfi gonderirse cerceve tasinmamali.
     fun `sealed sender ciphertext is never accepted on an identified websocket`() = e2e {
         val (sender, senderToken) = newAccount()
         val (recipient, recipientToken) = newAccount()
