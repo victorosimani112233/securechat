@@ -47,7 +47,6 @@ object PreKeyStore {
 
                     PreKeyIdentityGuard.check(conn, userId, publicKey)
                     check(oldKey == null || oldKey.contentEquals(publicKey)) { "Explicit identity recovery required" }
-                    if (oldKey == null) PreKeyIdentityGuard.checkOtherNamespace(conn, userId, publicKey, "modern_prekey_bundles")
                     conn.prepareStatement(
                         "UPDATE users SET identity_public_key = ?, registration_id = ? WHERE user_id = ?::uuid"
                     ).use { stmt ->
@@ -136,7 +135,6 @@ object PreKeyStore {
 
                     PreKeyIdentityGuard.check(conn, userId, identityPublicKey, expectedEpoch)
                     check(locked == null || locked.contentEquals(identityPublicKey)) { "Explicit identity recovery required" }
-                    if (locked == null) PreKeyIdentityGuard.checkOtherNamespace(conn, userId, identityPublicKey, "modern_prekey_bundles")
                     conn.prepareStatement(
                         "UPDATE users SET identity_public_key = ?, registration_id = ? " +
                             "WHERE user_id = ?::uuid",

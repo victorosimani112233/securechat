@@ -147,17 +147,6 @@ class RecoveryAuthIntegrationTest {
         assertTrue(Json.parseToJsonElement(first.bodyAsText()).jsonObject.containsKey("token"))
     }
 
-    @Test fun `initializing another prekey namespace cannot bypass identity possession`() {
-        val f = fixture()
-        val attacker = Curve.generateKeyPair()
-        assertThrows(IllegalStateException::class.java) {
-            ModernPreKeyStore.uploadBundle(f.user, attacker.publicKey.serialize(), 1234,
-                ModernPreKeyStore.SignedPreKey(1, ByteArray(33), ByteArray(64)), emptyList(),
-                ModernPreKeyStore.KyberPreKey(1, ByteArray(100), ByteArray(64), true))
-        }
-        assertFalse(ModernPreKeyStore.hasBundle(f.user))
-    }
-
     @Test fun `queued old delete logout and prekey writes cannot mutate a recovered epoch`() {
         for (operation in listOf("delete", "logout", "prekey")) {
             val f = fixture()
@@ -313,7 +302,12 @@ class RecoveryAuthIntegrationTest {
         assertEquals(before, CredentialState.snapshot(f.user)!!.credentialEpoch)
     }
 
-    @Test fun `replacement pins both namespaces and superseded uploads fail`() {
+    // Test adi "both namespaces" idi; v2 prekey yolu kaldirildi ve artik tek
+    // namespace var. Olculen asil ozellik degismedi ve kritik: kimlik
+    // degistikten sonra ESKI epoch ile gelen yazmalar reddedilmeli. Bu
+    // ozellik olmazsa kuyruga takilmis eski bir yazma kurtarilmis hesabin
+    // anahtarlarini geri diker.
+    @Test fun `replacement pins the identity and superseded uploads fail`() {
         val f = fixture(); bind(f)
         PreKeyStore.uploadBundle(f.user, f.key.publicKey.serialize(), 1234,
             PreKeyStore.SignedPreKey(1, ByteArray(33), ByteArray(64)), listOf(PreKeyStore.OneTimePreKey(1, ByteArray(33))))
@@ -328,10 +322,13 @@ class RecoveryAuthIntegrationTest {
         assertThrows(IllegalStateException::class.java) {
             PreKeyStore.addOneTimePreKeys(f.user, listOf(PreKeyStore.OneTimePreKey(2, ByteArray(33))), f.epoch)
         }
+        // Olm yolu da ayni cerceveye tabi olmali.
         assertThrows(IllegalStateException::class.java) {
-            ModernPreKeyStore.uploadBundle(f.user, f.key.publicKey.serialize(), 1234,
-                ModernPreKeyStore.SignedPreKey(1, ByteArray(33), ByteArray(64)), emptyList(),
-                ModernPreKeyStore.KyberPreKey(1, ByteArray(100), ByteArray(64), true))
+            OlmPreKeyStore.addOneTimeKeys(
+                f.user,
+                listOf(OlmPreKeyStore.OneTimeKey(1, ByteArray(32))),
+                f.epoch,
+            )
         }
         val fresh = grant(f)
         assertEquals("v2", fresh.identityProtocol)

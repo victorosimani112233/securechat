@@ -148,13 +148,35 @@ internal class RecoveryAuthService(
             if (request.mode == "preserve" && (request.identityProtocol != account.protocol ||
                     !key.contentEquals(account.key) || request.registrationId != account.registrationId)) return@transaction null
             if (request.mode == "replace") {
-                for (table in listOf("one_time_prekeys", "signed_prekeys", "modern_one_time_prekeys", "modern_last_resort_kyber_prekeys", "modern_prekey_bundles")) {
+                // Olm tablolari da BURADA temizlenmeli. Kimlik rotasyonunda
+                // eski prekey'lerin ayakta kalmasi bu projede 2026-06-09'da
+                // P0 uretti: istemci yeni kimlikle oturum kurmaya calisirken
+                // sunucu eski kimlige bagli anahtarlari servis ediyordu ve
+                // X3DH uyusmazligi "No valid sessions" dongusune donuyordu.
+                for (table in listOf(
+                    "one_time_prekeys",
+                    "signed_prekeys",
+                    "olm_one_time_prekeys",
+                    "olm_fallback_keys",
+                )) {
                     connection.prepareStatement("DELETE FROM $table WHERE user_id = ?::uuid").use {
                         it.setString(1, context.userId); it.executeUpdate()
                     }
                 }
-                // Pin survives the empty-bundle interval and fences both upload namespaces.
-                connection.prepareStatement("UPDATE users SET identity_public_key = ?, registration_id = ?, recovery_identity_pin = ?, recovery_identity_protocol = ? WHERE user_id = ?::uuid").use {
+                // Pin bos-bundle araligini asar ve yukleme yolunu cerceveler.
+                //
+                // Olm kimlik kolonlari da NULL'a cekilir. Cekilmezse kimlik
+                // degistikten sonra `OlmPreKeyStore.setIdentity` eski
+                // degerle karsilastirip yeni kimligi REDDEDER ("Explicit
+                // identity recovery required") ve kurtarilan hesap bir daha
+                // Olm kimligi kuramaz. Kurtarma kimligi degistirmenin tek
+                // mesru yolu oldugu icin temizleme yeri tam burasi.
+                connection.prepareStatement(
+                    "UPDATE users SET identity_public_key = ?, registration_id = ?, " +
+                        "recovery_identity_pin = ?, recovery_identity_protocol = ?, " +
+                        "olm_identity_key = NULL, signing_public_key = NULL " +
+                        "WHERE user_id = ?::uuid",
+                ).use {
                     it.setBytes(1, key); it.setInt(2, request.registrationId); it.setBytes(3, key)
                     it.setString(4, request.identityProtocol); it.setString(5, context.userId); it.executeUpdate()
                 }
@@ -216,10 +238,16 @@ internal class RecoveryAuthService(
                 Account(rows.getString(1), rows.getString(4) ?: "v1", rows.getBytes(2) ?: ByteArray(0), rows.getInt(3))
             }
         }
-        return connection.prepareStatement("SELECT identity_public_key, registration_id FROM modern_prekey_bundles WHERE user_id = ?::uuid").use {
-            it.setString(1, userId)
-            it.executeQuery().use { rows -> if (rows.next()) Account(legacy.epoch, "v2", rows.getBytes(1), rows.getInt(2)) else legacy }
-        }
+        // Burada bir zamanlar v2 prekey tablosu sorgulanir ve bundle varsa
+        // kimlik oradan alinip protokol "v2" etiketlenirdi. O yol kaldirildi
+        // ve tablo dusuruldu, bu yuzden kimlik tek kaynaktan (`users`)
+        // okunuyor.
+        //
+        // Istek tarafindaki kabul edilen protokol kumesi BILEREK
+        // daraltilmadi: `users.recovery_identity_protocol` kolonunda "v2"
+        // yazili bir hesap varsa "preserve" modunda kurtarma yapabilmeye
+        // devam etmeli. O deger istekten yazilir, dusurulen tablodan degil.
+        return legacy
     }
 
     private fun binding(connection: Connection, column: String, index: String): Context? = connection.prepareStatement(

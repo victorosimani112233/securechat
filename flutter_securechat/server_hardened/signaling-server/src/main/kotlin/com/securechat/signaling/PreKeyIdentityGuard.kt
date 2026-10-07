@@ -3,18 +3,14 @@ package com.securechat.signaling
 import java.sql.Connection
 
 /** Caller must lock users first. Recovery is the only writer allowed to replace a pin. */
+/// Prekey yazmalarinda kimlik sahipligi ve epoch kontrolu.
+///
+/// Burada bir zamanlar `checkOtherNamespace` da vardi: iki prekey
+/// namespace'i (v1 `users` ve v2 `modern_prekey_bundles`) bulundugu icin,
+/// saldirgan ODEKI namespace'i baslatip kendi kimligini oraya dikebilirdi.
+/// v2 kaldirildi; tek namespace kaldigi icin o saldiri sinifi yapisal
+/// olarak imkansiz ve capraz kontrole gerek yok.
 internal object PreKeyIdentityGuard {
-    fun checkOtherNamespace(connection: Connection, userId: String, identity: ByteArray, otherTable: String) {
-        require(otherTable in setOf("users", "modern_prekey_bundles"))
-        connection.prepareStatement("SELECT identity_public_key FROM $otherTable WHERE user_id = ?::uuid").use {
-            it.setString(1, userId)
-            it.executeQuery().use { rows ->
-                val existing = if (rows.next()) rows.getBytes(1) else null
-                check(existing == null || existing.contentEquals(identity)) { "Explicit identity recovery required" }
-            }
-        }
-    }
-
     fun check(connection: Connection, userId: String, identity: ByteArray? = null, expectedEpoch: String? = null) {
         connection.prepareStatement("SELECT recovery_identity_pin, credential_epoch FROM users WHERE user_id = ?::uuid FOR UPDATE").use {
             it.setString(1, userId)

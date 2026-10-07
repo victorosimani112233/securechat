@@ -22,6 +22,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.AfterAll
@@ -937,11 +938,17 @@ class EndToEndServerTest {
     // ---------------- Anahtar dagitimi ----------------
 
     @Test
-    fun `a legacy bundle can still be uploaded but no user token can fetch it`() = e2e {
-        // Kullanicilar bot ile konusabilmek icin klasik bundle'i yuklemeye
-        // devam eder; fakat bir istemci baska bir istemciyi post-quantum
-        // olmayan ve Sealed Sender tasimayan bir oturuma dusuremez. V1 fetch
-        // yalniz servis assertion'i ile acilir.
+    fun `a legacy bundle is uploaded and served alongside the Olm shape`() = e2e {
+        // Bu test eskiden 403 bekliyordu ve gerekcesi suydu: bir istemci
+        // baska bir istemciyi post-quantum olmayan ve Sealed Sender
+        // tasimayan bir oturuma dusurmesin, bu yuzden v1 fetch yalniz servis
+        // assertion'i ile acilsin.
+        //
+        // O gerekcenin iki dayanagi da artik yok: PQXDH yolu (v2) hicbir
+        // istemci kullanmadigi icin kaldirildi ve Sealed Sender mimarisi
+        // emekli oldu. Geriye tek prekey yolu kaldi, dolayisiyla kullanici
+        // token'ini reddetmek "downgrade koruma" degil, oturum kurmayi
+        // tumuyle engellemek anlamina gelirdi.
         val (owner, ownerToken) = newAccount()
         val (_, peerToken) = newAccount()
         val key = java.util.Base64.getEncoder().encodeToString(ByteArray(33) { 5 })
@@ -962,10 +969,17 @@ class EndToEndServerTest {
             header("Authorization", "Bearer $peerToken")
         }
 
-        assertEquals(HttpStatusCode.Forbidden, fetched.status)
-        // Hedefin anahtar materyalinden hicbir parca sizmamali.
-        assertFalse(fetched.bodyAsText().contains("777"))
-        assertFalse(fetched.bodyAsText().contains(key))
+        assertEquals(HttpStatusCode.OK, fetched.status)
+        // Eski istemci alanlari yerinde kalmali: canli istemci hala
+        // libsignal konusuyor ve cevabin seklini degistirmek onu aninda
+        // bozardi.
+        assertTrue(fetched.bodyAsText().contains("777"))
+        assertTrue(fetched.bodyAsText().contains(key))
+        // Peer Olm materyali yuklemedigi icin Olm alanlari bos; yeni
+        // istemci bu bundle'i KULLANMAZ ve bu dogru davranis.
+        val body = Json.parseToJsonElement(fetched.bodyAsText()).jsonObject
+        assertTrue(body["signingKey"] == null || body["signingKey"] is JsonNull)
+        assertTrue(body["identityKey"] == null || body["identityKey"] is JsonNull)
     }
 
     @Test
@@ -979,107 +993,37 @@ class EndToEndServerTest {
     }
 
     @Test
-    fun `the legacy bundle route refuses a user token before it looks anything up`() = e2e {
-        // Reddin bundle'in var olup olmamasindan bagimsiz olmasi onemlidir:
-        // aksi halde kapali bir yol yine de hesap varligi oracle'i olurdu.
-        val (withoutBundle, _) = newAccount()
+    fun `the bundle route accepts a user token`() = e2e {
+        // Bu test eskiden 403 bekliyordu: route `requireServicePrincipal`
+        // ardindaydi ve kullanici token'ini kabul etmiyordu. Tek prekey
+        // yolu haline gelince o davranis bir istemcinin peer bundle'i
+        // cekmesini, dolayisiyla oturum kurmasini tumuyle imkansiz kilardi.
+        //
+        // Kabul etmenin bedeli, cagiranin hedefin anahtari olup olmadigini
+        // ogrenebilmesi. Bu bedel kacinilmaz: bundle cekebilen her yol bunu
+        // soyler. Siniri rate limit kuruyor (asagida ayri test), erisimi
+        // tumuyle kapatmak degil.
+        val (owner, ownerToken) = newAccount()
         val (_, peerToken) = newAccount()
+        uploadOlmBundle(ownerToken)
 
-        val response = client.get("/api/v1/users/$withoutBundle/prekeys") {
+        val response = client.get("/api/v1/users/$owner/prekeys") {
             header("Authorization", "Bearer $peerToken")
         }
 
-        assertEquals(HttpStatusCode.Forbidden, response.status)
+        assertEquals(HttpStatusCode.OK, response.status)
     }
 
     @Test
-    fun `an account without a modern bundle has none to hand out`() = e2e {
+    fun `an account without any bundle has none to hand out`() = e2e {
         val (owner, _) = newAccount()
         val (_, peerToken) = newAccount()
 
-        val response = client.get("/api/v2/users/$owner/prekeys") {
+        val response = client.get("/api/v1/users/$owner/prekeys") {
             header("Authorization", "Bearer $peerToken")
         }
 
         assertEquals(HttpStatusCode.NotFound, response.status)
-    }
-
-    @Test
-    fun `modern PQXDH routes preserve capability and consume paired keys once`() = e2e {
-        val (owner, ownerToken) = newAccount()
-        val (_, peerToken) = newAccount()
-        val ec = java.util.Base64.getEncoder().encodeToString(ByteArray(33) { 5 })
-        val kyber = java.util.Base64.getEncoder().encodeToString(ByteArray(1568) { 6 })
-        val signature = java.util.Base64.getEncoder().encodeToString(ByteArray(64) { 7 })
-        val authorization: io.ktor.client.request.HttpRequestBuilder.(String) -> Unit = { token ->
-            header("Authorization", "Bearer $token")
-        }
-
-        assertEquals(
-            HttpStatusCode.NotFound,
-            client.get("/api/v2/users/$owner/prekeys/capability") {
-                authorization(peerToken)
-            }.status,
-        )
-
-        val upload = client.post("/api/v2/prekeys/upload") {
-            authorization(ownerToken)
-            header("Content-Type", "application/json")
-            setBody(
-                """{"protocolVersion":2,"identityPublicKey":"$ec","registrationId":777,""" +
-                    """"signedPreKeyId":3,"signedPreKey":"$ec","signedPreKeySignature":"$signature",""" +
-                    """"oneTimePreKeys":[{"keyId":11,"publicKey":"$ec","kyberPublicKey":"$kyber","kyberSignature":"$signature"},""" +
-                    """{"keyId":12,"publicKey":"$ec","kyberPublicKey":"$kyber","kyberSignature":"$signature"}],""" +
-                    """"lastResortKyberPreKey":{"keyId":16777215,"publicKey":"$kyber","signature":"$signature","lastResort":true}}""",
-            )
-        }
-        assertEquals(HttpStatusCode.OK, upload.status)
-        assertEquals(2, json.parseToJsonElement(upload.bodyAsText()).jsonObject["remaining"]?.jsonPrimitive?.content?.toInt())
-
-        repeat(2) {
-            assertEquals(
-                HttpStatusCode.NoContent,
-                client.get("/api/v2/users/$owner/prekeys/capability") {
-                    authorization(peerToken)
-                }.status,
-            )
-        }
-        val beforeFetch = client.get("/api/v2/prekeys/status") { authorization(ownerToken) }
-        val beforeBody = json.parseToJsonElement(beforeFetch.bodyAsText()).jsonObject
-        assertEquals("true", beforeBody["initialized"]?.jsonPrimitive?.content)
-        assertEquals("2", beforeBody["remaining"]?.jsonPrimitive?.content)
-
-        val fetched = client.get("/api/v2/users/$owner/prekeys") {
-            authorization(peerToken)
-        }
-        assertEquals(HttpStatusCode.OK, fetched.status)
-        val bundle = json.parseToJsonElement(fetched.bodyAsText()).jsonObject
-        assertEquals("2", bundle["protocolVersion"]?.jsonPrimitive?.content)
-        assertEquals("11", bundle["oneTimePreKey"]?.jsonObject?.get("keyId")?.jsonPrimitive?.content)
-        assertEquals("11", bundle["kyberPreKey"]?.jsonObject?.get("keyId")?.jsonPrimitive?.content)
-        assertEquals("false", bundle["kyberPreKey"]?.jsonObject?.get("lastResort")?.jsonPrimitive?.content)
-
-        val exactRetry = client.post("/api/v2/prekeys/refresh") {
-            authorization(ownerToken)
-            header("Content-Type", "application/json")
-            setBody(
-                """[{"keyId":12,"publicKey":"$ec","kyberPublicKey":"$kyber","kyberSignature":"$signature"}]""",
-            )
-        }
-        assertEquals(HttpStatusCode.OK, exactRetry.status)
-        assertEquals(1, ModernPreKeyStore.unconsumedCount(owner))
-
-        val conflictingEc = java.util.Base64.getEncoder().encodeToString(ByteArray(33) { 99 })
-        val conflict = client.post("/api/v2/prekeys/refresh") {
-            authorization(ownerToken)
-            header("Content-Type", "application/json")
-            setBody(
-                """[{"keyId":12,"publicKey":"$conflictingEc","kyberPublicKey":"$kyber","kyberSignature":"$signature"}]""",
-            )
-        }
-        assertEquals(HttpStatusCode.Conflict, conflict.status)
-        assertEquals(1, ModernPreKeyStore.unconsumedCount(owner))
-        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v2/prekeys/status").status)
     }
 
     @Test
@@ -1302,25 +1246,25 @@ class EndToEndServerTest {
         }
     }
 
-    private suspend fun ApplicationTestBuilder.uploadModernBundle(
+    private suspend fun ApplicationTestBuilder.uploadOlmBundle(
         token: String,
         otpkCount: Int = 5,
     ) {
-        val ec = java.util.Base64.getEncoder().encodeToString(ByteArray(33) { 5 })
-        val kyber = java.util.Base64.getEncoder().encodeToString(ByteArray(1568) { 6 })
-        val sig = java.util.Base64.getEncoder().encodeToString(ByteArray(64) { 7 })
+        val encoder = java.util.Base64.getEncoder()
+        val identity = encoder.encodeToString(ByteArray(32) { 5 })
+        val signing = encoder.encodeToString(ByteArray(32) { 6 })
+        val fallback = encoder.encodeToString(ByteArray(32) { 8 })
+        val signature = encoder.encodeToString(ByteArray(64) { 7 })
         val otpks = (1..otpkCount).joinToString(",") {
-            """{"keyId":$it,"publicKey":"$ec","kyberPublicKey":"$kyber","kyberSignature":"$sig"}"""
+            """{"keyId":$it,"publicKey":"$identity"}"""
         }
-        client.post("/api/v2/prekeys/upload") {
+        client.post("/api/v1/prekeys/upload") {
             header("Authorization", "Bearer $token")
             header("Content-Type", "application/json")
             setBody(
-                """{"protocolVersion":2,"identityPublicKey":"$ec","registrationId":555,""" +
-                    """"signedPreKeyId":1,"signedPreKey":"$ec","signedPreKeySignature":"$sig",""" +
-                    """"oneTimePreKeys":[$otpks],""" +
-                    """"lastResortKyberPreKey":{"keyId":16777215,"publicKey":"$kyber",""" +
-                    """"signature":"$sig","lastResort":true}}""",
+                """{"olmIdentityKey":"$identity","olmSigningKey":"$signing",""" +
+                    """"olmOneTimeKeys":[$otpks],"olmFallbackKey":"$fallback",""" +
+                    """"olmFallbackKeySignature":"$signature"}""",
             )
         }
     }
@@ -1330,12 +1274,12 @@ class EndToEndServerTest {
         clearRateLimits()
         val (owner, ownerToken) = newAccount()
         val (_, fetcherToken) = newAccount()
-        uploadModernBundle(ownerToken, otpkCount = 5)
+        uploadOlmBundle(ownerToken, otpkCount = 5)
 
         // 120/saat sinir; ustunde 429 gelmeli, aksi halde havuz bosaltilabilir.
         var got429 = false
         for (i in 1..140) {
-            val r = client.get("/api/v2/users/$owner/prekeys") {
+            val r = client.get("/api/v1/users/$owner/prekeys") {
                 header("Authorization", "Bearer $fetcherToken")
             }
             if (r.status == HttpStatusCode.TooManyRequests) { got429 = true; break }

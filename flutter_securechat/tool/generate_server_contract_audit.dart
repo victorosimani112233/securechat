@@ -261,14 +261,17 @@ const _routeContracts = <String, RouteContract>{
     note: 'Kalan one-time prekey sayisi; tamamlama kararini bu verir.',
   ),
   'GET /api/v1/users/{userId}/prekeys': (
-    status: 'SERVER_ONLY',
-    guard: Guard.servicePrincipal,
-    evidence: _serverRoot,
+    status: 'COVERED',
+    guard: Guard.principal,
+    evidence:
+        'flutter_securechat/lib/src/crypto/vodozemac/olm_pre_key_bundle_api.dart',
     note:
-        'DIKKAT: guard servis assertion\'i, yani kullanici token\'iyla '
-        'cagrilamaz. Bir istemci peer bundle\'i cekemez. Vodozemac gocunde '
-        'bu route requirePrincipal\'a cevrilmeli; bkz. '
-        'docs/migration/TASK_05_server.md.',
+        'Peer bundle cekimi. Guard `requireServicePrincipal` IDI ve o haliyle '
+        'kullanici token\'ini kabul etmiyordu, yani hicbir istemci peer '
+        'bundle\'i cekemiyordu; tek prekey yolu haline gelince bu, oturum '
+        'kurmayi tumuyle imkansiz kilardi. Kaldirilan v2 esdegeri zaten '
+        'requirePrincipal kullaniyordu. Numaralandirmanin siniri rate limit '
+        '(120/saat), erisimi kapatmak degil.',
   ),
   'GET /api/v1/sfu/room/{groupId}': (
     status: 'WS_EQUIVALENT',
@@ -289,41 +292,6 @@ const _routeContracts = <String, RouteContract>{
     guard: Guard.auth,
     evidence: 'flutter_securechat/lib/src/push/push_service.dart',
     note: 'Tasima tokeni silme.',
-  ),
-  // --- /api/v2 PQXDH yolu: hicbir istemci cagirmiyor, kaldirilacak ---
-  'POST /api/v2/prekeys/upload': (
-    status: 'SERVER_ONLY',
-    guard: Guard.principal,
-    evidence: _serverRoot,
-    note:
-        'PQXDH bundle yuklemesi. Istemci vodozemac\'a gectigi icin '
-        'KULLANILMIYOR; kaldirilacak.',
-  ),
-  'POST /api/v2/prekeys/refresh': (
-    status: 'SERVER_ONLY',
-    guard: Guard.auth,
-    evidence: _serverRoot,
-    note: 'PQXDH prekey tamamlama. KULLANILMIYOR; kaldirilacak.',
-  ),
-  'GET /api/v2/prekeys/status': (
-    status: 'SERVER_ONLY',
-    guard: Guard.auth,
-    evidence: _serverRoot,
-    note: 'PQXDH prekey sayaci. KULLANILMIYOR; kaldirilacak.',
-  ),
-  'GET /api/v2/users/{userId}/prekeys': (
-    status: 'SERVER_ONLY',
-    guard: Guard.principal,
-    evidence: _serverRoot,
-    note:
-        'PQXDH peer bundle. KULLANILMIYOR; kaldirilacak. Guard deseni '
-        'v1 esdegerinden dogru olan budur.',
-  ),
-  'GET /api/v2/users/{userId}/prekeys/capability': (
-    status: 'SERVER_ONLY',
-    guard: Guard.principal,
-    evidence: _serverRoot,
-    note: 'PQXDH yetenek sorgusu. KULLANILMIYOR; kaldirilacak.',
   ),
   // --- Hesap kurtarma ve e-posta girisi (RecoveryAuthRoutes.kt) ---
   //

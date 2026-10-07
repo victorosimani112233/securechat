@@ -16,11 +16,8 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | `GET /api/v1/latest-version` | `public` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Magaza/surum politikasi yolu; Flutter istemcisinde cagiran yok. |
 | `GET /api/v1/prekeys/status` | `auth` | COVERED | `flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart` | Kalan one-time prekey sayisi; tamamlama kararini bu verir. |
 | `GET /api/v1/sfu/room/{groupId}` | `auth` | WS_EQUIVALENT | `flutter_securechat/lib/src/media/call_manager.dart` | Istemci ayni bilgiyi WebSocket grup cagri sinyalleriyle alir; HTTP yolu operasyon/kurtarma gorunumu. |
-| `GET /api/v1/users/{userId}/prekeys` | `servicePrincipal` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | DIKKAT: guard servis assertion'i, yani kullanici token'iyla cagrilamaz. Bir istemci peer bundle'i cekemez. Vodozemac gocunde bu route requirePrincipal'a cevrilmeli; bkz. docs/migration/TASK_05_server.md. |
+| `GET /api/v1/users/{userId}/prekeys` | `principal` | COVERED | `flutter_securechat/lib/src/crypto/vodozemac/olm_pre_key_bundle_api.dart` | Peer bundle cekimi. Guard `requireServicePrincipal` IDI ve o haliyle kullanici token'ini kabul etmiyordu, yani hicbir istemci peer bundle'i cekemiyordu; tek prekey yolu haline gelince bu, oturum kurmayi tumuyle imkansiz kilardi. Kaldirilan v2 esdegeri zaten requirePrincipal kullaniyordu. Numaralandirmanin siniri rate limit (120/saat), erisimi kapatmak degil. |
 | `GET /api/v1/version` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Build kimligi operator bilgisidir; surum/commit anonim sizdirilmaz. |
-| `GET /api/v2/prekeys/status` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH prekey sayaci. KULLANILMIYOR; kaldirilacak. |
-| `GET /api/v2/users/{userId}/prekeys` | `principal` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH peer bundle. KULLANILMIYOR; kaldirilacak. Guard deseni v1 esdegerinden dogru olan budur. |
-| `GET /api/v2/users/{userId}/prekeys/capability` | `principal` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH yetenek sorgusu. KULLANILMIYOR; kaldirilacak. |
 | `GET /health` | `public` | COVERED | `flutter_securechat/lib/src/network/socket_diagnostics.dart` | Redakte edilmis uyumluluk yoklamasi; anonim cagrilabilir olmasi kasitli, stack ayrintisi dondurmez. |
 | `GET /metrics` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Prometheus; istemciye acilmaz. |
 | `GET /ready` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Readiness; bagimlilik durumu operator bilgisidir, bu yuzden metrics bearer token ardinda. |
@@ -45,8 +42,6 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | `POST /api/v1/reports` | `auth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kotuye kullanim bildirimi; icerik tasimaz, bilinmeyen alan reddedilir. Anonim yazma yolu olmasin diye kimlik zorunlu. |
 | `POST /api/v1/users/directory-token` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Hesap sahibinin dizin anahtari gocu. |
 | `POST /api/v1/users/register` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kayit tokeni tuketir, access+refresh basar. Telefon yalniz geri cevrilemez ozet olarak girer. |
-| `POST /api/v2/prekeys/refresh` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH prekey tamamlama. KULLANILMIYOR; kaldirilacak. |
-| `POST /api/v2/prekeys/upload` | `principal` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH bundle yuklemesi. Istemci vodozemac'a gectigi icin KULLANILMIYOR; kaldirilacak. |
 | `WS /ws` | `auth` | COVERED | `flutter_securechat/lib/src/services/signaling_service.dart` | Bearer dogrulamali sinyalleme; reconnect, boyut siniri ve codec yolu. |
 
 ## Signal codec
@@ -69,7 +64,7 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 
 ## Sonuc
 
-- Route: 40/40 eslenmis
+- Route: 35/35 eslenmis
 - Eslenmemis: yok
 - Guard uyusmazligi: yok
 - Servis guard'i ardinda olup istemci cagiriyor diye beyan edilen: yok

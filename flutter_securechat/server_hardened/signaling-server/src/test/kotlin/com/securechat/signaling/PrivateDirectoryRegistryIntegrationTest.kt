@@ -162,9 +162,8 @@ class PrivateDirectoryRegistryIntegrationTest {
                     "bot_peer_identity",
                     "registration_grant_use",
                     "directory_quota",
-                    "modern_prekey_bundles",
-                    "modern_one_time_prekeys",
-                    "modern_last_resort_kyber_prekeys",
+                    "olm_one_time_prekeys",
+                    "olm_fallback_keys",
                     "account_recovery_bindings",
                     "account_recovery_challenges",
                     "account_recovery_quotas",
@@ -204,6 +203,11 @@ class PrivateDirectoryRegistryIntegrationTest {
                     "refresh_generation",
                     "recovery_identity_pin",
                     "recovery_identity_protocol",
+                    // Olm kimligi ve imza anahtari BURADA, libsignal
+                    // kimligiyle ayni satirda: hesabin tek bir kimlik
+                    // konumu olmali.
+                    "olm_identity_key",
+                    "signing_public_key",
                 ),
                 columns(connection, "users"),
             )
@@ -314,33 +318,28 @@ class PrivateDirectoryRegistryIntegrationTest {
                 setOf("account_index", "day_bucket", "used", "updated_at"),
                 columns(connection, "directory_quota"),
             )
-            // Modern libsignal tablolarinda yalniz public PQXDH materyali
-            // bulunur; private key, ciphertext veya tuketim zaman cizelgesi yoktur.
+            // Olm tablolarinda yalniz public materyal bulunur; private key,
+            // ciphertext veya tuketim zaman cizelgesi yoktur. `created_at`
+            // yalniz satirin YAZILDIGI ani tasir, tuketildigi ani degil:
+            // tek kullanimlik anahtar silinerek tuketilir, dolayisiyla
+            // PostgreSQL'de bir haberlesme zaman cizgisi olusmaz.
             assertEquals(
-                setOf(
-                    "user_id",
-                    "identity_public_key",
-                    "registration_id",
-                    "signed_prekey_id",
-                    "signed_prekey_public",
-                    "signed_prekey_signature",
-                ),
-                columns(connection, "modern_prekey_bundles"),
+                setOf("id", "user_id", "key_id", "public_key", "created_at"),
+                columns(connection, "olm_one_time_prekeys"),
             )
             assertEquals(
-                setOf(
-                    "user_id",
-                    "key_id",
-                    "ec_public_key",
-                    "kyber_public_key",
-                    "kyber_signature",
-                ),
-                columns(connection, "modern_one_time_prekeys"),
+                setOf("user_id", "public_key", "signature", "created_at"),
+                columns(connection, "olm_fallback_keys"),
             )
-            assertEquals(
-                setOf("user_id", "key_id", "public_key", "signature"),
-                columns(connection, "modern_last_resort_kyber_prekeys"),
-            )
+            // Olm kimligi ve imza anahtari `users` satirinda durur: hesabin
+            // TEK bir kimlik konumu olmali. Kaldirilan v2 yolunda kimlik
+            // ikinci bir tabloda da tutulabiliyordu ve bu, "oteki
+            // namespace'i baslat" saldirisini mumkun kiliyordu.
+            assertTrue("olm_identity_key" in columns(connection, "users"))
+            assertTrue("signing_public_key" in columns(connection, "users"))
+            assertTrue("modern_prekey_bundles" !in tables)
+            assertTrue("modern_one_time_prekeys" !in tables)
+            assertTrue("modern_last_resort_kyber_prekeys" !in tables)
             assertTrue("group_members" !in tables)
             assertTrue("audit_log" !in tables)
         }
