@@ -175,7 +175,7 @@ gizler ve ekran görüntüsü alındığında sizi uyarır.</p>
 
 <h2>Üçüncü taraflar</h2>
 
-<p>Elçim üç dış hizmete veri aktarır ve her biri yalnızca kendi işi için
+<p>Elçim dört dış hizmete veri aktarır ve her biri yalnızca kendi işi için
 gereken en az veriyi alır:</p>
 
 <h3>Google Firebase Cloud Messaging</h3>
@@ -184,8 +184,15 @@ bildirim <strong>içerik taşımaz</strong>: gönderen, alıcı, mesaj metni, gr
 adı veya önizleme bulunmaz. Yalnızca "yeni bir şey var, bağlan" anlamında bir
 uyandırma sinyalidir. Mesajın kendisi uygulama bağlandıktan sonra şifreli
 kanaldan indirilir ve bildirimi cihaz oluşturur. Google, cihazınızın bildirim
-jetonunu ve bu jetona sinyal gönderildiği bilgisini işler.
+jetonunu, Firebase kurulum kimliğini (uygulama kurulumuna özgü rastgele bir
+tanımlayıcı) ve bu jetona sinyal gönderildiği bilgisini işler.
 <a href="https://firebase.google.com/support/privacy" rel="noopener noreferrer">Firebase gizlilik bilgisi</a></p>
+
+<h3>Apple Push Notification service (yalnızca iPhone)</h3>
+<p>iPhone'da uyandırma sinyali ve gelen arama bildirimi Apple'ın bildirim
+servisi üzerinden cihaza ulaşır. Apple, cihazınızın bildirim jetonunu ve
+sinyalin teslim bilgisini işler; sinyal yukarıdaki gibi içerik taşımaz.
+<a href="https://www.apple.com/legal/privacy/" rel="noopener noreferrer">Apple gizlilik politikası</a></p>
 
 <h3>Brevo</h3>
 <p>Doğrulama kodu ve hesap kurtarma e-postalarının gönderimi için kullanılır.
@@ -203,9 +210,17 @@ tarafından açılamaz.</p>
 tarafa veri aktarılmaz.</p>
 
 <h2>Verinin bulunduğu yer</h2>
-<p>Sunucu <mark>[ülke]</mark> konumunda barındırılmaktadır. Taşıma sırasında
+<p>Sunucu Türkiye'de (İstanbul) barındırılmaktadır. Taşıma sırasında
 tüm trafik TLS ile şifrelenir ve uygulama sunucunun sertifikasını gömülü bir
 parmak iziyle doğrular; araya giren bir sunucu bağlantıyı kuramaz.</p>
+
+<p><strong>Yurt dışına aktarım.</strong> Google, Apple ve Brevo'nun sunucuları
+Türkiye dışında bulunduğundan, yukarıda bu hizmetler için sayılan veriler
+(bildirim jetonu, Firebase kurulum kimliği, bağlantı sırasında görülen IP
+adresi ve doğrulama e-postası için e-posta adresi) yurt dışına aktarılır.
+Mesaj, arama ve dosya içeriği bu aktarımın parçası değildir. Aktarım,
+6698 sayılı KVKK'nın 9. maddesi kapsamında <mark>[aktarım dayanağı]</mark>
+ile yapılır.</p>
 
 <h2>Haklarınız</h2>
 
@@ -247,17 +262,21 @@ analytics. There is no analytics or advertising SDK in the app.</p>
 never written to disk — for 15 minutes, and encrypted file chunks for 5 minutes.
 They are deleted automatically when that window passes.</p>
 
-<p>Data is shared with three external services, each receiving the minimum
-needed: Google Firebase Cloud Messaging receives a device push token and a
-content-free wake-up signal with no sender, recipient, message or preview;
+<p>Data is shared with four external services, each receiving the minimum
+needed: Google Firebase Cloud Messaging receives a device push token, a Firebase
+installation ID and a content-free wake-up signal with no sender, recipient,
+message or preview; on iPhone, Apple Push Notification service receives the
+device push token and the same content-free signal;
 Brevo receives your e-mail address to deliver verification codes; and our own
 TURN relay sees IP addresses when a direct call connection is not possible,
-while call audio and video remain encrypted end to end.</p>
+while call audio and video remain encrypted end to end. Because Google, Apple
+and Brevo operate servers outside Türkiye, this limited data is transferred
+abroad; message, call and file content never is.</p>
 
 <p>You can delete your account from the app's settings, which removes your
 server-side records. For access, correction, objection or a copy of your data,
 write to <mark>[contact@domain]</mark>. The data controller is
-<mark>[legal entity]</mark>, and the server is hosted in <mark>[country]</mark>.
+<mark>[legal entity]</mark>, and the server is hosted in Türkiye (Istanbul).
 Elçim is not directed at children under 13.</p>
 
 <footer class="site">

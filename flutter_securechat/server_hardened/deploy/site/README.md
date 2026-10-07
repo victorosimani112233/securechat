@@ -26,7 +26,8 @@ kutularını (`<div class="fill">`) silin:
 
 - Veri sorumlusunun adı / unvanı ve adresi
 - İletişim e-posta adresi (hesap silme talepleri buraya gelecek)
-- Sunucunun bulunduğu ülke
+- `privacy.html` içindeki yurt dışı aktarım dayanağı (KVKK md. 9; Google,
+  Apple ve Brevo için standart sözleşme bildirimi yapıldıysa o yazılır)
 - Yürürlük ve son güncelleme tarihleri
 - `terms.html` içindeki uygulanacak hukuk, yetkili mahkeme ve ücret maddesi
 
