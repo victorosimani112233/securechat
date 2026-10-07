@@ -103,6 +103,13 @@ abstract interface class GroupCryptoService implements CryptoService {
     required String groupId,
     required String plaintext,
   });
+
+  /// Yerel gonderen anahtarini sifirlar; sonraki dagitim yenisini uretir.
+  ///
+  /// Rotasyon yolunun bunu arayuzden cagirabilmesi gerekiyor. Somut sinifa
+  /// bakan bir kontrolun ardinda kalmasi, vodozemac devreye girdiginde
+  /// rotasyonun sessizce yanlis dala sapmasina yol acmisti.
+  Future<void> resetLocalSenderKey(String groupId, String senderId);
 }
 
 /// Produces the opaque, stable group routing token used by wire envelopes.

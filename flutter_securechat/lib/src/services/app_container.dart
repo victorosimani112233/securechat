@@ -758,7 +758,6 @@ class AppContainer {
         timerUpdates: timerUpdates,
         senderKeyRotation: SenderKeyRotationService(
           database: database,
-          store: protocolStore,
           crypto: crypto,
           signaling: signaling,
           session: session,

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
@@ -15,7 +14,6 @@ import '../contacts/contact_service.dart';
 import '../contacts/private_contact_discovery.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
-import '../crypto/crypto_protocol_store.dart';
 import '../auth/auth_api.dart';
 import '../crypto/vodozemac/olm_pre_key_bundle_api.dart';
 import '../crypto/vodozemac/olm_pre_key_publisher.dart';
@@ -23,7 +21,6 @@ import '../crypto/vodozemac/securechat_crypto_ffi.dart';
 import '../crypto/vodozemac/vodozemac_crypto_service.dart';
 import '../crypto/vodozemac/vodozemac_migration.dart';
 import '../crypto/vodozemac/vodozemac_protocol_store.dart';
-import '../crypto/signal_protocol_crypto_service.dart';
 import '../domain/send_message_use_case.dart';
 import '../incoming/incoming_message_handler.dart';
 import '../groups/private_group_call_routes.dart';
@@ -167,7 +164,6 @@ class SecureChatBackgroundRuntime {
         return pair.accessToken;
       }
 
-      final protocolStore = DatabaseCryptoProtocolStore(database);
       // Gecis ON PLANDA da kosuyor; burada da yoklanmasi gerekiyor cunku
       // arka plan gorevi uygulama hic acilmadan tetiklenebilir. Isaret
       // yazilmissa bu cagri bos geciyor.
@@ -316,7 +312,6 @@ class SecureChatBackgroundRuntime {
         ),
         senderKeyRotation: SenderKeyRotationService(
           database: database,
-          store: protocolStore,
           crypto: crypto,
           signaling: signaling,
           session: session,
@@ -737,26 +732,25 @@ class PendingTimerUpdateService {
 }
 
 class SenderKeyRotationService {
+  /// [store] ve [random] BILEREK kaldirildi.
+  ///
+  /// Ikisi de yalniz ham rastgele anahtar ureten ve onu libsignal
+  /// deposuna yazan eski dala hizmet ediyordu. O dal Megolm'un hic
+  /// okumadigi bir yere yaziyordu; kaldirildi, bagimliliklari da gitti.
   SenderKeyRotationService({
     required SecureChatDatabase database,
-    required CryptoSenderKeyStore store,
     required CryptoService crypto,
     required SignalingService signaling,
     required SessionStore session,
-    Random? random,
   }) : _database = database,
-       _store = store,
        _crypto = crypto,
        _signaling = signaling,
-       _session = session,
-       _random = random ?? Random.secure();
+       _session = session;
 
   final SecureChatDatabase _database;
-  final CryptoSenderKeyStore _store;
   final CryptoService _crypto;
   final SignalingService _signaling;
   final SessionStore _session;
-  final Random _random;
 
   Future<bool> rotateAll() async {
     var allSucceeded = true;
@@ -781,9 +775,12 @@ class SenderKeyRotationService {
 
     for (final member in members) {
       if (pending.delivered.contains(member)) continue;
-      final payload = signalCrypto is SignalProtocolCryptoService
-          ? utf8.decode(pending.key)
-          : 'SKDM:$groupId:${base64Encode(pending.key)}';
+      // Dagitim zarfi her iki uygulamada da `createSenderKeyDistribution`
+      // ciktisi; ham anahtar gonderen bir yol YOK. Eskiden somut sinifa
+      // bakan bir kosul vardi ve vodozemac devreye girdiginde ham rastgele
+      // bir anahtari `SKDM:$groupId:...` olarak gonderiyordu — alici
+      // tarafta import patliyor, hata yalniz diagnostics'e dusuyordu.
+      final payload = utf8.decode(pending.key);
       try {
         final envelope = await _crypto.encryptDirect(
           recipientId: member,
@@ -804,9 +801,6 @@ class SenderKeyRotationService {
         return false;
       }
     }
-    if (signalCrypto is! SignalProtocolCryptoService) {
-      await _store.storeSenderKey(groupId, senderId, 1, pending.key);
-    }
     await _database.cryptoState.delete(stateKey);
     return true;
   }
@@ -816,19 +810,24 @@ class SenderKeyRotationService {
     String groupId,
     String senderId,
   ) async {
-    if (crypto is SignalProtocolCryptoService) {
-      await crypto.resetLocalSenderKey(groupId, senderId);
-      final distribution = await crypto.createSenderKeyDistribution(
-        groupId: groupId,
-        senderId: senderId,
-      );
-      return _PendingSenderKey(
-        key: utf8.encode(distribution),
-        delivered: <String>{},
+    // Yetenek somut sinif yerine arayuzle sorulur. Eski hali
+    // `is SignalProtocolCryptoService` idi ve vodozemac devreye girdiginde
+    // sessizce ham rastgele bir anahtar uretiyordu: gonderen tarafta
+    // dagitilmamis bir Megolm anahtari, alici tarafta basarisiz import.
+    if (crypto is! GroupCryptoService) {
+      // Sessizce ise yaramaz bir anahtar uretmek yerine acikca basarisiz
+      // olunur; bu yolun butun hatasi zaten sessiz kalmasiydi.
+      throw StateError(
+        'Grup gonderen anahtari rotasyonu grup kriptosu gerektirir',
       );
     }
+    await crypto.resetLocalSenderKey(groupId, senderId);
+    final distribution = await crypto.createSenderKeyDistribution(
+      groupId: groupId,
+      senderId: senderId,
+    );
     return _PendingSenderKey(
-      key: List.generate(32, (_) => _random.nextInt(256)),
+      key: utf8.encode(distribution),
       delivered: <String>{},
     );
   }

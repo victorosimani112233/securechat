@@ -7,7 +7,6 @@ import 'package:flutter_securechat/src/background/background_scheduler.dart';
 import 'package:flutter_securechat/src/background/background_tasks.dart';
 import 'package:flutter_securechat/src/background/scheduled_message_service.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
-import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
 import 'package:flutter_securechat/src/domain/send_message_use_case.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
@@ -181,7 +180,16 @@ void main() {
     );
   });
 
-  test('sender key rotation distributes before committing new key', () async {
+  // Bu test eskiden `fixture.crypto`'yu (bir `LocalAeadCryptoService`)
+  // veriyordu. O sinif grup kriptosu uygulamadigi icin test, rotasyonun
+  // HAM RASTGELE anahtar ureten yedek dalini kosuyor ve uretilen 32 baytin
+  // libsignal deposuna yazildigini dogruluyordu. Yani bozuk yolu dogru
+  // davranis olarak kayitlamis; vodozemac devreye girdiginde rotasyonun
+  // sessizce bozuldugunu bu yuzden hicbir test yakalamadi.
+  //
+  // Artik olculen sey gercek degismez: rotasyon kripto servisinin urettigi
+  // DAGITIM ZARFINI dagitir ve bunu yapmadan once yerel anahtari sifirlar.
+  test('sender key rotation resets then distributes the real envelope', () async {
     final fixture = await _Fixture.open();
     addTearDown(fixture.close);
     await fixture.database.conversations.insert(
@@ -194,18 +202,20 @@ void main() {
         groupMembers: 'me,alice,bob',
       ),
     );
-    final store = DatabaseCryptoProtocolStore(fixture.database);
+    final crypto = _RecordingGroupCrypto(fixture.crypto);
     final service = SenderKeyRotationService(
       database: fixture.database,
-      store: store,
-      crypto: fixture.crypto,
+      crypto: crypto,
       signaling: fixture.signaling,
       session: fixture.session,
-      random: Random(7),
     );
 
     expect(await service.rotate('group-1'), isTrue);
-    expect(await store.loadSenderKey('group-1', 'me', 1), hasLength(32));
+
+    // Sifirlama dagitimdan ONCE olmali: tersi, eski anahtarin dagitilip
+    // ardindan yerelde degismesi demek olurdu.
+    expect(crypto.resetCalls, ['group-1/me']);
+    expect(crypto.distributionCalls, ['group-1/me']);
     final deliveries = fixture.signaling.sentMessages
         .whereType<EncryptedSignalMessage>()
         .toList();
@@ -213,11 +223,120 @@ void main() {
       'alice',
       'bob',
     });
-    expect(
-      deliveries.every((message) => !message.envelope.contains('SKDM:')),
-      isTrue,
-    );
+    // Her aliciya kripto servisinin urettigi zarfin KENDISI gitmeli.
+    //
+    // `LocalAeadCryptoService` anahtari karsi tarafin kimliginden turetiyor
+    // (`direct:<peerId>`), bu yuzden cozme de aliciyla ayni kimlikle
+    // yapiliyor.
+    for (final delivery in deliveries) {
+      expect(
+        await fixture.crypto.decryptDirect(
+          senderId: delivery.recipientId,
+          envelope: delivery.envelope,
+        ),
+        _RecordingGroupCrypto.distribution,
+      );
+    }
   });
+
+  test('rotation fails loudly when the crypto service has no group support', () async {
+    // Sessizce ise yaramaz bir anahtar uretmek, bu yolun butun hatasiydi.
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: 'group-1',
+        peerId: 'group-1',
+        peerName: 'Group',
+        peerPhone: '',
+        isGroup: true,
+        groupMembers: 'me,alice,bob',
+      ),
+    );
+    final service = SenderKeyRotationService(
+      database: fixture.database,
+      crypto: fixture.crypto,
+      signaling: fixture.signaling,
+      session: fixture.session,
+    );
+
+    await expectLater(service.rotate('group-1'), throwsStateError);
+    expect(fixture.signaling.sentMessages, isEmpty);
+  });
+}
+
+/// Grup kriptosu yetenegini kaydeden sahte servis.
+///
+/// Dogrudan sifrelemeyi gercek `LocalAeadCryptoService`'e devreder; test
+/// zarfin icerigini cozup dogrulayabilsin diye.
+class _RecordingGroupCrypto implements GroupCryptoService {
+  _RecordingGroupCrypto(this._inner);
+
+  static const distribution = 'SKDM:v2:group-1:dGVzdC1zZXNzaW9uLWtleQ==';
+
+  final CryptoService _inner;
+  final List<String> resetCalls = [];
+  final List<String> distributionCalls = [];
+
+  @override
+  Future<void> resetLocalSenderKey(String groupId, String senderId) async =>
+      resetCalls.add('$groupId/$senderId');
+
+  @override
+  Future<String> createSenderKeyDistribution({
+    required String groupId,
+    required String senderId,
+  }) async {
+    distributionCalls.add('$groupId/$senderId');
+    return distribution;
+  }
+
+  @override
+  Future<void> processSenderKeyDistribution({
+    required String senderId,
+    required String plaintext,
+  }) async {}
+
+  @override
+  Future<String> encryptGroupWire({
+    required String senderId,
+    required String groupId,
+    required String plaintext,
+  }) async => plaintext;
+
+  @override
+  Future<String> encryptDirect({
+    required String recipientId,
+    required String plaintext,
+  }) => _inner.encryptDirect(recipientId: recipientId, plaintext: plaintext);
+
+  @override
+  Future<String> decryptDirect({
+    required String senderId,
+    required String envelope,
+  }) => _inner.decryptDirect(senderId: senderId, envelope: envelope);
+
+  @override
+  Future<String> encryptGroup({
+    required String senderId,
+    required String groupId,
+    required String plaintext,
+  }) => _inner.encryptGroup(
+    senderId: senderId,
+    groupId: groupId,
+    plaintext: plaintext,
+  );
+
+  @override
+  Future<String> decryptGroup({
+    required String senderId,
+    required String groupId,
+    required String envelope,
+  }) => _inner.decryptGroup(
+    senderId: senderId,
+    groupId: groupId,
+    envelope: envelope,
+  );
 }
 
 class _Fixture {
