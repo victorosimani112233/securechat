@@ -1,84 +1,103 @@
 # 03 — Depolama şeması ve migration
 
-**Bağımlılık:** 01 · **Tahmin:** 3-4 gün · **Kritik yol:** evet
+**Durum: TAMAM (katmanlı)** · **Bağımlılık:** 01
 
-## Amaç
+## Yaklaşım — neden katmanlı
 
-Kripto durumunun şeklini libsignal'dan vodozemac'a taşımak ve mevcut
-kurulumlar için migration yazmak.
+`signal_protocol_crypto_service.dart` hâlâ libsignal kullanıyor ve eski
+store'lara bağlı. `CryptoPreKeyStore`/`CryptoSignedPreKeyStore` arayüzlerini
+bu görevde silmek uygulamanın derlenmemesine yol açardı.
 
-## Şekil değişimi
+O yüzden yeni depolama eski yolun **yanına** eklendi. TASK_04 servisi
+devraldığında eski koleksiyonlar ve arayüzler silinecek. Her commit'te
+uygulama derleniyor ve testler geçiyor.
 
-libsignal prekey'leri ayrı kayıtlarda tutuyordu; vodozemac hepsini
-Account'ın içinde tutuyor:
+## Eklenenler
 
-```
-storage_entities.dart
-  IdentityEntity        ->  Account pickle (tek kayit)
-  PreKeyEntity          ->  Account pickle icine katlaniyor  (TABLO KALKIYOR)
-  SignedPreKeyEntity    ->  Account pickle icine katlaniyor  (TABLO KALKIYOR)
-  SessionEntity         ->  SessionPickle, 1:1 kaliyor (~1.4 KB/peer)
-  SenderKeyEntity       ->  GroupSessionPickle / InboundGroupSessionPickle
-```
+**Entity'ler** (`storage_entities.dart`)
 
-`lib/src/crypto/crypto_protocol_store.dart` içindeki beş arayüzden ikisi
-(`CryptoPreKeyStore`, `CryptoSignedPreKeyStore`) ortadan kalkıyor.
-`DatabaseCryptoProtocolStore` buna göre sadeleşiyor.
+`VodozemacAccountEntity` — tek satır, şifreli account pickle.
+`VodozemacSessionEntity` — `peerId|sessionId` anahtarlı, pickle +
+`lastUsedAt`.
 
-## Yapılacaklar
+Olm aynı peer için **birden fazla oturuma** izin veriyor: karşı taraf eski
+bir prekey ile yeni bir oturum başlatabilir. Çözme denemesi en son
+kullanılandan başlamak zorunda, `lastUsedAt` bu yüzden var.
 
-1. `crypto_protocol_store.dart` arayüzlerini yeniden şekillendir. Hedef:
-   Account pickle'ı okuyup yazan tek bir yol + peer başına session pickle +
-   grup başına group session pickle.
+**Koleksiyonlar ve DAO'lar** (`secure_chat_database.dart`)
 
-2. `storage_entities.dart` ve `secure_chat_database.dart`'taki DAO'ları
-   güncelle. `PreKeyDao` ve `SignedPreKeyDao` kalkıyor.
+`vodozemacAccount` ve `vodozemacSessions` snapshot'a eklendi; `_load`,
+`_StorageSnapshot.empty`, `fromJson` ve `isEmpty` güncellendi.
+`VodozemacAccountDao` ve `VodozemacSessionDao` yazıldı.
 
-3. **Migration.** Mevcut `record` blob'ları legacy Java protobuf düzeninde
-   ve vodozemac bunları okuyamaz. Yani:
-   - Eski oturum, prekey ve sender-key kayıtları silinir
-   - Yeni bir Account üretilir, prekey'ler sunucuya yeniden yüklenir
-   - Her konuşma için oturum yeniden kurulur (ilk mesajda otomatik)
-   - Her grup için sender-key yeniden dağıtılır
+`clearCryptoProtocolState` **ve** `installRecoveryIdentity` yeni koleksiyonları
+da temizliyor. İkincisi önemliydi: kurtarma sonrası eski yerel anahtarlara
+bağlı oturumlar yaşamaz.
 
-   Bu kullanıcıya görünen bir olay. Migration'ın kullanıcıyı bilgilendiren
-   ve yarıda kesilirse devam edebilen bir yol olması gerekiyor —
-   `lib/src/storage/legacy_room_importer.dart` benzer bir tek seferlik
-   geçiş deseni içeriyor, örnek alınabilir.
+**Store** (`vodozemac_protocol_store.dart`)
 
-4. Migration testi: eski şemadan yeni şemaya geçişin veri kaybetmediğini
-   (mesaj geçmişi KORUNUR, yalnızca kripto durumu sıfırlanır) doğrula.
+Kapanış tabanlı: `withAccount` ve `withSession` işlem bittiğinde yeniden
+pickle'lamayı **kendileri** yapıyor.
 
-## Tuzaklar
+Gerekçe: vodozemac'ta hem anahtar üretimi hem her `encrypt`/`decrypt`
+durumu ilerletiyor ve yazılmazsa kayboluyor. Kaybın sonuçları sessiz ve
+yıkıcı — sunucuya yüklenen anahtarın yerel karşılığı olmaz, ya da aynı mesaj
+anahtarı ikinci kez kullanılır. libsignal bu sorumluluğu store
+callback'leriyle kendisi taşıyordu. Çağırana bırakılsa "pickle'lamayı
+unutma" yazılı bir kural olurdu; API unutmayı imkânsız kılıyor.
 
-**Mesaj geçmişi silinmemeli.** Sıfırlanan şey oturum/anahtar durumu;
-`messages`, `conversations`, `callLogs` tabloları olduğu gibi kalır.
+`action` fırlatırsa durum **yazılmıyor**: yarım kalmış bir anahtar üretimi
+veya başarısız bir çözme denemesi diske geçmiyor. İkisi de testli.
 
-**One-time key'ler Account pickle'ında.** `generateOneTimeKeys` sonrası
-hesabı yeniden pickle edip yazmayı atlarsan anahtarlar kaybolur ve sunucuya
-yüklediğin anahtarların yerel karşılığı olmaz — karşı taraf oturum kurar,
-sen çözemezsin. Bu sessiz ve yıkıcı bir hata; teste bağla.
+Durumu değiştirmeyen okumalar için ayrı `readAccount` var ve dokümantasyonu
+anahtar üreten/tüketen çağrılarda kullanılmamasını söylüyor.
 
-**Depolama katmanının bilinen sorunu.** `secure_chat_database.dart` okuma
-tarafında tüm tabloları belleğe alıyor (`_load()`, satır 215) ve
-`data_version` değişince baştan yüklüyor; ayrıca 1 saniyelik bir
-`Timer.periodic` yoklaması var (satır 79). Bu göç o sorunu çözmek zorunda
-değil ama **büyütmemeli**. Ayrı bir iş olarak duruyor.
+**Pickle anahtarı** master key'den HKDF ile amaç ayrımıyla türetiliyor
+(`securechat/vodozemac-pickle/v1`). Depolama anahtarının kendisi
+kullanılmıyor: aynı anahtarı iki amaç için kullanmak, birinin sızmasını
+diğerinin de sızması yapar. Sunucudaki `PRIVACY_INDEX_KEY` /
+`OFFLINE_QUEUE_ENCRYPTION_KEY` ayrımıyla aynı gerekçe.
 
----
+**Migration** (`vodozemac_migration.dart`)
 
-## Ortak zemin
+Diskteki `record` blob'ları legacy Java libsignal protobuf düzeninde;
+vodozemac onları okuyamaz ve dönüştürmek de mümkün değil, çünkü iki
+protokolün ratchet durumu aynı şey değil.
 
-Önce [INDEX.md](INDEX.md) oku — mimari kararlar ve herkesi ilgilendiren
-tuzaklar orada. Özellikle: vodozemac base64'ü padding'siz üretir, one-time
-key'ler Account pickle'ının içinde durur, her encrypt/decrypt sonrası
-yeniden pickle gerekir, ve Famedly'nin AGPL Dart binding'ine bakılmaz.
+Silinen: yalnız kriptografik durum. **Korunan: mesaj geçmişi, konuşmalar,
+kişiler, arama kayıtları, zamanlanmış mesajlar, ayarlar.** Kullanıcı hiçbir
+mesajını kaybetmiyor — testle bağlandı.
 
-## Bitirme ölçütü
+Görünür sonuç: her konuşma için oturum yeniden kurulur (ilk mesajda
+otomatik), her grup için sender key yeniden dağıtılır, karşı taraf kimlik
+değişikliği görür. Beklenen ve doğru davranış.
 
-```bash
-cd /home/user497/securechat/flutter_securechat
-export PATH="/home/user497/flutter/bin:$PATH"
-flutter analyze --no-pub     # temiz olmali
-flutter test --no-pub        # tamami gecmeli
-```
+Yarıda kesilirse: temizlik idempotent ve işaret **en son** yazılıyor, yani
+kesilen geçiş sonraki açılışta baştan koşup aynı sonuca varıyor.
+
+## Test
+
+`test/vodozemac_storage_test.dart` — 17 test: pickle anahtarı türetme ve
+amaç ayrımı, hesabın kalıcılığı, üretilen tek kullanımlık anahtarların
+kaybolmaması, hata halinde yazılmama (hesap ve oturum için ayrı ayrı),
+ratchet ilerlemesinin diske geçmesi, çok oturumlu sıralama, ve migration'ın
+kripto durumunu silip kullanıcı verisini koruması.
+
+## TASK_04 için notlar
+
+**Grup depolaması bilerek yazılmadı.** ABI'de henüz Megolm yok (TASK_02);
+uygulanmamış bir ABI için şema uydurmak spekülatif iş olurdu. Grup şekli
+02 bitince netleşecek.
+
+**Pickle anahtarını kompozisyon kökünde türet.** `app_container.dart` ve
+`background_tasks.dart` master key'i zaten
+`PlatformKeyMaterialStore().readOrCreateMasterKey()` ile hesaplıyor;
+`VodozemacProtocolStore.derivePickleKey` oraya bağlanacak.
+
+**Migration'ı açılışta çağır.** Store kullanılmadan önce koşmalı.
+
+**Silinecekler** (04 servisi devraldığında): `CryptoPreKeyStore`,
+`CryptoSignedPreKeyStore`, `PreKeyDao`, `SignedPreKeyDao`, `preKeys` ve
+`signedPreKeys` koleksiyonları, `PreKeyEntity`, `SignedPreKeyEntity`,
+`libsignal_protocol_store.dart` ve `pubspec.yaml`'daki
+`libsignal_protocol_dart`.

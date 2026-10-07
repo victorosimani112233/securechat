@@ -36,6 +36,8 @@ class SecureChatDatabase {
     senderKeys = SenderKeyDao._(this);
     cryptoState = CryptoStateDao._(this);
     pendingSignals = PendingSignalDao._(this);
+    vodozemacAccount = VodozemacAccountDao._(this);
+    vodozemacSessions = VodozemacSessionDao._(this);
   }
 
   final EncryptedRecordStore _store;
@@ -113,6 +115,11 @@ class SecureChatDatabase {
   late final SenderKeyDao senderKeys;
   late final CryptoStateDao cryptoState;
   late final PendingSignalDao pendingSignals;
+
+  /// vodozemac gocusu: libsignal yolu ile YAN YANA durur. TASK_04 servisi
+  /// devralana kadar iki depo birlikte yasar.
+  late final VodozemacAccountDao vodozemacAccount;
+  late final VodozemacSessionDao vodozemacSessions;
 
   /// Artimli deponun dosya yolu. Eski JSON dosyasi YERINDE BIRAKILIR:
   /// gecis dogrulanana kadar geri donus yolu acik kalmali.
@@ -255,6 +262,14 @@ class SecureChatDatabase {
           entry.key: entry.value['value'] as String,
       },
       pendingSignals: byString('pendingSignals', PendingSignalEntity.fromJson),
+      vodozemacAccount: byString(
+        'vodozemacAccount',
+        VodozemacAccountEntity.fromJson,
+      ),
+      vodozemacSessions: byString(
+        'vodozemacSessions',
+        VodozemacSessionEntity.fromJson,
+      ),
     );
   }
 
@@ -385,6 +400,8 @@ class SecureChatDatabase {
     snapshot.signedPreKeys.clear();
     snapshot.sessions.clear();
     snapshot.senderKeys.clear();
+    snapshot.vodozemacAccount.clear();
+    snapshot.vodozemacSessions.clear();
     snapshot.cryptoState.removeWhere(
       (key, _) =>
           key == 'local_registration_id' ||
@@ -420,6 +437,8 @@ class SecureChatDatabase {
       ..addEntries(signedPreKeys.map((key) => MapEntry(key.id, key)));
     snapshot.sessions.clear();
     snapshot.senderKeys.clear();
+    snapshot.vodozemacAccount.clear();
+    snapshot.vodozemacSessions.clear();
     snapshot.cryptoState.removeWhere(
       (key, _) => key.startsWith('pending_sender_key_rotation:'),
     );
@@ -1654,6 +1673,65 @@ class PendingSignalDao {
   Future<int> count() async => _db._snapshot.pendingSignals.length;
 }
 
+/// vodozemac hesabinin tek satirlik deposu.
+class VodozemacAccountDao {
+  VodozemacAccountDao._(this._db);
+  final SecureChatDatabase _db;
+
+  Future<String?> readPickle() async => _db
+      ._snapshot
+      .vodozemacAccount[VodozemacAccountEntity.singletonId]
+      ?.pickle;
+
+  Future<void> writePickle(String pickle) => _db._write(
+    (s) => s.vodozemacAccount[VodozemacAccountEntity.singletonId] =
+        VodozemacAccountEntity(pickle: pickle),
+  );
+
+  Future<void> delete() => _db._write(
+    (s) => s.vodozemacAccount.remove(VodozemacAccountEntity.singletonId),
+  );
+
+  Future<bool> exists() async => _db._snapshot.vodozemacAccount.containsKey(
+    VodozemacAccountEntity.singletonId,
+  );
+}
+
+/// Peer basina Olm oturumlari.
+///
+/// Olm ayni peer icin birden fazla oturuma izin verir; cozme denemesi en son
+/// kullanilandan baslar. [forPeer] bu yuzden `lastUsedAt` azalan sirada
+/// doner.
+class VodozemacSessionDao {
+  VodozemacSessionDao._(this._db);
+  final SecureChatDatabase _db;
+
+  Future<VodozemacSessionEntity?> get(String peerId, String sessionId) async =>
+      _db._snapshot.vodozemacSessions[VodozemacSessionEntity.keyFor(
+        peerId,
+        sessionId,
+      )];
+
+  Future<List<VodozemacSessionEntity>> forPeer(String peerId) async {
+    final sessions = _db._snapshot.vodozemacSessions.values
+        .where((session) => session.peerId == peerId)
+        .toList();
+    sessions.sort((a, b) => b.lastUsedAt.compareTo(a.lastUsedAt));
+    return sessions;
+  }
+
+  Future<void> upsert(VodozemacSessionEntity session) =>
+      _db._write((s) => s.vodozemacSessions[session.key] = session);
+
+  Future<void> deleteForPeer(String peerId) => _db._write(
+    (s) => s.vodozemacSessions.removeWhere(
+      (_, session) => session.peerId == peerId,
+    ),
+  );
+
+  Future<int> count() async => _db._snapshot.vodozemacSessions.length;
+}
+
 class _StorageSnapshot {
   _StorageSnapshot({
     required Map<String, ConversationEntity> conversations,
@@ -1671,6 +1749,8 @@ class _StorageSnapshot {
     required Map<String, SenderKeyEntity> senderKeys,
     required Map<String, PendingSignalEntity> pendingSignals,
     required Map<String, String> cryptoState,
+    required Map<String, VodozemacAccountEntity> vodozemacAccount,
+    required Map<String, VodozemacSessionEntity> vodozemacSessions,
   }) : conversations = _TrackedMap(
          'conversations',
          conversations,
@@ -1760,6 +1840,18 @@ class _StorageSnapshot {
          cryptoState,
          (value) => {'value': value},
          (key) => key,
+       ),
+       vodozemacAccount = _TrackedMap(
+         'vodozemacAccount',
+         vodozemacAccount,
+         (value) => value.toJson(),
+         (key) => key,
+       ),
+       vodozemacSessions = _TrackedMap(
+         'vodozemacSessions',
+         vodozemacSessions,
+         (value) => value.toJson(),
+         (key) => key,
        );
 
   final _TrackedMap<String, ConversationEntity> conversations;
@@ -1778,6 +1870,8 @@ class _StorageSnapshot {
   final _TrackedMap<String, SenderKeyEntity> senderKeys;
   final _TrackedMap<String, PendingSignalEntity> pendingSignals;
   final _TrackedMap<String, String> cryptoState;
+  final _TrackedMap<String, VodozemacAccountEntity> vodozemacAccount;
+  final _TrackedMap<String, VodozemacSessionEntity> vodozemacSessions;
 
   /// Degisiklik izleyen tum koleksiyonlar.
   List<_Tracked> get tracked => [
@@ -1812,7 +1906,9 @@ class _StorageSnapshot {
       signedPreKeys.isEmpty &&
       sessions.isEmpty &&
       senderKeys.isEmpty &&
-      pendingSignals.isEmpty;
+      pendingSignals.isEmpty &&
+      vodozemacAccount.isEmpty &&
+      vodozemacSessions.isEmpty;
 
   factory _StorageSnapshot.empty() => _StorageSnapshot(
     conversations: {},
@@ -1830,6 +1926,8 @@ class _StorageSnapshot {
     senderKeys: {},
     cryptoState: {},
     pendingSignals: {},
+    vodozemacAccount: {},
+    vodozemacSessions: {},
   );
 
   factory _StorageSnapshot.fromJson(Map<String, Object?> json) {
@@ -1904,6 +2002,16 @@ class _StorageSnapshot {
         json['pendingSignals'],
         PendingSignalEntity.fromJson,
         (entity) => entity.id,
+      ),
+      vodozemacAccount: _mapByString(
+        json['vodozemacAccount'],
+        VodozemacAccountEntity.fromJson,
+        (_) => VodozemacAccountEntity.singletonId,
+      ),
+      vodozemacSessions: _mapByString(
+        json['vodozemacSessions'],
+        VodozemacSessionEntity.fromJson,
+        (entity) => entity.key,
       ),
     );
   }

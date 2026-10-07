@@ -793,6 +793,74 @@ class SignedPreKeyEntity extends PreKeyEntity {
   };
 }
 
+/// vodozemac Olm hesabinin sifreli pickle'i. TEK satir tutulur.
+///
+/// libsignal'da identity, prekey ve signed prekey ayri kayitlardaydi;
+/// vodozemac hepsini hesabin icinde tutuyor. Yani anahtar ureten her
+/// cagridan sonra hesabi yeniden pickle'layip burada saklamak ZORUNLU,
+/// aksi halde uretilen anahtarlar kaybolur ve sunucuya yuklenen anahtarlarin
+/// yerel karsiligi olmaz.
+class VodozemacAccountEntity {
+  const VodozemacAccountEntity({required this.pickle});
+
+  /// Tek satir oldugu icin kimlik sabittir.
+  static const singletonId = 'account';
+
+  final String pickle;
+
+  factory VodozemacAccountEntity.fromJson(Map<String, Object?> json) =>
+      VodozemacAccountEntity(pickle: json['pickle'] as String? ?? '');
+
+  Map<String, Object?> toJson() => {'pickle': pickle};
+}
+
+/// Bir peer ile kurulmus Olm oturumunun sifreli pickle'i.
+///
+/// Olm ayni peer icin BIRDEN FAZLA oturuma izin verir: karsi taraf eski bir
+/// prekey ile yeni bir oturum baslatabilir. Cozerken en son kullanilandan
+/// baslanir, bu yuzden [lastUsedAt] tutulur. Anahtar `peerId|sessionId`.
+class VodozemacSessionEntity {
+  const VodozemacSessionEntity({
+    required this.peerId,
+    required this.sessionId,
+    required this.pickle,
+    required this.lastUsedAt,
+  });
+
+  static String keyFor(String peerId, String sessionId) =>
+      '$peerId|$sessionId';
+
+  final String peerId;
+  final String sessionId;
+  final String pickle;
+  final int lastUsedAt;
+
+  String get key => keyFor(peerId, sessionId);
+
+  VodozemacSessionEntity copyWith({String? pickle, int? lastUsedAt}) =>
+      VodozemacSessionEntity(
+        peerId: peerId,
+        sessionId: sessionId,
+        pickle: pickle ?? this.pickle,
+        lastUsedAt: lastUsedAt ?? this.lastUsedAt,
+      );
+
+  factory VodozemacSessionEntity.fromJson(Map<String, Object?> json) =>
+      VodozemacSessionEntity(
+        peerId: json['peerId'] as String? ?? '',
+        sessionId: json['sessionId'] as String? ?? '',
+        pickle: json['pickle'] as String? ?? '',
+        lastUsedAt: (json['lastUsedAt'] as num?)?.toInt() ?? 0,
+      );
+
+  Map<String, Object?> toJson() => {
+    'peerId': peerId,
+    'sessionId': sessionId,
+    'pickle': pickle,
+    'lastUsedAt': lastUsedAt,
+  };
+}
+
 class SessionEntity {
   const SessionEntity({required this.id, required this.record});
 
