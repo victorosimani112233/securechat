@@ -50,6 +50,7 @@ OFFLINE_QUEUE_ENCRYPTION_KEY=$(openssl rand -base64 32)
 FCM_TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)
 TURN_SECRET=$(openssl rand -base64 32)
 METRICS_BEARER_TOKEN=$(openssl rand -base64 32)
+REPORTS_ADMIN_TOKEN=$(openssl rand -base64 32)
 DIRECTORY_OPRF_PRIVATE_KEY=$(base64 -w0 < "$oprf_der")
 
 DATABASE_URL=jdbc:postgresql://127.0.0.1:${pg_port}/securechat

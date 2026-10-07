@@ -169,8 +169,29 @@ class PrivateDirectoryRegistryIntegrationTest {
                     "account_recovery_challenges",
                     "account_recovery_quotas",
                     "account_recovery_receipts",
+                    // V25: kotuye kullanim bildirimi. Icerik sutunu yok;
+                    // bildiren yalniz blind index ile tutulur.
+                    "abuse_reports",
+                    "abuse_report_targets",
                 ),
                 tables,
+            )
+            assertEquals(
+                setOf(
+                    "report_id",
+                    "reporter_index",
+                    "kind",
+                    "reason",
+                    "note",
+                    "created_at",
+                    "closed_at",
+                    "resolution",
+                ),
+                columns(connection, "abuse_reports"),
+            )
+            assertEquals(
+                setOf("report_id", "target_user_id"),
+                columns(connection, "abuse_report_targets"),
             )
             assertEquals(
                 setOf(

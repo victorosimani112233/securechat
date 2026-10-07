@@ -89,6 +89,7 @@ object AccountDeletion {
                     }
                 }
                 AccountRecovery.deleteAccount(connection, userId)
+                AbuseReports.deleteAccount(connection, userId)
                 connection.prepareStatement(
                     "DELETE FROM fcm_tokens WHERE user_index = ?",
                 ).use { statement ->

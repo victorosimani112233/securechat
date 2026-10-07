@@ -36,6 +36,10 @@ enum Guard {
   /// `MetricsAccess.isAuthorized` — operator bearer token'i.
   bearerToken,
 
+  /// `AbuseReports.requireAdmin` — ayri `REPORTS_ADMIN_TOKEN`. Kullanici
+  /// token'i gecmez; token tanimsizsa route 404 doner.
+  adminToken,
+
   /// Guard yok ve olmamasi dogru: istek govdesinden bir kimlik tuketip
   /// token basan kayit/dogrulama yollari. Henuz token'i olmayan bir
   /// istemci cagirir.
@@ -65,6 +69,12 @@ const _serverRoot =
     'flutter_securechat/server_hardened/signaling-server/src/main/kotlin/'
     'com/securechat/signaling/HttpRoutes.kt';
 
+/// HttpRoutes.kt disinda route tanimlayan ve denetime giren dosyalar.
+const _extraRouteSources = [
+  'flutter_securechat/server_hardened/signaling-server/src/main/kotlin/'
+      'com/securechat/signaling/AbuseReports.kt',
+];
+
 const _routeContracts = <String, RouteContract>{
   'GET /': (
     status: 'SERVER_ONLY',
@@ -76,14 +86,16 @@ const _routeContracts = <String, RouteContract>{
     status: 'COVERED',
     guard: Guard.public,
     evidence: 'flutter_securechat/lib/src/network/socket_diagnostics.dart',
-    note: 'Redakte edilmis uyumluluk yoklamasi; anonim cagrilabilir olmasi '
+    note:
+        'Redakte edilmis uyumluluk yoklamasi; anonim cagrilabilir olmasi '
         'kasitli, stack ayrintisi dondurmez.',
   ),
   'GET /ready': (
     status: 'SERVER_ONLY',
     guard: Guard.bearerToken,
     evidence: _serverRoot,
-    note: 'Readiness; bagimlilik durumu operator bilgisidir, bu yuzden '
+    note:
+        'Readiness; bagimlilik durumu operator bilgisidir, bu yuzden '
         'metrics bearer token ardinda.',
   ),
   'GET /metrics': (
@@ -96,7 +108,8 @@ const _routeContracts = <String, RouteContract>{
     status: 'SERVER_ONLY',
     guard: Guard.bearerToken,
     evidence: _serverRoot,
-    note: 'Build kimligi operator bilgisidir; surum/commit anonim '
+    note:
+        'Build kimligi operator bilgisidir; surum/commit anonim '
         'sizdirilmaz.',
   ),
   'GET /api/v1/latest-version': (
@@ -108,54 +121,63 @@ const _routeContracts = <String, RouteContract>{
   'GET /api/v1/directory/config': (
     status: 'COVERED',
     guard: Guard.public,
-    evidence: 'flutter_securechat/lib/src/contacts/private_contact_discovery.dart',
-    note: 'Pinlenmis blind-RSA OPRF acik yapilandirmasi; kayit oncesi '
+    evidence:
+        'flutter_securechat/lib/src/contacts/private_contact_discovery.dart',
+    note:
+        'Pinlenmis blind-RSA OPRF acik yapilandirmasi; kayit oncesi '
         'gerektigi icin public.',
   ),
   'POST /api/v1/directory/evaluate': (
     status: 'COVERED',
     guard: Guard.auth,
-    evidence: 'flutter_securechat/lib/src/contacts/private_contact_discovery.dart',
+    evidence:
+        'flutter_securechat/lib/src/contacts/private_contact_discovery.dart',
     note: 'Sabit boyutlu korlenmis kisi degerlendirmesi.',
   ),
   'GET /api/v1/directory/snapshot': (
     status: 'COVERED',
     guard: Guard.auth,
-    evidence: 'flutter_securechat/lib/src/contacts/private_contact_discovery.dart',
+    evidence:
+        'flutter_securechat/lib/src/contacts/private_contact_discovery.dart',
     note: 'Token-etiketli ve token-sealed uyelik anlik goruntusu.',
   ),
   'POST /api/v1/users/directory-token': (
     status: 'COVERED',
     guard: Guard.auth,
-    evidence: 'flutter_securechat/lib/src/contacts/private_contact_discovery.dart',
+    evidence:
+        'flutter_securechat/lib/src/contacts/private_contact_discovery.dart',
     note: 'Hesap sahibinin dizin anahtari gocu.',
   ),
   'POST /api/v1/otp/request': (
     status: 'COVERED',
     guard: Guard.public,
     evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
-    note: 'OTP istegi; henuz hesap yok, bu yuzden guard yok. Kotuye '
+    note:
+        'OTP istegi; henuz hesap yok, bu yuzden guard yok. Kotuye '
         'kullanim siniri rate limit ile.',
   ),
   'POST /api/v1/otp/verify': (
     status: 'COVERED',
     guard: Guard.preAuth,
     evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
-    note: 'OTP tuketir ve kayit tokeni basar. Guard yerine gecen sey '
+    note:
+        'OTP tuketir ve kayit tokeni basar. Guard yerine gecen sey '
         'OTP\'nin kendisidir.',
   ),
   'POST /api/v1/users/register': (
     status: 'COVERED',
     guard: Guard.preAuth,
     evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
-    note: 'Kayit tokeni tuketir, access+refresh basar. Telefon yalniz '
+    note:
+        'Kayit tokeni tuketir, access+refresh basar. Telefon yalniz '
         'geri cevrilemez ozet olarak girer.',
   ),
   'POST /api/v1/auth/refresh': (
     status: 'COVERED',
     guard: Guard.preAuth,
     evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
-    note: 'Refresh tokeni tuketir ve dondurur. Access token gecerli '
+    note:
+        'Refresh tokeni tuketir ve dondurur. Access token gecerli '
         'olmadiginda da cagrilabilmesi gerekir, bu yuzden requireAuth yok.',
   ),
   'POST /api/v1/auth/logout': (
@@ -169,6 +191,32 @@ const _routeContracts = <String, RouteContract>{
     guard: Guard.auth,
     evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
     note: 'Kimlik dogrulamali hesap silme.',
+  ),
+  'POST /api/v1/reports': (
+    status: 'COVERED',
+    guard: Guard.auth,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note:
+        'Kotuye kullanim bildirimi; icerik tasimaz, bilinmeyen alan '
+        'reddedilir. Anonim yazma yolu olmasin diye kimlik zorunlu.',
+  ),
+  'GET /api/v1/admin/reports': (
+    status: 'SERVER_ONLY',
+    guard: Guard.adminToken,
+    evidence: 'flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md',
+    note: 'Moderasyon listesi; istemci cagirmaz, kullanici token\'i gecmez.',
+  ),
+  'POST /api/v1/admin/reports/{reportId}/close': (
+    status: 'SERVER_ONLY',
+    guard: Guard.adminToken,
+    evidence: 'flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md',
+    note: 'Moderasyon karari kaydi.',
+  ),
+  'POST /api/v1/admin/accounts/{userId}/remove': (
+    status: 'SERVER_ONLY',
+    guard: Guard.adminToken,
+    evidence: 'flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md',
+    note: 'Moderasyonla hesap kaldirma; kullanici silme yoluyla ayni temizlik.',
   ),
   'GET /api/v1/ice/config': (
     status: 'COVERED',
@@ -185,20 +233,23 @@ const _routeContracts = <String, RouteContract>{
   'POST /api/v1/prekeys/refresh': (
     status: 'COVERED',
     guard: Guard.auth,
-    evidence: 'flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart',
+    evidence:
+        'flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart',
     note: 'One-time prekey tamamlama; basarisiz yuklemede geri alma.',
   ),
   'GET /api/v1/prekeys/status': (
     status: 'COVERED',
     guard: Guard.auth,
-    evidence: 'flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart',
+    evidence:
+        'flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart',
     note: 'Kalan one-time prekey sayisi; tamamlama kararini bu verir.',
   ),
   'GET /api/v1/users/{userId}/prekeys': (
     status: 'SERVER_ONLY',
     guard: Guard.servicePrincipal,
     evidence: _serverRoot,
-    note: 'DIKKAT: guard servis assertion\'i, yani kullanici token\'iyla '
+    note:
+        'DIKKAT: guard servis assertion\'i, yani kullanici token\'iyla '
         'cagrilamaz. Bir istemci peer bundle\'i cekemez. Vodozemac gocunde '
         'bu route requirePrincipal\'a cevrilmeli; bkz. '
         'docs/migration/TASK_05_server.md.',
@@ -207,7 +258,8 @@ const _routeContracts = <String, RouteContract>{
     status: 'WS_EQUIVALENT',
     guard: Guard.auth,
     evidence: 'flutter_securechat/lib/src/media/call_manager.dart',
-    note: 'Istemci ayni bilgiyi WebSocket grup cagri sinyalleriyle alir; '
+    note:
+        'Istemci ayni bilgiyi WebSocket grup cagri sinyalleriyle alir; '
         'HTTP yolu operasyon/kurtarma gorunumu.',
   ),
   'POST /api/v1/fcm/register': (
@@ -227,7 +279,8 @@ const _routeContracts = <String, RouteContract>{
     status: 'SERVER_ONLY',
     guard: Guard.principal,
     evidence: _serverRoot,
-    note: 'PQXDH bundle yuklemesi. Istemci vodozemac\'a gectigi icin '
+    note:
+        'PQXDH bundle yuklemesi. Istemci vodozemac\'a gectigi icin '
         'KULLANILMIYOR; kaldirilacak.',
   ),
   'POST /api/v2/prekeys/refresh': (
@@ -246,7 +299,8 @@ const _routeContracts = <String, RouteContract>{
     status: 'SERVER_ONLY',
     guard: Guard.principal,
     evidence: _serverRoot,
-    note: 'PQXDH peer bundle. KULLANILMIYOR; kaldirilacak. Guard deseni '
+    note:
+        'PQXDH peer bundle. KULLANILMIYOR; kaldirilacak. Guard deseni '
         'v1 esdegerinden dogru olan budur.',
   ),
   'GET /api/v2/users/{userId}/prekeys/capability': (
@@ -259,7 +313,8 @@ const _routeContracts = <String, RouteContract>{
     status: 'COVERED',
     guard: Guard.auth,
     evidence: 'flutter_securechat/lib/src/services/signaling_service.dart',
-    note: 'Bearer dogrulamali sinyalleme; reconnect, boyut siniri ve codec '
+    note:
+        'Bearer dogrulamali sinyalleme; reconnect, boyut siniri ve codec '
         'yolu.',
   ),
 };
@@ -271,15 +326,14 @@ const _routeContracts = <String, RouteContract>{
 const _declaredRejections = <String, String>{
   'group_notification':
       'Sabit grup tokeni dis zarfta tasinmaz; grup kontrolu her aliciya '
-          'ayri ordinary encrypted_message olarak gider.',
-  'group_directory_sync_v2':
-      'Grup dizini sunucuda tutulmaz.',
+      'ayri ordinary encrypted_message olarak gider.',
+  'group_directory_sync_v2': 'Grup dizini sunucuda tutulmaz.',
   'group_message_fanout':
       'Fanout sunucuya grup grafigi verirdi; istemci her aliciya ayri '
-          'zarf gonderir.',
+      'zarf gonderir.',
   'admin_encrypted_log':
       'Dis eventType yalniz PRIVATE_EVENT olabilir; gercek olay turu '
-          'recipient-specific E2EE payload icindedir.',
+      'recipient-specific E2EE payload icindedir.',
 };
 
 /// Sunucunun siniflandirdigi ama Flutter istemcisinin hic uretmedigi
@@ -292,11 +346,10 @@ const _declaredRejections = <String, String>{
 const _declaredClientGaps = <String, String>{
   'audio_data':
       'Legacy Android istemcisinin bant-ici ses cercevesi. Flutter istemcisi '
-          'sesi WebRTC ile tasir ve bu turu hic uretmez. Siniflandirma '
-          'BILEREK duruyor: savunma amaclidir, sahadaki eski bir istemci '
-          'gonderirse cerceve kalici offline kuyruga yazilmasin.',
-  'video_data':
-      'Ayni gerekce; legacy bant-ici video cercevesi.',
+      'sesi WebRTC ile tasir ve bu turu hic uretmez. Siniflandirma '
+      'BILEREK duruyor: savunma amaclidir, sahadaki eski bir istemci '
+      'gonderirse cerceve kalici offline kuyruga yazilmasin.',
+  'video_data': 'Ayni gerekce; legacy bant-ici video cercevesi.',
 };
 
 ({Set<String> routes, Map<String, Guard> guards}) _parseHttpRoutes(
@@ -330,6 +383,7 @@ String _routeBody(String source, int openBraceIndex) {
 }
 
 Guard _detectGuard(String body) {
+  if (body.contains('AbuseReports.requireAdmin(')) return Guard.adminToken;
   if (body.contains('requireServicePrincipal(')) return Guard.servicePrincipal;
   if (body.contains('requirePrincipal(')) return Guard.principal;
   if (body.contains('requireAuth(')) return Guard.auth;
@@ -344,10 +398,7 @@ Set<String> _parseKotlinStringSet(String source, String name) {
     dotAll: true,
   ).firstMatch(source);
   if (match == null) return const {};
-  return RegExp(r'"([^"]+)"')
-      .allMatches(match[1]!)
-      .map((m) => m[1]!)
-      .toSet();
+  return RegExp(r'"([^"]+)"').allMatches(match[1]!).map((m) => m[1]!).toSet();
 }
 
 void main() {
@@ -381,6 +432,17 @@ void main() {
   final parsed = _parseHttpRoutes(routesFile.readAsStringSync());
   final actualRoutes = {...parsed.routes};
   final guards = {...parsed.guards};
+  for (final path in _extraRouteSources) {
+    final file = File('${repositoryRoot.path}/$path');
+    if (!file.existsSync()) {
+      stderr.writeln('Eksik sozlesme kaynagi: ${file.path}');
+      exitCode = 2;
+      return;
+    }
+    final extra = _parseHttpRoutes(file.readAsStringSync());
+    actualRoutes.addAll(extra.routes);
+    guards.addAll(extra.guards);
+  }
 
   final wsSource = websocketFile.readAsStringSync();
   for (final match in RegExp(
@@ -445,9 +507,9 @@ void main() {
   final messageTypesSource = messageTypesFile.readAsStringSync();
   final transient = _parseKotlinStringSet(messageTypesSource, 'TRANSIENT');
   final pendingCall = _parseKotlinStringSet(messageTypesSource, 'PENDING_CALL');
-  final fileTransfer = RegExp(r'FILE_TRANSFER\s*=\s*"([^"]+)"')
-      .firstMatch(messageTypesSource)
-      ?.group(1);
+  final fileTransfer = RegExp(
+    r'FILE_TRANSFER\s*=\s*"([^"]+)"',
+  ).firstMatch(messageTypesSource)?.group(1);
   final serverClassified = <String>{
     ...transient,
     ...pendingCall,
@@ -462,29 +524,30 @@ void main() {
   // Sunucunun siniflandirdigi ama istemcinin hic uretmedigi turler.
   // Ya siniflandirma olu ya istemci eksik; ikisi de bilinmeli.
   final clientGaps = serverClassified.difference(dartTypes);
-  final undeclaredClientGaps = clientGaps
-      .where((type) => !_declaredClientGaps.containsKey(type))
-      .toList()
-    ..sort();
+  final undeclaredClientGaps =
+      clientGaps
+          .where((type) => !_declaredClientGaps.containsKey(type))
+          .toList()
+        ..sort();
   // Artik gercek olmayan beyan da hata: istemci o turu uretmeye baslamis
   // ya da siniflandirma kalkmis olabilir.
-  final staleClientGaps = _declaredClientGaps.keys
-      .where((type) => !clientGaps.contains(type))
-      .toList()
-    ..sort();
+  final staleClientGaps =
+      _declaredClientGaps.keys
+          .where((type) => !clientGaps.contains(type))
+          .toList()
+        ..sort();
   final sortedClientGaps = clientGaps.toList()..sort();
 
   // Sunucuda acikca reddedilen turler beyan edilmis mi.
   final rejectedInCode = <String>{};
-  for (final match in RegExp(
-    r'type\s*==\s*"([^"]+)"',
-  ).allMatches(wsSource)) {
+  for (final match in RegExp(r'type\s*==\s*"([^"]+)"').allMatches(wsSource)) {
     rejectedInCode.add(match[1]!);
   }
-  final undeclaredRejections = _declaredRejections.keys
-      .where((type) => !rejectedInCode.contains(type))
-      .toList()
-    ..sort();
+  final undeclaredRejections =
+      _declaredRejections.keys
+          .where((type) => !rejectedInCode.contains(type))
+          .toList()
+        ..sort();
 
   final mappedCount = actualRoutes.length - unmapped.length;
 
@@ -551,9 +614,7 @@ void main() {
     ..writeln('## Sonuc')
     ..writeln()
     ..writeln('- Route: $mappedCount/${actualRoutes.length} eslenmis')
-    ..writeln(
-      '- Eslenmemis: ${unmapped.isEmpty ? 'yok' : unmapped.join(', ')}',
-    )
+    ..writeln('- Eslenmemis: ${unmapped.isEmpty ? 'yok' : unmapped.join(', ')}')
     ..writeln(
       '- Guard uyusmazligi: '
       '${guardMismatches.isEmpty ? 'yok' : guardMismatches.join('; ')}',
@@ -586,8 +647,9 @@ void main() {
       'uretilmiyor; kimlik dogrulamali socket uzerinde gelirse reddedilir.',
     );
 
-  File('${flutterRoot.path}/docs/SERVER_CONTRACT_AUDIT.md')
-      .writeAsStringSync(output.toString());
+  File(
+    '${flutterRoot.path}/docs/SERVER_CONTRACT_AUDIT.md',
+  ).writeAsStringSync(output.toString());
 
   final problems = <String, List<String>>{
     'Eslenmemis route': unmapped,

@@ -40,7 +40,10 @@ object RateLimiter {
         "ws_connect" to RateLimit(10, 1),             // 10 yeni WS baglanti/sn per IP
         "otp_request" to RateLimit(5, 600),           // 5 req/10dk per IP (OTP istegi)
         "otp_verify" to RateLimit(20, 600),        // 20 req/10dk per IP (brute force korumasi zaten OTP servisinde)
-        "presence_subscribe" to RateLimit(120, 60)
+        "presence_subscribe" to RateLimit(120, 60),
+        // Kotuye kullanim bildirimi: gercek kullanim gunde birkac adettir;
+        // sinir, bir hesabin inceleme kuyrugunu doldurmasini engeller.
+        AbuseReports.SUBMIT_RATE_BUCKET to RateLimit(20, 86_400),
     )
 
     /**

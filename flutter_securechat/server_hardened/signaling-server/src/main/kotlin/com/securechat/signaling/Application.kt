@@ -63,6 +63,8 @@ fun main() {
     PurposeSeparatedSecrets.validate()
     PrivateDirectory.initialize()
     MetricsAccess.initialize()
+    // Hatali admin token'i istek aninda degil baslangicta patlasin.
+    AbuseReports.initialize()
 
     log.info("=== SecureChat Signaling Server ===")
     log.info("Signaling listener baslatiliyor")

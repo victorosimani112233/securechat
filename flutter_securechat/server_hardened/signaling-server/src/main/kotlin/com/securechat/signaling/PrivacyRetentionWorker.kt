@@ -107,6 +107,7 @@ object PrivacyRetentionWorker {
                 RegistrationGrants.purgeExpired(connection)
                 // Gecmis gun kovalarindaki rehber kotasi satirlari.
                 DirectoryQuota.purgeExpired(connection)
+                val abuseReports = AbuseReports.purgeExpired(connection)
                 val pushTokens = connection.prepareStatement(
                     "DELETE FROM fcm_tokens WHERE registered_on < CURRENT_DATE - ?",
                 ).use { statement ->
@@ -128,7 +129,7 @@ object PrivacyRetentionWorker {
                 val pushCutoff = System.currentTimeMillis() -
                     config.pushTokenRetentionDays * 86_400_000L
                 tokenStore?.purgeExpiredMemory(pushCutoff)
-                RetentionResult(botPreKeys, pushTokens, apiClients)
+                RetentionResult(botPreKeys, pushTokens, apiClients, abuseReports)
             } catch (error: Exception) {
                 connection.rollback()
                 throw error
@@ -139,10 +140,11 @@ object PrivacyRetentionWorker {
             if (result.total > 0) {
                 retentionLog.info(
                     "[Privacy] Retention cleanup: consumed_prekeys={}, push_tokens={}, " +
-                        "api_clients={}",
+                        "api_clients={}, abuse_reports={}",
                     result.consumedPreKeyRows,
                     result.pushTokenRows,
                     result.apiClientRows,
+                    result.abuseReportRows,
                 )
             }
         }
@@ -165,7 +167,8 @@ data class RetentionResult(
     val consumedPreKeyRows: Int,
     val pushTokenRows: Int,
     val apiClientRows: Int,
+    val abuseReportRows: Int,
 ) {
     val total: Int
-        get() = consumedPreKeyRows + pushTokenRows + apiClientRows
+        get() = consumedPreKeyRows + pushTokenRows + apiClientRows + abuseReportRows
 }

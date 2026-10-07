@@ -11,6 +11,7 @@ istiyor. Bu dizin o sayfaları ve dağıtım adımlarını içerir.
 | `index.html` | Listelemedeki web sitesi adresi |
 | `privacy.html` | Play: *Gizlilik politikası* · App Store: *Privacy Policy URL* |
 | `delete-account.html` | Play: *Hesap silme URL'si* (zorunlu) |
+| `child-safety.html` | Play: *Çocuk güvenliği standartları* (sosyal/iletişim uygulamalarına zorunlu) |
 | `terms.html` | App Store: *License Agreement / Terms* (opsiyonel ama istenir) |
 | `style.css` | Tek stil dosyası; harici istek yok |
 | `nginx-site.conf` | Yeni vhost — mevcut API vhost'una dokunmaz |
@@ -26,6 +27,7 @@ kutularını (`<div class="fill">`) silin:
 
 - Veri sorumlusunun adı / unvanı ve adresi
 - İletişim e-posta adresi (hesap silme talepleri buraya gelecek)
+- `child-safety.html` içindeki çocuk güvenliği iletişim kişisinin adı ve e-postası
 - `privacy.html` içindeki yurt dışı aktarım dayanağı (KVKK md. 9; Google,
   Apple ve Brevo için standart sözleşme bildirimi yapıldıysa o yazılır)
 - Yürürlük ve son güncelleme tarihleri
@@ -71,7 +73,7 @@ hacimleriniz) o adrese gidiyor. Kendi adresinizle değiştirin.
 
 ```bash
 ssh root@185.22.184.114 'mkdir -p /var/www/elcim /var/www/certbot'
-scp index.html privacy.html terms.html delete-account.html style.css \
+scp index.html privacy.html terms.html delete-account.html child-safety.html style.css \
     root@185.22.184.114:/var/www/elcim/
 ssh root@185.22.184.114 'chown -R www-data:www-data /var/www/elcim && chmod -R 644 /var/www/elcim/* && chmod 755 /var/www/elcim'
 ```
@@ -146,6 +148,7 @@ Son komut önemli: site vhost'unu eklemek mevcut API vhost'unu etkilememeli.
 |---|---|
 | Play — Gizlilik politikası | `https://tereaiqos.online/privacy` |
 | Play — Hesap silme URL'si | `https://tereaiqos.online/delete-account` |
+| Play — Çocuk güvenliği standartları | `https://tereaiqos.online/child-safety` |
 | App Store — Privacy Policy URL | `https://tereaiqos.online/privacy` |
 | App Store — Support URL | `https://tereaiqos.online/` |
 | Her ikisi — Web sitesi | `https://tereaiqos.online/` |

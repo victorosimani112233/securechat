@@ -9,6 +9,7 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | Server route | Guard | Durum | Flutter kaniti | Karar |
 |---|---|---|---|---|
 | `GET /` | `public` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Servis karsilama yolu; sabit cevap, kimlik tasimaz. |
+| `GET /api/v1/admin/reports` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyon listesi; istemci cagirmaz, kullanici token'i gecmez. |
 | `GET /api/v1/directory/config` | `public` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Pinlenmis blind-RSA OPRF acik yapilandirmasi; kayit oncesi gerektigi icin public. |
 | `GET /api/v1/directory/snapshot` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Token-etiketli ve token-sealed uyelik anlik goruntusu. |
 | `GET /api/v1/ice/config` | `auth` | COVERED | `flutter_securechat/lib/src/media/ice_server_fetcher.dart` | Kisa omurlu TURN yapilandirmasi. |
@@ -24,6 +25,8 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | `GET /metrics` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Prometheus; istemciye acilmaz. |
 | `GET /ready` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Readiness; bagimlilik durumu operator bilgisidir, bu yuzden metrics bearer token ardinda. |
 | `POST /api/v1/account/delete` | `auth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kimlik dogrulamali hesap silme. |
+| `POST /api/v1/admin/accounts/{userId}/remove` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyonla hesap kaldirma; kullanici silme yoluyla ayni temizlik. |
+| `POST /api/v1/admin/reports/{reportId}/close` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyon karari kaydi. |
 | `POST /api/v1/auth/logout` | `auth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Refresh tokeni iptali. |
 | `POST /api/v1/auth/refresh` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Refresh tokeni tuketir ve dondurur. Access token gecerli olmadiginda da cagrilabilmesi gerekir, bu yuzden requireAuth yok. |
 | `POST /api/v1/directory/evaluate` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Sabit boyutlu korlenmis kisi degerlendirmesi. |
@@ -33,6 +36,7 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | `POST /api/v1/otp/verify` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | OTP tuketir ve kayit tokeni basar. Guard yerine gecen sey OTP'nin kendisidir. |
 | `POST /api/v1/prekeys/refresh` | `auth` | COVERED | `flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart` | One-time prekey tamamlama; basarisiz yuklemede geri alma. |
 | `POST /api/v1/prekeys/upload` | `principal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Ilk bundle yuklemesi. |
+| `POST /api/v1/reports` | `auth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kotuye kullanim bildirimi; icerik tasimaz, bilinmeyen alan reddedilir. Anonim yazma yolu olmasin diye kimlik zorunlu. |
 | `POST /api/v1/users/directory-token` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Hesap sahibinin dizin anahtari gocu. |
 | `POST /api/v1/users/register` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kayit tokeni tuketir, access+refresh basar. Telefon yalniz geri cevrilemez ozet olarak girer. |
 | `POST /api/v2/prekeys/refresh` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH prekey tamamlama. KULLANILMIYOR; kaldirilacak. |
@@ -59,7 +63,7 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 
 ## Sonuc
 
-- Route: 30/30 eslenmis
+- Route: 34/34 eslenmis
 - Eslenmemis: yok
 - Guard uyusmazligi: yok
 - Servis guard'i ardinda olup istemci cagiriyor diye beyan edilen: yok

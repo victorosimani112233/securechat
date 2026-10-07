@@ -734,6 +734,20 @@ fun Application.configureRoutes(
             }
         }
 
+        // Kotuye kullanim bildirimi ve moderasyon (Apple 1.2, Play UGC/CSAE).
+        abuseReportRoutes(
+            requireAuth = ::requireAuth,
+            userRegistry = userRegistry,
+            removeAccount = { userId ->
+                AccountDeletion.execute(
+                    userId = userId,
+                    connectionManager = connectionManager,
+                    userRegistry = userRegistry,
+                    fcmTokenStore = fcmTokenStore,
+                )
+            },
+        )
+
         // Token yenileme — refresh token ile yeni access + refresh ciftti uretir
         // (token rotation: eski refresh token blacklist'e alinir)
         post("/api/v1/auth/refresh") {
