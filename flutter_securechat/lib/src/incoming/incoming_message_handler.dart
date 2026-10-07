@@ -11,7 +11,6 @@ import '../chat/private_chat_control.dart';
 import '../contacts/contact_service.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
-import '../crypto/signal_protocol_crypto_service.dart';
 import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
 import '../l10n/service_strings.dart';
@@ -1254,7 +1253,7 @@ class IncomingMessageHandler {
 
   Future<void> _acceptSenderKey(String senderId, String plaintext) async {
     final signalCrypto = _crypto;
-    if (signalCrypto is SignalProtocolCryptoService) {
+    if (signalCrypto is GroupCryptoService) {
       try {
         await signalCrypto.processSenderKeyDistribution(
           senderId: senderId,

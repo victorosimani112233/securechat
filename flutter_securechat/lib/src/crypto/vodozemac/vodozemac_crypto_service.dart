@@ -73,7 +73,11 @@ class _AsyncKeyedMutex {
 /// DUZ METIN GERI DONUSU YOKTUR: sifreleme, oturum veya bundle hatasinda
 /// islem basarisiz olur ve mesaj gonderilmez.
 class VodozemacCryptoService
-    implements CryptoService, PeerSessionRecovery, PeerIdentityReviewService {
+    implements
+        CryptoService,
+        GroupCryptoService,
+        PeerSessionRecovery,
+        PeerIdentityReviewService {
   VodozemacCryptoService({
     required SecureChatDatabase database,
     required VodozemacProtocolStore store,

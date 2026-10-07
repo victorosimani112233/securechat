@@ -5,7 +5,6 @@ import 'dart:math';
 import '../chat/conversation_preview.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
-import '../crypto/signal_protocol_crypto_service.dart';
 import '../crypto/group_sender_key_distribution.dart';
 import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
@@ -160,7 +159,7 @@ class SendMessageUseCase {
               _sendEncryptedDependency(signal, messageId: messageId),
         );
       }
-      if (isGroup && _crypto is SignalProtocolCryptoService) {
+      if (isGroup && _crypto is GroupCryptoService) {
         final members = _members(conversation?.groupMembers);
         await _groupControls.send(
           senderId: senderId,
@@ -195,7 +194,7 @@ class SendMessageUseCase {
               _sendEncryptedDependency(signal, messageId: messageId),
         );
       }
-      final wireEnvelope = isGroup && _crypto is SignalProtocolCryptoService
+      final wireEnvelope = isGroup && _crypto is GroupCryptoService
           ? await _crypto.encryptGroupWire(
               senderId: senderId,
               groupId: request.conversationId,
@@ -294,7 +293,7 @@ class SendMessageUseCase {
   }
 
   Future<void> _distributeSenderKey({
-    required SignalProtocolCryptoService crypto,
+    required GroupCryptoService crypto,
     required String senderId,
     required String groupId,
     required List<String> members,

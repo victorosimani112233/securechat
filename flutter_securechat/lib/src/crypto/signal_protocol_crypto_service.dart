@@ -94,7 +94,11 @@ class HttpPreKeyBundleProvider implements PreKeyBundleProvider {
 /// remains in [LocalAeadCryptoService]; this class is only for peer/group wire
 /// messages and implements Signal Protocol V3 Double Ratchet + SenderKey.
 class SignalProtocolCryptoService
-    implements CryptoService, PeerSessionRecovery, PeerIdentityReviewService {
+    implements
+        CryptoService,
+        GroupCryptoService,
+        PeerSessionRecovery,
+        PeerIdentityReviewService {
   SignalProtocolCryptoService({
     required PersistentSignalProtocolStore store,
     required PreKeyBundleProvider preKeyBundles,

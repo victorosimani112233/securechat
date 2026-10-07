@@ -1,6 +1,5 @@
 import '../core/signal_message.dart';
 import '../services/crypto_service.dart';
-import 'signal_protocol_crypto_service.dart';
 
 /// Text and attachments must distribute the same current SenderKey before
 /// encrypting group payloads, including the first message after a key reset.
@@ -12,7 +11,10 @@ Future<void> distributeGroupSenderKey({
   required DateTime timestamp,
   required Future<bool> Function(EncryptedSignalMessage signal) send,
 }) async {
-  if (crypto is! SignalProtocolCryptoService) return;
+  // Somut sinif yerine YETENEK sorulur. Somut sinifa bakmak, ikinci bir
+  // uygulama geldiginde bu fonksiyonun sessizce hicbir sey yapmadan
+  // donmesine yol aciyordu: grup anahtari hic dagitilmaz, hata gorunmez.
+  if (crypto is! GroupCryptoService) return;
   final distribution = await crypto.createSenderKeyDistribution(
     groupId: groupId,
     senderId: senderId,

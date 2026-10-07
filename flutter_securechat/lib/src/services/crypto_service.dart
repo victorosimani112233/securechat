@@ -70,6 +70,41 @@ abstract interface class CryptoService {
   });
 }
 
+/// Grup kriptosu yetenegi.
+///
+/// Bu arayuz BILEREK `CryptoService`'ten ayri. Cagrilan uc nokta daha once
+/// `crypto is SignalProtocolCryptoService` ile kapilaniyordu; somut sinifa
+/// bakmak, ikinci bir uygulama (vodozemac) geldiginde grup mesajlarinin
+/// sessizce gonderilmemesine yol aciyordu — tip kontrolu basarisiz olunca
+/// `group_sender_key_distribution` hicbir sey yapmadan donuyor ve hata
+/// gorunmuyordu. Yetenek artik somut sinif yerine arayuzle sorulur.
+///
+/// `CryptoService`'i GENISLETIR ve bu zorunlu: grup anahtarini dagitmak
+/// `encryptDirect` gerektiriyor (dagitim zarfi her alici icin ayri direct
+/// kanaldan gider). Ayrica Dart tip yukseltmesi yalniz ALT TIPE calisir;
+/// bagimsiz bir arayuz olsaydi `crypto is GroupCryptoService` kontrolunden
+/// sonra `encryptDirect` cagrilamazdi.
+abstract interface class GroupCryptoService implements CryptoService {
+  /// Grup icin sender-key dagitim zarfi uretir.
+  Future<String> createSenderKeyDistribution({
+    required String groupId,
+    required String senderId,
+  });
+
+  /// Karsi taraftan gelen dagitim zarfini kabul eder.
+  Future<void> processSenderKeyDistribution({
+    required String senderId,
+    required String plaintext,
+  });
+
+  /// Grup mesajini kabloda tasinacak zarfa cevirir.
+  Future<String> encryptGroupWire({
+    required String senderId,
+    required String groupId,
+    required String plaintext,
+  });
+}
+
 /// Produces the opaque, stable group routing token used by wire envelopes.
 ///
 /// Group identifiers are expected to be cryptographically random UUIDs. The
