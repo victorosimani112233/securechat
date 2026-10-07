@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Kilitli sohbetlere erişimi yalnız cihaz sahibiyle sınırlandırmak için Face ID kullanılır.</string>
+	<string>Kilitli sohbetlere erişimi yalnızca cihaz sahibiyle sınırlandırmak için Face ID kullanılır.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -26,13 +26,13 @@
 	<key>CFBundleName</key>
 	<string>elcim</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Goruntulu arama ve medya gonderimi icin kamera erisimi gerekir.</string>
+	<string>Görüntülü arama ve fotoğraf ya da video göndermek için kamera erişimi gerekir.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>Elcim kullanan kisileri bulmak icin rehber erisimi gerekir.</string>
+	<string>Elçim kullanan kişileri bulmak için rehber erişimi gerekir. Telefon numaraları sunucuya okunabilir biçimde gönderilmez.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Sesli mesaj kaydetmek ve sesli veya goruntulu arama yapmak icin mikrofon erisimi gerekir.</string>
+	<string>Sesli mesaj kaydetmek ve sesli ya da görüntülü arama yapmak için mikrofon erişimi gerekir.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Medya gonderimi icin fotograflara erisim gerekir.</string>
+	<string>Fotoğraf ve video göndermek için fotoğraf arşivine erişim gerekir.</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

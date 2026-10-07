@@ -1,0 +1,6 @@
+/* Izin aciklamalari; anahtarlar Info.plist ile ayni. */
+"NSFaceIDUsageDescription" = "Kilitli sohbetlere erişimi yalnızca cihaz sahibiyle sınırlandırmak için Face ID kullanılır.";
+"NSCameraUsageDescription" = "Görüntülü arama ve fotoğraf ya da video göndermek için kamera erişimi gerekir.";
+"NSContactsUsageDescription" = "Elçim kullanan kişileri bulmak için rehber erişimi gerekir. Telefon numaraları sunucuya okunabilir biçimde gönderilmez.";
+"NSMicrophoneUsageDescription" = "Sesli mesaj kaydetmek ve sesli ya da görüntülü arama yapmak için mikrofon erişimi gerekir.";
+"NSPhotoLibraryUsageDescription" = "Fotoğraf ve video göndermek için fotoğraf arşivine erişim gerekir.";

@@ -1,0 +1,6 @@
+/* Izin aciklamalari; anahtarlar Info.plist ile ayni. */
+"NSFaceIDUsageDescription" = "Face ID is used so that only the device owner can open locked chats.";
+"NSCameraUsageDescription" = "Camera access is needed for video calls and for sending photos and videos.";
+"NSContactsUsageDescription" = "Contacts access is needed to find people who use Elçim. Phone numbers are not sent to the server in readable form.";
+"NSMicrophoneUsageDescription" = "Microphone access is needed to record voice messages and to make voice and video calls.";
+"NSPhotoLibraryUsageDescription" = "Photo library access is needed to send photos and videos.";

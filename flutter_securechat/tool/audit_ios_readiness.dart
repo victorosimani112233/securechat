@@ -23,6 +23,10 @@ const _requiredInfoPlistKeys = {
   'BGTaskSchedulerPermittedIdentifiers',
 };
 
+/// Izin aciklamasi cevirisi zorunlu diller. `ar` katalogu tamamlanana kadar
+/// bilincli olarak disarida; Arapca cihazlar gelistirme bolgesine duser.
+const _infoPlistLanguages = ['tr', 'en', 'de'];
+
 /// Desteklenen en dusuk iOS surumu.
 ///
 /// Uc yerde ayni olmak zorunda ve tek tek degistirilirse hata mesajlari
@@ -136,6 +140,26 @@ IosReadinessResult auditIosReadiness(Directory root) {
     if (!info.contains('<key>$key</key>')) {
       failures.add('Info.plist anahtari eksik: $key');
     }
+  }
+  // Izin aciklamalari cihaz dilinde gorunmeli. Gelistirme bolgesi `en`
+  // oldugu icin eksik bir dil dosyasi Turkce temel metne duser; inceleme bunu
+  // yerellestirme eksigi olarak isaretleyebilir.
+  final usageKeys = _requiredInfoPlistKeys.where(
+    (key) => key.endsWith('UsageDescription'),
+  );
+  for (final language in _infoPlistLanguages) {
+    final path = 'ios/Runner/$language.lproj/InfoPlist.strings';
+    final strings = read(path);
+    for (final key in usageKeys) {
+      if (!strings.contains('"$key" =')) {
+        failures.add('$path izin aciklamasi eksik: $key');
+      }
+    }
+  }
+  if (!read(
+    'ios/Runner.xcodeproj/project.pbxproj',
+  ).contains('InfoPlist.strings in Resources')) {
+    failures.add('InfoPlist.strings Runner resources fazinda degil');
   }
   final scheduler = read('lib/src/background/background_scheduler.dart');
   for (final identifier in _backgroundIdentifiers) {

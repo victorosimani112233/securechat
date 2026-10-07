@@ -18,6 +18,7 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		A11CE001A11CE001A11CE001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A11CE002A11CE002A11CE002 /* PrivacyInfo.xcprivacy */; };
+		A11CE014A11CE014A11CE014 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = A11CE013A11CE013A11CE013 /* InfoPlist.strings */; };
 		5C5000000000000000000002 /* elcim_beep.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000001 /* elcim_beep.wav */; };
 		5C5000000000000000000004 /* elcim_bell.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000003 /* elcim_bell.wav */; };
 		5C5000000000000000000006 /* elcim_chime.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5C5000000000000000000005 /* elcim_chime.wav */; };
@@ -75,6 +76,9 @@
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A11CE002A11CE002A11CE002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A11CE010A11CE010A11CE010 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		A11CE011A11CE011A11CE011 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		A11CE012A11CE012A11CE012 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		A11CE003A11CE003A11CE003 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		5C5000000000000000000001 /* elcim_beep.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_beep.wav"; path = "Runner/Sounds/elcim_beep.wav"; sourceTree = "<group>"; };
 		5C5000000000000000000003 /* elcim_bell.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_bell.wav"; path = "Runner/Sounds/elcim_bell.wav"; sourceTree = "<group>"; };
@@ -164,6 +168,7 @@
 				97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */,
 				97C147021CF9000F007C117D /* Info.plist */,
 				A11CE002A11CE002A11CE002 /* PrivacyInfo.xcprivacy */,
+				A11CE013A11CE013A11CE013 /* InfoPlist.strings */,
 				A11CE003A11CE003A11CE003 /* Runner.entitlements */,
 				1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */,
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
@@ -245,6 +250,8 @@
 			knownRegions = (
 				en,
 				Base,
+				tr,
+				de,
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
 			packageReferences = (
@@ -278,6 +285,7 @@
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
 				A11CE001A11CE001A11CE001 /* PrivacyInfo.xcprivacy in Resources */,
+				A11CE014A11CE014A11CE014 /* InfoPlist.strings in Resources */,
 				5C5000000000000000000002 /* elcim_beep.wav in Resources */,
 				5C5000000000000000000004 /* elcim_bell.wav in Resources */,
 				5C5000000000000000000006 /* elcim_chime.wav in Resources */,
@@ -374,6 +382,16 @@
 				97C147001CF9000F007C117D /* Base */,
 			);
 			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		A11CE013A11CE013A11CE013 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A11CE010A11CE010A11CE010 /* tr */,
+				A11CE011A11CE011A11CE011 /* en */,
+				A11CE012A11CE012A11CE012 /* de */,
+			);
+			name = InfoPlist.strings;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */

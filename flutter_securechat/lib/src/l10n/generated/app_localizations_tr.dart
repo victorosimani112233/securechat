@@ -104,7 +104,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get recovery_restart_warning =>
-      'Önceki giriş Signal kimliğinizi değiştirmiş ve eski oturumları iptal etmiş olabilir. Yalnızca yeniden deneme tamamlanamıyorsa baştan başlayın. Yeni e-posta kodu ve açık kimlik onayı gerekecektir. Önceki giriş doğrulanmışsa o girişin kimliği korunur.';
+      'Önceki giriş şifreleme kimliğinizi değiştirmiş ve eski oturumları iptal etmiş olabilir. Yalnızca yeniden deneme tamamlanamıyorsa baştan başlayın. Yeni e-posta kodu ve açık kimlik onayı gerekecektir. Önceki giriş doğrulanmışsa o girişin kimliği korunur.';
 
   @override
   String get recovery_login_title => 'Mevcut hesaba giriş yap';
@@ -152,7 +152,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get recovery_identity_warning =>
-      'Bu giriş, hesabınız için yeni bir Signal kimliği oluşturur. Güvenlik numaranız değişir. Kişileriniz numarayı yeniden doğrulamalıdır.';
+      'Bu giriş, hesabınız için yeni bir şifreleme kimliği oluşturur. Güvenlik numaranız değişir. Kişileriniz numarayı yeniden doğrulamalıdır.';
 
   @override
   String get recovery_sessions_warning =>
@@ -164,7 +164,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get recovery_identity_accept =>
-      'Yeni Signal kimliğini ve önceki oturumların iptalini onaylıyorum.';
+      'Yeni şifreleme kimliğini ve önceki oturumların iptalini onaylıyorum.';
 
   @override
   String get recovery_login_accept =>
@@ -594,8 +594,7 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settings_e2ee => 'Uçtan uca şifreleme';
 
   @override
-  String get settings_e2ee_desc =>
-      'Mesajlarınız Signal Protocol ile şifrelenir';
+  String get settings_e2ee_desc => 'Mesajlarınız uçtan uca şifrelenir';
 
   @override
   String get settings_last_seen => 'Son görülme zamanı';
@@ -1985,7 +1984,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get about_security_body =>
-      'Mesajlar cihazdan çıkmadan önce Signal Protokolü ile uçtan uca şifrelenir ve ratchet her mesaj için yeni bir mesaj anahtarı üretir. Sunucu düz metni veya sohbet geçmişini saklamaz; teslim edilmemiş şifreli zarf yalnızca kısa süreli RAM kuyruğunda ACK ya da süre sonuna kadar tutulabilir. Yerel veritabanı SQLCipher ile şifrelenir.';
+      'Mesajlar cihazdan çıkmadan önce uçtan uca şifrelenir ve ratchet her mesaj için yeni bir mesaj anahtarı üretir. Sunucu düz metni veya sohbet geçmişini saklamaz; teslim edilmemiş şifreli zarf yalnızca kısa süreli RAM kuyruğunda ACK ya da süre sonuna kadar tutulabilir. Yerel veritabanı SQLCipher ile şifrelenir.';
 
   @override
   String get about_version => 'Sürüm';

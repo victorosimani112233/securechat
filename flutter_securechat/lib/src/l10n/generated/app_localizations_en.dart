@@ -103,7 +103,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recovery_restart_warning =>
-      'The previous login may already have changed your Signal identity and revoked old sessions. Restart only if retry cannot finish. A new email code and explicit identity approval will be required. If the prior login was confirmed, its identity will be retained.';
+      'The previous login may already have changed your encryption identity and revoked old sessions. Restart only if retry cannot finish. A new email code and explicit identity approval will be required. If the prior login was confirmed, its identity will be retained.';
 
   @override
   String get recovery_login_title => 'Log in to an existing account';
@@ -151,7 +151,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recovery_identity_warning =>
-      'This login creates a new Signal identity for your account. Your security number will change. Contacts should verify it again.';
+      'This login creates a new encryption identity for your account. Your security number will change. Contacts should verify it again.';
 
   @override
   String get recovery_sessions_warning =>
@@ -163,7 +163,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recovery_identity_accept =>
-      'I approve a new Signal identity and revocation of previous sessions.';
+      'I approve a new encryption identity and revocation of previous sessions.';
 
   @override
   String get recovery_login_accept =>
@@ -604,8 +604,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settings_e2ee => 'End-to-end encryption';
 
   @override
-  String get settings_e2ee_desc =>
-      'Your messages are encrypted with Signal Protocol';
+  String get settings_e2ee_desc => 'Your messages are end-to-end encrypted';
 
   @override
   String get settings_last_seen => 'Last seen time';
@@ -1995,7 +1994,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get about_security_body =>
-      'Messages are end-to-end encrypted with the Signal Protocol before leaving the device, and the ratchet derives a new message key for every message. The server stores neither plaintext nor conversation history; an undelivered encrypted envelope may remain only in a short-lived RAM queue until acknowledgement or expiry. The local database is encrypted with SQLCipher.';
+      'Messages are end-to-end encrypted before leaving the device, and the ratchet derives a new message key for every message. The server stores neither plaintext nor conversation history; an undelivered encrypted envelope may remain only in a short-lived RAM queue until acknowledgement or expiry. The local database is encrypted with SQLCipher.';
 
   @override
   String get about_version => 'Version';

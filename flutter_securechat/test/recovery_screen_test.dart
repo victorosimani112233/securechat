@@ -85,7 +85,7 @@ void main() {
     expect(recovery.verifications, 1);
     expect(recovery.completions, 0);
     expect(
-      find.textContaining('This login creates a new Signal identity'),
+      find.textContaining('This login creates a new encryption identity'),
       findsOneWidget,
     );
     expect(find.textContaining('Previous account sessions'), findsOneWidget);
@@ -201,7 +201,7 @@ void main() {
     await pumpScreen(tester, RecoveryLoginScreen(coordinator: recovery));
     await request(tester);
     await verify(tester);
-    expect(find.textContaining('new Signal identity'), findsNothing);
+    expect(find.textContaining('new encryption identity'), findsNothing);
     expect(recovery.completions, 0);
     await tapKey(tester, 'recovery-accept');
     await tapKey(tester, 'recovery-complete');

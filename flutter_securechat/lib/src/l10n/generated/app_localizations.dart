@@ -267,7 +267,7 @@ abstract class AppLocalizations {
   /// No description provided for @recovery_restart_warning.
   ///
   /// In en, this message translates to:
-  /// **'The previous login may already have changed your Signal identity and revoked old sessions. Restart only if retry cannot finish. A new email code and explicit identity approval will be required. If the prior login was confirmed, its identity will be retained.'**
+  /// **'The previous login may already have changed your encryption identity and revoked old sessions. Restart only if retry cannot finish. A new email code and explicit identity approval will be required. If the prior login was confirmed, its identity will be retained.'**
   String get recovery_restart_warning;
 
   /// No description provided for @recovery_login_title.
@@ -351,7 +351,7 @@ abstract class AppLocalizations {
   /// No description provided for @recovery_identity_warning.
   ///
   /// In en, this message translates to:
-  /// **'This login creates a new Signal identity for your account. Your security number will change. Contacts should verify it again.'**
+  /// **'This login creates a new encryption identity for your account. Your security number will change. Contacts should verify it again.'**
   String get recovery_identity_warning;
 
   /// No description provided for @recovery_sessions_warning.
@@ -369,7 +369,7 @@ abstract class AppLocalizations {
   /// No description provided for @recovery_identity_accept.
   ///
   /// In en, this message translates to:
-  /// **'I approve a new Signal identity and revocation of previous sessions.'**
+  /// **'I approve a new encryption identity and revocation of previous sessions.'**
   String get recovery_identity_accept;
 
   /// No description provided for @recovery_login_accept.
@@ -1149,7 +1149,7 @@ abstract class AppLocalizations {
   /// No description provided for @settings_e2ee_desc.
   ///
   /// In en, this message translates to:
-  /// **'Your messages are encrypted with Signal Protocol'**
+  /// **'Your messages are end-to-end encrypted'**
   String get settings_e2ee_desc;
 
   /// No description provided for @settings_last_seen.
@@ -3675,7 +3675,7 @@ abstract class AppLocalizations {
   /// No description provided for @about_security_body.
   ///
   /// In en, this message translates to:
-  /// **'Messages are end-to-end encrypted with the Signal Protocol before leaving the device, and the ratchet derives a new message key for every message. The server stores neither plaintext nor conversation history; an undelivered encrypted envelope may remain only in a short-lived RAM queue until acknowledgement or expiry. The local database is encrypted with SQLCipher.'**
+  /// **'Messages are end-to-end encrypted before leaving the device, and the ratchet derives a new message key for every message. The server stores neither plaintext nor conversation history; an undelivered encrypted envelope may remain only in a short-lived RAM queue until acknowledgement or expiry. The local database is encrypted with SQLCipher.'**
   String get about_security_body;
 
   /// No description provided for @about_version.

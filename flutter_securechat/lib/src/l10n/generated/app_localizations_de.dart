@@ -105,7 +105,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get recovery_restart_warning =>
-      'Die vorherige Anmeldung hat möglicherweise bereits deine Signal-Identität geändert und alte Sitzungen widerrufen. Starte nur neu, wenn ein erneuter Versuch nicht abgeschlossen werden kann. Ein neuer E-Mail-Code und eine ausdrückliche Identitätsbestätigung sind erforderlich. Wenn die vorherige Anmeldung bestätigt wurde, bleibt ihre Identität erhalten.';
+      'Die vorherige Anmeldung hat möglicherweise bereits deine Verschlüsselungsidentität geändert und alte Sitzungen widerrufen. Starte nur neu, wenn ein erneuter Versuch nicht abgeschlossen werden kann. Ein neuer E-Mail-Code und eine ausdrückliche Identitätsbestätigung sind erforderlich. Wenn die vorherige Anmeldung bestätigt wurde, bleibt ihre Identität erhalten.';
 
   @override
   String get recovery_login_title => 'Bei bestehendem Konto anmelden';
@@ -154,7 +154,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get recovery_identity_warning =>
-      'Diese Anmeldung erstellt eine neue Signal-Identität für dein Konto. Deine Sicherheitsnummer ändert sich. Kontakte sollten sie erneut prüfen.';
+      'Diese Anmeldung erstellt eine neue Verschlüsselungsidentität für dein Konto. Deine Sicherheitsnummer ändert sich. Kontakte sollten sie erneut prüfen.';
 
   @override
   String get recovery_sessions_warning =>
@@ -166,7 +166,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get recovery_identity_accept =>
-      'Ich stimme einer neuen Signal-Identität und dem Widerruf bisheriger Sitzungen zu.';
+      'Ich stimme einer neuen Verschlüsselungsidentität und dem Widerruf bisheriger Sitzungen zu.';
 
   @override
   String get recovery_login_accept =>
@@ -609,7 +609,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settings_e2ee_desc =>
-      'Deine Nachrichten werden mit dem Signal-Protokoll verschlüsselt';
+      'Deine Nachrichten werden Ende-zu-Ende verschlüsselt';
 
   @override
   String get settings_last_seen => 'Zuletzt online';
@@ -2021,7 +2021,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get about_security_body =>
-      'Nachrichten werden mit dem Signal-Protokoll Ende-zu-Ende verschlüsselt, bevor sie das Gerät verlassen, und der Ratchet leitet für jede Nachricht einen neuen Nachrichtenschlüssel ab. Der Server speichert weder Klartext noch Gesprächsverlauf; ein nicht zugestellter verschlüsselter Umschlag kann nur in einer kurzlebigen RAM-Warteschlange verbleiben, bis er bestätigt wird oder abläuft. Die lokale Datenbank ist mit SQLCipher verschlüsselt.';
+      'Nachrichten werden Ende-zu-Ende verschlüsselt, bevor sie das Gerät verlassen, und der Ratchet leitet für jede Nachricht einen neuen Nachrichtenschlüssel ab. Der Server speichert weder Klartext noch Gesprächsverlauf; ein nicht zugestellter verschlüsselter Umschlag kann nur in einer kurzlebigen RAM-Warteschlange verbleiben, bis er bestätigt wird oder abläuft. Die lokale Datenbank ist mit SQLCipher verschlüsselt.';
 
   @override
   String get about_version => 'Version';
