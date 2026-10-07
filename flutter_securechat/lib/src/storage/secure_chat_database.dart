@@ -1703,10 +1703,36 @@ class VodozemacAccountDao {
       .vodozemacAccount[VodozemacAccountEntity.singletonId]
       ?.pickle;
 
-  Future<void> writePickle(String pickle) => _db._write(
-    (s) => s.vodozemacAccount[VodozemacAccountEntity.singletonId] =
-        VodozemacAccountEntity(pickle: pickle),
-  );
+  /// Pickle'i yazar; fallback yayin zamanini KORUR.
+  ///
+  /// Korumak sart: pickle her hesap islemi sonrasi yeniden yaziliyor ve
+  /// yayin zamani burada sifirlansaydi fallback anahtari her islemde
+  /// yeniden uretilmis sayilirdi.
+  Future<void> writePickle(String pickle) => _db._write((s) {
+    final existing = s.vodozemacAccount[VodozemacAccountEntity.singletonId];
+    s.vodozemacAccount[VodozemacAccountEntity.singletonId] =
+        VodozemacAccountEntity(
+          pickle: pickle,
+          fallbackPublishedAt: existing?.fallbackPublishedAt,
+        );
+  });
+
+  /// Fallback anahtarinin en son yuklendigi an.
+  Future<int?> readFallbackPublishedAt() async => _db
+      ._snapshot
+      .vodozemacAccount[VodozemacAccountEntity.singletonId]
+      ?.fallbackPublishedAt;
+
+  /// Fallback yuklemesi SUNUCU ONAYLADIKTAN SONRA isaretlenir.
+  Future<void> markFallbackPublished(int whenMillis) => _db._write((s) {
+    final existing = s.vodozemacAccount[VodozemacAccountEntity.singletonId];
+    if (existing == null) return;
+    s.vodozemacAccount[VodozemacAccountEntity.singletonId] =
+        VodozemacAccountEntity(
+          pickle: existing.pickle,
+          fallbackPublishedAt: whenMillis,
+        );
+  });
 
   Future<void> delete() => _db._write(
     (s) => s.vodozemacAccount.remove(VodozemacAccountEntity.singletonId),

@@ -326,7 +326,7 @@ class RecoveryAuthIntegrationTest {
         assertThrows(IllegalStateException::class.java) {
             OlmPreKeyStore.addOneTimeKeys(
                 f.user,
-                listOf(OlmPreKeyStore.OneTimeKey(1, ByteArray(32))),
+                listOf(OlmPreKeyStore.OneTimeKey("k1", ByteArray(32))),
                 f.epoch,
             )
         }

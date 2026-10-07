@@ -155,8 +155,8 @@ class OlmPreKeyStoreIntegrationTest {
         OlmPreKeyStore.addOneTimeKeys(
             user,
             listOf(
-                OlmPreKeyStore.OneTimeKey(1, key(10)),
-                OlmPreKeyStore.OneTimeKey(2, key(20)),
+                OlmPreKeyStore.OneTimeKey("k1", key(10)),
+                OlmPreKeyStore.OneTimeKey("k2", key(20)),
             ),
         )
 
@@ -166,7 +166,7 @@ class OlmPreKeyStoreIntegrationTest {
     @Test
     fun `re-uploading the same key id with the same material is idempotent`() {
         val user = enrolled()
-        val keys = listOf(OlmPreKeyStore.OneTimeKey(1, key(10)))
+        val keys = listOf(OlmPreKeyStore.OneTimeKey("k1", key(10)))
 
         OlmPreKeyStore.addOneTimeKeys(user, keys)
         OlmPreKeyStore.addOneTimeKeys(user, keys)
@@ -182,13 +182,13 @@ class OlmPreKeyStoreIntegrationTest {
         // taraf eskisini ceker, oturum cozulemez. Sessizce yutmak yerine
         // catisma bildirilmeli.
         val user = enrolled()
-        OlmPreKeyStore.addOneTimeKeys(user, listOf(OlmPreKeyStore.OneTimeKey(1, key(10))))
+        OlmPreKeyStore.addOneTimeKeys(user, listOf(OlmPreKeyStore.OneTimeKey("k1", key(10))))
 
         val conflict = assertThrows(OlmPreKeyStore.KeyConflictException::class.java) {
-            OlmPreKeyStore.addOneTimeKeys(user, listOf(OlmPreKeyStore.OneTimeKey(1, key(99))))
+            OlmPreKeyStore.addOneTimeKeys(user, listOf(OlmPreKeyStore.OneTimeKey("k1", key(99))))
         }
 
-        assertEquals(1, conflict.keyId)
+        assertEquals("k1", conflict.keyId)
         // Catisan yukleme hicbir sey yazmamali.
         assertEquals(1, OlmPreKeyStore.unconsumedCount(user))
         val bundle = OlmPreKeyStore.fetchBundle(user)
@@ -200,14 +200,14 @@ class OlmPreKeyStoreIntegrationTest {
         // Kismi yazma, istemcinin hangi anahtarlarin gectigini bilememesi
         // demek olurdu.
         val user = enrolled()
-        OlmPreKeyStore.addOneTimeKeys(user, listOf(OlmPreKeyStore.OneTimeKey(1, key(10))))
+        OlmPreKeyStore.addOneTimeKeys(user, listOf(OlmPreKeyStore.OneTimeKey("k1", key(10))))
 
         assertThrows(OlmPreKeyStore.KeyConflictException::class.java) {
             OlmPreKeyStore.addOneTimeKeys(
                 user,
                 listOf(
-                    OlmPreKeyStore.OneTimeKey(2, key(20)),
-                    OlmPreKeyStore.OneTimeKey(1, key(99)),
+                    OlmPreKeyStore.OneTimeKey("k2", key(20)),
+                    OlmPreKeyStore.OneTimeKey("k1", key(99)),
                 ),
             )
         }
@@ -223,8 +223,8 @@ class OlmPreKeyStoreIntegrationTest {
             OlmPreKeyStore.addOneTimeKeys(
                 user,
                 listOf(
-                    OlmPreKeyStore.OneTimeKey(1, key(10)),
-                    OlmPreKeyStore.OneTimeKey(1, key(20)),
+                    OlmPreKeyStore.OneTimeKey("k1", key(10)),
+                    OlmPreKeyStore.OneTimeKey("k1", key(20)),
                 ),
             )
         }
@@ -238,8 +238,8 @@ class OlmPreKeyStoreIntegrationTest {
         OlmPreKeyStore.addOneTimeKeys(
             user,
             listOf(
-                OlmPreKeyStore.OneTimeKey(1, key(10)),
-                OlmPreKeyStore.OneTimeKey(2, key(20)),
+                OlmPreKeyStore.OneTimeKey("k1", key(10)),
+                OlmPreKeyStore.OneTimeKey("k2", key(20)),
             ),
         )
 

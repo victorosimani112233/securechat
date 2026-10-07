@@ -154,7 +154,7 @@ data class PreKeyUploadRequest(
     // biri olmadan digeri kabul edilmez.
     val olmIdentityKey: String? = null,
     val olmSigningKey: String? = null,
-    val olmOneTimeKeys: List<PreKeyEntry> = emptyList(),
+    val olmOneTimeKeys: List<OlmPreKeyEntry> = emptyList(),
     // Fallback anahtari IMZALI olmak zorunda. Imzasiz fallback bir MITM
     // araci degil (sunucu alicinin kimlik ozel anahtarina sahip degil),
     // ama sessiz ve kalici bir TESLIM REDDI aracidir.
@@ -174,6 +174,16 @@ data class PreKeyUploadRequest(
 
 @Serializable
 data class PreKeyEntry(val keyId: Int, val publicKey: String) // publicKey base64
+
+/**
+ * Olm tek kullanimlik anahtar girdisi.
+ *
+ * [PreKeyEntry]'den ayri olmasinin tek sebebi `keyId`'nin dize olmasi:
+ * Olm anahtar kimligi vodozemac tarafindan uretilir ve base64'tur,
+ * libsignal'daki gibi tamsayi degildir.
+ */
+@Serializable
+data class OlmPreKeyEntry(val keyId: String, val publicKey: String)
 
 /**
  * Prekey yuklemesinin alan bazinda makul olup olmadigi.
@@ -252,8 +262,10 @@ private fun PreKeyUploadRequest.hasSaneOlmMaterial(): Boolean {
     }
     if (olmOneTimeKeys.size > MAX_ONE_TIME_PREKEYS) return false
     if (olmOneTimeKeys.distinctBy { it.keyId }.size != olmOneTimeKeys.size) return false
+    // Kimlik base64 bir dize; uzunlugu sinirlanmali, aksi halde tek bir
+    // istek cok buyuk kimliklerle tabloyu sisirebilir.
     if (olmOneTimeKeys.any {
-            it.keyId !in 0..0xFFFFFF ||
+            it.keyId.isEmpty() || it.keyId.length > 64 ||
                 decodedSize(it.publicKey) != OlmPreKeyStore.KEY_LENGTH
         }
     ) {

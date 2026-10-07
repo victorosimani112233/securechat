@@ -1256,7 +1256,7 @@ class EndToEndServerTest {
         val fallback = encoder.encodeToString(ByteArray(32) { 8 })
         val signature = encoder.encodeToString(ByteArray(64) { 7 })
         val otpks = (1..otpkCount).joinToString(",") {
-            """{"keyId":$it,"publicKey":"$identity"}"""
+            """{"keyId":"k$it","publicKey":"$identity"}"""
         }
         client.post("/api/v1/prekeys/upload") {
             header("Authorization", "Bearer $token")

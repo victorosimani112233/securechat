@@ -801,17 +801,35 @@ class SignedPreKeyEntity extends PreKeyEntity {
 /// aksi halde uretilen anahtarlar kaybolur ve sunucuya yuklenen anahtarlarin
 /// yerel karsiligi olmaz.
 class VodozemacAccountEntity {
-  const VodozemacAccountEntity({required this.pickle});
+  const VodozemacAccountEntity({
+    required this.pickle,
+    this.fallbackPublishedAt,
+  });
 
   /// Tek satir oldugu icin kimlik sabittir.
   static const singletonId = 'account';
 
   final String pickle;
 
-  factory VodozemacAccountEntity.fromJson(Map<String, Object?> json) =>
-      VodozemacAccountEntity(pickle: json['pickle'] as String? ?? '');
+  /// Fallback anahtarinin sunucuya en son ne zaman yuklendigi (epoch ms).
+  ///
+  /// Bu alan olmadan fallback anahtari her yayinda yeniden uretilirdi ve o
+  /// gercek bir teslim sorunudur: `generate_fallback_key` mevcut anahtari
+  /// DONDURUR, onbelleginde eski bundle tutan bir gonderen artik gecerli
+  /// olmayan bir anahtarla oturum kurmaya calisir. Fallback'in amaci zaten
+  /// "son care" olmak, yani nadiren donmeli.
+  final int? fallbackPublishedAt;
 
-  Map<String, Object?> toJson() => {'pickle': pickle};
+  factory VodozemacAccountEntity.fromJson(Map<String, Object?> json) =>
+      VodozemacAccountEntity(
+        pickle: json['pickle'] as String? ?? '',
+        fallbackPublishedAt: (json['fallbackPublishedAt'] as num?)?.toInt(),
+      );
+
+  Map<String, Object?> toJson() => {
+    'pickle': pickle,
+    if (fallbackPublishedAt != null) 'fallbackPublishedAt': fallbackPublishedAt,
+  };
 }
 
 /// Bir peer ile kurulmus Olm oturumunun sifreli pickle'i.

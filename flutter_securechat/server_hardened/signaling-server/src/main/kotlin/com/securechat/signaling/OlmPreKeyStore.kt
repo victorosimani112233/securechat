@@ -41,13 +41,22 @@ object OlmPreKeyStore {
             publicKey.contentHashCode() * 31 + signature.contentHashCode()
     }
 
-    data class OneTimeKey(val keyId: Int, val publicKey: ByteArray) {
+    /**
+     * [keyId] TAMSAYI DEGIL.
+     *
+     * Olm anahtar kimligi vodozemac tarafindan uretilir ve kabloda base64
+     * bir dizedir. Tamsayiya cevirmek icin cozup u64 okumak gerekirdi;
+     * kirilgan oldugu gibi, istemcinin kimligi ile sunucunun sakladigini
+     * ayirabilen bir donusum de ekler. Catisma tespiti kimligin dogru
+     * saklanmasina dayandigi icin bu kozmetik bir ayrinti degil.
+     */
+    data class OneTimeKey(val keyId: String, val publicKey: ByteArray) {
         override fun equals(other: Any?): Boolean =
             other is OneTimeKey &&
                 keyId == other.keyId &&
                 publicKey.contentEquals(other.publicKey)
 
-        override fun hashCode(): Int = keyId * 31 + publicKey.contentHashCode()
+        override fun hashCode(): Int = keyId.hashCode() * 31 + publicKey.contentHashCode()
     }
 
     data class Bundle(
@@ -84,7 +93,7 @@ object OlmPreKeyStore {
      * idempotent olmasi gerekir, yoksa agi kopan bir istemci kalici olarak
      * tikanir.
      */
-    class KeyConflictException(val keyId: Int) : IllegalStateException(
+    class KeyConflictException(val keyId: String) : IllegalStateException(
         "Olm one-time prekey $keyId already exists with different material",
     )
 
@@ -193,11 +202,11 @@ object OlmPreKeyStore {
                 statement.setString(1, userId)
                 statement.setArray(
                     2,
-                    conn.createArrayOf("integer", byId.keys.toTypedArray()),
+                    conn.createArrayOf("text", byId.keys.toTypedArray()),
                 )
                 statement.executeQuery().use { rows ->
                     while (rows.next()) {
-                        val keyId = rows.getInt(1)
+                        val keyId = rows.getString(1)
                         val stored = rows.getBytes(2)
                         val incoming = byId.getValue(keyId).publicKey
                         if (!stored.contentEquals(incoming)) {
@@ -212,7 +221,7 @@ object OlmPreKeyStore {
             ).use { statement ->
                 for (key in keys) {
                     statement.setString(1, userId)
-                    statement.setInt(2, key.keyId)
+                    statement.setString(2, key.keyId)
                     statement.setBytes(3, key.publicKey)
                     statement.addBatch()
                 }
