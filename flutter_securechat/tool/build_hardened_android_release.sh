@@ -14,6 +14,11 @@ else
   "$FLUTTER_BIN" pub get
 fi
 
+# Kripto cekirdegi Rust'ta ve Gradle onu derlemiyor; artefaktlar jniLibs'e
+# burada uretilir. Vendor'lanmis .so dosyalari depoda duruyor, ama release
+# yolunda yine derlenir ki kaynak ile teslim edilen ikili ayrisamaz.
+"$PROJECT_DIR/tool/build_native_crypto.sh" android
+
 defines=()
 for name in \
   SECURECHAT_API_BASE_URL \

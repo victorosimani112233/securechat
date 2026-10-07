@@ -1,94 +1,80 @@
 # 01 — Native derleme ve 5 hedef için vendor'lama
 
-**Bağımlılık:** yok · **Tahmin:** 2-3 gün · **Kritik yol:** evet
+**Durum: Android TAMAM · iOS Mac'te bitirilecek** · **Bağımlılık:** yok
 
-## Amaç
+## Yapıldı — Android, doğrulandı
 
-`native/securechat_crypto` crate'ini beş hedefe derleyip Android ve iOS
-derlemelerine bağlamak, ve bunu projenin offline/vendor'lu disiplinine
-oturtmak.
+`tool/build_native_crypto.sh` üç ABI'yi derleyip `jniLibs`'e koyuyor,
+artefaktları doğruluyor ve SHA-256 toplamlarını yazıyor.
 
 ```
-Android   arm64-v8a, armeabi-v7a, x86_64
-iOS       aarch64-apple-ios (cihaz), aarch64-apple-ios-sim (simulator)
+arm64-v8a      800 KB
+armeabi-v7a    598 KB
+x86_64         927 KB
 ```
 
-## Mevcut durum
+Script iki şeyi kendisi denetliyor, çünkü ikisinin sessizce bozulması
+mümkün: teslim edilen her `.so`'da **debug sembolü kalmadığı**
+(`tool/audit_android_release.sh` bunu şart koşuyor ve release'i reddediyor)
+ve `sc_abi_version` sembolünün **gerçekten dışa açıldığı** — boş bir
+kütüphane sessizce teslim edilmesin.
 
-Crate yazılmış ve host için derleniyor. Android arm64 cross-compile spike'ta
-denendi ve geçti:
+`Cargo.lock` her koşuda `cargo metadata --locked` ile doğrulanıyor: kripto
+çekirdeğinin bağımlılık ağacı sessizce kaymamalı.
 
-```bash
-export ANDROID_NDK_HOME=/home/user497/Android/Sdk/ndk/28.2.13676358
-cd native/securechat_crypto && cargo ndk -t arm64-v8a build --release
-```
+Release akışına bağlandı: `tool/build_hardened_android_release.sh` artık
+`pub get` sonrası native derlemeyi çağırıyor, yani kaynak ile teslim edilen
+ikili ayrışamıyor.
 
-Hazır olanlar: Rust 1.85.1, cargo-ndk 3.5.4, NDK 28.2.13676358, dört Android
-target'ı `rustup`'ta kurulu. iOS target'ları kurulu DEĞİL, Mac'te
-`rustup target add aarch64-apple-ios aarch64-apple-ios-sim` gerekir.
+**Doğrulama:** AAB üretildi ve `tool/audit_android_release.sh` PASS verdi;
+native kütüphane sayısı **18 → 21** çıktı ve üçü de AAB içinde
+`base/lib/<abi>/libsecurechat_crypto.so` yolunda, stripped.
 
-Ölçülen boyut: arm64 `.so` 820 KB, stripped 0.55 MB. Karşılaştırma için
-APK'daki `libjingle_peerconnection_so.so` 11.5 MB.
+Artefaktlar **depoda vendor'lu**. Projenin deseni bu (`local-repo/` AAR'ları,
+`ios/SQLCipher/Sources` amalgamation'ı) ve gerekçesi şu: çıktıları depoya
+koymazsak scripti koşmayı unutan herkeste kütüphanesiz bir APK üretilir ve
+uygulama `DynamicLibrary.open` sırasında çöker. Üretilebilirlik kaydedilen
+toplamlar ve pinli `Cargo.lock` ile sağlanıyor.
 
-## Yapılacaklar
+`native/securechat_crypto/include/securechat_crypto.h` yazıldı: ABI'nin
+otoritatif beyanı, iOS XCFramework'ü de onu istiyor. Sürümün üç yerde
+(Rust gövdesi, header, Dart sabiti) ayrışmasını `test/vodozemac_ffi_test.dart`
+içindeki tutarlılık testi yakalıyor.
 
-1. **Derleme betiği** — `tool/build_native_crypto.sh`. Beş hedefi derler,
-   çıktıları `android/app/src/main/jniLibs/<abi>/` ve iOS için bir
-   `.xcframework` veya statik kütüphane olarak yerleştirir. `SECURECHAT_OFFLINE=1`
-   verildiğinde `cargo --offline` kullanmalı.
+CI'da iki boşluk kapatıldı: flutter işine Rust ve native derleme eklendi
+(yoksa 14 Dart FFI testi `markTestSkipped` ile **sessizce atlanıyordu**), ve
+atlanan test sayısını kontrol eden bir adım konuldu.
 
-2. **Gradle bağlantısı** — `android/app/build.gradle.kts`. `jniLibs` yolu
-   zaten AGP varsayılanı; `ndk.abiFilters` mantığıyla tutarlı olmalı
-   (dosyada `split-per-abi` / `target-platform` özelliklerine göre filtre
-   kuran bir blok var, native kütüphane de aynı filtreye uymalı).
+## Kalan — iOS, macOS gerekiyor
 
-3. **iOS bağlantısı** — proje Swift Package Manager kullanıyor
-   (`ios/SQLCipher/Package.swift` deseni örnek alınabilir: kaynak depoya
-   gömülü, derleme anında ağ erişimi gerekmiyor). Statik bağlandığı için
-   Dart tarafı `DynamicLibrary.process()` açar; bu zaten kodlanmış.
+Linux'ta Apple hedefleri bağlanamıyor. Hazırlananlar:
 
-4. **Doğrulama listesi** — `verification-metadata.xml` ve
-   `tool/audit_android_release.sh` ile uyum. Audit, teslim edilen her
-   native kütüphanede debug sembolü olmamasını şart koşuyor; `Cargo.toml`
-   release profilinde `strip = true` var ama AAB içinde de doğrula.
+- `tool/build_native_crypto.sh ios` — `aarch64-apple-ios` ve
+  `aarch64-apple-ios-sim` derler, `xcodebuild -create-xcframework` ile
+  birleştirir, `ios/SecureChatCrypto/Artifacts/` altına koyar. macOS
+  dışında kendini atlıyor.
+- `ios/SecureChatCrypto/Package.swift` — `binaryTarget` ile XCFramework'e
+  bakan yerel SwiftPM paketi. `ios/SQLCipher` kaynak vendor'luyor; burada
+  aynısı yapılamaz çünkü Xcode Rust derlemez.
+- `ios/SecureChatCrypto/README.md` — üretme ve Xcode'a bağlama adımları.
 
-5. **Reproducible build** — crate sürümünü ve `Cargo.lock`'u pinle,
-   artefakt SHA-256'larını `SHA256SUMS` benzeri bir dosyaya yaz.
+Mac'te yapılacak:
 
-## Tuzaklar
+1. `tool/build_native_crypto.sh ios`
+2. `ios/SecureChatCrypto`'yu Xcode'da yerel paket olarak ekle, `Runner`
+   target'ına bağla, **Do Not Embed** (statik kütüphane).
+3. `tool/verify_ios_on_macos.sh`
 
-**Audit fail-closed.** `tool/audit_android_release.sh` artık araç hatasını
-"temiz" saymıyor ve PCRE2'li ripgrep şart koşuyor. Kurulum:
-`cargo install ripgrep --locked --features pcre2 --force`.
+`project.pbxproj` bilerek elle düzenlenmedi: UUID üretimi ve bölüm sırası
+elle yazıldığında projeyi bozuyor. SQLCipher referansı (`5C1FE000…` ile
+başlayan girdiler) örnek olarak bakılabilir.
 
-**`panic = "abort"`** release profilinde; bu, `cargo test --release`'in
-koşmaması demek. Testler debug profilinde koşar, bu normal.
+## Sonraki görevler için notlar
 
-**APK boyutu.** Fat APK şu an 119.7 MB (üç ABI), arm64-only 45.5 MB. Native
-kripto kütüphanesi bunun yanında gürültü; boyut gerekçesiyle ABI düşürme.
+**Dart iOS'ta `DynamicLibrary.process()` açıyor** — kütüphane ana ikiliye
+statik bağlandığı için ayrı bir dylib yok. Bu zaten kodlu
+(`securechat_crypto_ffi.dart`), değiştirmeye gerek yok.
 
-## Bitirme ölçütü
-
-- Beş hedef için artefakt üretiliyor ve SHA-256'ları kayıtlı
-- `flutter build apk --release --target-platform=android-arm64` geçiyor
-- `tool/audit_android_release.sh <aab>` PASS veriyor
-- Mac'te `tool/verify_ios_on_macos.sh` geçiyor
-- Cihazda `test/vodozemac_ffi_test.dart`'ın integration karşılığı koşuyor
-
----
-
-## Ortak zemin
-
-Önce [INDEX.md](INDEX.md) oku — mimari kararlar ve herkesi ilgilendiren
-tuzaklar orada. Özellikle: vodozemac base64'ü padding'siz üretir, one-time
-key'ler Account pickle'ının içinde durur, her encrypt/decrypt sonrası
-yeniden pickle gerekir, ve Famedly'nin AGPL Dart binding'ine bakılmaz.
-
-## Bitirme ölçütü
-
-```bash
-cd /home/user497/securechat/flutter_securechat
-export PATH="/home/user497/flutter/bin:$PATH"
-flutter analyze --no-pub     # temiz olmali
-flutter test --no-pub        # tamami gecmeli
-```
+**ABI sürümü şu an 1.** TASK_02 Megolm eklerken 2'ye yükseltecek; Rust
+gövdesi, header ve `expectedAbiVersion` birlikte güncellenmeli, yoksa
+tutarlılık testi düşer.

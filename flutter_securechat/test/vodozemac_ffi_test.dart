@@ -33,10 +33,31 @@ void main() {
 
   setUp(() => crypto = SecureChatCrypto.open(libraryPath: libraryPath));
 
-  test('ABI surumu Dart tarafinin bekledigiyle ayni', () {
-    // Yanlis bir .so ile sessizce calismak yerine acik hata verilmeli;
-    // open() zaten dogruluyor, burada sozlesme sabitlenir.
-    expect(expectedAbiVersion, 1);
+  test('ABI surumu Rust, C basligi ve Dart arasinda tutarli', () {
+    // Surum uc yerde elle tutuluyor: `sc_abi_version()` govdesi,
+    // `include/securechat_crypto.h` sozlesmesi ve bu dosyadaki sabit.
+    // Biri digerinden ayrisirsa yanlis `.so` ile sessizce calisma riski
+    // dogar; `open()` zaten calisma aninda dogruluyor, bu test kaynak
+    // tarafini da bagliyor.
+    final rust = File('native/securechat_crypto/src/lib.rs').readAsStringSync();
+    final match = RegExp(
+      r'pub extern "C" fn sc_abi_version\(\) -> u32 \{\s*(\d+)',
+    ).firstMatch(rust);
+    expect(match, isNotNull, reason: 'sc_abi_version govdesi okunamadi');
+    expect(
+      int.parse(match!.group(1)!),
+      expectedAbiVersion,
+      reason: 'Rust ABI surumu Dart sabitinden farkli',
+    );
+
+    final header = File(
+      'native/securechat_crypto/include/securechat_crypto.h',
+    ).readAsStringSync();
+    expect(
+      header,
+      contains('uint32_t sc_abi_version(void);'),
+      reason: 'C basligi ABI fonksiyonunu beyan etmiyor',
+    );
   });
 
   test('identity anahtarlari iki egriyi de verir', () {

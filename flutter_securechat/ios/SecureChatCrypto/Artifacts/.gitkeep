@@ -1,0 +1,2 @@
+XCFramework burada uretilir: tool/build_native_crypto.sh ios
+Ikili artefaktlar bu dizinde vendor'lanir; Linux'ta uretilemez.

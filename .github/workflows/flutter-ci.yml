@@ -63,6 +63,15 @@ jobs:
           channel: stable
           cache: true
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Dart FFI testleri host kutuphanesini bulamazsa `markTestSkipped` ile
+      # ATLANIR. Derlemeyi buraya koymadan 14 test sessizce kosmaz ve kripto
+      # cekirdeginin Dart tarafi hic sinanmaz.
+      - name: Native kripto kutuphanesini host icin derle
+        working-directory: flutter_securechat/native/securechat_crypto
+        run: cargo build --release
+
       - name: Bagimliliklari cek
         run: flutter pub get
 
@@ -111,6 +120,31 @@ jobs:
 
       - name: Test
         run: flutter test --no-pub --reporter expanded
+
+      # Atlanan test sayisi, FFI testlerinin sessizce kosmamasini yakalar.
+      - name: FFI testleri atlanmadi mi
+        run: |
+          flutter test --no-pub test/vodozemac_ffi_test.dart --reporter json \
+            > ffi-report.json
+          python3 - <<'PYEOF'
+          import json, sys
+          skipped = 0
+          total = 0
+          for line in open('ffi-report.json', encoding='utf-8'):
+              line = line.strip()
+              if not line.startswith('{'):
+                  continue
+              event = json.loads(line)
+              if event.get('type') == 'testDone':
+                  total += 1
+                  if event.get('skipped'):
+                      skipped += 1
+          print(f'FFI testleri: {total} calisti, {skipped} atlandi')
+          if skipped or total < 10:
+              print('::error::FFI testleri atlandi veya hic kosmadi; '
+                    'native kutuphane derlenmemis olabilir')
+              sys.exit(1)
+          PYEOF
 
       - name: iOS statik readiness denetimi
         # Xcode derlemesi yerine gecmez; Dart <-> native method eslemesini ve
