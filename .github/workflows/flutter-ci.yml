@@ -223,29 +223,24 @@ jobs:
           path: flutter_securechat/server_hardened/**/build/reports/tests/
 
   contract:
-    name: Istemci/sunucu sozlesmesi (henuz bloke etmiyor)
+    name: Istemci/sunucu sozlesmesi
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # BLOKE ETMIYOR, cunku uretecin kendisinde iki kusur var ve bunlar
-    # TASK_05'te duzeltilecek:
+    # Bu job artik bloke ediyor. Daha once bloke etmiyordu, cunku uretecin
+    # kendisinde iki kusur vardi; ikisi de duzeltildi:
     #
-    #  1. Codec kontrolu kok dizindeki LEGACY Kotlin ISTEMCISININ
-    #     `SignalMessage.kt`'sine bakiyor. O agac terk edildi; iki istemciyi
-    #     karsilastirmak sunucu sozlesmesi hakkinda hicbir sey soylemiyor ve
-    #     Flutter gelistikce kalici sapma uretiyor. Sunucu zaten
-    #     discriminator-agnostik: `type`i opak okuyor, yalniz 13 turu ozel
-    #     ele aliyor (MessageTypes.kt). Anlamli degismez: o 13 tur istemcide
-    #     tanimli olmali. Olculdu — 11'i tanimli, eksik ikisi `audio_data` ve
-    #     `video_data`, ki Flutter medyayi WebRTC track'leriyle tasidigi icin
-    #     onlari BILEREK gondermiyor. Yani gercek bir bosluk yok.
+    #  1. Codec kontrolu kok dizindeki LEGACY Kotlin istemcisinin
+    #     `SignalMessage.kt`'sine bakiyordu. O agac terk edilmisti; iki
+    #     istemciyi karsilastirmak sunucu sozlesmesi hakkinda hicbir sey
+    #     soylemiyordu. Artik otorite sunucunun kendi `MessageTypes.kt`'si.
+    #  2. 12 route tabloda yoktu. Artik hepsi eslenmis durumda.
     #
-    #  2. Route eslemesi eksik: 12 route tabloda yok (butun /api/v2 yolu,
-    #     /ready, /api/v1/version, /api/v1/prekeys/status). v2 route'lari
-    #     TASK_05'te kaldirilacagi icin eslemeyi simdi doldurmak yerine o
-    #     gorevde cozulur.
-    #
-    # Duzeltildiginde `continue-on-error` kaldirilacak.
-    continue-on-error: true
+    # YENI BIR ROUTE EKLERSEN bu job seni durdurur: route'un hangi yetki
+    # guard'i ardinda oldugunu `tool/generate_server_contract_audit.dart`
+    # icindeki `_routeContracts` tablosuna yazmak zorundasin. Bu kasitli.
+    # Sealed sender'in anonim `/api/v2/sealed-sender/messages` girisi tam
+    # olarak boyle, kimsenin yazmadigi bir guard'siz route olarak uzun sure
+    # ayakta kalmisti.
     defaults:
       run:
         working-directory: flutter_securechat
@@ -261,12 +256,18 @@ jobs:
       - name: Bagimliliklari cek
         run: flutter pub get
 
-      # Uretec elle kosuluyordu ve cikti eskimisti: raporda "22/22 kararli
-      # esleme" yaziyor, HttpRoutes.kt icinde 33 route var. Burada kosup
-      # ciktinin commit'li haliyle ayni oldugunu zorluyoruz.
+      # Iki ayri kontrol, ikisi de gerekli:
+      #   - uretecin cikis kodu: guard uyusmazligi, eslenmemis route,
+      #     beyan edilmemis istemci boslugu gibi bulgular;
+      #   - uretilen dosyanin commit'li haliyle ayni olmasi.
+      # Ilkini atlamamak icin cikis kodu acikca yakalaniyor; kabuk
+      # davranisina guvenmek, adim ileride genisletilirse sessizce kirilir.
       - name: Sozlesme denetimini uret ve farki reddet
         run: |
-          dart tool/generate_server_contract_audit.dart
+          if ! dart tool/generate_server_contract_audit.dart; then
+            echo "::error::Sozlesme denetimi bulgu verdi (yukaridaki stderr)."
+            exit 1
+          fi
           if ! git diff --quiet -- docs/SERVER_CONTRACT_AUDIT.md; then
             echo "::error::Sozlesme denetimi eskimis. Ureteci kosup sonucu commit et."
             git --no-pager diff -- docs/SERVER_CONTRACT_AUDIT.md

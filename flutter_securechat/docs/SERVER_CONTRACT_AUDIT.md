@@ -1,52 +1,72 @@
 # Hardened Ktor Server Contract Audit
 
-Bu dosya `tool/generate_server_contract_audit.dart` ile uretilir.
-Server route veya Signal discriminator degisirse esleme eksigi CI-benzeri
-kontrolde hata koduyla yakalanir.
+Bu dosya `tool/generate_server_contract_audit.dart` ile uretilir; elle duzenlenmez.
+
+Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablodaki beyanla karsilastirilir; ayrilirsa arac hata koduyla doner. Guard'siz bir route, neden guard'siz oldugu yazilana kadar denetimi kirar.
 
 ## HTTP ve WebSocket route eslemesi
 
-| Server route | Durum | Flutter kaniti | Karar |
-|---|---|---|---|
-| `GET /` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Service landing endpoint; mobile runtime does not consume it. |
-| `GET /api/v1/directory/config` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Pinned blind-RSA OPRF public configuration. |
-| `GET /api/v1/directory/snapshot` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Token-labeled and token-sealed private membership snapshot. |
-| `GET /api/v1/ice/config` | COVERED | `flutter_securechat/lib/src/media/ice_server_fetcher.dart` | Authenticated short-lived TURN configuration. |
-| `GET /api/v1/latest-version` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | No Kotlin Android caller exists; store/version policy endpoint. |
-| `GET /api/v1/sfu/room/{groupId}` | WS_EQUIVALENT | `flutter_securechat/lib/src/media/call_manager.dart` | Kotlin client also uses authenticated group status/SFU WebSocket messages; HTTP route is an operations/recovery view. |
-| `GET /api/v1/users/{userId}/prekeys` | COVERED | `flutter_securechat/lib/src/crypto/signal_protocol_crypto_service.dart` | Authenticated peer bundle fetch. |
-| `GET /health` | COVERED | `flutter_securechat/lib/src/network/socket_diagnostics.dart` | Redacted server compatibility probe. |
-| `GET /metrics` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Prometheus operations endpoint; intentionally not exposed in the client. |
-| `POST /api/v1/account/delete` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Authenticated account deletion. |
-| `POST /api/v1/auth/logout` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Refresh-token revocation. |
-| `POST /api/v1/auth/refresh` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Access and refresh token rotation. |
-| `POST /api/v1/directory/evaluate` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Authenticated fixed-size blinded contact evaluation. |
-| `POST /api/v1/fcm/register` | COVERED | `flutter_securechat/lib/src/push/push_service.dart` | FCM/APNs transport token registration. |
-| `POST /api/v1/fcm/unregister` | COVERED | `flutter_securechat/lib/src/push/push_service.dart` | Transport token removal. |
-| `POST /api/v1/otp/request` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | OTP request. |
-| `POST /api/v1/otp/verify` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | OTP verification and registration token. |
-| `POST /api/v1/prekeys/refresh` | COVERED | `flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart` | One-time prekey replenishment with failed-upload rollback. |
-| `POST /api/v1/prekeys/upload` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Initial Signal V3 bundle upload. |
-| `POST /api/v1/users/directory-token` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Authenticated account owner directory-key migration. |
-| `POST /api/v1/users/register` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | OTP-bound hash-only registration; no reversible phone envelope. |
-| `WS /ws` | COVERED | `flutter_securechat/lib/src/services/signaling_service.dart` | Bearer-authenticated signaling, reconnect, size limit and codec path. |
+| Server route | Guard | Durum | Flutter kaniti | Karar |
+|---|---|---|---|---|
+| `GET /` | `public` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Servis karsilama yolu; sabit cevap, kimlik tasimaz. |
+| `GET /api/v1/directory/config` | `public` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Pinlenmis blind-RSA OPRF acik yapilandirmasi; kayit oncesi gerektigi icin public. |
+| `GET /api/v1/directory/snapshot` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Token-etiketli ve token-sealed uyelik anlik goruntusu. |
+| `GET /api/v1/ice/config` | `auth` | COVERED | `flutter_securechat/lib/src/media/ice_server_fetcher.dart` | Kisa omurlu TURN yapilandirmasi. |
+| `GET /api/v1/latest-version` | `public` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Magaza/surum politikasi yolu; Flutter istemcisinde cagiran yok. |
+| `GET /api/v1/prekeys/status` | `auth` | COVERED | `flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart` | Kalan one-time prekey sayisi; tamamlama kararini bu verir. |
+| `GET /api/v1/sfu/room/{groupId}` | `auth` | WS_EQUIVALENT | `flutter_securechat/lib/src/media/call_manager.dart` | Istemci ayni bilgiyi WebSocket grup cagri sinyalleriyle alir; HTTP yolu operasyon/kurtarma gorunumu. |
+| `GET /api/v1/users/{userId}/prekeys` | `servicePrincipal` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | DIKKAT: guard servis assertion'i, yani kullanici token'iyla cagrilamaz. Bir istemci peer bundle'i cekemez. Vodozemac gocunde bu route requirePrincipal'a cevrilmeli; bkz. docs/migration/TASK_05_server.md. |
+| `GET /api/v1/version` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Build kimligi operator bilgisidir; surum/commit anonim sizdirilmaz. |
+| `GET /api/v2/prekeys/status` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH prekey sayaci. KULLANILMIYOR; kaldirilacak. |
+| `GET /api/v2/users/{userId}/prekeys` | `principal` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH peer bundle. KULLANILMIYOR; kaldirilacak. Guard deseni v1 esdegerinden dogru olan budur. |
+| `GET /api/v2/users/{userId}/prekeys/capability` | `principal` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH yetenek sorgusu. KULLANILMIYOR; kaldirilacak. |
+| `GET /health` | `public` | COVERED | `flutter_securechat/lib/src/network/socket_diagnostics.dart` | Redakte edilmis uyumluluk yoklamasi; anonim cagrilabilir olmasi kasitli, stack ayrintisi dondurmez. |
+| `GET /metrics` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Prometheus; istemciye acilmaz. |
+| `GET /ready` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Readiness; bagimlilik durumu operator bilgisidir, bu yuzden metrics bearer token ardinda. |
+| `POST /api/v1/account/delete` | `auth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kimlik dogrulamali hesap silme. |
+| `POST /api/v1/auth/logout` | `auth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Refresh tokeni iptali. |
+| `POST /api/v1/auth/refresh` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Refresh tokeni tuketir ve dondurur. Access token gecerli olmadiginda da cagrilabilmesi gerekir, bu yuzden requireAuth yok. |
+| `POST /api/v1/directory/evaluate` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Sabit boyutlu korlenmis kisi degerlendirmesi. |
+| `POST /api/v1/fcm/register` | `auth` | COVERED | `flutter_securechat/lib/src/push/push_service.dart` | FCM/APNs tasima tokeni kaydi. |
+| `POST /api/v1/fcm/unregister` | `auth` | COVERED | `flutter_securechat/lib/src/push/push_service.dart` | Tasima tokeni silme. |
+| `POST /api/v1/otp/request` | `public` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | OTP istegi; henuz hesap yok, bu yuzden guard yok. Kotuye kullanim siniri rate limit ile. |
+| `POST /api/v1/otp/verify` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | OTP tuketir ve kayit tokeni basar. Guard yerine gecen sey OTP'nin kendisidir. |
+| `POST /api/v1/prekeys/refresh` | `auth` | COVERED | `flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart` | One-time prekey tamamlama; basarisiz yuklemede geri alma. |
+| `POST /api/v1/prekeys/upload` | `principal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Ilk bundle yuklemesi. |
+| `POST /api/v1/users/directory-token` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Hesap sahibinin dizin anahtari gocu. |
+| `POST /api/v1/users/register` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kayit tokeni tuketir, access+refresh basar. Telefon yalniz geri cevrilemez ozet olarak girer. |
+| `POST /api/v2/prekeys/refresh` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH prekey tamamlama. KULLANILMIYOR; kaldirilacak. |
+| `POST /api/v2/prekeys/upload` | `principal` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | PQXDH bundle yuklemesi. Istemci vodozemac'a gectigi icin KULLANILMIYOR; kaldirilacak. |
+| `WS /ws` | `auth` | COVERED | `flutter_securechat/lib/src/services/signaling_service.dart` | Bearer dogrulamali sinyalleme; reconnect, boyut siniri ve codec yolu. |
 
 ## Signal codec
 
-- Kotlin discriminator: 33
-- Flutter discriminator: 33
-- Flutter eksigi: yok
-- Flutter fazlasi: yok
+- Sunucunun siniflandirdigi tur: 11 (`MessageTypes.kt`: TRANSIENT, PENDING_CALL, FILE_TRANSFER)
+- Flutter istemcisinin urettigi tur: 33
+- Sunucu siniflandiriyor ama istemci uretmiyor: audio_data, video_data
+
+### Acikca reddedilen turler
+
+- `group_notification`: Sabit grup tokeni dis zarfta tasinmaz; grup kontrolu her aliciya ayri ordinary encrypted_message olarak gider.
+- `group_directory_sync_v2`: Grup dizini sunucuda tutulmaz.
+- `group_message_fanout`: Fanout sunucuya grup grafigi verirdi; istemci her aliciya ayri zarf gonderir.
+- `admin_encrypted_log`: Dis eventType yalniz PRIVATE_EVENT olabilir; gercek olay turu recipient-specific E2EE payload icindedir.
+
+### Sunucu siniflandiriyor, istemci uretmiyor — gerekceler
+
+- `audio_data`: Legacy Android istemcisinin bant-ici ses cercevesi. Flutter istemcisi sesi WebRTC ile tasir ve bu turu hic uretmez. Siniflandirma BILEREK duruyor: savunma amaclidir, sahadaki eski bir istemci gonderirse cerceve kalici offline kuyruga yazilmasin.
+- `video_data`: Ayni gerekce; legacy bant-ici video cercevesi.
 
 ## Sonuc
 
-- Route: 22/22 kararli esleme
-- Codec: 33/33 birebir discriminator
+- Route: 30/30 eslenmis
+- Eslenmemis: yok
+- Guard uyusmazligi: yok
+- Servis guard'i ardinda olup istemci cagiriyor diye beyan edilen: yok
 
 ## Gizlilik nedeniyle kasitli wire daraltmalari
 
-- `group_notification`, `group_directory_sync_v2` ve `group_message_fanout` production server tarafindan reddedilir.
 - Grup kontrolu ve grup mesaji her aliciya ayri ordinary `encrypted_message` Signal zarfi olarak gider; sabit grup tokeni dis zarfta bulunmaz.
 - Grup cagrisi group ID yerine cagri-basina 256-bit routing nonce kullanir; client `participants` listesini bos gonderir ve server state yalniz RAM'de ust sure siniriyla tutulur.
 - Receipt, edit/delete/reaction/pin, typing ve disappearing timer typed frame'leri server tarafindan plaintext kabul edilmez; sabit 16 KiB `CHATCTRL:v2` payload'i ordinary direct Signal `encrypted_message` icinde tasir.
-- Admin audit outer `eventType` yalniz `PRIVATE_EVENT` olabilir; gercek olay turu recipient-specific E2EE payload icindedir.
+- Sealed Sender mimarisi kaldirildi. `SEALED:v1:` zarfi artik uretilmiyor; kimlik dogrulamali socket uzerinde gelirse reddedilir.
