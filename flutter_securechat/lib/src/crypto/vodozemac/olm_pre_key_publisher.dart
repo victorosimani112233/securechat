@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../../storage/secure_chat_database.dart';
 import 'vodozemac_protocol_store.dart';
 
@@ -33,6 +35,9 @@ class OlmPreKeyPublisher implements OlmKeyPublisher {
     required HttpClient httpClient,
     required Future<String?> Function() accessTokenProvider,
     Future<String?> Function()? refreshAccessToken,
+    void Function(String operation, Object error, StackTrace stackTrace)?
+    onFailure,
+    this.createAccountIfMissing = false,
     this.targetOneTimeKeys = 50,
     this.replenishThreshold = 20,
     this.fallbackRotationInterval = const Duration(days: 7),
@@ -43,7 +48,23 @@ class OlmPreKeyPublisher implements OlmKeyPublisher {
        _httpClient = httpClient,
        _accessTokenProvider = accessTokenProvider,
        _refreshAccessToken = refreshAccessToken,
+       _onFailure = onFailure,
        _now = now ?? DateTime.now;
+
+  /// Hesap yoksa olusturulsun mu.
+  ///
+  /// Varsayilan `false` ve bu KRITIK. `withAccount` hesap yoksa sessizce
+  /// yenisini uretir; yayinci iki ayri isolate'den (on plan ve arka plan
+  /// gorevi) cagriliyor ve her isolate'in kendi veritabani anlik goruntusu
+  /// var. Ikisi de yaratabilseydi birbirlerinin hesabini ezer, her yayin
+  /// FARKLI bir kimlik gonderir ve sunucu —dogru olarak— "Explicit identity
+  /// recovery required" ile reddederdi. Kimligin sessizce degismesi zaten
+  /// reddedilmesi gereken bir sey.
+  ///
+  /// libsignal yolu bu tuzaktan kimligi yalniz kayitta uretip bakimi
+  /// salt anahtar ekleme ile sinirlayarak kaciniyordu. Ayni ayrim burada
+  /// da korunuyor: hesabi YALNIZ on plan yolu yaratir.
+  final bool createAccountIfMissing;
 
   /// Havuz bu sayiya kadar doldurulur.
   final int targetOneTimeKeys;
@@ -68,6 +89,16 @@ class OlmPreKeyPublisher implements OlmKeyPublisher {
   final HttpClient _httpClient;
   final Future<String?> Function() _accessTokenProvider;
   final Future<String?> Function()? _refreshAccessToken;
+
+  /// Yayin hatasinin bildirilecegi yer.
+  ///
+  /// Bu kanal ZORUNLU olmali gibi gorunmese de kritik: cagiran taraf
+  /// (`AppLifecycleCoordinator._runMaintenance`) butun hatalari
+  /// `catch (_) {}` ile yutuyor. Yayinci yalniz firlatirsa, anahtarlar hic
+  /// yuklenmez, hicbir iz kalmaz ve hesaba kimse mesaj gonderemez. Hata
+  /// gorunur olmak zorunda.
+  final void Function(String operation, Object error, StackTrace stackTrace)?
+  _onFailure;
   final DateTime Function() _now;
 
   /// Gerekiyorsa anahtar uretir ve yukler.
@@ -77,6 +108,20 @@ class OlmPreKeyPublisher implements OlmKeyPublisher {
   /// ayni kimlik + ayni materyali idempotent kabul eder.
   @override
   Future<void> publishIfNeeded() async {
+    try {
+      await _publish();
+    } catch (error, stackTrace) {
+      _onFailure?.call('olm-prekey-publish', error, stackTrace);
+      rethrow;
+    }
+  }
+
+  Future<void> _publish() async {
+    if (!createAccountIfMissing && !await _store.hasAccount()) {
+      // Hesap henuz yok ve bu cagri onu yaratmamali. Sessizce gecmek
+      // dogru: yaratma yetkisi olan yol kisa sure icinde kosacak.
+      return;
+    }
     final fallbackPublishedAt = await _database.vodozemacAccount
         .readFallbackPublishedAt();
     final now = _now();
@@ -128,6 +173,15 @@ class OlmPreKeyPublisher implements OlmKeyPublisher {
         oneTimeKeys: oneTimeKeys,
         fallbackKey: fallbackKey,
         fallbackSignature: fallbackSignature,
+      );
+
+      // Yayin basarisi GORUNUR olmali. Oncesinde basarili bir yayin hicbir
+      // iz birakmiyordu ve "bu cihaz anahtarlarini yukledi mi" sorusu
+      // ancak sunucu veritabanina bakarak cevaplanabiliyordu. Yalniz
+      // sayilar yazilir; anahtar materyali loga ASLA girmez.
+      debugPrint(
+        'SC-PREKEY published one_time=${oneTimeKeys.length} '
+        'fallback=${fallbackKey != null} accepted=$accepted',
       );
 
       // SIRALAMA KRITIK: isaretleme yalniz sunucu kabul ettikten SONRA.

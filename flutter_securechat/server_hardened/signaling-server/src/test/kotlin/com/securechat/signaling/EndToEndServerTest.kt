@@ -1015,6 +1015,51 @@ class EndToEndServerTest {
     }
 
     @Test
+    fun `publishing Olm keys twice succeeds the second time`() = e2e {
+        // Istemci her on plana gecisde `publishIfNeeded()` cagiriyor. Ilk
+        // yayindan sonraki her cagri ayni kimligi, bos bir anahtar listesi
+        // ve fallback'siz bir govde gonderir (anahtarlar yayinlanmis
+        // isaretlendigi ve fallback donus penceresi dolmadigi icin).
+        // Bu yolun basarisiz olmasi, istemciyi sonu gelmeyen bir yeniden
+        // deneme dongusune sokar.
+        clearRateLimits()
+        val (_, token) = newAccount()
+        val encoder = java.util.Base64.getEncoder()
+        val identity = encoder.encodeToString(ByteArray(32) { 5 })
+        val signing = encoder.encodeToString(ByteArray(32) { 6 })
+
+        uploadOlmBundle(token)
+
+        // Ikinci yayin: yalniz kimlik, anahtar yok, fallback yok.
+        val second = client.post("/api/v1/prekeys/upload") {
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody(
+                """{"olmIdentityKey":"$identity","olmSigningKey":"$signing",""" +
+                    """"olmOneTimeKeys":[]}""",
+            )
+        }
+
+        assertEquals(HttpStatusCode.OK, second.status, second.bodyAsText())
+    }
+
+    @Test
+    fun `re-sending the identical Olm bundle is accepted`() = e2e {
+        // Ag kopan bir istemci ayni govdeyi aynen tekrarlar; bu idempotent
+        // olmak zorunda.
+        clearRateLimits()
+        val (_, token) = newAccount()
+
+        uploadOlmBundle(token)
+        uploadOlmBundle(token)
+
+        val status = client.get("/api/v1/prekeys/status") {
+            header("Authorization", "Bearer $token")
+        }
+        assertEquals(HttpStatusCode.OK, status.status)
+    }
+
+    @Test
     fun `an account without any bundle has none to hand out`() = e2e {
         val (owner, _) = newAccount()
         val (_, peerToken) = newAccount()

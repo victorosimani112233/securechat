@@ -78,6 +78,7 @@ void main() {
     Future<String?> Function()? refresh,
     String? token = 'ilk-token',
     Duration rotation = const Duration(days: 7),
+    bool createAccount = true,
   }) => OlmPreKeyPublisher(
     database: database,
     store: store,
@@ -85,9 +86,44 @@ void main() {
     httpClient: HttpClient(),
     accessTokenProvider: () async => token,
     refreshAccessToken: refresh,
+    createAccountIfMissing: createAccount,
     fallbackRotationInterval: rotation,
     now: () => fakeNow,
   );
+
+  group('hesap yaratma yetkisi', () {
+    test('yetki yoksa hesap YARATILMAZ ve hicbir sey yuklenmez', () async {
+      // Yayinci iki ayri isolate'den cagriliyor ve her birinin kendi
+      // veritabani anlik goruntusu var. Ikisi de hesap yaratabilseydi
+      // birbirlerininkini ezer, her yayin FARKLI bir kimlik gonderir ve
+      // sunucu "Explicit identity recovery required" ile reddeder.
+      // Cihazda olculen hata tam olarak buydu.
+      await build(createAccount: false).publishIfNeeded();
+
+      expect(uploads, isEmpty);
+      expect(await store.hasAccount(), isFalse);
+    });
+
+    test('yetki varsa hesap yaratilir ve yayinlanir', () async {
+      await build(createAccount: true).publishIfNeeded();
+
+      expect(uploads, hasLength(1));
+      expect(await store.hasAccount(), isTrue);
+    });
+
+    test('hesap kurulduktan sonra yetkisiz cagri da yayinlar', () async {
+      // Yetkisiz olan sey YARATMAK; var olan hesabi yayinlamak degil.
+      await build(createAccount: true).publishIfNeeded();
+      fakeNow = fakeNow.add(const Duration(days: 1));
+
+      await build(createAccount: false).publishIfNeeded();
+
+      expect(uploads, hasLength(2));
+      // Kimlik AYNI kalmali.
+      expect(uploads[1]['olmIdentityKey'], uploads[0]['olmIdentityKey']);
+      expect(uploads[1]['olmSigningKey'], uploads[0]['olmSigningKey']);
+    });
+  });
 
   group('ilk yayin', () {
     test('kimligin IKI anahtari da gonderilir', () async {

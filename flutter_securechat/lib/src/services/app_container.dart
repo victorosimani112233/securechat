@@ -425,6 +425,14 @@ class AppContainer {
         apiBaseUrl: Uri.parse(config.apiBaseUrl),
         httpClient: httpClients.create(),
         accessTokenProvider: () async => session.accessToken,
+        // Olm hesabini YALNIZ bu yol yaratir. Arka plan gorevi de yayin
+        // yapiyor ama kendi veritabani anlik goruntusuyle calisiyor;
+        // ikisi de yaratabilseydi birbirinin hesabini ezer ve her yayin
+        // farkli bir kimlik gonderirdi.
+        createAccountIfMissing: true,
+        // Cagiran taraf butun bakim hatalarini yutuyor; yayin hatasinin
+        // diagnostics'e dusmesi bu yuzden sart.
+        onFailure: reportAsyncFailure,
       );
       final contactIdentityResolver = ContactIdentityResolver(
         database: database,
@@ -766,6 +774,7 @@ class AppContainer {
         stuckMessageRecovery: stuckMessageRecovery,
         signaling: signaling,
         preKeyPublisher: preKeyPublisher,
+        onStepFailure: reportAsyncFailure,
       );
       final messageNotifications = MessageNotificationCoordinator(
         incomingMessages: incomingMessages.acceptedMessages,
@@ -817,6 +826,7 @@ class AppContainer {
         ),
         transferActivity: fileTransfers.activity,
         foregroundMaintenance: backgroundRuntime.runForegroundMaintenance,
+        publishCryptoKeys: preKeyPublisher.publishIfNeeded,
         refreshLocalState: database.refreshFromDisk,
         refreshPushRegistration: () async {
           await pushCoordinator?.refreshRegistration();
@@ -1050,6 +1060,7 @@ class AppBackgroundRuntime {
     required this.stuckMessageRecovery,
     required this.signaling,
     required this.preKeyPublisher,
+    this.onStepFailure,
   });
 
   final ScheduledMessageService scheduledMessages;
@@ -1066,16 +1077,44 @@ class AppBackgroundRuntime {
   /// yaziliyor. Tuketilen havuz Olm havuzu.
   final OlmPreKeyPublisher preKeyPublisher;
 
+  /// Tek bir bakim adiminin hatasinin bildirilecegi yer.
+  final void Function(String operation, Object error, StackTrace stackTrace)?
+  onStepFailure;
+
   Future<int> expireMessages([DateTime? at]) => messages.deleteExpiredMessages(
     (at ?? DateTime.now()).millisecondsSinceEpoch,
   );
 
+  /// Bakim adimlari BIRBIRINDEN BAGIMSIZ kosar.
+  ///
+  /// Onceden hepsi tek bir `await` zinciriydi ve cagiran taraf
+  /// (`AppLifecycleCoordinator._runMaintenance`) butun hatalari
+  /// `catch (_) {}` ile yutuyordu. Tek bir adimin patlamasi, kendisinden
+  /// SONRAKI butun adimlari sessizce iptal ediyordu.
+  ///
+  /// Bu teorik bir risk degil: takilmis mesajlari kurtarma adimi anahtar
+  /// yayinindan once geliyor. Oturumlar temizlendikten sonra takilmis bir
+  /// mesaj kurtarilamayip hata firlatirsa, anahtar yayini hic kosmuyor;
+  /// anahtar olmadigi icin mesajlar da hic gonderilemiyor. Dairesel bir
+  /// kilitlenme, ustelik hicbir iz birakmadan.
   Future<void> runForegroundMaintenance() async {
-    await expireMessages();
-    await stuckMessageRecovery.recoverStuckMessages();
-    await preKeyPublisher.publishIfNeeded();
-    if (signaling.currentStatus.isConnected) await timerUpdates.flush();
-    await scheduledMessages.processDue();
+    await _step('expire-messages', expireMessages);
+    await _step('stuck-message-recovery', stuckMessageRecovery.recoverStuckMessages);
+    await _step('publish-crypto-keys', preKeyPublisher.publishIfNeeded);
+    if (signaling.currentStatus.isConnected) {
+      await _step('timer-updates-flush', timerUpdates.flush);
+    }
+    await _step('scheduled-messages', scheduledMessages.processDue);
+  }
+
+  Future<void> _step(String name, Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (error, stackTrace) {
+      // Yutulmaz: hangi adimin patladigi bilinmeli, ve digerleri kosmaya
+      // devam etmeli.
+      onStepFailure?.call('maintenance:$name', error, stackTrace);
+    }
   }
 }
 

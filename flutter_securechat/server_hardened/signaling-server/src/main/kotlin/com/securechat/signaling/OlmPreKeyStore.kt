@@ -360,10 +360,20 @@ object OlmPreKeyStore {
                 }
             }
         } catch (error: Exception) {
+            // Istisnanin MESAJI da yazilir. Yalniz sinif adi yazmak bu kodu
+            // teshis edilemez yapiyordu: buradaki `IllegalStateException`
+            // bes ayri `check()` cagrisindan gelebiliyor ("Unknown account",
+            // "Explicit identity recovery required", "Superseded credential
+            // epoch", anahtar catismasi) ve hangisi oldugu loga hic
+            // dusmuyordu.
+            //
+            // Mesajlar sunucu tarafi degismez adlari; kullanici icerigi ya
+            // da anahtar materyali tasimazlar.
             log.error(
-                "[OlmPreKey] Islem basarisiz ({}): {}",
+                "[OlmPreKey] Islem basarisiz ({}): {}: {}",
                 userId.take(8),
                 error.javaClass.simpleName,
+                error.message,
             )
             throw error
         }

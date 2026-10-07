@@ -14,6 +14,7 @@ class AppLifecycleCoordinator {
     required SignalingService signaling,
     required String signalingUrl,
     required LifecycleTask foregroundMaintenance,
+    LifecycleTask? publishCryptoKeys,
     required LifecycleTask refreshPushRegistration,
     LifecycleTask? refreshLocalState,
     Future<String?> Function()? refreshAccessToken,
@@ -26,6 +27,7 @@ class AppLifecycleCoordinator {
        _signaling = signaling,
        _signalingUrl = signalingUrl,
        _foregroundMaintenance = foregroundMaintenance,
+       _publishCryptoKeys = publishCryptoKeys,
        _refreshPushRegistration = refreshPushRegistration,
        _refreshLocalState = refreshLocalState,
        _refreshAccessToken = refreshAccessToken,
@@ -44,6 +46,18 @@ class AppLifecycleCoordinator {
   final SignalingService _signaling;
   final String _signalingUrl;
   final LifecycleTask _foregroundMaintenance;
+
+  /// Acik kripto anahtarlarinin yayini.
+  ///
+  /// Bakimdan AYRI tutuluyor ve `connect`'ten ONCE kosuyor. Anahtarlar HTTP
+  /// uzerinden yayinlaniyor, WebSocket'e ihtiyaclari yok; bakimin icinde
+  /// kaldiklarinda `connect` basarisiz olursa ya da takilirsa yayin hic
+  /// kosmaz ve hesaba kimse mesaj gonderemez.
+  ///
+  /// Ayrica `_runMaintenance` butun hatalari `catch (_) {}` ile yutuyor;
+  /// yayin oraya bagli kalsaydi basarisizligi da iz birakmazdi. Bu yuzden
+  /// ayri bir kanci ve ayri bir hata bildirimi var.
+  final LifecycleTask? _publishCryptoKeys;
   final LifecycleTask _refreshPushRegistration;
   final LifecycleTask? _refreshLocalState;
   final Future<String?> Function()? _refreshAccessToken;
@@ -86,6 +100,8 @@ class AppLifecycleCoordinator {
       await _runMaintenance();
       return;
     }
+    // Anahtar yayini baglantidan ONCE. Bkz. [_publishCryptoKeys].
+    await _runPublishCryptoKeys();
     final userId = _session.userId!;
     final token = _session.accessToken!;
     if (!_signaling.currentStatus.isConnected ||
@@ -228,6 +244,18 @@ class AppLifecycleCoordinator {
       await _foregroundMaintenance();
     } catch (_) {
       // Tek bir cleanup hatasi reconnect/presence akisini engellememelidir.
+    }
+  }
+
+  Future<void> _runPublishCryptoKeys() async {
+    final publish = _publishCryptoKeys;
+    if (publish == null) return;
+    try {
+      await publish();
+    } catch (error, stackTrace) {
+      // Yutulmaz. Anahtar yayini basarisizsa hesaba kimse mesaj
+      // gonderemez; bunun sessiz kalmasi teshisi en pahali hata sinifi.
+      _onAsyncFailure?.call('publish-crypto-keys', error, stackTrace);
     }
   }
 
