@@ -9,7 +9,6 @@ void main() {
         'battery': 'granted',
         'fullScreenIntent': 'notApplicable',
         'notification': 'granted',
-        'overlay': 'notApplicable',
       });
       final state = await CallReadinessService(platform: platform).refresh();
 
@@ -24,7 +23,6 @@ void main() {
       'battery': 'granted',
       'fullScreenIntent': 'unexpected',
       'notification': 'denied',
-      'overlay': 'granted',
     });
     final state = await CallReadinessService(platform: platform).refresh();
 

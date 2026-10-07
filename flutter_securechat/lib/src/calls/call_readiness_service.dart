@@ -7,16 +7,14 @@ class CallReadinessState {
     required this.battery,
     required this.fullScreenIntent,
     required this.notification,
-    required this.overlay,
   });
 
   final ReadinessStatus battery;
   final ReadinessStatus fullScreenIntent;
   final ReadinessStatus notification;
-  final ReadinessStatus overlay;
 
   bool get allGranted =>
-      [battery, fullScreenIntent, notification, overlay].every(
+      [battery, fullScreenIntent, notification].every(
         (status) =>
             status == ReadinessStatus.granted ||
             status == ReadinessStatus.notApplicable,
@@ -27,7 +25,6 @@ class CallReadinessState {
         battery: _status(map['battery']),
         fullScreenIntent: _status(map['fullScreenIntent']),
         notification: _status(map['notification']),
-        overlay: _status(map['overlay']),
       );
 }
 
@@ -70,7 +67,6 @@ class NotApplicableCallReadinessPlatform implements CallReadinessPlatform {
     'battery': 'notApplicable',
     'fullScreenIntent': 'notApplicable',
     'notification': 'notApplicable',
-    'overlay': 'notApplicable',
   };
 
   @override

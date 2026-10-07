@@ -1324,14 +1324,8 @@ class AppLocalizationsAr extends AppLocalizations {
       'Message and incoming call notifications';
 
   @override
-  String get overlay_permission => 'Display over other apps';
-
-  @override
-  String get overlay_permission_desc => 'Android background call screen';
-
-  @override
   String get ios_call_readiness_note =>
-      'On iOS, battery optimization, full-screen intent and overlay cannot be changed by the app. Incoming-call wake-up depends on APNs/CallKit and system policies.';
+      'On iOS, battery optimization and full-screen intent cannot be changed by the app. Incoming-call wake-up depends on APNs/CallKit and system policies.';
 
   @override
   String get secure_communication => 'Secure Communication';

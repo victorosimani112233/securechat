@@ -96,13 +96,6 @@ class _CallReadinessScreenState extends State<CallReadinessScreen>
                       context.l10n.notification_permission_desc,
                       state.notification,
                     ),
-                    _row(
-                      'overlay',
-                      Icons.picture_in_picture_alt_outlined,
-                      context.l10n.overlay_permission,
-                      context.l10n.overlay_permission_desc,
-                      state.overlay,
-                    ),
                     const SizedBox(height: 16),
                     Text(
                       context.l10n.ios_call_readiness_note,

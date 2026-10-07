@@ -1309,14 +1309,8 @@ class AppLocalizationsTr extends AppLocalizations {
       'Mesaj ve gelen arama bildirimleri';
 
   @override
-  String get overlay_permission => 'Diğer uygulamaların üstünde göster';
-
-  @override
-  String get overlay_permission_desc => 'Android arka plan arama ekranı';
-
-  @override
   String get ios_call_readiness_note =>
-      'iOS’ta pil optimizasyonu, tam ekran intent ve overlay uygulama tarafından değiştirilemez. Gelen çağrı uyandırması APNs/CallKit ve sistem politikalarına bağlıdır.';
+      'iOS’ta pil optimizasyonu ve tam ekran intent uygulama tarafından değiştirilemez. Gelen çağrı uyandırması APNs/CallKit ve sistem politikalarına bağlıdır.';
 
   @override
   String get secure_communication => 'Güvenli Haberleşme';

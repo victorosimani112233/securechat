@@ -1331,15 +1331,8 @@ class AppLocalizationsDe extends AppLocalizations {
       'Benachrichtigungen für Nachrichten und eingehende Anrufe';
 
   @override
-  String get overlay_permission => 'Über anderen Apps anzeigen';
-
-  @override
-  String get overlay_permission_desc =>
-      'Anrufbildschirm im Hintergrund unter Android';
-
-  @override
   String get ios_call_readiness_note =>
-      'Unter iOS können Akkuoptimierung, Vollbild-Intent und Overlay nicht von der App geändert werden. Das Aufwecken bei eingehenden Anrufen hängt von APNs/CallKit und den Systemrichtlinien ab.';
+      'Unter iOS können Akkuoptimierung und Vollbild-Intent nicht von der App geändert werden. Das Aufwecken bei eingehenden Anrufen hängt von APNs/CallKit und den Systemrichtlinien ab.';
 
   @override
   String get secure_communication => 'Sichere Kommunikation';

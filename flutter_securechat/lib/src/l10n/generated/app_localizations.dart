@@ -2478,22 +2478,10 @@ abstract class AppLocalizations {
   /// **'Message and incoming call notifications'**
   String get notification_permission_desc;
 
-  /// No description provided for @overlay_permission.
-  ///
-  /// In en, this message translates to:
-  /// **'Display over other apps'**
-  String get overlay_permission;
-
-  /// No description provided for @overlay_permission_desc.
-  ///
-  /// In en, this message translates to:
-  /// **'Android background call screen'**
-  String get overlay_permission_desc;
-
   /// No description provided for @ios_call_readiness_note.
   ///
   /// In en, this message translates to:
-  /// **'On iOS, battery optimization, full-screen intent and overlay cannot be changed by the app. Incoming-call wake-up depends on APNs/CallKit and system policies.'**
+  /// **'On iOS, battery optimization and full-screen intent cannot be changed by the app. Incoming-call wake-up depends on APNs/CallKit and system policies.'**
   String get ios_call_readiness_note;
 
   /// No description provided for @secure_communication.
