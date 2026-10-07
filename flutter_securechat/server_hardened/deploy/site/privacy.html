@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gizlilik Politikası — Elçim</title>
+<meta name="description" content="Elçim'in hangi verileri işlediği, ne kadar sakladığı ve neyi hiç toplamadığı.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="site">
+  <a class="brand" href="index.html">Elçim</a>
+  <nav class="site">
+    <a href="index.html">Ana sayfa</a>
+    <a href="privacy.html" aria-current="page">Gizlilik Politikası</a>
+    <a href="terms.html">Kullanım Şartları</a>
+    <a href="delete-account.html">Hesap Silme</a>
+    <a href="#english">English</a>
+  </nav>
+</header>
+
+<h1>Gizlilik Politikası</h1>
+<p class="meta">Yürürlük tarihi: <mark>GG.AA.YYYY</mark> · Son güncelleme: <mark>GG.AA.YYYY</mark></p>
+
+<div class="fill">
+  <p><strong>Yayından önce doldurulması zorunlu alanlar.</strong> Aşağıdaki
+  işaretli yerler hukuki beyan gerektirir ve tahmin edilerek yazılamaz:</p>
+  <ul>
+    <li>Veri sorumlusunun adı/unvanı ve adresi</li>
+    <li>İletişim e-posta adresi</li>
+    <li>Sunucunun bulunduğu ülke</li>
+    <li>Yürürlük ve son güncelleme tarihleri</li>
+  </ul>
+  <p>Mağaza incelemesine girmeden önce bu kutuyu ve tüm
+  <mark>işaretli</mark> alanları kaldırın.</p>
+</div>
+
+<h2>Özet</h2>
+
+<div class="callout">
+  <p>Elçim uçtan uca şifreli bir mesajlaşma uygulamasıdır. <strong>Mesajlarınızın
+  içeriğini sunucu göremez ve saklamaz.</strong> Mesaj geçmişiniz, medyanız,
+  rehberiniz ve şifreleme anahtarlarınız yalnızca cihazınızda, şifreli bir
+  veritabanında durur.</p>
+  <p>Sunucu yalnızca mesajların doğru cihaza ulaşması için gereken en küçük
+  veri kümesini tutar: rastgele bir hesap kimliği, telefon numaranızın geri
+  çevrilemez bir özeti ve oturum kurmak için gereken açık anahtarlar.</p>
+</div>
+
+<h2>Veri sorumlusu</h2>
+<p>Bu uygulamayı ve sunucusunu işleten taraf <mark>[veri sorumlusunun adı /
+unvanı]</mark>, adresi <mark>[adres]</mark>. Gizlilikle ilgili her talep için:
+<mark>[iletisim@alan-adi]</mark>.</p>
+
+<h2>Sunucuda kalıcı olarak saklananlar</h2>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Veri</th><th>Neden</th><th>Saklama süresi</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Rastgele hesap kimliği (UUID)</td>
+      <td>Mesajın hangi cihaza yönlendirileceğini bilmek</td>
+      <td>Hesap silinene kadar</td>
+    </tr>
+    <tr>
+      <td>Telefon numarasının geri çevrilemez özeti</td>
+      <td>Rehberinizdeki kişilerin Elçim kullanıp kullanmadığını bulmak</td>
+      <td>Hesap silinene kadar</td>
+    </tr>
+    <tr>
+      <td>Açık şifreleme anahtarları (identity key, prekey'ler)</td>
+      <td>Karşı tarafın sizinle şifreli oturum kurabilmesi</td>
+      <td>Hesap silinene kadar; tüketilen tek kullanımlık anahtarlar 1 saat</td>
+    </tr>
+    <tr>
+      <td>Bildirim cihaz jetonu (şifreli)</td>
+      <td>Uygulama kapalıyken yeni mesaj olduğunu haber vermek</td>
+      <td>Son güncellemeden itibaren en çok 30 gün</td>
+    </tr>
+    <tr>
+      <td>E-posta adresinin şifreli dizini</td>
+      <td>Doğrulama kodu göndermek ve hesap kurtarma</td>
+      <td>Hesap silinene kadar; doğrulama kodları 10 dakika</td>
+    </tr>
+    <tr>
+      <td>Kimlik doğrulama dönem bilgisi</td>
+      <td>Çıkış yaptığınızda eski oturumları geçersiz kılmak</td>
+      <td>Hesap silinene kadar</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>Telefon numaranız sunucuya <strong>düz metin olarak hiçbir zaman
+gönderilmez</strong>. Sunucuya giden değer, numaradan türetilmiş ve geri
+çevrilmesi mümkün olmayan bir kriptografik özettir; sunucu bu özetten
+numaranızı elde edemez.</p>
+
+<h2>Sunucuda hiç saklanmayanlar</h2>
+
+<p>Bunlar "silinir" değil, hiç yazılmaz:</p>
+
+<ul>
+  <li><strong>Mesaj içeriği.</strong> Sunucu yalnızca şifrelenmiş veriyi görür ve onu açacak anahtara sahip değildir.</li>
+  <li><strong>Mesaj geçmişi.</strong> Sunucuda konuşma arşivi yoktur.</li>
+  <li><strong>Rehberiniz.</strong> Kişi listeniz sunucuya yüklenmez.</li>
+  <li><strong>Grup üyelikleri.</strong> Grupların kim olduğu sunucuda tutulmaz; grup bilgisi her alıcıya ayrı ayrı şifrelenerek gönderilir.</li>
+  <li><strong>Hesap oluşturma ve son görülme zamanları.</strong> Bu alanlar veritabanı şemasından kaldırılmıştır.</li>
+  <li><strong>Davranış analitiği, reklam kimliği, izleyici (tracker).</strong> Uygulamada analitik veya reklam SDK'sı yoktur.</li>
+  <li><strong>Adınız ve profil fotoğrafınız.</strong> Bunlar yalnızca cihazlarda tutulur.</li>
+</ul>
+
+<h2>Geçici olarak işlenenler</h2>
+
+<p>Siz çevrimdışıyken gönderilen mesajlar, siz bağlanana kadar kısa süre
+bekletilir. Bu bekleme <strong>yalnızca sunucunun geçici belleğindedir,
+diske yazılmaz</strong> ve içerik bu sırada da şifrelidir:</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Veri</th><th>Süre</th></tr></thead>
+  <tbody>
+    <tr><td>Bekleyen mesaj (şifreli)</td><td>15 dakika</td></tr>
+    <tr><td>Bekleyen dosya parçası (şifreli)</td><td>5 dakika</td></tr>
+    <tr><td>Arama bağlantısı için geçici kimlik bilgisi</td><td>10 dakika</td></tr>
+    <tr><td>Kötüye kullanım sayaçları (kimlik taşımayan özet üzerinde)</td><td>Politikaya göre 1 saniye – 24 saat</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Süre dolduğunda veri kendiliğinden silinir. Sunucu yeniden başlatıldığında
+bu geçici veriler tamamen kaybolur, çünkü hiçbir zaman kalıcı depolamaya
+yazılmamıştır.</p>
+
+<h2>Cihazınızda tutulanlar</h2>
+
+<p>Mesajlarınız, medyanız, arama kayıtlarınız, eşleşen kişiler ve şifreleme
+anahtarlarınız yalnızca cihazınızdaki şifreli bir veritabanında bulunur.
+Veritabanının anahtarı Android'de Keystore, iOS'ta Keychain içinde, uygulama
+dışına çıkarılamayacak şekilde tutulur.</p>
+
+<p>Uygulamayı kaldırdığınızda bu verilerin tamamı cihazdan silinir. Bu veriler
+hiçbir yere yedeklenmez — Android'de uygulama yedeklemesi kapalıdır.</p>
+
+<p>Android'de sohbet ekranlarının ekran görüntüsü işletim sistemi düzeyinde
+engellenir. iOS üçüncü taraf uygulamalara ekran görüntüsünü engelleme imkânı
+vermez; bu platformda uygulama yalnızca uygulama değiştirme ekranında içeriği
+gizler ve ekran görüntüsü alındığında sizi uyarır.</p>
+
+<h2>İzinler ve ne için kullanıldıkları</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>İzin</th><th>Kullanım</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Rehber</td>
+      <td>Yalnızca ad ve telefon numarası okunur, profil fotoğrafı okunmaz. Numaralar sunucuya gönderilmeden önce geri çevrilemez özete dönüştürülür. İzni vermezseniz kişileri elle ekleyebilirsiniz.</td>
+    </tr>
+    <tr><td>Kamera</td><td>Görüntülü arama ve fotoğraf/video gönderimi</td></tr>
+    <tr><td>Mikrofon</td><td>Sesli arama, görüntülü arama ve sesli mesaj</td></tr>
+    <tr><td>Bildirimler</td><td>Yeni mesaj ve gelen arama uyarısı</td></tr>
+    <tr><td>Fotoğraf / dosya seçimi</td><td>Yalnızca sizin seçtiğiniz dosyalara erişilir</td></tr>
+    <tr><td>Bluetooth (Android)</td><td>Arama sırasında kulaklık ses yönlendirmesi</td></tr>
+    <tr><td>Diğer uygulamaların üzerinde gösterim (Android)</td><td>Gelen arama ekranını kilit ekranı ve diğer uygulamaların üzerinde gösterebilmek</td></tr>
+    <tr><td>Pil optimizasyonundan muafiyet (Android, isteğe bağlı)</td><td>Uygulama kapalıyken mesaj ve aramaların gecikmeden ulaşması</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Üçüncü taraflar</h2>
+
+<p>Elçim üç dış hizmete veri aktarır ve her biri yalnızca kendi işi için
+gereken en az veriyi alır:</p>
+
+<h3>Google Firebase Cloud Messaging</h3>
+<p>Uygulama kapalıyken bildirim gönderebilmek için kullanılır. Google'a giden
+bildirim <strong>içerik taşımaz</strong>: gönderen, alıcı, mesaj metni, grup
+adı veya önizleme bulunmaz. Yalnızca "yeni bir şey var, bağlan" anlamında bir
+uyandırma sinyalidir. Mesajın kendisi uygulama bağlandıktan sonra şifreli
+kanaldan indirilir ve bildirimi cihaz oluşturur. Google, cihazınızın bildirim
+jetonunu ve bu jetona sinyal gönderildiği bilgisini işler.
+<a href="https://firebase.google.com/support/privacy" rel="noopener noreferrer">Firebase gizlilik bilgisi</a></p>
+
+<h3>Brevo</h3>
+<p>Doğrulama kodu ve hesap kurtarma e-postalarının gönderimi için kullanılır.
+Brevo bu amaçla e-posta adresinizi işler.
+<a href="https://www.brevo.com/legal/privacypolicy/" rel="noopener noreferrer">Brevo gizlilik politikası</a></p>
+
+<h3>Arama aktarma sunucusu (TURN)</h3>
+<p>Aramalar öncelikle iki cihaz arasında doğrudan kurulur. Ağınız doğrudan
+bağlantıya izin vermiyorsa ses ve görüntü, bizim işlettiğimiz bir aktarma
+sunucusundan geçer. Bu durumda sunucu IP adreslerini görür; <strong>ses ve
+görüntü içeriği bu aktarma sırasında da şifrelidir</strong> ve sunucu
+tarafından açılamaz.</p>
+
+<p>Bunların dışında reklam ağı, analitik sağlayıcı veya veri satan hiçbir
+tarafa veri aktarılmaz.</p>
+
+<h2>Verinin bulunduğu yer</h2>
+<p>Sunucu <mark>[ülke]</mark> konumunda barındırılmaktadır. Taşıma sırasında
+tüm trafik TLS ile şifrelenir ve uygulama sunucunun sertifikasını gömülü bir
+parmak iziyle doğrular; araya giren bir sunucu bağlantıyı kuramaz.</p>
+
+<h2>Haklarınız</h2>
+
+<ul>
+  <li><strong>Hesabınızı silme.</strong> Uygulama içinde Ayarlar bölümünden hesabınızı silebilirsiniz; bu işlem sunucudaki kayıtlarınızı kaldırır. Uygulamaya erişiminiz yoksa <a href="delete-account.html">hesap silme sayfasındaki</a> yolu kullanın.</li>
+  <li><strong>Verilerinize erişme.</strong> Sunucu sizinle ilgili olarak yukarıdaki tabloda sayılanlardan fazlasını tutmaz. Bu kayıtların bir kopyasını talep edebilirsiniz.</li>
+  <li><strong>Düzeltme ve itiraz.</strong> İşlemeye itiraz etmek veya kaydınızı düzeltmek için bize yazabilirsiniz.</li>
+  <li><strong>Rızayı geri çekme.</strong> Rehber, kamera, mikrofon ve bildirim izinlerini işletim sistemi ayarlarından her zaman geri alabilirsiniz; ilgili özellik çalışmaz, uygulamanın geri kalanı çalışmaya devam eder.</li>
+</ul>
+
+<p>Taleplerinizi <mark>[iletisim@alan-adi]</mark> adresine iletebilirsiniz.</p>
+
+<h2>Çocukların gizliliği</h2>
+<p>Elçim 13 yaşından küçük kullanıcılara yönelik değildir ve bilerek bu yaş
+grubundan veri toplamaz.</p>
+
+<h2>Değişiklikler</h2>
+<p>Bu politika değiştiğinde yukarıdaki "son güncelleme" tarihi yenilenir.
+Önemli değişikliklerde uygulama içinde bilgilendirme yapılır.</p>
+
+<h2 id="english">English summary</h2>
+
+<p>Elçim is an end-to-end encrypted messenger. <strong>The server cannot read
+or store your message content.</strong> Message history, media, contacts and
+encryption keys live only on your device, in an encrypted database whose key is
+held in the Android Keystore or iOS Keychain.</p>
+
+<p>The server keeps only what routing requires: a random account identifier, an
+irreversible cryptographic digest of your phone number, public key material for
+session setup, an encrypted push token (retained at most 30 days), and an
+encrypted index of your e-mail address for verification codes and account
+recovery. Your phone number is never transmitted in plaintext.</p>
+
+<p>The server never stores message content, message history, your contact list,
+group membership, account creation or last-seen timestamps, or any behavioural
+analytics. There is no analytics or advertising SDK in the app.</p>
+
+<p>Messages sent while you are offline wait briefly in server memory only —
+never written to disk — for 15 minutes, and encrypted file chunks for 5 minutes.
+They are deleted automatically when that window passes.</p>
+
+<p>Data is shared with three external services, each receiving the minimum
+needed: Google Firebase Cloud Messaging receives a device push token and a
+content-free wake-up signal with no sender, recipient, message or preview;
+Brevo receives your e-mail address to deliver verification codes; and our own
+TURN relay sees IP addresses when a direct call connection is not possible,
+while call audio and video remain encrypted end to end.</p>
+
+<p>You can delete your account from the app's settings, which removes your
+server-side records. For access, correction, objection or a copy of your data,
+write to <mark>[contact@domain]</mark>. The data controller is
+<mark>[legal entity]</mark>, and the server is hosted in <mark>[country]</mark>.
+Elçim is not directed at children under 13.</p>
+
+<footer class="site">
+  <p>Elçim · <a href="privacy.html">Gizlilik</a> · <a href="terms.html">Şartlar</a> · <a href="delete-account.html">Hesap silme</a></p>
+</footer>
+
+</div>
+</body>
+</html>
