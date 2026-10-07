@@ -23,6 +23,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.AfterAll
@@ -1057,6 +1058,35 @@ class EndToEndServerTest {
             header("Authorization", "Bearer $token")
         }
         assertEquals(HttpStatusCode.OK, status.status)
+    }
+
+    @Test
+    fun `the bundle response carries the protocol version on the wire`() = e2e {
+        // `protocolVersion` alanina varsayilan deger verildiginde
+        // kotlinx.serialization onu JSON'a HIC yazmiyordu (`encodeDefaults`
+        // varsayilan olarak false). Istemci surum alanini goremeyince
+        // bundle'i reddediyor ve mesaj gonderilemiyordu. Alanin kabloda
+        // gercekten bulundugu dogrulanmali; tip imzasina bakmak yetmez.
+        clearRateLimits()
+        val (owner, ownerToken) = newAccount()
+        val (_, peerToken) = newAccount()
+        uploadOlmBundle(ownerToken)
+
+        val response = client.get("/api/v1/users/$owner/prekeys") {
+            header("Authorization", "Bearer $peerToken")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertTrue(body.containsKey("protocolVersion"), response.bodyAsText())
+        assertEquals(
+            OLM_BUNDLE_PROTOCOL_VERSION,
+            body["protocolVersion"]!!.jsonPrimitive.int,
+        )
+        // Olm alanlari da kabloda olmali.
+        for (field in listOf("identityKey", "signingKey")) {
+            assertTrue(body.containsKey(field), "$field eksik: ${response.bodyAsText()}")
+        }
     }
 
     @Test

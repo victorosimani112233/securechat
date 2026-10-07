@@ -288,7 +288,13 @@ data class PreKeyBundleResponse(
     // Istemcinin konustugu bundle surumu. Olm alanlari yoksa yeni istemci
     // bu bundle'i KULLANMAZ ve bu dogru davranis: o peer henuz goc
     // etmemis, onunla Olm oturumu kurulamaz.
-    val protocolVersion: Int = OLM_BUNDLE_PROTOCOL_VERSION,
+    //
+    // VARSAYILAN DEGER YOK, bilerek. kotlinx.serialization'da
+    // `encodeDefaults` varsayilan olarak false; varsayilanina esit bir alan
+    // JSON'a hic yazilmiyor. Bu alan varsayilanli oldugunda surum bilgisi
+    // kabloya hic cikmiyordu ve istemci bundle'i "surum yok" diye
+    // reddediyordu.
+    val protocolVersion: Int,
 
     // --- libsignal (eski istemci) ---
     val identityPublicKey: String? = null,
@@ -1047,6 +1053,7 @@ fun Application.configureRoutes(
             val encoder = java.util.Base64.getEncoder()
             call.respond(PreKeyBundleResponse(
                 userId = targetUserId,
+                protocolVersion = OLM_BUNDLE_PROTOCOL_VERSION,
                 identityPublicKey = legacy?.let { encoder.encodeToString(it.identityKey.publicKey) },
                 registrationId = legacy?.identityKey?.registrationId,
                 signedPreKeyId = legacy?.signedPreKey?.keyId,
