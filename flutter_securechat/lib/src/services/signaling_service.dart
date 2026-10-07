@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:web_socket_channel/io.dart';
+
+import '../network/pinned_web_socket.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../core/signal_message.dart';
@@ -159,10 +161,12 @@ class WebSocketSignalingService implements SignalingService {
   WebSocketSignalingService({
     Random? random,
     HttpClient? httpClient,
+    PinnedWebSocketConnector? webSocketConnector,
     WebSocketTelemetry? telemetry,
     bool callCapable = true,
   }) : _random = random ?? Random.secure(),
        _httpClient = httpClient,
+       _webSocketConnector = webSocketConnector,
        _callCapable = callCapable,
        telemetry = telemetry ?? WebSocketTelemetry();
 
@@ -175,6 +179,16 @@ class WebSocketSignalingService implements SignalingService {
   final _statusController = StreamController<SignalingStatus>.broadcast();
   final Random _random;
   final HttpClient? _httpClient;
+
+  /// Pinlenmis WebSocket baglayicisi.
+  ///
+  /// `IOWebSocketChannel.connect(..., customClient:)` BILEREK kullanilmiyor:
+  /// pinleme `HttpClient.connectionFactory` ile yapiliyor ve o yol WebSocket
+  /// yukseltmesiyle uyusmuyor — yukseltmeden sonra ham sokete `detachSocket()`
+  /// ile el konuluyor ve baglanti sessizce asili kaliyor. Olculdu: ayni
+  /// pinlenmis istemciyle HTTPS 200 donerken WebSocket 8 saniyede zaman
+  /// asimina dusuyor ve sunucu istegi hic gormuyor.
+  final PinnedWebSocketConnector? _webSocketConnector;
   // A headless message drain has no CallManager and must not consume offers.
   final bool _callCapable;
   final WebSocketTelemetry telemetry;
@@ -275,16 +289,31 @@ class WebSocketSignalingService implements SignalingService {
         path: _joinPath(base.path, 'ws'),
         queryParameters: {...base.queryParameters, 'userId': userId},
       );
-      final channel = IOWebSocketChannel.connect(
-        uri,
-        headers: {
-          HttpHeaders.authorizationHeader: 'Bearer $token',
-          callCapabilityHeader: _callCapable.toString(),
-        },
-        pingInterval: const Duration(seconds: 20),
-        connectTimeout: const Duration(seconds: 8),
-        customClient: _httpClient,
-      );
+      final headers = <String, Object>{
+        HttpHeaders.authorizationHeader: 'Bearer $token',
+        callCapabilityHeader: _callCapable.toString(),
+      };
+      const pingInterval = Duration(seconds: 20);
+      const connectTimeout = Duration(seconds: 8);
+      final connector = _webSocketConnector;
+      final WebSocketChannel channel;
+      if (connector != null) {
+        final socket = await connector.connect(
+          uri,
+          headers: headers,
+          timeout: connectTimeout,
+        );
+        socket.pingInterval = pingInterval;
+        channel = IOWebSocketChannel(socket);
+      } else {
+        channel = IOWebSocketChannel.connect(
+          uri,
+          headers: headers,
+          pingInterval: pingInterval,
+          connectTimeout: connectTimeout,
+          customClient: _httpClient,
+        );
+      }
       _channel = channel;
       _subscription = channel.stream.listen(
         (event) => _onMessage(event, generation),

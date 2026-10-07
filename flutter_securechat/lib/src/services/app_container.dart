@@ -61,6 +61,7 @@ import '../incoming/incoming_message_handler.dart';
 import '../network/network_resilience.dart';
 import '../network/network_monitor.dart';
 import '../network/socket_diagnostics.dart';
+import '../network/pinned_web_socket.dart';
 import '../network/tls_pinning.dart';
 import '../notifications/message_notification_service.dart';
 import '../notifications/missed_call_tracker.dart';
@@ -396,6 +397,9 @@ class AppContainer {
       ).run();
       final signaling = WebSocketSignalingService(
         httpClient: httpClients.create(),
+        // WebSocket pinlemesi ayri bir yoldan yapilmak ZORUNDA; bkz.
+        // `PinnedWebSocketConnector`.
+        webSocketConnector: PinnedWebSocketConnector(httpClients.policy),
       );
       resources.register('websocket-signaling', signaling.dispose);
       final networkMonitor = SystemNetworkMonitor();

@@ -29,6 +29,7 @@ import '../media/file_transfer_manager.dart';
 import '../media/media_message_service.dart';
 import '../network/network_monitor.dart';
 import '../network/network_resilience.dart';
+import '../network/pinned_web_socket.dart';
 import '../network/tls_pinning.dart';
 import '../notifications/message_notification_service.dart';
 import '../services/crypto_service.dart';
@@ -133,6 +134,7 @@ class SecureChatBackgroundRuntime {
       resources.register('background-http-clients', httpClients.close);
       final signaling = WebSocketSignalingService(
         httpClient: httpClients.create(),
+        webSocketConnector: PinnedWebSocketConnector(httpClients.policy),
         callCapable: false,
       );
       resources.register('background-signaling', signaling.dispose);

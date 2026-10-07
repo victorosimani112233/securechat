@@ -114,7 +114,9 @@ void main() {
     test('hesap kurulduktan sonra yetkisiz cagri da yayinlar', () async {
       // Yetkisiz olan sey YARATMAK; var olan hesabi yayinlamak degil.
       await build(createAccount: true).publishIfNeeded();
-      fakeNow = fakeNow.add(const Duration(days: 1));
+      // Gonderilecek bir sey olmasi icin fallback donus penceresini gec;
+      // aksi halde ikinci cagri hic istek atmaz.
+      fakeNow = fakeNow.add(const Duration(days: 8));
 
       await build(createAccount: false).publishIfNeeded();
 
@@ -201,9 +203,11 @@ void main() {
 
       await publisher.publishIfNeeded();
 
-      expect(uploads, hasLength(2));
-      expect(uploads[0]['olmFallbackKey'], isA<String>());
-      expect(uploads[1].containsKey('olmFallbackKey'), isFalse);
+      // Donus penceresi icinde ve yeni anahtar da yokken gonderilecek bir
+      // sey kalmiyor; sunucuya hic gidilmemeli. Bos yuklemeler hesap
+      // basina 30 yazma/saat sinirini tuketiyordu.
+      expect(uploads, hasLength(1));
+      expect(uploads.single['olmFallbackKey'], isA<String>());
     });
 
     test('aralik gectikten sonra fallback donur', () async {
@@ -317,7 +321,8 @@ void main() {
     await publisher.publishIfNeeded();
 
     expect(firstCount, greaterThan(0));
-    expect((uploads[1]['olmOneTimeKeys'] as List), isEmpty);
+    // Yayinlanacak yeni anahtar yok: istek hic gonderilmemeli.
+    expect(uploads, hasLength(1));
   });
 }
 

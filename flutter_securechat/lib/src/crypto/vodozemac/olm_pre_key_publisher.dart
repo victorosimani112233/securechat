@@ -167,6 +167,21 @@ class OlmPreKeyPublisher implements OlmKeyPublisher {
         }
       }
 
+      // Yayinlanacak YENI bir sey yoksa sunucuya hic gidilmez.
+      //
+      // Onceden her on plana gecis, yalniz kimligi tasiyan bos bir yukleme
+      // gonderiyordu. Sunucunun hesap basina 30 yazma/saat siniri var ve bu
+      // bos yuklemeler kotayi tuketip gercek bir tamamlama gerektiginde
+      // 429'a carpilmasina yol aciyordu. Ilk yayin yapilmissa
+      // (`fallbackPublishedAt` yalniz sunucu kabul ettikten sonra yazilir)
+      // ve ne yeni anahtar ne de fallback donusu varsa, gonderilecek bir
+      // sey de yoktur.
+      if (oneTimeKeys.isEmpty &&
+          fallbackKey == null &&
+          fallbackPublishedAt != null) {
+        return null;
+      }
+
       final accepted = await _upload(
         identityKey: identityKey,
         signingKey: signingKey,
@@ -231,6 +246,13 @@ class OlmPreKeyPublisher implements OlmKeyPublisher {
     }
 
     if (status == HttpStatus.ok) return true;
+    if (status == HttpStatus.tooManyRequests) {
+      // 429 bir hata degil: sunucu "cok sik" diyor. Anahtarlar zaten
+      // yerinde olabilir ve bir sonraki yayin denemesi basarili olur.
+      // Istisna firlatmak bunu gercek bir ariza gibi gosterirdi.
+      debugPrint('SC-PREKEY rate limited; sonraki yayinda denenecek');
+      return false;
+    }
     if (status == HttpStatus.conflict) {
       // Sunucu ayni keyId'yi farkli materyalle gormus ya da havuz dolu.
       // Sessizce basarili saymak, istemcinin yuklendigini sandigi anahtarin

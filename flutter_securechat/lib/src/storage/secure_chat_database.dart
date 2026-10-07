@@ -1995,6 +1995,20 @@ class _StorageSnapshot {
     senderKeys,
     pendingSignals,
     cryptoState,
+    // Vodozemac koleksiyonlari BU LISTEDE olmak zorunda: `_persist()`
+    // diske yalniz buradakileri yaziyor. Eksik olduklari surece Olm
+    // hesabi, Olm oturumlari ve Megolm grup oturumlari yalnizca bellekte
+    // yasiyordu ve her uygulama kapanisinda kayboluyordu.
+    //
+    // Cihazda gorunen belirti prekey yayininin surekli reddedilmesiydi:
+    // hesap diskte olmadigi icin her acilista yenisi uretiliyor, sunucu da
+    // —dogru olarak— degisen kimligi "Explicit identity recovery required"
+    // ile reddediyordu. Daha agir sonucu ise oturumlarin kaybolmasiydi;
+    // yeniden baslatmadan sonra mevcut sohbetler cozulemezdi.
+    vodozemacAccount,
+    vodozemacSessions,
+    vodozemacGroupSessions,
+    vodozemacInboundGroupSessions,
   ];
 
   bool get isPristineForLegacyImport =>

@@ -447,6 +447,58 @@ void main() {
     });
   });
 
+  group('diske kaliciik', () {
+    // Bu grubun varlik sebebi olculmus bir hata: `_StorageSnapshot.toJson`
+    // vodozemac koleksiyonlarini YAZMIYORDU (`fromJson` okuyordu). Butun
+    // Olm durumu yalnizca bellekte yasiyor ve her uygulama kapanisinda
+    // kayboluyordu. Cihazda gorunen belirti prekey yayininin surekli
+    // reddedilmesiydi — hesap diskte olmadigi icin her acilista yenisi
+    // uretiliyor, sunucu da degisen kimligi dogru olarak reddediyordu.
+    // Daha agir sonucu ise oturumlarin kaybolmasiydi.
+    test('hesap ve oturumlar veritabani yeniden acilinca KORUNUR', () async {
+      final directory = await Directory.systemTemp.createTemp('vodozemac-disk');
+      final file = File('${directory.path}/database.securejson');
+      final masterKey = List<int>.generate(32, (index) => index * 7 + 3);
+      final storageCrypto = LocalAeadCryptoService(SecretKey(masterKey));
+      final pickle = await VodozemacProtocolStore.derivePickleKey(masterKey);
+      addTearDown(() => directory.delete(recursive: true));
+
+      final first = await SecureChatDatabase.open(
+        file: file,
+        crypto: storageCrypto,
+      );
+      final firstStore = VodozemacProtocolStore(
+        database: first,
+        crypto: crypto,
+        pickleKey: pickle,
+      );
+      final identity = await firstStore.withAccount(
+        (account) async => account.identityKeys()['curve25519']!,
+      );
+      await first.close();
+
+      // Yeniden ac: ayni dosya, ayni anahtar.
+      final second = await SecureChatDatabase.open(
+        file: file,
+        crypto: storageCrypto,
+      );
+      final secondStore = VodozemacProtocolStore(
+        database: second,
+        crypto: crypto,
+        pickleKey: pickle,
+      );
+      addTearDown(second.close);
+
+      expect(await secondStore.hasAccount(), isTrue);
+      final reloaded = await secondStore.readAccount(
+        (account) async => account.identityKeys()['curve25519']!,
+      );
+      // Kimlik AYNI olmali; farkliysa hesap yeniden uretilmis demektir ve
+      // karsi taraf artik bu cihazla oturum kuramaz.
+      expect(reloaded, identity);
+    });
+  });
+
   group('migration', () {
     test('ilk kosuda kosar, ikincide kosmaz', () async {
       final migration = VodozemacMigration(database);
