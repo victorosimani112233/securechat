@@ -13,6 +13,9 @@ dependencies:
   cryptography: 2.9.0
   # 11.x currently skips its Kotlin sources under Flutter's AGP 9 legacy DSL.
   file_picker: 10.3.10
+  # Dar C ABI baglantilari icin (native/securechat_crypto). Zaten
+  # transitive bagimliydi; dogrudan kullanildigi icin acikca bildiriliyor.
+  ffi: 2.2.0
   firebase_core: 4.13.0
   firebase_messaging: 16.5.0
   flutter:

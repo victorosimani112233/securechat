@@ -1,0 +1,3 @@
+# Rust derleme cikti dizini; artefaktlar tool/build_native_crypto.sh ile
+# uretilip ayrica vendor'lanir, repoya girmez.
+/target/
