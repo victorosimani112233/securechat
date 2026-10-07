@@ -7,6 +7,7 @@ import '../services/signaling_service.dart';
 import 'auth_api.dart';
 import 'account_recovery_coordinator.dart';
 import 'secure_account_recovery_coordinator.dart';
+import '../crypto/vodozemac/olm_pre_key_publisher.dart';
 import 'phone_privacy.dart';
 
 class AuthCoordinator {
@@ -14,6 +15,7 @@ class AuthCoordinator {
     required AuthApi api,
     required SessionStore session,
     required PreKeyManager preKeys,
+    required OlmKeyPublisher olmPreKeys,
     required SignalingService signaling,
     required String signalingUrl,
     ContactDiscoveryApi? privateDirectory,
@@ -22,6 +24,7 @@ class AuthCoordinator {
   }) : _api = api,
        _session = session,
        _preKeys = preKeys,
+       _olmPreKeys = olmPreKeys,
        _signaling = signaling,
        _signalingUrl = signalingUrl,
        _privateDirectory = privateDirectory,
@@ -41,6 +44,15 @@ class AuthCoordinator {
   final AuthApi _api;
   final SessionStore _session;
   final PreKeyManager _preKeys;
+
+  /// Olm acik anahtarlarini yayinlar.
+  ///
+  /// libsignal bundle'i da yuklenmeye devam ediyor ve bu BILEREK boyle:
+  /// hesap kurtarmanin kimlik pinlemesi `users.identity_public_key`
+  /// kolonuna dayaniyor ve o kolonu dolduran sey libsignal yuklemesi.
+  /// Ikisini ayni adimda ayirmak, kurtarmayi pinleyecek kimligi olmayan
+  /// bir hesapta birakirdi. Mesajlasmanin kullandigi anahtarlar bunlar.
+  final OlmKeyPublisher _olmPreKeys;
   final SignalingService _signaling;
   final String _signalingUrl;
   final ContactDiscoveryApi? _privateDirectory;
@@ -94,6 +106,11 @@ class AuthCoordinator {
     );
     final bundle = await _preKeys.generateAndSerializeInitialBundle();
     await _api.uploadPreKeys(bundle, result.accessToken);
+    // Mesajlasmanin gercekte kullandigi anahtarlar. Bu cagri BASARISIZ
+    // olursa kayit da basarisiz olmali: Olm anahtari olmayan bir hesaba
+    // kimse mesaj gonderemez ve kullanici bunu ancak ilk mesaj
+    // gonderilmediginde fark eder.
+    await _olmPreKeys.publishIfNeeded();
     await _signaling.connect(
       userId: result.userId,
       url: _signalingUrl,

@@ -16,10 +16,13 @@ import '../contacts/private_contact_discovery.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
 import '../crypto/crypto_protocol_store.dart';
-import '../crypto/libsignal_protocol_store.dart';
 import '../auth/auth_api.dart';
-import '../crypto/pre_key_maintenance_service.dart';
-import '../crypto/pre_key_manager.dart';
+import '../crypto/vodozemac/olm_pre_key_bundle_api.dart';
+import '../crypto/vodozemac/olm_pre_key_publisher.dart';
+import '../crypto/vodozemac/securechat_crypto_ffi.dart';
+import '../crypto/vodozemac/vodozemac_crypto_service.dart';
+import '../crypto/vodozemac/vodozemac_migration.dart';
+import '../crypto/vodozemac/vodozemac_protocol_store.dart';
 import '../crypto/signal_protocol_crypto_service.dart';
 import '../domain/send_message_use_case.dart';
 import '../incoming/incoming_message_handler.dart';
@@ -80,7 +83,7 @@ class SecureChatBackgroundRuntime {
     required this.incomingMessages,
     required this.mediaReceiver,
     required this.notifications,
-    required this.preKeyMaintenance,
+    required this.preKeyPublisher,
     required this.outbox,
     required this.refreshAccessToken,
     required AppResourceScope resources,
@@ -96,7 +99,7 @@ class SecureChatBackgroundRuntime {
   final IncomingMessageHandler incomingMessages;
   final BackgroundMediaReceiver mediaReceiver;
   final MessageNotificationCoordinator notifications;
-  final PreKeyMaintenanceService preKeyMaintenance;
+  final OlmPreKeyPublisher preKeyPublisher;
   final OfflineMessageQueue outbox;
 
   /// Saklanan access token olduysa yenileyip kalici hale getirir.
@@ -165,22 +168,34 @@ class SecureChatBackgroundRuntime {
       }
 
       final protocolStore = DatabaseCryptoProtocolStore(database);
-      final preKeyMaintenance = PreKeyMaintenanceService(
-        manager: PreKeyManager(protocolStore),
+      // Gecis ON PLANDA da kosuyor; burada da yoklanmasi gerekiyor cunku
+      // arka plan gorevi uygulama hic acilmadan tetiklenebilir. Isaret
+      // yazilmissa bu cagri bos geciyor.
+      await VodozemacMigration(database).runIfNeeded();
+      final vodozemacStore = VodozemacProtocolStore(
+        database: database,
+        crypto: SecureChatCrypto.open(),
+        pickleKey: await VodozemacProtocolStore.derivePickleKey(keyBytes),
+      );
+      final preKeyPublisher = OlmPreKeyPublisher(
+        database: database,
+        store: vodozemacStore,
         apiBaseUrl: Uri.parse(config.apiBaseUrl),
         httpClient: httpClients.create(),
         accessTokenProvider: () async => session.accessToken,
+        // Access token 1 saat gecerli, bu gorev 15 dakikada bir uyaniyor.
+        // Yenileme yolu olmadan token bayatladiginda anahtar yayini
+        // sessizce olurdu.
         refreshAccessToken: refreshAccessToken,
-        onFailure: (operation, error, stackTrace) {
-          _logBackgroundFailure('BG-PREKEY', operation, error, stackTrace);
-        },
       );
-      final crypto = SignalProtocolCryptoService(
-        store: PersistentSignalProtocolStore(protocolStore),
-        preKeyBundles: HttpPreKeyBundleProvider(
+      final crypto = VodozemacCryptoService(
+        database: database,
+        store: vodozemacStore,
+        preKeyBundles: HttpOlmPreKeyBundleProvider(
           apiBaseUrl: Uri.parse(config.apiBaseUrl),
           httpClient: httpClients.create(),
           accessTokenProvider: () async => session.accessToken,
+          refreshAccessToken: refreshAccessToken,
         ),
       );
       final contactIdentityResolver = ContactIdentityResolver(
@@ -311,7 +326,7 @@ class SecureChatBackgroundRuntime {
         incomingMessages: incomingMessages,
         mediaReceiver: mediaReceiver,
         notifications: notifications,
-        preKeyMaintenance: preKeyMaintenance,
+        preKeyPublisher: preKeyPublisher,
         outbox: outbox,
         refreshAccessToken: refreshAccessToken,
         resources: resources,
@@ -352,7 +367,7 @@ class SecureChatBackgroundRuntime {
         DateTime.now().millisecondsSinceEpoch,
       );
       await stuckRecovery.recoverStuckMessages();
-      await preKeyMaintenance.replenishIfNeeded();
+      await preKeyPublisher.publishIfNeeded();
       if (await _connect()) {
         await timerUpdates.flush();
         await scheduledMessages.processDue();

@@ -16,6 +16,7 @@ import 'package:flutter_securechat/src/settings/account_data_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 
 void main() {
   test('local data deletion logs out and clears every managed store', () async {
@@ -143,6 +144,7 @@ class _AccountFixture {
     final auth = AuthCoordinator(
       api: AuthApi(baseUrl: server.baseUrl),
       session: session,
+      olmPreKeys: _RecordingOlmKeyPublisher(),
       preKeys: PreKeyManager(DatabaseCryptoProtocolStore(database)),
       signaling: signaling,
       signalingUrl: 'ws://local',
@@ -247,4 +249,12 @@ class _FakeScheduler implements BackgroundScheduler {
   Future<void> scheduleMessage(ScheduledMessageEntity message) async {
     scheduled.add(message);
   }
+}
+
+/// Kayit akisi testleri anahtar yayinini degil kayit mantigini olcuyor.
+class _RecordingOlmKeyPublisher implements OlmKeyPublisher {
+  int calls = 0;
+
+  @override
+  Future<void> publishIfNeeded() async => calls++;
 }

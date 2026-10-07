@@ -13,6 +13,7 @@ import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 
 void main() {
   test(
@@ -84,6 +85,7 @@ void main() {
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
+        olmPreKeys: _RecordingOlmKeyPublisher(),
         preKeys: PreKeyManager(
           DatabaseCryptoProtocolStore(fixture.database),
           batchSize: 3,
@@ -198,6 +200,7 @@ void main() {
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
+        olmPreKeys: _RecordingOlmKeyPublisher(),
         preKeys: preKeys,
         signaling: signaling,
         signalingUrl: 'ws://local',
@@ -252,6 +255,7 @@ void main() {
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
+        olmPreKeys: _RecordingOlmKeyPublisher(),
         preKeys: preKeys,
         signaling: signaling,
         signalingUrl: 'ws://local',
@@ -380,4 +384,12 @@ class _RecordingDirectoryApi implements ContactDiscoveryApi {
     this.ownUserId = ownUserId;
     return const [];
   }
+}
+
+/// Kayit akisi testleri anahtar yayinini degil kayit mantigini olcuyor.
+class _RecordingOlmKeyPublisher implements OlmKeyPublisher {
+  int calls = 0;
+
+  @override
+  Future<void> publishIfNeeded() async => calls++;
 }

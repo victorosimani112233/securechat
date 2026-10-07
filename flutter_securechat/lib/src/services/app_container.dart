@@ -29,10 +29,13 @@ import '../contacts/private_contact_discovery.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../crypto/call_crypto_manager.dart';
 import '../crypto/crypto_protocol_store.dart';
-import '../crypto/libsignal_protocol_store.dart';
 import '../crypto/pre_key_manager.dart';
-import '../crypto/pre_key_maintenance_service.dart';
-import '../crypto/signal_protocol_crypto_service.dart';
+import '../crypto/vodozemac/olm_pre_key_bundle_api.dart';
+import '../crypto/vodozemac/olm_pre_key_publisher.dart';
+import '../crypto/vodozemac/securechat_crypto_ffi.dart';
+import '../crypto/vodozemac/vodozemac_crypto_service.dart';
+import '../crypto/vodozemac/vodozemac_migration.dart';
+import '../crypto/vodozemac/vodozemac_protocol_store.dart';
 import '../domain/send_message_use_case.dart';
 import '../diagnostics/crash_reporter.dart';
 import '../debug/notification_debug_harness.dart';
@@ -398,15 +401,30 @@ class AppContainer {
       final networkMonitor = SystemNetworkMonitor();
       resources.register('network-monitor', networkMonitor.dispose);
       final protocolStore = DatabaseCryptoProtocolStore(database);
+      // `PreKeyManager` ve libsignal bundle yuklemesi BILEREK duruyor.
+      // Mesaj kriptosu vodozemac'a geciyor, ama hesap kurtarmanin kimlik
+      // pinlemesi `users.identity_public_key` kolonuna dayaniyor ve o
+      // kolonu dolduran sey libsignal bundle yuklemesi. Ikisini ayni adimda
+      // sokmek, kurtarmayi pinleyecek kimligi olmayan bir hesapta
+      // birakirdi. Sunucu iki sekli birden kabul ediyor; kurtarma Olm
+      // kimligine ayri bir adimda tasinacak.
       final preKeyManager = PreKeyManager(protocolStore);
-      final preKeyMaintenance = PreKeyMaintenanceService(
-        manager: preKeyManager,
+
+      // libsignal -> vodozemac gecisi. Isaret EN SON yazildigi icin yarida
+      // kesilirse tekrar kosar; mesaj gecmisi KORUNUR, yalniz kripto
+      // durumu temizlenir ve oturumlar yeniden kurulur.
+      await VodozemacMigration(database).runIfNeeded();
+      final vodozemacStore = VodozemacProtocolStore(
+        database: database,
+        crypto: SecureChatCrypto.open(),
+        pickleKey: await VodozemacProtocolStore.derivePickleKey(keyBytes),
+      );
+      final preKeyPublisher = OlmPreKeyPublisher(
+        database: database,
+        store: vodozemacStore,
         apiBaseUrl: Uri.parse(config.apiBaseUrl),
         httpClient: httpClients.create(),
         accessTokenProvider: () async => session.accessToken,
-        // Yenileme hatasi sessizce yutulursa sunucudaki havuz tukenirken
-        // istemcide hicbir iz kalmaz; diagnostics'e dusmesi gerekir.
-        onFailure: reportAsyncFailure,
       );
       final contactIdentityResolver = ContactIdentityResolver(
         database: database,
@@ -415,7 +433,6 @@ class AppContainer {
         baseUrl: config.apiBaseUrl,
         client: httpClients.create(),
       );
-      final signalStore = PersistentSignalProtocolStore(protocolStore);
       // Servis katmani metinleri BuildContext olmadan yerellestirilir.
       final serviceStrings = ServiceStrings(
         languageCode: () async => session.languagePreference,
@@ -424,9 +441,10 @@ class AppContainer {
         database: database,
         strings: serviceStrings,
       );
-      final crypto = SignalProtocolCryptoService(
-        store: signalStore,
-        preKeyBundles: HttpPreKeyBundleProvider(
+      final crypto = VodozemacCryptoService(
+        database: database,
+        store: vodozemacStore,
+        preKeyBundles: HttpOlmPreKeyBundleProvider(
           apiBaseUrl: Uri.parse(config.apiBaseUrl),
           httpClient: httpClients.create(),
           accessTokenProvider: () async => session.accessToken,
@@ -715,6 +733,7 @@ class AppContainer {
         api: AuthApi(baseUrl: config.apiBaseUrl, client: httpClients.create()),
         session: session,
         preKeys: preKeyManager,
+        olmPreKeys: preKeyPublisher,
         signaling: signaling,
         signalingUrl: config.signalingUrl,
         privateDirectory: privateDirectory,
@@ -747,7 +766,7 @@ class AppContainer {
         messages: database.messages,
         stuckMessageRecovery: stuckMessageRecovery,
         signaling: signaling,
-        preKeyMaintenance: preKeyMaintenance,
+        preKeyPublisher: preKeyPublisher,
       );
       final messageNotifications = MessageNotificationCoordinator(
         incomingMessages: incomingMessages.acceptedMessages,
@@ -1031,7 +1050,7 @@ class AppBackgroundRuntime {
     required this.messages,
     required this.stuckMessageRecovery,
     required this.signaling,
-    required this.preKeyMaintenance,
+    required this.preKeyPublisher,
   });
 
   final ScheduledMessageService scheduledMessages;
@@ -1040,7 +1059,13 @@ class AppBackgroundRuntime {
   final MessageDao messages;
   final StuckMessageRecovery stuckMessageRecovery;
   final SignalingService signaling;
-  final PreKeyMaintenanceService preKeyMaintenance;
+  /// Olm acik anahtarlarinin yayini.
+  ///
+  /// Eskiden `PreKeyMaintenanceService` idi ve libsignal havuzunu
+  /// tamamliyordu. O havuz artik tuketilmiyor: libsignal bundle'i yalniz
+  /// hesap kurtarmanin kimlik pinlemesi icin duruyor ve bir kez, kayitta
+  /// yaziliyor. Tuketilen havuz Olm havuzu.
+  final OlmPreKeyPublisher preKeyPublisher;
 
   Future<int> expireMessages([DateTime? at]) => messages.deleteExpiredMessages(
     (at ?? DateTime.now()).millisecondsSinceEpoch,
@@ -1049,7 +1074,7 @@ class AppBackgroundRuntime {
   Future<void> runForegroundMaintenance() async {
     await expireMessages();
     await stuckMessageRecovery.recoverStuckMessages();
-    await preKeyMaintenance.replenishIfNeeded();
+    await preKeyPublisher.publishIfNeeded();
     if (signaling.currentStatus.isConnected) await timerUpdates.flush();
     await scheduledMessages.processDue();
   }

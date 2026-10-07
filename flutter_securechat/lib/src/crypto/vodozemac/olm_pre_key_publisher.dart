@@ -4,6 +4,16 @@ import 'dart:io';
 import '../../storage/secure_chat_database.dart';
 import 'vodozemac_protocol_store.dart';
 
+/// Olm acik anahtarlarini yayinlama yetenegi.
+///
+/// `AuthCoordinator` ve arka plan bakimi yalniz bu davranisa ihtiyac
+/// duyuyor. Somut sinif native kutuphane, veritabani ve HTTP istemcisi
+/// istiyor; kayit akisi testlerinin ucunu da kurmasi gerekmesin diye
+/// bagimlilik arayuz uzerinden veriliyor.
+abstract interface class OlmKeyPublisher {
+  Future<void> publishIfNeeded();
+}
+
 /// Hesabin Olm acik anahtarlarini sunucuya yayinlar.
 ///
 /// libsignal tarafindaki `PreKeyManager` + `PreKeyMaintenanceService`
@@ -15,7 +25,7 @@ import 'vodozemac_protocol_store.dart';
 ///    bosaldiginda oturum kurulumu fallback ile surer. Bu yol olmasa havuz
 ///    bosken bundle bos doner ve gonderen hic oturum kuramaz.
 ///  * **`registrationId` yok.** Olm'da karsiligi olmayan bir kavram.
-class OlmPreKeyPublisher {
+class OlmPreKeyPublisher implements OlmKeyPublisher {
   OlmPreKeyPublisher({
     required SecureChatDatabase database,
     required VodozemacProtocolStore store,
@@ -65,6 +75,7 @@ class OlmPreKeyPublisher {
   /// Yukleme basarisiz olursa hicbir sey "yayinlandi" olarak isaretlenmez;
   /// cagri yeniden denendiginde ayni anahtarlar tekrar gonderilir. Sunucu
   /// ayni kimlik + ayni materyali idempotent kabul eder.
+  @override
   Future<void> publishIfNeeded() async {
     final fallbackPublishedAt = await _database.vodozemacAccount
         .readFallbackPublishedAt();
