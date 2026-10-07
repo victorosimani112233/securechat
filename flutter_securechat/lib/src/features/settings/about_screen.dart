@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../config/legal_links.dart';
 import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/azure_surface.dart';
+import '../../widgets/legal_links.dart';
 
 /// Hakkinda: surum, guvenlik ozeti ve lisanslar.
 ///
@@ -78,6 +80,40 @@ class AboutScreen extends StatelessWidget {
                   applicationName: 'Elçim',
                   applicationVersion: version,
                 ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            AzureSurface(
+              child: Column(
+                children: [
+                  for (final (key, icon, title, url) in [
+                    (
+                      'about-privacy',
+                      Icons.privacy_tip_outlined,
+                      l10n.legal_privacy,
+                      LegalLinks.privacy,
+                    ),
+                    (
+                      'about-terms',
+                      Icons.gavel_outlined,
+                      l10n.legal_terms,
+                      LegalLinks.terms,
+                    ),
+                    (
+                      'about-child-safety',
+                      Icons.child_care_outlined,
+                      l10n.legal_child_safety,
+                      LegalLinks.childSafety,
+                    ),
+                  ])
+                    ListTile(
+                      key: ValueKey(key),
+                      leading: Icon(icon),
+                      title: Text(title),
+                      trailing: const Icon(Icons.open_in_new),
+                      onTap: () => openLegalPage(context, url),
+                    ),
+                ],
               ),
             ),
           ],

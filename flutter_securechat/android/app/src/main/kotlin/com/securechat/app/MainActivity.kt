@@ -104,6 +104,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "getCallReadiness" -> getCallReadiness(result)
                     "openNotificationChannelSettings" -> openNotificationChannelSettings(call.arguments, result)
                     "openCallReadinessSetting" -> openCallReadinessSetting(call.arguments, result)
+                    "openExternalUrl" -> openExternalUrl(call.arguments, result)
                     "requestContactsPermission" -> requestContactsPermission(result)
                     "readContacts" -> readContacts(result)
                     "openLocalFile" -> openLocalFile(call.arguments, result)
@@ -257,6 +258,22 @@ class MainActivity : FlutterFragmentActivity() {
             result.success(false)
             return
         }
+        try {
+            startActivity(intent)
+            result.success(true)
+        } catch (_: Exception) {
+            result.success(false)
+        }
+    }
+
+    /** Gizlilik/sartlar sayfalari icin; yalniz https kabul edilir. */
+    private fun openExternalUrl(arguments: Any?, result: MethodChannel.Result) {
+        val uri = (arguments as? Map<*, *>)?.get("url")?.toString()?.let(Uri::parse)
+        if (uri == null || uri.scheme != "https" || uri.host.isNullOrEmpty()) {
+            result.success(false)
+            return
+        }
+        val intent = Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
         try {
             startActivity(intent)
             result.success(true)

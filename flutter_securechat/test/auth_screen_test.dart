@@ -55,6 +55,11 @@ void main() {
       await tester.tap(next);
       await tester.pumpAndSettle();
 
+      // Store kurallari: devam etmeden once sartlar ve gizlilik linki gorunur.
+      expect(
+        find.byKey(const ValueKey('legal-consent-notice')),
+        findsOneWidget,
+      );
       await tester.enterText(find.byType(TextField), 'user@example.com');
       await tester.ensureVisible(find.byType(FilledButton));
       await tester.tap(find.byType(FilledButton));

@@ -1039,5 +1039,10 @@
   "safety_report_sent": "Report sent. Reports are reviewed within 24 hours.",
   "safety_report_failed": "The report could not be sent. Try again.",
   "safety_blocked_contacts": "Blocked contacts",
-  "safety_blocked_contacts_empty": "No blocked contacts"
+  "safety_blocked_contacts_empty": "No blocked contacts",
+  "legal_consent_notice": "By continuing you accept the Terms of Use and the Privacy Policy.",
+  "legal_terms": "Terms of Use",
+  "legal_privacy": "Privacy Policy",
+  "legal_child_safety": "Child safety standards",
+  "legal_open_failed": "The page could not be opened."
 }

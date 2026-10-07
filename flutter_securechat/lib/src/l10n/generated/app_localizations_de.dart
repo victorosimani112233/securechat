@@ -2248,4 +2248,20 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get safety_blocked_contacts_empty => 'Keine blockierten Kontakte';
+
+  @override
+  String get legal_consent_notice =>
+      'Mit dem Fortfahren akzeptierst du die Nutzungsbedingungen und die Datenschutzerklärung.';
+
+  @override
+  String get legal_terms => 'Nutzungsbedingungen';
+
+  @override
+  String get legal_privacy => 'Datenschutzerklärung';
+
+  @override
+  String get legal_child_safety => 'Kinderschutzstandards';
+
+  @override
+  String get legal_open_failed => 'Die Seite konnte nicht geöffnet werden.';
 }

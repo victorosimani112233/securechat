@@ -145,6 +145,16 @@ enum SecureChatContactsAccess {
         // listeden yapiliyor. Burada yalnizca uygulamanin bildirim
         // ayarlari aciliyor (izin, banner, kilit ekrani gorunumu).
         self?.openNotificationSettings(result: result)
+      case "openExternalUrl":
+        guard let raw = (call.arguments as? [String: Any])?["url"] as? String,
+              let url = URL(string: raw),
+              url.scheme == "https",
+              url.host?.isEmpty == false
+        else {
+          result(false)
+          return
+        }
+        UIApplication.shared.open(url) { opened in result(opened) }
       case "openCallReadinessSetting":
         self?.openCallReadinessSetting(call.arguments, result: result)
       case "requestContactsPermission":

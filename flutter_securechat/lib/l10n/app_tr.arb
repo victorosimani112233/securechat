@@ -1032,5 +1032,10 @@
   "safety_report_sent": "Bildirim gönderildi. Bildirimler 24 saat içinde incelenir.",
   "safety_report_failed": "Bildirim gönderilemedi. Tekrar dene.",
   "safety_blocked_contacts": "Engellenen kişiler",
-  "safety_blocked_contacts_empty": "Engellenen kişi yok"
+  "safety_blocked_contacts_empty": "Engellenen kişi yok",
+  "legal_consent_notice": "Devam ederek Kullanım Şartları’nı ve Gizlilik Politikası’nı kabul etmiş olursun.",
+  "legal_terms": "Kullanım Şartları",
+  "legal_privacy": "Gizlilik Politikası",
+  "legal_child_safety": "Çocuk güvenliği standartları",
+  "legal_open_failed": "Sayfa açılamadı."
 }

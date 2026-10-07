@@ -2218,4 +2218,20 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get safety_blocked_contacts_empty => 'No blocked contacts';
+
+  @override
+  String get legal_consent_notice =>
+      'By continuing you accept the Terms of Use and the Privacy Policy.';
+
+  @override
+  String get legal_terms => 'Terms of Use';
+
+  @override
+  String get legal_privacy => 'Privacy Policy';
+
+  @override
+  String get legal_child_safety => 'Child safety standards';
+
+  @override
+  String get legal_open_failed => 'The page could not be opened.';
 }

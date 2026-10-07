@@ -661,5 +661,10 @@
   "safety_report_sent": "Meldung gesendet. Meldungen werden innerhalb von 24 Stunden geprüft.",
   "safety_report_failed": "Die Meldung konnte nicht gesendet werden. Versuche es erneut.",
   "safety_blocked_contacts": "Blockierte Kontakte",
-  "safety_blocked_contacts_empty": "Keine blockierten Kontakte"
+  "safety_blocked_contacts_empty": "Keine blockierten Kontakte",
+  "legal_consent_notice": "Mit dem Fortfahren akzeptierst du die Nutzungsbedingungen und die Datenschutzerklärung.",
+  "legal_terms": "Nutzungsbedingungen",
+  "legal_privacy": "Datenschutzerklärung",
+  "legal_child_safety": "Kinderschutzstandards",
+  "legal_open_failed": "Die Seite konnte nicht geöffnet werden."
 }

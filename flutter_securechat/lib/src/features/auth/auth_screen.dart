@@ -7,6 +7,7 @@ import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../theme/secure_chat_theme.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/legal_links.dart';
 import 'recovery_login_screen.dart';
 
 enum _AuthStep { details, email, otp }
@@ -599,6 +600,10 @@ class _EmailStep extends StatelessWidget {
                         ),
                 ),
               ),
+              if (step == _AuthStep.email) ...[
+                const SizedBox(height: 16),
+                const LegalConsentNotice(),
+              ],
               if (step == _AuthStep.otp) ...[
                 const SizedBox(height: 8),
                 TextButton(

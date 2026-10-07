@@ -76,6 +76,15 @@ class NativeBridge {
       }) ??
       false;
 
+  /// Yalniz https adreslerini sistem tarayicisinda acar.
+  Future<bool> openExternalUrl(Uri url) async {
+    if (url.scheme != 'https' || url.host.isEmpty) return false;
+    return await _methods.invokeMethod<bool>('openExternalUrl', {
+          'url': url.toString(),
+        }) ??
+        false;
+  }
+
   Future<bool> requestContactsPermission() async =>
       await _methods.invokeMethod<bool>('requestContactsPermission') ?? false;
 

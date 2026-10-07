@@ -4073,6 +4073,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No blocked contacts'**
   String get safety_blocked_contacts_empty;
+
+  /// No description provided for @legal_consent_notice.
+  ///
+  /// In en, this message translates to:
+  /// **'By continuing you accept the Terms of Use and the Privacy Policy.'**
+  String get legal_consent_notice;
+
+  /// No description provided for @legal_terms.
+  ///
+  /// In en, this message translates to:
+  /// **'Terms of Use'**
+  String get legal_terms;
+
+  /// No description provided for @legal_privacy.
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy Policy'**
+  String get legal_privacy;
+
+  /// No description provided for @legal_child_safety.
+  ///
+  /// In en, this message translates to:
+  /// **'Child safety standards'**
+  String get legal_child_safety;
+
+  /// No description provided for @legal_open_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'The page could not be opened.'**
+  String get legal_open_failed;
 }
 
 class _AppLocalizationsDelegate

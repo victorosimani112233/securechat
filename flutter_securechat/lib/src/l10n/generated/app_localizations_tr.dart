@@ -2204,4 +2204,20 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get safety_blocked_contacts_empty => 'Engellenen kişi yok';
+
+  @override
+  String get legal_consent_notice =>
+      'Devam ederek Kullanım Şartları’nı ve Gizlilik Politikası’nı kabul etmiş olursun.';
+
+  @override
+  String get legal_terms => 'Kullanım Şartları';
+
+  @override
+  String get legal_privacy => 'Gizlilik Politikası';
+
+  @override
+  String get legal_child_safety => 'Çocuk güvenliği standartları';
+
+  @override
+  String get legal_open_failed => 'Sayfa açılamadı.';
 }
