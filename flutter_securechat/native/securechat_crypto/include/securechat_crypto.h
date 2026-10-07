@@ -39,6 +39,24 @@ uint32_t sc_abi_version(void);
 char *sc_last_error(void);
 void sc_string_free(char *value);
 
+/* Son hatanin sinifi. sc_last_error() ile ayni cagri icin gecerlidir.
+ *
+ * NEDEN KOD VAR: cagiran, bir cozme hatasinin oturumu YOK ETMEYI gerektirip
+ * gerektirmedigine karar vermek zorunda ve bunu hata METNINE bakarak vermek
+ * kirilgan. Ozellikle SC_ERROR_DECRYPT_MISSING_KEY tekrar teslim edilen ya
+ * da sirasiz gelen bir cerceveyi isaret eder; saglikli bir oturumda da
+ * olagandir ve oturum SIFIRLANMAMALIDIR. */
+#define SC_ERROR_NONE                 0u
+#define SC_ERROR_GENERIC              1u
+#define SC_ERROR_PICKLE               2u
+#define SC_ERROR_DECODE               3u
+#define SC_ERROR_DECRYPT_MISSING_KEY  4u  /* oturum saglam */
+#define SC_ERROR_DECRYPT_INVALID      5u  /* oturum kullanilamaz */
+#define SC_ERROR_DECRYPT_GAP          6u  /* oturum kullanilamaz */
+#define SC_ERROR_SESSION              7u
+
+uint32_t sc_last_error_code(void);
+
 /* --- Account ----------------------------------------------------------- */
 
 ScAccount *sc_account_new(void);

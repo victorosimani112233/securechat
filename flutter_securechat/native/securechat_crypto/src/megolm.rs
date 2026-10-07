@@ -20,7 +20,10 @@ use vodozemac::megolm::{
     MegolmMessage, SessionConfig, SessionKey,
 };
 
-use crate::{borrow_bytes, borrow_key, borrow_str, clear_error, set_error, to_c_string};
+use crate::{
+    borrow_bytes, borrow_key, borrow_str, clear_error, set_error, set_error_code, to_c_string,
+    ERROR_DECODE, ERROR_DECRYPT_INVALID, ERROR_DECRYPT_MISSING_KEY, ERROR_PICKLE, ERROR_SESSION,
+};
 
 // ---------------------------------------------------------------------------
 // GroupSession — giden
@@ -64,6 +67,7 @@ pub unsafe extern "C" fn sc_group_session_from_pickle(
     match GroupSessionPickle::from_encrypted(pickle, key) {
         Ok(decoded) => Box::into_raw(Box::new(GroupSession::from_pickle(decoded))),
         Err(error) => {
+            set_error_code(ERROR_PICKLE);
             set_error(format!("group session pickle acilamadi: {error}"));
             ptr::null_mut()
         }
@@ -166,6 +170,7 @@ pub unsafe extern "C" fn sc_inbound_group_session_new(
     let key = match SessionKey::from_base64(encoded) {
         Ok(key) => key,
         Err(error) => {
+            set_error_code(ERROR_SESSION);
             set_error(format!("oturum anahtari cozulemedi: {error}"));
             return ptr::null_mut();
         }
@@ -206,6 +211,7 @@ pub unsafe extern "C" fn sc_inbound_group_session_from_pickle(
     match InboundGroupSessionPickle::from_encrypted(pickle, key) {
         Ok(decoded) => Box::into_raw(Box::new(InboundGroupSession::from_pickle(decoded))),
         Err(error) => {
+            set_error_code(ERROR_PICKLE);
             set_error(format!("inbound group session pickle acilamadi: {error}"));
             ptr::null_mut()
         }
@@ -272,6 +278,7 @@ pub unsafe extern "C" fn sc_inbound_group_session_decrypt(
     let parsed = match MegolmMessage::from_base64(encoded) {
         Ok(parsed) => parsed,
         Err(error) => {
+            set_error_code(ERROR_DECODE);
             set_error(format!("megolm mesaji cozulemedi: {error}"));
             return ptr::null_mut();
         }
@@ -285,6 +292,18 @@ pub unsafe extern "C" fn sc_inbound_group_session_decrypt(
             .to_string(),
         ),
         Err(error) => {
+            use vodozemac::megolm::DecryptionError as E;
+            set_error_code(match error {
+                // Bilinmeyen indeks: oturum ileri sarilmis, anahtar yok.
+                // Grup oturumu saglam; yeniden dagitim gerekebilir ama
+                // oturumu atmak dogru degil.
+                E::UnknownMessageIndex(_, _) => ERROR_DECRYPT_MISSING_KEY,
+                E::InvalidMAC(_) | E::InvalidMACLength(_, _) | E::InvalidPadding(_) => {
+                    ERROR_DECRYPT_INVALID
+                }
+                // Imza gecersiz: mesaj bu gonderenden gelmiyor.
+                E::Signature(_) => ERROR_DECRYPT_INVALID,
+            });
             set_error(format!("grup sifre cozme basarisiz: {error}"));
             ptr::null_mut()
         }

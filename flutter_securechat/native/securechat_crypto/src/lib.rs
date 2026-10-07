@@ -19,7 +19,7 @@
 //!   ham bayt + uzunluk imzasına geçilip ara tamponlar sıfırlanmalı.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
 
@@ -30,6 +30,39 @@ use vodozemac::Curve25519PublicKey;
 
 thread_local! {
     static LAST_ERROR: RefCell<Option<CString>> = const { RefCell::new(None) };
+    static LAST_ERROR_CODE: Cell<u32> = const { Cell::new(ERROR_NONE) };
+}
+
+/// Hata siniflari.
+///
+/// NEDEN KOD VAR: cagiran, cozme hatasinin oturumu YOK ETMEYI gerektirip
+/// gerektirmedigine karar vermek zorunda. Bu karari hata MESAJINA bakarak
+/// vermek kirilgan: bir metin degisikligi sessizce guvenlik davranisini
+/// degistirir. Ozellikle `MissingMessageKey` tekrar teslim edilen ya da
+/// sirasiz gelen bir cerceveyi isaret eder ve saglikli bir oturumda da
+/// olagandir — onu "oturum olu" saymak, tekrar oynatilan bir cerceveyle
+/// oturumu sifirlatmak demek olurdu.
+pub(crate) const ERROR_NONE: u32 = 0;
+pub(crate) const ERROR_GENERIC: u32 = 1;
+pub(crate) const ERROR_PICKLE: u32 = 2;
+pub(crate) const ERROR_DECODE: u32 = 3;
+/// Mesaj anahtari yok: tuketilmis veya ratchet ilerlemis. Oturum SAGLAM.
+pub(crate) const ERROR_DECRYPT_MISSING_KEY: u32 = 4;
+/// MAC veya padding gecersiz: yanlis anahtar, yanlis oturum veya oynama.
+pub(crate) const ERROR_DECRYPT_INVALID: u32 = 5;
+/// Mesaj araligi cok buyuk; oturum yetisemez.
+pub(crate) const ERROR_DECRYPT_GAP: u32 = 6;
+/// Oturum kurulamadi.
+pub(crate) const ERROR_SESSION: u32 = 7;
+
+/// Son hatanin sinifi. `sc_last_error()` ile ayni cagri icin gecerlidir.
+#[no_mangle]
+pub extern "C" fn sc_last_error_code() -> u32 {
+    LAST_ERROR_CODE.with(|slot| slot.get())
+}
+
+pub(crate) fn set_error_code(code: u32) {
+    LAST_ERROR_CODE.with(|slot| slot.set(code));
 }
 
 pub(crate) fn set_error(message: impl Into<String>) {
@@ -37,10 +70,15 @@ pub(crate) fn set_error(message: impl Into<String>) {
     let encoded = CString::new(text)
         .unwrap_or_else(|_| CString::new("hata mesaji NUL bayti tasiyordu").expect("statik mesaj"));
     LAST_ERROR.with(|slot| *slot.borrow_mut() = Some(encoded));
+    // Varsayilan sinif; cagri yeri daha ozel bir kod verebilir.
+    if sc_last_error_code() == ERROR_NONE {
+        set_error_code(ERROR_GENERIC);
+    }
 }
 
 pub(crate) fn clear_error() {
     LAST_ERROR.with(|slot| *slot.borrow_mut() = None);
+    set_error_code(ERROR_NONE);
 }
 
 /// Son hatayı döndürür; hata yoksa `null`. Çağıran `sc_string_free` çağırır.
@@ -68,7 +106,7 @@ pub unsafe extern "C" fn sc_string_free(value: *mut c_char) {
 /// doğrular; eşleşmezse yanlış `.so` ile sessizce çalışmak yerine açık hata.
 #[no_mangle]
 pub extern "C" fn sc_abi_version() -> u32 {
-    2
+    3
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +208,7 @@ pub unsafe extern "C" fn sc_account_from_pickle(
     match vodozemac::olm::AccountPickle::from_encrypted(pickle, key) {
         Ok(decoded) => Box::into_raw(Box::new(Account::from_pickle(decoded))),
         Err(error) => {
+            set_error_code(ERROR_PICKLE);
             set_error(format!("account pickle acilamadi: {error}"));
             ptr::null_mut()
         }
@@ -410,6 +449,7 @@ pub unsafe extern "C" fn sc_account_create_inbound_session(
     let message = match PreKeyMessage::from_base64(message) {
         Ok(decoded) => decoded,
         Err(error) => {
+            set_error_code(ERROR_DECODE);
             set_error(format!("pre-key mesaji cozulemedi: {error}"));
             return ptr::null_mut();
         }
@@ -421,6 +461,7 @@ pub unsafe extern "C" fn sc_account_create_inbound_session(
             to_c_string(plaintext)
         }
         Err(error) => {
+            set_error_code(ERROR_SESSION);
             set_error(format!("gelen oturum kurulamadi: {error}"));
             ptr::null_mut()
         }
@@ -481,6 +522,7 @@ pub unsafe extern "C" fn sc_session_from_pickle(
     match vodozemac::olm::SessionPickle::from_encrypted(pickle, key) {
         Ok(decoded) => Box::into_raw(Box::new(Session::from_pickle(decoded))),
         Err(error) => {
+            set_error_code(ERROR_PICKLE);
             set_error(format!("session pickle acilamadi: {error}"));
             ptr::null_mut()
         }
@@ -566,6 +608,7 @@ pub unsafe extern "C" fn sc_session_decrypt(
     let message = match OlmMessage::from_parts(message_type, &ciphertext) {
         Ok(decoded) => decoded,
         Err(error) => {
+            set_error_code(ERROR_DECODE);
             set_error(format!("mesaj cozulemedi: {error}"));
             return ptr::null_mut();
         }
@@ -573,6 +616,16 @@ pub unsafe extern "C" fn sc_session_decrypt(
     match (*session).decrypt(&message) {
         Ok(plaintext) => to_c_string(B64.encode(plaintext)),
         Err(error) => {
+            use vodozemac::olm::DecryptionError as E;
+            set_error_code(match error {
+                // Tuketilmis veya atlanmis anahtar: tekrar teslim ya da
+                // sirasiz cerceve. Oturum saglam, SIFIRLANMAMALI.
+                E::MissingMessageKey(_) => ERROR_DECRYPT_MISSING_KEY,
+                E::TooBigMessageGap(_, _) => ERROR_DECRYPT_GAP,
+                E::InvalidMAC(_) | E::InvalidMACLength(_, _) | E::InvalidPadding(_) => {
+                    ERROR_DECRYPT_INVALID
+                }
+            });
             set_error(format!("sifre cozme basarisiz: {error}"));
             ptr::null_mut()
         }
@@ -610,11 +663,11 @@ mod tests {
 
     #[test]
     fn abi_surumu_sabit() {
-        // 1 = Olm (Account + Session). 2 = Megolm grup oturumlari eklendi.
+        // 1 = Olm. 2 = Megolm. 3 = sc_last_error_code() eklendi.
         // Degistirilirse `include/securechat_crypto.h` ve Dart tarafindaki
         // `expectedAbiVersion` birlikte guncellenmeli; Dart testi ucunu de
         // birbirine bagliyor.
-        assert_eq!(sc_abi_version(), 2);
+        assert_eq!(sc_abi_version(), 3);
     }
 
     #[test]
@@ -756,6 +809,140 @@ mod tests {
             // Havuz sunucu tarafinda hala dolu; yalnizca "yayinlanmamis" listesi bosaldi.
             assert_eq!(sc_account_stored_one_time_key_count(account), 3);
             sc_account_free(account);
+        }
+    }
+
+    /// Tekrar teslim edilen cerceve oturumu OLDURMEMELI.
+    ///
+    /// Eski libsignal kodu `DuplicateMessageException`'i bilerek "oturum
+    /// kullanilamaz" sinifinin DISINDA tutuyordu: tekrar teslim saglikli bir
+    /// oturumda da olagan ve oturumu sifirlamak tekrar oynatilan tek bir
+    /// cerceveyle oturumu yok etme imkani verirdi. vodozemac'ta ayni durum
+    /// `MissingMessageKey` olarak geliyor; kodun bunu ayri siniflandirdigi
+    /// burada kanitlanir.
+    #[test]
+    fn tekrar_teslim_missing_key_olarak_siniflanir() {
+        unsafe {
+            let alice = sc_account_new();
+            let bob = sc_account_new();
+            let bob_keys: serde_json::Value =
+                serde_json::from_str(&take_string(sc_account_generate_one_time_keys(bob, 1)))
+                    .expect("json");
+            let bob_identity: serde_json::Value =
+                serde_json::from_str(&take_string(sc_account_identity_keys(bob))).expect("json");
+            let alice_identity: serde_json::Value =
+                serde_json::from_str(&take_string(sc_account_identity_keys(alice))).expect("json");
+
+            let session = sc_account_create_outbound_session(
+                alice,
+                c(bob_identity["curve25519"].as_str().expect("curve")).as_ptr(),
+                c(bob_keys
+                    .as_object()
+                    .expect("obje")
+                    .values()
+                    .next()
+                    .expect("anahtar")
+                    .as_str()
+                    .expect("b64"))
+                .as_ptr(),
+            );
+
+            // Bob gelen oturumu kurar ve ilk mesaji cozer.
+            let envelope: serde_json::Value = serde_json::from_str(&take_string(
+                sc_session_encrypt(session, b"bir".as_ptr(), 3),
+            ))
+            .expect("json");
+            let body = envelope["body"].as_str().expect("body").to_owned();
+            let prekey_b64 = {
+                let ciphertext = B64.decode(&body).expect("b64");
+                match OlmMessage::from_parts(0, &ciphertext).expect("mesaj") {
+                    OlmMessage::PreKey(message) => message.to_base64(),
+                    _ => panic!("PreKey bekleniyordu"),
+                }
+            };
+            let mut bob_session: *mut Session = ptr::null_mut();
+            take_string(sc_account_create_inbound_session(
+                bob,
+                c(alice_identity["curve25519"].as_str().expect("curve")).as_ptr(),
+                c(&prekey_b64).as_ptr(),
+                &mut bob_session,
+            ));
+
+            // Alice ikinci mesaji gonderir, Bob cozer.
+            let second: serde_json::Value = serde_json::from_str(&take_string(sc_session_encrypt(
+                session,
+                b"iki".as_ptr(),
+                3,
+            )))
+            .expect("json");
+            let second_type = second["type"].as_u64().expect("type") as usize;
+            let second_body = second["body"].as_str().expect("body").to_owned();
+            take_string(sc_session_decrypt(
+                bob_session,
+                second_type,
+                c(&second_body).as_ptr(),
+            ));
+
+            // AYNI cerceve tekrar: anahtar tuketilmis.
+            let replay = sc_session_decrypt(bob_session, second_type, c(&second_body).as_ptr());
+            assert!(replay.is_null());
+            assert_eq!(
+                sc_last_error_code(),
+                ERROR_DECRYPT_MISSING_KEY,
+                "tekrar teslim MissingMessageKey olarak siniflanmali, hata: {:?}",
+                last_error()
+            );
+
+            sc_session_free(bob_session);
+            sc_session_free(session);
+            sc_account_free(bob);
+            sc_account_free(alice);
+        }
+    }
+
+    /// Bozulmus ciphertext MAC hatasi verir ve oturum kullanilamaz sayilir.
+    #[test]
+    fn bozulmus_mesaj_invalid_olarak_siniflanir() {
+        unsafe {
+            let alice = sc_account_new();
+            let bob = sc_account_new();
+            let bob_keys: serde_json::Value =
+                serde_json::from_str(&take_string(sc_account_generate_one_time_keys(bob, 1)))
+                    .expect("json");
+            let bob_identity: serde_json::Value =
+                serde_json::from_str(&take_string(sc_account_identity_keys(bob))).expect("json");
+            let session = sc_account_create_outbound_session(
+                alice,
+                c(bob_identity["curve25519"].as_str().expect("curve")).as_ptr(),
+                c(bob_keys
+                    .as_object()
+                    .expect("obje")
+                    .values()
+                    .next()
+                    .expect("anahtar")
+                    .as_str()
+                    .expect("b64"))
+                .as_ptr(),
+            );
+
+            // Alice kendi oturumunda, kendi urettigi mesaji cozmeye calisir:
+            // anahtar zinciri uymaz ve MAC dogrulanmaz.
+            let envelope: serde_json::Value =
+                serde_json::from_str(&take_string(sc_session_encrypt(session, b"x".as_ptr(), 1)))
+                    .expect("json");
+            let body = envelope["body"].as_str().expect("body").to_owned();
+            let result = sc_session_decrypt(session, 1, c(&body).as_ptr());
+            assert!(result.is_null());
+            let code = sc_last_error_code();
+            assert!(
+                code == ERROR_DECRYPT_INVALID || code == ERROR_DECODE,
+                "beklenen INVALID/DECODE, bulunan {code}; hata: {:?}",
+                last_error()
+            );
+
+            sc_session_free(session);
+            sc_account_free(bob);
+            sc_account_free(alice);
         }
     }
 

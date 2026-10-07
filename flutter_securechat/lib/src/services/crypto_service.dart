@@ -98,10 +98,15 @@ String directDecryptionPeer({
     : authenticatedSenderId;
 
 /// Reads an opaque group token without exposing or guessing the underlying
-/// group identifier. Both formats are accepted because local integration
-/// tests use GROUPMETA while production uses Signal SenderKey GROUPSK.
+/// group identifier.
+///
+/// Three formats are accepted: MEGOLM is the vodozemac group ratchet,
+/// GROUPSK is the legacy libsignal SenderKey envelope kept until the
+/// migration finishes, and GROUPMETA is used by local integration tests.
 String? groupRoutingTokenFromEnvelope(String envelope) {
-  final prefix = envelope.startsWith('GROUPSK:v2:')
+  final prefix = envelope.startsWith('MEGOLM:v1:')
+      ? 'MEGOLM:v1:'
+      : envelope.startsWith('GROUPSK:v2:')
       ? 'GROUPSK:v2:'
       : envelope.startsWith('GROUPMETA:v1:')
       ? 'GROUPMETA:v1:'

@@ -20,8 +20,8 @@ import 'package:ffi/ffi.dart';
 /// Dart tarafinin bekledigi ABI surumu. Yanlis `.so` ile sessizce calismak
 /// yerine acik hata verilir.
 ///
-/// 1 = Olm (Account + Session). 2 = Megolm grup oturumlari eklendi.
-const int expectedAbiVersion = 2;
+/// 1 = Olm (Account + Session). 2 = Megolm. 3 = `sc_last_error_code()`.
+const int expectedAbiVersion = 3;
 
 final class _Bindings {
   _Bindings(DynamicLibrary library)
@@ -30,6 +30,10 @@ final class _Bindings {
       lastError = library
           .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
             'sc_last_error',
+          ),
+      lastErrorCode = library
+          .lookupFunction<Uint32 Function(), int Function()>(
+            'sc_last_error_code',
           ),
       stringFree = library.lookupFunction<
         Void Function(Pointer<Utf8>),
@@ -176,6 +180,7 @@ final class _Bindings {
 
   final int Function() abiVersion;
   final Pointer<Utf8> Function() lastError;
+  final int Function() lastErrorCode;
   final void Function(Pointer<Utf8>) stringFree;
   final Pointer<Void> Function() accountNew;
   final void Function(Pointer<Void>) accountFree;
@@ -226,15 +231,67 @@ final class _Bindings {
   inboundGroupSessionDecrypt;
 }
 
-/// Native katmanin bildirdigi hata. Mesaj `sc_last_error()` kaynaklidir.
+/// Native hata siniflari — `sc_last_error_code()` karsiligi.
+///
+/// NEDEN KOD VAR: cagiran, bir cozme hatasinin oturumu YOK ETMEYI
+/// gerektirip gerektirmedigine karar vermek zorunda. Bu karari hata
+/// metnine bakarak vermek kirilgan; bir mesaj degisikligi sessizce guvenlik
+/// davranisini degistirir.
+enum CryptoErrorKind {
+  none(0),
+  generic(1),
+  pickle(2),
+  decode(3),
+
+  /// Mesaj anahtari yok: tuketilmis veya ratchet ilerlemis. Tekrar teslim
+  /// edilen ya da sirasiz gelen cerceve. **Oturum saglam, silinmemeli.**
+  missingMessageKey(4),
+
+  /// MAC veya padding gecersiz: yanlis anahtar, yanlis oturum veya oynama.
+  invalidMessage(5),
+
+  /// Mesaj araligi cok buyuk; oturum yetisemez.
+  messageGap(6),
+
+  /// Oturum kurulamadi.
+  session(7);
+
+  const CryptoErrorKind(this.code);
+
+  final int code;
+
+  static CryptoErrorKind fromCode(int code) => values.firstWhere(
+    (kind) => kind.code == code,
+    orElse: () => CryptoErrorKind.generic,
+  );
+
+  /// Oturumun bir daha kullanilamayacagini mi gosteriyor.
+  ///
+  /// [missingMessageKey] bilerek DISARIDA: tekrar teslim saglikli bir
+  /// oturumda da olagan ve oturumu sifirlamak, tekrar oynatilan tek bir
+  /// cerceveyle oturumu yok etme imkani verirdi.
+  bool get indicatesUnusableSession =>
+      this == CryptoErrorKind.invalidMessage ||
+      this == CryptoErrorKind.messageGap ||
+      this == CryptoErrorKind.session;
+}
+
+/// Native katmanin bildirdigi hata. Mesaj `sc_last_error()`, sinif
+/// `sc_last_error_code()` kaynaklidir.
 class SecureChatCryptoException implements Exception {
-  const SecureChatCryptoException(this.operation, this.message);
+  const SecureChatCryptoException(
+    this.operation,
+    this.message, [
+    this.kind = CryptoErrorKind.generic,
+  ]);
 
   final String operation;
   final String message;
+  final CryptoErrorKind kind;
 
   @override
-  String toString() => 'SecureChatCryptoException($operation): $message';
+  String toString() =>
+      'SecureChatCryptoException($operation/${kind.name}): $message';
 }
 
 /// Yuklenmis native kutuphane. Uygulama basina bir kez acilir.
@@ -394,12 +451,21 @@ class SecureChatCrypto {
   }
 
   Never _throw(String operation) {
+    final kind = CryptoErrorKind.fromCode(_bindings.lastErrorCode());
     final errorPointer = _bindings.lastError();
     if (errorPointer == nullptr) {
-      throw SecureChatCryptoException(operation, 'bilinmeyen native hata');
+      throw SecureChatCryptoException(
+        operation,
+        'bilinmeyen native hata',
+        kind,
+      );
     }
     try {
-      throw SecureChatCryptoException(operation, errorPointer.toDartString());
+      throw SecureChatCryptoException(
+        operation,
+        errorPointer.toDartString(),
+        kind,
+      );
     } finally {
       _bindings.stringFree(errorPointer);
     }
