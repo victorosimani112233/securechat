@@ -58,6 +58,8 @@ SECURECHAT_CERT_PIN_SHA256_BACKUP='BACKUP_BASE64' \
 tool/build_hardened_android_release.sh
 ```
 
+Bes degiskenin hepsi zorunludur; biri eksikse script build'e baslamadan
+cikar ve uygulama koddaki gelistirme varsayilanlarina dusmez.
 Air-gapped ortamda cache hazirsa `SECURECHAT_OFFLINE=1` eklenir. Uretilen
 `app-release.aab.sha256` teslim artefaktiyla birlikte saklanir. Private symbol
 dizini kendi `SHA256SUMS` manifestine sahiptir ve erisimi sinirli crash-analysis

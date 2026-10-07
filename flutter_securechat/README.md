@@ -38,6 +38,9 @@ Android offline release ve hardened AAB:
 SECURECHAT_OFFLINE=1 tool/build_hardened_android_release.sh
 ```
 
+Release script'i sunucu adresi ve pin degiskenlerini zorunlu tutar; liste
+`docs/ANDROID_RELEASE_SECURITY.md` icinde.
+
 Hardened server:
 
 ```bash

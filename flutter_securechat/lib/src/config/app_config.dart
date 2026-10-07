@@ -49,20 +49,20 @@ class AppConfig {
   static const current = AppConfig(
     apiBaseUrl: String.fromEnvironment(
       'SECURECHAT_API_BASE_URL',
-      defaultValue: 'https://94.73.180.226',
+      defaultValue: 'https://185.22.184.114',
     ),
     signalingUrl: String.fromEnvironment(
       'SECURECHAT_SIGNALING_URL',
-      defaultValue: 'wss://94.73.180.226',
+      defaultValue: 'wss://185.22.184.114',
     ),
     certificatePinHost: String.fromEnvironment(
       'SECURECHAT_CERT_PIN_HOST',
-      defaultValue: '94.73.180.226',
+      defaultValue: '185.22.184.114',
     ),
     certificatePins: [
       String.fromEnvironment(
         'SECURECHAT_CERT_PIN_SHA256',
-        defaultValue: 'DLws9D1beDKBVkETgqo4rb0U9qXZx+AUVGKwaDXQiSA=',
+        defaultValue: 'HiU372IT5EOlaX+olSXZOLLwzzl2n8GVydF3eVeLLd0=',
       ),
       String.fromEnvironment(
         'SECURECHAT_CERT_PIN_SHA256_BACKUP',

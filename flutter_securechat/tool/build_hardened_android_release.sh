@@ -8,6 +8,23 @@ SYMBOL_DIR="${SECURECHAT_SYMBOL_DIR:-$PROJECT_DIR/build/private_symbols/android}
 cd "$PROJECT_DIR"
 mkdir -p "$SYMBOL_DIR"
 
+# Store build'i kodun icindeki gelistirme varsayilanlarina sessizce
+# dusmemeli: varsayilan sunucu degisir veya kapanirsa yayinlanan uygulama
+# hic baglanamaz. iOS yolu (verify_ios_on_macos.sh) ile ayni kural.
+defines=()
+for name in \
+  SECURECHAT_API_BASE_URL \
+  SECURECHAT_SIGNALING_URL \
+  SECURECHAT_CERT_PIN_HOST \
+  SECURECHAT_CERT_PIN_SHA256 \
+  SECURECHAT_CERT_PIN_SHA256_BACKUP; do
+  if [[ -z "${!name:-}" ]]; then
+    echo "$name release build girdisi olarak zorunludur." >&2
+    exit 2
+  fi
+  defines+=("--dart-define=$name=${!name}")
+done
+
 if [[ "${SECURECHAT_OFFLINE:-0}" == "1" ]]; then
   "$FLUTTER_BIN" pub get --offline
 else
@@ -18,18 +35,6 @@ fi
 # burada uretilir. Vendor'lanmis .so dosyalari depoda duruyor, ama release
 # yolunda yine derlenir ki kaynak ile teslim edilen ikili ayrisamaz.
 "$PROJECT_DIR/tool/build_native_crypto.sh" android
-
-defines=()
-for name in \
-  SECURECHAT_API_BASE_URL \
-  SECURECHAT_SIGNALING_URL \
-  SECURECHAT_CERT_PIN_HOST \
-  SECURECHAT_CERT_PIN_SHA256 \
-  SECURECHAT_CERT_PIN_SHA256_BACKUP; do
-  if [[ -n "${!name:-}" ]]; then
-    defines+=("--dart-define=$name=${!name}")
-  fi
-done
 
 "$FLUTTER_BIN" build appbundle \
   --release \
