@@ -58,9 +58,14 @@ object OtpService {
     /** Cooldown nedeniyle uretilemedi; kalan sure milisaniye. */
     class OtpCooldownException(val remainingMillis: Long) : RuntimeException("OTP cooldown")
 
-    /** OTP request — generates code, stores hash, returns code (caller will send via email). */
-    fun generateOtp(email: String): String {
-        val otp = String.format("%06d", random.nextInt(1_000_000))
+    /**
+     * OTP request — generates code, stores hash, returns code (caller will send via email).
+     *
+     * @param fixedCode yalniz [ReviewDemo] icin; verilirse rastgele kod yerine
+     *   bu kod saklanir. Dogrulama, deneme tavani ve cooldown aynidir.
+     */
+    fun generateOtp(email: String, fixedCode: String? = null): String {
+        val otp = fixedCode ?: String.format("%06d", random.nextInt(1_000_000))
         val key = otpKey(email)
         val hash = hashOtp(otp, email)
         val created = try {

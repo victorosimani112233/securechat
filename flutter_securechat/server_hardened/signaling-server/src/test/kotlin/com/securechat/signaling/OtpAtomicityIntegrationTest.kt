@@ -60,6 +60,17 @@ class OtpAtomicityIntegrationTest {
     }
 
     @Test
+    fun `a review demo code obeys the same single use and attempt ceiling`() {
+        val address = email()
+        val otp = OtpService.generateOtp(address, fixedCode = "418273")
+        assertEquals("418273", otp)
+
+        repeat(4) { assertFalse(OtpService.verifyOtp(address, "000000")) }
+        assertTrue(OtpService.verifyOtp(address, "418273"))
+        assertFalse(OtpService.verifyOtp(address, "418273"), "demo kodu da tek kullanimlik")
+    }
+
+    @Test
     fun `parallel correct submissions mint a single success`() {
         val attempts = 8
 

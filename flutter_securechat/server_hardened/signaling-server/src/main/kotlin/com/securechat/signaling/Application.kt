@@ -65,6 +65,7 @@ fun main() {
     MetricsAccess.initialize()
     // Hatali admin token'i istek aninda degil baslangicta patlasin.
     AbuseReports.initialize()
+    ReviewDemo.initialize()
 
     log.info("=== SecureChat Signaling Server ===")
     log.info("Signaling listener baslatiliyor")

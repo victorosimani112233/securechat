@@ -41,6 +41,8 @@ object ProductionDeploymentPolicy {
         }
 
         requireTlsRelay(environment)
+        // Inceleme demo girisi production'da yalniz sureli acilabilir.
+        ReviewDemo.requireBoundedForProduction(environment)
 
         val firebasePath = environment["FIREBASE_SERVICE_ACCOUNT_PATH"]
         require(!firebasePath.isNullOrBlank() && Path.of(firebasePath).isAbsolute) {

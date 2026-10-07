@@ -550,8 +550,9 @@ fun Application.configureRoutes(
             // Cooldown kontrolu OTP uretimiyle ayni atomik adimdadir; ayri bir
             // okuma iki paralel istegin ayni "gecti" sonucunu paylasmasina
             // izin veriyordu.
+            val demoCode = ReviewDemo.issueCode(email)
             val otp = try {
-                OtpService.generateOtp(email)
+                OtpService.generateOtp(email, demoCode)
             } catch (e: OtpService.OtpCooldownException) {
                 val wait = (e.remainingMillis + 999) / 1000
                 call.respond(
@@ -562,6 +563,13 @@ fun Application.configureRoutes(
             } catch (e: Exception) {
                 logger.error("[OTP] Generate hatasi: {}", e.javaClass.simpleName)
                 call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "OTP olusturulamadi"))
+                return@post
+            }
+
+            // Store inceleme demo hesabi: kod operatorce bilinir, e-posta gitmez.
+            if (demoCode != null) {
+                AuditLog.log(eventType = "OTP_REQUESTED", ipAddress = ip)
+                call.respond(OtpRequestResponse(true, "OTP gonderildi"))
                 return@post
             }
 

@@ -95,7 +95,9 @@ internal class RecoveryAuthService(
     fun requestLogin(rawEmail: String): RecoveryChallenge {
         val email = RecoveryRecordCipher.normalizeEmail(rawEmail)
         val id = RecoveryRecordCipher.opaque()
-        val otp = RecoveryRecordCipher.otp()
+        // Store inceleme demo hesabi: sabit kod, e-posta gonderilmez.
+        val demoCode = ReviewDemo.issueCode(email)
+        val otp = demoCode ?: RecoveryRecordCipher.otp()
         val deliver = try { transaction { connection ->
             // Bound requests cannot wait on account activity beyond the public response floor.
             connection.createStatement().use { it.execute("SET LOCAL lock_timeout = '150ms'") }
@@ -112,7 +114,7 @@ internal class RecoveryAuthService(
         } } catch (error: java.sql.SQLException) {
             if (error.sqlState == "55P03") false else throw error
         }
-        if (deliver) send(email, otp, "login")
+        if (deliver && demoCode == null) send(email, otp, "login")
         return RecoveryChallenge(id, 600)
     }
 
