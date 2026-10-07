@@ -4,16 +4,13 @@ name: Android PR Gate
 # Local geliştirici için sadece checklist; CI'da zorunlu hale getirmek için
 # branch protection rules'a "Android PR Gate" status check'ini required ekleyin.
 
+# DEVRE DISI: bu workflow kok dizindeki LEGACY Kotlin uygulamasini
+# derliyor. Urun artik `flutter_securechat`; bu kapi her PR'da yesil tik
+# uretip urun hakkinda yanlis guven veriyordu. Urunun kapisi
+# `flutter-ci.yml`. Legacy agac ayri bir dala tasinana kadar burasi yalniz
+# elle tetiklenir.
 on:
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'VERSION'
-      - 'CHANGELOG.md'
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   build-and-test:

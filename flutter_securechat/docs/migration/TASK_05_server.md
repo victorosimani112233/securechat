@@ -66,6 +66,50 @@ düşürülebilir.
 - `./gradlew :signaling-server:test :bot-api:test` geçiyor
 - Sözleşme üreteci principal farkındalıklı ve çıktısı güncel
 
+## Sözleşme denetim aracının iki kusuru — ölçüldü
+
+CI'da bu iş şimdilik `continue-on-error: true` ile duruyor; aşağıdakiler
+düzeltilince kaldırılacak.
+
+**1. Codec kontrolü ölü koda bakıyor.** `generate_server_contract_audit.dart:139`
+kök dizindeki **legacy Kotlin istemcisinin** `SignalMessage.kt`'sini okuyor.
+O ağaç terk edildi. İki istemciyi karşılaştırmak sunucu sözleşmesi hakkında
+hiçbir şey söylemiyor ve Flutter geliştikçe kalıcı sapma üretiyor:
+
+```
+Missing Dart signal types: {prekey_bundle, audio_data, video_data}
+Extra Dart signal types:   {shared_phone, delivery_transport_ack, group_call_error}
+```
+
+Gerçek durum ölçüldü: **sunucu discriminator-agnostik.** `type` alanını opak
+string okuyor (`MessageTypes.kt` içindeki `TYPE_FIELD` regex'i) ve yalnızca
+13 türü özel ele alıyor — `TRANSIENT` (6), `PENDING_CALL` (4),
+`FILE_TRANSFER`, `group_call_invite`, `encrypted_message`. Dart bunların
+**11'ini** tanımlıyor. Eksik ikisi `audio_data` ve `video_data`; legacy Kotlin
+istemcisi ham medyayı signaling üzerinden gönderiyormuş, Flutter WebRTC
+track'leri kullandığı için göndermiyor. Sunucu onları hâlâ transient sayıyor
+ki eski bir istemci bağlanırsa medya çerçeveleri offline kuyruğa yazılmasın.
+**Yani gerçek bir boşluk yok.**
+
+Doğru değişmez: *sunucunun özel ele aldığı her tür istemcide tanımlı olmalı*,
+`audio_data`/`video_data` açıkça "legacy, tolere edilir" diye işaretlenerek.
+Üreteci `MessageTypes.kt`'ye bakacak şekilde çevir.
+
+**2. Route eşlemesi eksik.** Üreteç 12 route'u eşlenmemiş bildiriyor:
+
+```
+butun /api/v2/* (9 route) + GET /ready + GET /api/v1/version
++ GET /api/v1/prekeys/status
+```
+
+v2 route'ları bu görevde kaldırılacağı için eşlemeyi doldurmak yerine
+route'ları silmek doğru çözüm. `/ready`, `/api/v1/version` ve
+`/prekeys/status` ise `_routeEvidence` tablosuna eklenmeli.
+
+**3.** Ayrıca `requireAuth` / `requirePrincipal` / `requireServicePrincipal`
+ayrımını karşılaştırmaya ekle — rapordaki P0-1 (prekey principal uyuşmazlığı)
+tam olarak bu kontrol olmadığı için görünmüyordu.
+
 ---
 
 ## Ortak zemin

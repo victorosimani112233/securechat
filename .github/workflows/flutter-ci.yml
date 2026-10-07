@@ -1,0 +1,231 @@
+name: SecureChat CI
+
+# Urunun otomatik kapisi. Onceki durumda `android-pr.yml` kok dizindeki ESKI
+# Kotlin uygulamasini derliyordu; Flutter ve server_hardened testleri hicbir
+# yerde kosmuyordu. Yani CI yesil olmasi urun hakkinda bir sey soylemiyordu.
+#
+# iOS derlemesi Linux'ta kosmaz; ayri ve elle tetiklenen is olarak durur
+# (`ios-build.yml`). Mac'teki kapi `tool/verify_ios_on_macos.sh`.
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'VERSION'
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'VERSION'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Dokumanda sabitlenen surum: docs/MACOS_IOS_BUILD.md
+  FLUTTER_VERSION: 3.44.9
+  WORKING_DIR: flutter_securechat
+
+jobs:
+  flutter:
+    name: Flutter — analyze ve test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: flutter_securechat
+    steps:
+      - uses: actions/checkout@v4
+
+      # `EncryptedRecordStore` SQLCipher'i acikca cozumluyor ve duz SQLite'a
+      # DUSMUYOR: duz SQLite `PRAGMA key`i sessizce yok saydigi icin sonuc
+      # sifresiz yazan bir veritabani olurdu. Testler bu yuzden host'ta
+      # gercek bir SQLCipher istiyor.
+      #
+      # SURUM SADAKATI: dagitimin sagladigi surum uygulamanin gonderdigi
+      # 4.5.6 ile ayni kusak olmayabilir. Ayni degilse testler production'dan
+      # farkli bir cipher yapilandirmasini sinar. Asagidaki adim gercek
+      # surumu kayda gecirir ki fark gozden kacmasin.
+      - name: SQLCipher kur (host testleri icin)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlcipher-dev
+          echo "--- cozumlenen kutuphaneler ---"
+          ldconfig -p | grep -i sqlcipher || true
+          dpkg -s libsqlcipher-dev 2>/dev/null | grep -E '^Version' || true
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Bagimliliklari cek
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-pub
+
+      - name: Uretilen yerellestirme kodu guncel mi
+        # `lib/src/l10n/generated` depoda duruyor. ARB degisip uretim
+        # kosulmazsa kod ile ceviriler sessizce ayrisir.
+        run: |
+          flutter gen-l10n
+          if ! git diff --quiet -- lib/src/l10n/generated; then
+            echo "::error::Uretilen l10n kodu ARB dosyalariyla uyumsuz. 'flutter gen-l10n' kosup sonucu commit et."
+            git --no-pager diff --stat -- lib/src/l10n/generated
+            exit 1
+          fi
+
+      - name: Cevrilmemis string kalmadi mi
+        # Dort dil beyan ediliyor (tr/en/de/ar). Beyan edilen bir dilde
+        # cevrilmemis string birakmak magaza kalite reddi riski.
+        run: |
+          flutter gen-l10n --untranslated-messages-file=build/untranslated.json
+          if [ -s build/untranslated.json ] && [ "$(tr -d '[:space:]{}' < build/untranslated.json)" != "" ]; then
+            echo "::error::Cevrilmemis string var:"
+            cat build/untranslated.json
+            exit 1
+          fi
+
+      - name: Test
+        run: flutter test --no-pub --reporter expanded
+
+      - name: iOS statik readiness denetimi
+        # Xcode derlemesi yerine gecmez; Dart <-> native method eslemesini ve
+        # Info.plist sozlesmesini dogrular.
+        run: dart tool/audit_ios_readiness.dart
+
+  native:
+    name: Native kripto — cargo test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: flutter_securechat/native/securechat_crypto
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            flutter_securechat/native/securechat_crypto/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('flutter_securechat/native/securechat_crypto/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Cargo.lock degismedi mi
+        # Kripto cekirdegi: bagimlilik agacinin sessizce kaymamasi gerekiyor.
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        # Release profilinde `panic = "abort"` oldugu icin testler debug'da
+        # kosar; bu beklenen davranis.
+        run: cargo test
+
+      - name: Android arm64 cross-compile
+        run: |
+          rustup target add aarch64-linux-android
+          cargo install cargo-ndk --locked
+          cargo ndk -t arm64-v8a build --release
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+
+  server:
+    name: Hardened sunucu — gradle test
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: flutter_securechat/server_hardened
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Test
+        run: ./gradlew :signaling-server:test :bot-api:test --no-daemon
+
+      - name: Test raporlarini yukle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-test-reports
+          path: flutter_securechat/server_hardened/**/build/reports/tests/
+
+  contract:
+    name: Istemci/sunucu sozlesmesi (henuz bloke etmiyor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # BLOKE ETMIYOR, cunku uretecin kendisinde iki kusur var ve bunlar
+    # TASK_05'te duzeltilecek:
+    #
+    #  1. Codec kontrolu kok dizindeki LEGACY Kotlin ISTEMCISININ
+    #     `SignalMessage.kt`'sine bakiyor. O agac terk edildi; iki istemciyi
+    #     karsilastirmak sunucu sozlesmesi hakkinda hicbir sey soylemiyor ve
+    #     Flutter gelistikce kalici sapma uretiyor. Sunucu zaten
+    #     discriminator-agnostik: `type`i opak okuyor, yalniz 13 turu ozel
+    #     ele aliyor (MessageTypes.kt). Anlamli degismez: o 13 tur istemcide
+    #     tanimli olmali. Olculdu — 11'i tanimli, eksik ikisi `audio_data` ve
+    #     `video_data`, ki Flutter medyayi WebRTC track'leriyle tasidigi icin
+    #     onlari BILEREK gondermiyor. Yani gercek bir bosluk yok.
+    #
+    #  2. Route eslemesi eksik: 12 route tabloda yok (butun /api/v2 yolu,
+    #     /ready, /api/v1/version, /api/v1/prekeys/status). v2 route'lari
+    #     TASK_05'te kaldirilacagi icin eslemeyi simdi doldurmak yerine o
+    #     gorevde cozulur.
+    #
+    # Duzeltildiginde `continue-on-error` kaldirilacak.
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: flutter_securechat
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Bagimliliklari cek
+        run: flutter pub get
+
+      # Uretec elle kosuluyordu ve cikti eskimisti: raporda "22/22 kararli
+      # esleme" yaziyor, HttpRoutes.kt icinde 33 route var. Burada kosup
+      # ciktinin commit'li haliyle ayni oldugunu zorluyoruz.
+      - name: Sozlesme denetimini uret ve farki reddet
+        run: |
+          dart tool/generate_server_contract_audit.dart
+          if ! git diff --quiet -- docs/SERVER_CONTRACT_AUDIT.md; then
+            echo "::error::Sozlesme denetimi eskimis. Ureteci kosup sonucu commit et."
+            git --no-pager diff -- docs/SERVER_CONTRACT_AUDIT.md
+            exit 1
+          fi
+
+      - name: Kaynak denetimini uret ve farki reddet
+        run: |
+          dart tool/generate_source_audit.dart
+          if ! git diff --quiet -- docs/SOURCE_AUDIT.md; then
+            echo "::error::Kaynak denetimi eskimis. Ureteci kosup sonucu commit et."
+            git --no-pager diff --stat -- docs/SOURCE_AUDIT.md
+            exit 1
+          fi

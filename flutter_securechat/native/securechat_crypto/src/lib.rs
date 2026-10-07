@@ -32,9 +32,8 @@ thread_local! {
 
 fn set_error(message: impl Into<String>) {
     let text = message.into();
-    let encoded = CString::new(text).unwrap_or_else(|_| {
-        CString::new("hata mesaji NUL bayti tasiyordu").expect("statik mesaj")
-    });
+    let encoded = CString::new(text)
+        .unwrap_or_else(|_| CString::new("hata mesaji NUL bayti tasiyordu").expect("statik mesaj"));
     LAST_ERROR.with(|slot| *slot.borrow_mut() = Some(encoded));
 }
 
@@ -53,7 +52,11 @@ pub extern "C" fn sc_last_error() -> *mut c_char {
 
 /// Bu kütüphanenin döndürdüğü her stringi serbest bırakır.
 #[no_mangle]
-pub extern "C" fn sc_string_free(value: *mut c_char) {
+///
+/// # Safety
+///
+/// Pointer bu kutuphanenin dondurdugu bir string olmali ve bir kez serbest birakilmali.
+pub unsafe extern "C" fn sc_string_free(value: *mut c_char) {
     if !value.is_null() {
         unsafe { drop(CString::from_raw(value)) };
     }
@@ -135,7 +138,11 @@ pub extern "C" fn sc_account_new() -> *mut Account {
 }
 
 #[no_mangle]
-pub extern "C" fn sc_account_free(account: *mut Account) {
+///
+/// # Safety
+///
+/// `account` `sc_account_new` / `sc_account_from_pickle` donusu olmali ve bir kez serbest birakilmali.
+pub unsafe extern "C" fn sc_account_free(account: *mut Account) {
     if !account.is_null() {
         unsafe { drop(Box::from_raw(account)) };
     }
@@ -143,6 +150,10 @@ pub extern "C" fn sc_account_free(account: *mut Account) {
 
 /// Şifreli pickle'dan hesabı geri yükler. `pickle_key` tam 32 bayt olmalı.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `pickle` NUL sonlu gecerli bir string, `pickle_key` tam 32 okunabilir bayt olmali.
 pub unsafe extern "C" fn sc_account_from_pickle(
     pickle: *const c_char,
     pickle_key: *const u8,
@@ -165,6 +176,10 @@ pub unsafe extern "C" fn sc_account_from_pickle(
 
 /// Hesabı şifreli pickle olarak serileştirir.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli bir hesap handle'i, `pickle_key` tam 32 okunabilir bayt olmali.
 pub unsafe extern "C" fn sc_account_pickle(
     account: *const Account,
     pickle_key: *const u8,
@@ -182,6 +197,10 @@ pub unsafe extern "C" fn sc_account_pickle(
 
 /// `{"curve25519":"<b64>","ed25519":"<b64>"}`
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli bir hesap handle'i olmali.
 pub unsafe extern "C" fn sc_account_identity_keys(account: *const Account) -> *mut c_char {
     clear_error();
     if account.is_null() {
@@ -200,6 +219,10 @@ pub unsafe extern "C" fn sc_account_identity_keys(account: *const Account) -> *m
 
 /// Ed25519 imzası, base64.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli olmali; `message`/`message_len` okunabilir bir aralik tanimlamali.
 pub unsafe extern "C" fn sc_account_sign(
     account: *const Account,
     message: *const u8,
@@ -223,6 +246,10 @@ pub unsafe extern "C" fn sc_account_sign(
 /// hesabın kendi içinde tutuluyor. Yani üretim sonrası hesabı yeniden
 /// pickle'layıp saklamak ZORUNLU; aksi halde anahtarlar kaybolur.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli ve tek bir thread'den kullanilan bir handle olmali.
 pub unsafe extern "C" fn sc_account_generate_one_time_keys(
     account: *mut Account,
     count: usize,
@@ -238,6 +265,10 @@ pub unsafe extern "C" fn sc_account_generate_one_time_keys(
 
 /// Yayınlanmamış tek kullanımlık anahtarlar: `{"<keyId>":"<b64>"}`
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli bir hesap handle'i olmali.
 pub unsafe extern "C" fn sc_account_one_time_keys(account: *const Account) -> *mut c_char {
     clear_error();
     if account.is_null() {
@@ -254,6 +285,10 @@ pub unsafe extern "C" fn sc_account_one_time_keys(account: *const Account) -> *m
 
 /// Sunucudaki havuzun yerel karşılığı. Hata halinde -1.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli bir hesap handle'i olmali.
 pub unsafe extern "C" fn sc_account_stored_one_time_key_count(account: *const Account) -> isize {
     clear_error();
     if account.is_null() {
@@ -266,6 +301,10 @@ pub unsafe extern "C" fn sc_account_stored_one_time_key_count(account: *const Ac
 /// Yüklenen anahtarları "yayınlandı" olarak işaretler; bundan sonra
 /// `sc_account_one_time_keys` onları döndürmez.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli ve tek bir thread'den kullanilan bir handle olmali.
 pub unsafe extern "C" fn sc_account_mark_keys_as_published(account: *mut Account) -> i32 {
     clear_error();
     if account.is_null() {
@@ -279,6 +318,10 @@ pub unsafe extern "C" fn sc_account_mark_keys_as_published(account: *mut Account
 /// Last-resort fallback anahtarı üretir ve geçerli olanı döndürür.
 /// libsignal'daki signed prekey'in karşılığı.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli ve tek bir thread'den kullanilan bir handle olmali.
 pub unsafe extern "C" fn sc_account_generate_fallback_key(account: *mut Account) -> *mut c_char {
     clear_error();
     if account.is_null() {
@@ -297,6 +340,10 @@ pub unsafe extern "C" fn sc_account_generate_fallback_key(account: *mut Account)
 /// Karşı tarafın identity + tek kullanımlık anahtarıyla giden oturum kurar.
 /// libsignal'daki `SessionBuilder.process(PreKeyBundle)` karşılığı.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli, iki anahtar argumani NUL sonlu gecerli string olmali.
 pub unsafe extern "C" fn sc_account_create_outbound_session(
     account: *const Account,
     their_identity_key: *const c_char,
@@ -330,6 +377,10 @@ pub unsafe extern "C" fn sc_account_create_outbound_session(
 /// Başarıda `out_session` doldurulur ve base64 plaintext döner. Hata halinde
 /// `null` döner ve `out_session` değişmez.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `account` gecerli, string argumanlar NUL sonlu, `out_session` yazilabilir bir pointer olmali.
 pub unsafe extern "C" fn sc_account_create_inbound_session(
     account: *mut Account,
     their_identity_key: *const c_char,
@@ -379,13 +430,21 @@ pub unsafe extern "C" fn sc_account_create_inbound_session(
 // ---------------------------------------------------------------------------
 
 #[no_mangle]
-pub extern "C" fn sc_session_free(session: *mut Session) {
+///
+/// # Safety
+///
+/// `session` bir oturum kurucusunun donusu olmali ve bir kez serbest birakilmali.
+pub unsafe extern "C" fn sc_session_free(session: *mut Session) {
     if !session.is_null() {
         unsafe { drop(Box::from_raw(session)) };
     }
 }
 
 #[no_mangle]
+///
+/// # Safety
+///
+/// `session` gecerli, `pickle_key` tam 32 okunabilir bayt olmali.
 pub unsafe extern "C" fn sc_session_pickle(
     session: *const Session,
     pickle_key: *const u8,
@@ -402,6 +461,10 @@ pub unsafe extern "C" fn sc_session_pickle(
 }
 
 #[no_mangle]
+///
+/// # Safety
+///
+/// `pickle` NUL sonlu gecerli string, `pickle_key` tam 32 okunabilir bayt olmali.
 pub unsafe extern "C" fn sc_session_from_pickle(
     pickle: *const c_char,
     pickle_key: *const u8,
@@ -424,6 +487,10 @@ pub unsafe extern "C" fn sc_session_from_pickle(
 
 /// Oturum kimliği. Aynı iki taraf arasındaki oturumları ayırt etmek için.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `session` gecerli bir oturum handle'i olmali.
 pub unsafe extern "C" fn sc_session_id(session: *const Session) -> *mut c_char {
     clear_error();
     if session.is_null() {
@@ -439,6 +506,10 @@ pub unsafe extern "C" fn sc_session_id(session: *const Session) -> *mut c_char {
 /// Şifreleme ratchet durumunu ilerletir; çağıran oturumu yeniden pickle'layıp
 /// saklamak ZORUNDA, aksi halde aynı mesaj anahtarı tekrar kullanılır.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `session` gecerli; `plaintext`/`plaintext_len` okunabilir bir aralik tanimlamali.
 pub unsafe extern "C" fn sc_session_encrypt(
     session: *mut Session,
     plaintext: *const u8,
@@ -466,6 +537,10 @@ pub unsafe extern "C" fn sc_session_encrypt(
 /// Çözer. `message_type` ve `body` `sc_session_encrypt` çıktısından gelir.
 /// Dönen: base64 plaintext.
 #[no_mangle]
+///
+/// # Safety
+///
+/// `session` gecerli, `body` NUL sonlu gecerli bir string olmali.
 pub unsafe extern "C" fn sc_session_decrypt(
     session: *mut Session,
     message_type: usize,
@@ -552,7 +627,10 @@ mod tests {
 
             let bob_identity: serde_json::Value =
                 serde_json::from_str(&take_string(sc_account_identity_keys(bob))).expect("json");
-            let bob_curve = bob_identity["curve25519"].as_str().expect("curve").to_owned();
+            let bob_curve = bob_identity["curve25519"]
+                .as_str()
+                .expect("curve")
+                .to_owned();
             let bob_otk = bob_keys
                 .as_object()
                 .expect("obje")
@@ -576,7 +654,11 @@ mod tests {
                 sc_session_encrypt(session, plaintext.as_ptr(), plaintext.len()),
             ))
             .expect("json");
-            assert_eq!(envelope["type"].as_u64(), Some(0), "ilk mesaj PreKey olmali");
+            assert_eq!(
+                envelope["type"].as_u64(),
+                Some(0),
+                "ilk mesaj PreKey olmali"
+            );
             let body = envelope["body"].as_str().expect("body").to_owned();
 
             // Bob gelen oturumu kurar ve cozer.
@@ -662,7 +744,8 @@ mod tests {
             take_string(sc_account_generate_one_time_keys(account, 3));
             assert_eq!(sc_account_mark_keys_as_published(account), 0);
             let remaining: serde_json::Value =
-                serde_json::from_str(&take_string(sc_account_one_time_keys(account))).expect("json");
+                serde_json::from_str(&take_string(sc_account_one_time_keys(account)))
+                    .expect("json");
             assert!(remaining.as_object().expect("obje").is_empty());
             // Havuz sunucu tarafinda hala dolu; yalnizca "yayinlanmamis" listesi bosaldi.
             assert_eq!(sc_account_stored_one_time_key_count(account), 3);
