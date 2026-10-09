@@ -125,6 +125,7 @@ class AuthCoordinator {
     // token tek kullanimlik (sunucu her yenilemede generation'i donduruyor),
     // dolayisiyla bayat bir token gondermek 401 demek.
     await _session.reloadFromDisk();
+    final before = _session.accessToken;
     final refresh = _session.refreshToken;
     if (refresh == null || refresh.isEmpty) return null;
     try {
@@ -136,11 +137,18 @@ class AuthCoordinator {
       return pair.accessToken;
     } catch (_) {
       // Yarisi kaybetmis olabiliriz: diger isolate bizden sonra yeniledi ve
-      // elimizdeki token oldu. Kazananin yazdigini al; bunu yapmadan
-      // kaybeden taraf kalici 401'e sikisiyordu.
+      // elimizdeki token oldu. Kazananin yazdigini al.
       await _session.reloadFromDisk();
       final recovered = _session.accessToken;
-      if (recovered != null && recovered.isNotEmpty) return recovered;
+      // DEGISMIS olmasi sart. Once yalnizca "bos degil" diye bakiliyordu ve
+      // bu, az once reddedilen token'in kendisini dondurebiliyordu: cagiran
+      // onu gecerli sanip baglaniyor, sunucu reddediyor, yeniden yenileme
+      // isteniyor — geri cekilmesiz sonsuz dongu. Iki cihazda olculdu:
+      // saniyede birkac `/api/v1/auth/refresh`, IP basina 30/10dk siniri
+      // aninda doluyor ve bir daha bosalmiyordu.
+      if (recovered != null && recovered.isNotEmpty && recovered != before) {
+        return recovered;
+      }
       rethrow;
     }
   }

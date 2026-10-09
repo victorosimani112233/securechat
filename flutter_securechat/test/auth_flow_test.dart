@@ -16,6 +16,51 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 
 void main() {
+  group('token yenileme dongusu', () {
+    // Yenileme basarisiz oldugunda kurtarma YALNIZCA token gercekten
+    // degismisse gecerlidir. Degismemis bir token dondurmek, az once
+    // reddedileni gecerli gibi sunmak demek: cagiran onunla baglaniyor,
+    // sunucu reddediyor, yeniden yenileme isteniyor — geri cekilmesiz
+    // sonsuz dongu. Iki cihazda olculdu: saniyede birkac
+    // `/api/v1/auth/refresh`, IP basina 30/10dk siniri aninda doluyor ve
+    // uygulama bir daha baglanamiyordu.
+    test('degismemis token kurtarma sayilmaz, hata yukselir', () async {
+      final session = _FakeSession(access: 'bayat', refresh: 'bayat-refresh');
+      final coordinator = AuthCoordinator(
+        api: _FailingRefreshApi(),
+        session: session,
+        preKeys: PreKeyManager(
+          DatabaseCryptoProtocolStore(await _throwawayDatabase()),
+        ),
+        olmPreKeys: _RecordingOlmKeyPublisher(),
+        signaling: InMemorySignalingService(),
+        signalingUrl: 'wss://example.invalid',
+      );
+
+      await expectLater(coordinator.refreshAccessToken(), throwsA(anything));
+    });
+
+    test('diger isolate yenilediyse onun tokeni alinir', () async {
+      final session = _FakeSession(
+        access: 'bayat',
+        refresh: 'bayat-refresh',
+        onReload: 'kazananin-tokeni',
+      );
+      final coordinator = AuthCoordinator(
+        api: _FailingRefreshApi(),
+        session: session,
+        preKeys: PreKeyManager(
+          DatabaseCryptoProtocolStore(await _throwawayDatabase()),
+        ),
+        olmPreKeys: _RecordingOlmKeyPublisher(),
+        signaling: InMemorySignalingService(),
+        signalingUrl: 'wss://example.invalid',
+      );
+
+      expect(await coordinator.refreshAccessToken(), 'kazananin-tokeni');
+    });
+  });
+
   test('oturum diskten tazelenince digerinin yazdigi token gorulur', () async {
     // Refresh token TEK KULLANIMLIK: sunucu her yenilemede
     // `rotateRefreshGeneration` cagiriyor. On plan ve arka plan AYRI
@@ -445,3 +490,45 @@ class _RecordingOlmKeyPublisher implements OlmKeyPublisher {
 
 }
 
+
+Future<SecureChatDatabase> _throwawayDatabase() async {
+  final directory = await Directory.systemTemp.createTemp('auth-refresh');
+  return SecureChatDatabase.open(
+    file: File('${directory.path}/db.securejson'),
+    crypto: LocalAeadCryptoService(
+      SecretKey(List<int>.generate(32, (index) => index + 5)),
+    ),
+  );
+}
+
+/// Yenilemesi her zaman basarisiz olan API.
+class _FailingRefreshApi extends AuthApi {
+  _FailingRefreshApi() : super(baseUrl: 'http://unused.invalid');
+
+  @override
+  Future<TokenPair> refresh(String refreshToken) async =>
+      throw StateError('refresh reddedildi');
+}
+
+/// Diskten tazelemenin baska bir token getirip getirmedigini taklit eder.
+class _FakeSession extends SessionStore {
+  _FakeSession({required String access, required String refresh, this.onReload}) {
+    accessToken = access;
+    refreshToken = refresh;
+  }
+
+  /// IKINCI tazelemede okunacak token; null ise token hic degismez.
+  ///
+  /// Ikinci olmasi kasitli: gercek akista ilk tazeleme yenilemeden ONCE
+  /// yapiliyor, diger isolate ise biz denerken yeniliyor. Ilk tazelemede
+  /// degistirmek, yarisi hic yasanmamis gibi gosterirdi.
+  final String? onReload;
+
+  int reloadCount = 0;
+
+  @override
+  Future<void> reloadFromDisk() async {
+    reloadCount++;
+    if (onReload != null && reloadCount >= 2) accessToken = onReload;
+  }
+}
