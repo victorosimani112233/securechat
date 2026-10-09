@@ -295,6 +295,52 @@ void main() {
       );
     });
 
+    test('sira disi gelen grup mesajlari kaybolmaz', () async {
+      // Eski kontrol "indeks <= gorulen en yuksek" ise reddediyordu: 2'den
+      // sonra gelen MESRU 1 replay sayilip sessizce dusuyordu. Offline kuyruk
+      // ve es zamanli gonderimde gercek bir mesaj kaybiydi.
+      final distribution = await alice.service.createSenderKeyDistribution(
+        groupId: 'grup-1',
+        senderId: 'alice',
+      );
+      await bob.service.processSenderKeyDistribution(
+        senderId: 'alice',
+        plaintext: distribution,
+      );
+      final envelopes = [
+        for (final text in ['sifir', 'bir', 'iki'])
+          await alice.service.encryptGroup(
+            senderId: 'alice',
+            groupId: 'grup-1',
+            plaintext: text,
+          ),
+      ];
+
+      final received = <String>[];
+      for (final index in [2, 0, 1]) {
+        received.add(
+          await bob.service.decryptGroup(
+            senderId: 'alice',
+            groupId: 'grup-1',
+            envelope: envelopes[index],
+          ),
+        );
+      }
+      expect(received, ['iki', 'sifir', 'bir']);
+
+      // Sira disi kabul replay korumasini gevsetmez: her biri yalniz bir kez.
+      for (final envelope in envelopes) {
+        await expectLater(
+          bob.service.decryptGroup(
+            senderId: 'alice',
+            groupId: 'grup-1',
+            envelope: envelope,
+          ),
+          throwsA(isA<StateError>()),
+        );
+      }
+    });
+
     test('replay reddedilir', () async {
       final distribution = await alice.service.createSenderKeyDistribution(
         groupId: 'grup-1',

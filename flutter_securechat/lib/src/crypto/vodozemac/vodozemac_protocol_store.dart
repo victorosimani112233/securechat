@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart';
 
 import '../../storage/secure_chat_database.dart';
 import '../../storage/storage_entities.dart';
+import 'group_replay_window.dart';
 import 'securechat_crypto_ffi.dart';
 
 /// vodozemac durumunu sifreli yerel veritabaninda tutar.
@@ -271,9 +272,9 @@ class VodozemacProtocolStore {
   ///
   /// Megolm bir oturumda her plaintext'i tek bir indeksle sifreler, yani ayni
   /// indeksin ikinci kez gorulmesi tekrar oynatmadir. vodozemac bunu kendisi
-  /// takip etmiyor; gorulen en yuksek indeks saklanir ve burada kontrol
-  /// edilir. Kontrolu cagirana birakmak, unutuldugunda sessizce replay'e
-  /// acik bir sistem verirdi.
+  /// takip etmiyor; pencere ([GroupReplayWindow]) saklanir ve burada kontrol
+  /// edilir. Sira disi gelen MESRU mesajlar kabul edilir. Kontrolu cagirana
+  /// birakmak, unutuldugunda sessizce replay'e acik bir sistem verirdi.
   ///
   /// @throws StateError oturum bilinmiyorsa veya mesaj replay ise.
   Future<Uint8List> decryptGroupMessage({
@@ -298,16 +299,22 @@ class VodozemacProtocolStore {
     );
     try {
       final decrypted = session.decrypt(message);
-      if (decrypted.messageIndex <= stored.highestMessageIndex) {
+      final window = GroupReplayWindow(
+        watermark: stored.highestMessageIndex,
+        seen: stored.seenMessageIndexes,
+      );
+      if (window.isReplay(decrypted.messageIndex)) {
         throw StateError(
           'replay reddedildi: indeks ${decrypted.messageIndex}, '
-          'gorulen en yuksek ${stored.highestMessageIndex}',
+          'filigran ${stored.highestMessageIndex}',
         );
       }
+      final next = window.accept(decrypted.messageIndex);
       await _database.vodozemacInboundGroupSessions.upsert(
         stored.copyWith(
           pickle: session.pickle(_pickleKey),
-          highestMessageIndex: decrypted.messageIndex,
+          highestMessageIndex: next.watermark,
+          seenMessageIndexes: next.seen,
         ),
       );
       return decrypted.plaintext;

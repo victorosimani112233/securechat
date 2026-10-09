@@ -907,11 +907,9 @@ class VodozemacGroupSessionEntity {
 
 /// Gelen Megolm grup oturumu — gonderen basina ve oturum basina bir tane.
 ///
-/// [highestMessageIndex] REPLAY KORUMASI icindir. Megolm bir oturumda her
-/// plaintext'i tek bir indeksle sifreler, yani ayni indeksin ikinci kez
-/// gorulmesi tekrar oynatmadir. vodozemac bunu KENDISI takip etmiyor;
-/// gorulen en yuksek indeks burada tutulur ve store cozmeden once kontrol
-/// eder.
+/// [highestMessageIndex] + [seenMessageIndexes] REPLAY KORUMASI icindir
+/// (bkz. `GroupReplayWindow`). vodozemac bunu KENDISI takip etmiyor; store
+/// cozmeden once kontrol eder.
 class VodozemacInboundGroupSessionEntity {
   const VodozemacInboundGroupSessionEntity({
     required this.groupId,
@@ -919,6 +917,7 @@ class VodozemacInboundGroupSessionEntity {
     required this.sessionId,
     required this.pickle,
     required this.highestMessageIndex,
+    this.seenMessageIndexes = const [],
   });
 
   static String keyFor(String groupId, String senderId, String sessionId) =>
@@ -929,21 +928,30 @@ class VodozemacInboundGroupSessionEntity {
   final String sessionId;
   final String pickle;
 
-  /// Bu oturumda basariyla cozulen en yuksek mesaj indeksi. Henuz mesaj
-  /// cozulmediyse -1.
+  /// Replay filigrani: bu ve altindaki tum indeksler tuketilmis sayilir.
+  /// Henuz mesaj cozulmediyse -1.
+  ///
+  /// JSON anahtari tarihsel olarak `highestMessageIndex`. Eski surum burada
+  /// "gorulen en yuksek indeksi" tutuyordu ve altindaki her indeksi zaten
+  /// reddediyordu; filigran olarak okunmasi davranisi birebir korur.
   final int highestMessageIndex;
+
+  /// Filigranin ustunde, sira disi gelip tuketilmis indeksler (artan).
+  final List<int> seenMessageIndexes;
 
   String get key => keyFor(groupId, senderId, sessionId);
 
   VodozemacInboundGroupSessionEntity copyWith({
     String? pickle,
     int? highestMessageIndex,
+    List<int>? seenMessageIndexes,
   }) => VodozemacInboundGroupSessionEntity(
     groupId: groupId,
     senderId: senderId,
     sessionId: sessionId,
     pickle: pickle ?? this.pickle,
     highestMessageIndex: highestMessageIndex ?? this.highestMessageIndex,
+    seenMessageIndexes: seenMessageIndexes ?? this.seenMessageIndexes,
   );
 
   factory VodozemacInboundGroupSessionEntity.fromJson(
@@ -954,6 +962,10 @@ class VodozemacInboundGroupSessionEntity {
     sessionId: json['sessionId'] as String? ?? '',
     pickle: json['pickle'] as String? ?? '',
     highestMessageIndex: (json['highestMessageIndex'] as num?)?.toInt() ?? -1,
+    seenMessageIndexes: [
+      for (final value in json['seenMessageIndexes'] as List? ?? const [])
+        (value as num).toInt(),
+    ],
   );
 
   Map<String, Object?> toJson() => {
@@ -962,6 +974,7 @@ class VodozemacInboundGroupSessionEntity {
     'sessionId': sessionId,
     'pickle': pickle,
     'highestMessageIndex': highestMessageIndex,
+    'seenMessageIndexes': seenMessageIndexes,
   };
 }
 
