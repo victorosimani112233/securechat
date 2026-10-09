@@ -10,9 +10,9 @@ import '../../widgets/legal_links.dart';
 /// Hakkinda: surum, guvenlik ozeti ve lisanslar.
 ///
 /// Lisans sayfasi buraya tasindi. Ayarlarda ayri bir satir olarak
-/// durmuyor artik, ama KALDIRILMADI: `libsignal_protocol_dart` GPL-3.0
-/// lisansli ve lisans metninin kullaniciya ulasabilir olmasi bir yukumluluk.
-/// Uygulamalarin alisildik yeri de burasi.
+/// durmuyor artik, ama KALDIRILMADI: gonderilen acik kaynak bilesenlerin
+/// (vodozemac Apache-2.0 dahil) lisans ve atif metinlerinin kullaniciya
+/// ulasabilir olmasi bir yukumluluk. Uygulamalarin alisildik yeri de burasi.
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 

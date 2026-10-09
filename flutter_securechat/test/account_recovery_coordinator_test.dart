@@ -387,6 +387,9 @@ class _RecoveryKeys implements RecoveryIdentity {
 
   @override
   Future<void> clearPendingRecovery() => store.clearPendingRecovery();
+
+  @override
+  Future<void> clearLocalCryptoState() => store.clearPendingRecovery();
 }
 
 /// Sunucunun kurtarma uclari. `RecoveryAuthService` kurallarini taklit eder.

@@ -5,8 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_securechat/src/auth/auth_api.dart';
 import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/config/app_config.dart';
-import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
-import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
 import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 import 'package:flutter_securechat/src/crypto/vodozemac/securechat_crypto_ffi.dart';
 import 'package:flutter_securechat/src/crypto/vodozemac/vodozemac_migration.dart';
@@ -69,11 +67,6 @@ Future<void> _runAuthLifecycle() async {
   final coordinator = AuthCoordinator(
     api: api,
     session: session,
-    preKeys: PreKeyManager(
-      DatabaseCryptoProtocolStore(database),
-      batchSize: 8,
-      refreshThreshold: 2,
-    ),
     // registerAndLogin bu testte gercekten calisiyor; prekey yayini da
     // gercek olmali, yoksa test Olm anahtarlari hic yuklenmeden gecer.
     // Uretimdeki on plan kurulumuyla ayni: createAccountIfMissing=true.

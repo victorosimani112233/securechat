@@ -151,15 +151,15 @@ void main() {
     expect(bundle, contains('verification-metadata.xml'));
     expect(bundle, contains(':signaling-server:test :bot-api:test --offline'));
 
-    final libsignalFixtures = source('tool/prepare_libsignal_compat.sh');
-    expect(libsignalFixtures, isNot(contains('http://')));
-    for (final checksum in [
-      'b19db36839ab008fdccefc7f8c005f2ea43dc7c7298a209bc424e6f9b6d5617b',
-      '0aadd43cf01d11e9b58f867b3c4f25c3194e8b0623d1953d32dfbfbee009e38d',
-      '215a94dbe100130295906b531bb72a26965c7ac8fcd9a75bf8054a8ac2abf4b4',
-    ]) {
-      expect(libsignalFixtures, contains(checksum));
-    }
+    // libsignal (GPL-3.0) kaldirildi: ne bagimlilik ne de wire-compat
+    // fixture betigi geri gelmemeli. Store yayini bu lisansla imkansizdi.
+    expect(
+      File('${Directory.current.path}/tool/prepare_libsignal_compat.sh')
+          .existsSync(),
+      isFalse,
+    );
+    expect(source('pubspec.yaml'), isNot(contains('libsignal_protocol_dart')));
+    expect(source('pubspec.lock'), isNot(contains('libsignal_protocol_dart')));
   });
 
   test('iOS Swift packages have a deterministic macOS resolution gate', () {
@@ -192,10 +192,9 @@ void main() {
     );
 
     // Lisans sayfasi Ayarlar'dan Hakkinda ekranina tasindi. Kaldirilmadi:
-    // `libsignal_protocol_dart` GPL-3.0 ve lisans metninin kullaniciya
-    // ulasabilir olmasi bir yukumluluk.
+    // gonderilen acik kaynak bilesenlerin (vodozemac Apache-2.0 dahil)
+    // lisans ve atif metinleri kullaniciya ulasabilir olmali.
     final about = source('lib/src/features/settings/about_screen.dart');
     expect(about, contains('showLicensePage('));
-    expect(source('docs/SUPPLY_CHAIN_AUDIT.md'), contains('GPL-3.0'));
   });
 }

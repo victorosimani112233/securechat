@@ -6,8 +6,6 @@ import 'package:flutter_securechat/src/auth/auth_api.dart';
 import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/auth/phone_privacy.dart';
 import 'package:flutter_securechat/src/contacts/contact_discovery_api.dart';
-import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
-import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
@@ -30,9 +28,6 @@ void main() {
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
-        preKeys: PreKeyManager(
-          DatabaseCryptoProtocolStore(await _throwawayDatabase()),
-        ),
         olmPreKeys: _RecordingOlmKeyPublisher(),
         signaling: InMemorySignalingService(),
         signalingUrl: 'wss://example.invalid',
@@ -51,9 +46,6 @@ void main() {
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
-        preKeys: PreKeyManager(
-          DatabaseCryptoProtocolStore(await _throwawayDatabase()),
-        ),
         olmPreKeys: _RecordingOlmKeyPublisher(),
         signaling: InMemorySignalingService(),
         signalingUrl: 'wss://example.invalid',
@@ -94,9 +86,6 @@ void main() {
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
-        preKeys: PreKeyManager(
-          DatabaseCryptoProtocolStore(await _throwawayDatabase()),
-        ),
         olmPreKeys: _RecordingOlmKeyPublisher(),
         signaling: InMemorySignalingService(),
         signalingUrl: 'wss://example.invalid',
@@ -174,7 +163,7 @@ void main() {
   );
 
   test(
-    'OTP registration persists tokens, uploads prekeys and connects',
+    'OTP registration persists tokens, publishes Olm keys and connects',
     () async {
       final requests = <String, Map<String, Object?>>{};
       final authHeaders = <String, String?>{};
@@ -206,8 +195,6 @@ void main() {
                 'refreshToken': 'refresh-1',
               }),
             );
-          case '/api/v1/prekeys/upload':
-            request.response.write(jsonEncode({'status': 'ok'}));
           case '/api/v1/auth/refresh':
             request.response.write(
               jsonEncode({
@@ -230,15 +217,11 @@ void main() {
       final signaling = InMemorySignalingService();
       final session = SessionStore();
       final directoryApi = _RecordingDirectoryApi();
+      final keys = _RecordingOlmKeyPublisher();
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
-        olmPreKeys: _RecordingOlmKeyPublisher(),
-        preKeys: PreKeyManager(
-          DatabaseCryptoProtocolStore(fixture.database),
-          batchSize: 3,
-          refreshThreshold: 1,
-        ),
+        olmPreKeys: keys,
         signaling: signaling,
         signalingUrl: 'ws://local',
         privateDirectory: directoryApi,
@@ -273,53 +256,22 @@ void main() {
         requests['/api/v1/users/register'],
         isNot(contains('encryptedPhone')),
       );
-      expect(
-        (requests['/api/v1/prekeys/upload']?['oneTimePreKeys'] as List),
-        hasLength(3),
-      );
-      expect(authHeaders['/api/v1/prekeys/upload'], 'Bearer access-1');
+      // Mesajlasma ve kurtarma ayni Olm kimligini kullanir; libsignal bundle
+      // yuklemesi KALDIRILDI ve o uca hic gidilmemeli.
+      expect(keys.calls, 1);
+      expect(requests.containsKey('/api/v1/prekeys/upload'), isFalse);
 
       expect(await coordinator.refreshAccessToken(), 'access-2');
       expect(session.refreshToken, 'refresh-2');
 
-      final protocolStore = DatabaseCryptoProtocolStore(fixture.database);
-      expect(await protocolStore.getIdentityKeyPair(), isNotNull);
-      expect(await protocolStore.getAvailablePreKeyCount(), greaterThan(0));
+      expect(keys.clears, 0);
       await coordinator.logout();
       expect(session.userId, isNull);
-      expect(await protocolStore.getIdentityKeyPair(), isNull);
-      expect(await protocolStore.getAvailablePreKeyCount(), 0);
+      // Cikis yerel kripto durumunu (Olm hesabi, oturumlar, pinler, devam
+      // eden kurtarma) siler; aksi halde sonraki hesap ayni kimligi kullanir.
+      expect(keys.clears, 1);
     },
   );
-
-  test('initial prekey upload failure is not ignored', () async {
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(() => server.close(force: true));
-    server.listen((request) async {
-      await request.drain<void>();
-      request.response
-        ..statusCode = HttpStatus.serviceUnavailable
-        ..headers.contentType = ContentType.json
-        ..write(jsonEncode({'error': 'prekey_store_unavailable'}));
-      await request.response.close();
-    });
-    final api = AuthApi(
-      baseUrl: 'http://${server.address.address}:${server.port}',
-    );
-    const bundle = SerializedPreKeyBundle(
-      identityPublicKey: [1],
-      registrationId: 1,
-      signedPreKeyId: 1,
-      signedPreKey: [2],
-      signedPreKeySignature: [3],
-      oneTimePreKeys: [],
-    );
-
-    await expectLater(
-      api.uploadPreKeys(bundle, 'access-token'),
-      throwsA(isA<AuthApiException>()),
-    );
-  });
 
   for (final scenario in [
     'restored identity',
@@ -330,10 +282,7 @@ void main() {
     test('$scenario cannot establish or replace a local session', () async {
       final fixture = await _openFixture();
       addTearDown(fixture.close);
-      final store = DatabaseCryptoProtocolStore(fixture.database);
-      final preKeys = PreKeyManager(store, batchSize: 2);
-      await preKeys.generateAndSerializeInitialBundle();
-      final identityBefore = await store.getIdentityKeyPair();
+      final keys = _RecordingOlmKeyPublisher();
       final session = SessionStore(
         userId: scenario == 'restored identity' ? 'restored-user' : null,
         displayName: 'Existing profile',
@@ -348,8 +297,7 @@ void main() {
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
-        olmPreKeys: _RecordingOlmKeyPublisher(),
-        preKeys: preKeys,
+        olmPreKeys: keys,
         signaling: signaling,
         signalingUrl: 'ws://local',
         privateDirectory: directory,
@@ -370,9 +318,10 @@ void main() {
       expect(session.toJson(), sessionBefore);
       expect(session.isLoggedIn, isFalse);
       expect(signaling.currentStatus.isConnected, isFalse);
-      expect(await store.getIdentityKeyPair(), identityBefore);
+      // Reddedilen kayit yerel kimligi ne siler ne de yayinlar.
+      expect(keys.clears, 0);
       if (scenario == 'restored identity') expect(api.registerCalls, 0);
-      expect(api.uploadCalls, 0);
+      expect(keys.calls, 0);
       if (scenario.contains('response') || scenario == 'restored identity') {
         expect(directory.accessToken, isNull);
       }
@@ -380,14 +329,11 @@ void main() {
   }
 
   test(
-    'prekey upload failure retains durable credentials and identity',
+    'Olm key publish failure retains durable credentials and identity',
     () async {
       final fixture = await _openFixture();
       addTearDown(fixture.close);
-      final store = DatabaseCryptoProtocolStore(fixture.database);
-      final preKeys = PreKeyManager(store, batchSize: 2);
-      await preKeys.generateAndSerializeInitialBundle();
-      final identityBefore = await store.getIdentityKeyPair();
+      final keys = _RecordingOlmKeyPublisher()..failPublish = true;
       final sessionFile = File('${fixture.directory.path}/session.securejson');
       final storageCrypto = LocalAeadCryptoService(
         SecretKey(List<int>.generate(32, (index) => index + 1)),
@@ -397,14 +343,13 @@ void main() {
         crypto: storageCrypto,
       );
       addTearDown(session.close);
-      final api = _RegistrationApi('prekey rejection');
+      final api = _RegistrationApi('accepted');
       final directory = _RecordingDirectoryApi();
       final signaling = InMemorySignalingService();
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
-        olmPreKeys: _RecordingOlmKeyPublisher(),
-        preKeys: preKeys,
+        olmPreKeys: keys,
         signaling: signaling,
         signalingUrl: 'ws://local',
         privateDirectory: directory,
@@ -419,9 +364,9 @@ void main() {
         throwsA(isA<AuthApiException>()),
       );
       expect(directory.ownUserId, session.userId);
-      expect(api.uploadCalls, 1);
+      expect(keys.calls, 1);
       expect(signaling.currentStatus.isConnected, isFalse);
-      expect(await store.getIdentityKeyPair(), identityBefore);
+      expect(keys.clears, 0);
 
       final reopened = await PersistentSessionStore.open(
         file: sessionFile,
@@ -444,7 +389,7 @@ void main() {
         throwsA(isA<ExistingAccountLoginRequired>()),
       );
       expect(api.registerCalls, 1);
-      expect(await store.getIdentityKeyPair(), identityBefore);
+      expect(keys.clears, 0);
     },
   );
 }
@@ -454,7 +399,6 @@ class _RegistrationApi extends AuthApi {
 
   final String scenario;
   int registerCalls = 0;
-  int uploadCalls = 0;
 
   @override
   Future<RegisterResult> register({
@@ -468,17 +412,6 @@ class _RegistrationApi extends AuthApi {
       accessToken: 'access',
       refreshToken: 'refresh',
     );
-  }
-
-  @override
-  Future<void> uploadPreKeys(
-    SerializedPreKeyBundle bundle,
-    String accessToken,
-  ) async {
-    uploadCalls++;
-    if (scenario == 'prekey rejection') {
-      throw const AuthApiException('unavailable', statusCode: 503);
-    }
   }
 }
 
@@ -537,10 +470,23 @@ class _RecordingDirectoryApi implements ContactDiscoveryApi {
 /// Kayit akisi testleri anahtar yayinini degil kayit mantigini olcuyor.
 class _RecordingOlmKeyPublisher implements RecoveryIdentity {
   int calls = 0;
+  int clears = 0;
+  bool failPublish = false;
   String? _pending;
 
   @override
-  Future<void> publishIfNeeded() async => calls++;
+  Future<void> publishIfNeeded() async {
+    calls++;
+    if (failPublish) {
+      throw const AuthApiException('prekey_store_unavailable', statusCode: 503);
+    }
+  }
+
+  @override
+  Future<void> clearLocalCryptoState() async {
+    clears++;
+    _pending = null;
+  }
 
   @override
   Future<void> republishAfterIdentityReset() async => calls++;
@@ -563,16 +509,6 @@ class _RecordingOlmKeyPublisher implements RecoveryIdentity {
   Future<void> clearPendingRecovery() async => _pending = null;
 }
 
-
-Future<SecureChatDatabase> _throwawayDatabase() async {
-  final directory = await Directory.systemTemp.createTemp('auth-refresh');
-  return SecureChatDatabase.open(
-    file: File('${directory.path}/db.securejson'),
-    crypto: LocalAeadCryptoService(
-      SecretKey(List<int>.generate(32, (index) => index + 5)),
-    ),
-  );
-}
 
 /// Yenilemesi her zaman basarisiz olan API.
 class _FailingRefreshApi extends AuthApi {

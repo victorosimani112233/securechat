@@ -7,7 +7,6 @@ hilt = "2.50"
 room = "2.6.1"
 webrtc = "1.1.2"
 signal-protocol = "2.8.1"
-signal-client = "0.40.0"
 ktor = "2.3.7"
 coroutines = "1.7.3"
 okhttp = "4.12.0"
@@ -127,7 +126,6 @@ junixsocket-core = { group = "com.kohlschutter.junixsocket", name = "junixsocket
 junixsocket-native-common = { group = "com.kohlschutter.junixsocket", name = "junixsocket-native-common", version.ref = "junixsocket" }
 netty-transport-native-epoll = { group = "io.netty", name = "netty-transport-native-epoll", version.ref = "netty-epoll" }
 clikt = { group = "com.github.ajalt.clikt", name = "clikt", version.ref = "clikt" }
-libsignal-client = { group = "org.signal", name = "libsignal-client", version.ref = "signal-client" }
 hikaricp = { group = "com.zaxxer", name = "HikariCP", version.ref = "hikaricp" }
 postgresql = { group = "org.postgresql", name = "postgresql", version.ref = "postgresql-jdbc" }
 jedis = { group = "redis.clients", name = "jedis", version.ref = "jedis" }

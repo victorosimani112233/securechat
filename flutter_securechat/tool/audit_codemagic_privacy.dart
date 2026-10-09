@@ -43,13 +43,12 @@ List<String> auditCodemagicPrivacy({Directory? projectRoot}) {
     'dart tool/audit_codemagic_privacy.dart',
     'Codemagic must audit its own privacy boundary',
   );
-  if (RegExp(
-        r'^\s+\./tool/prepare_libsignal_compat\.sh\s*$',
-        multiLine: true,
-      ).allMatches(source).length !=
-      2) {
+  // libsignal kaldirildi (GPL-3.0). Wire-compat fixture'lari yalniz silinen
+  // libsignal testine aitti; geri gelmeleri bagimliligin geri geldigi
+  // anlamina gelir.
+  if (source.contains('prepare_libsignal_compat')) {
     failures.add(
-      'each workflow must prepare checksum-pinned libsignal fixtures',
+      'workflows must not prepare libsignal fixtures; libsignal was removed',
     );
   }
   forbidText('publishing:', 'candidate workflow must never auto-publish');

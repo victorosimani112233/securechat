@@ -6,8 +6,6 @@ import 'package:flutter_securechat/src/auth/auth_api.dart';
 import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/background/background_scheduler.dart';
 import 'package:flutter_securechat/src/background/scheduled_message_service.dart';
-import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
-import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
 import 'package:flutter_securechat/src/domain/send_message_use_case.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
@@ -145,7 +143,6 @@ class _AccountFixture {
       api: AuthApi(baseUrl: server.baseUrl),
       session: session,
       olmPreKeys: _RecordingOlmKeyPublisher(),
-      preKeys: PreKeyManager(DatabaseCryptoProtocolStore(database)),
       signaling: signaling,
       signalingUrl: 'ws://local',
     );
@@ -261,6 +258,9 @@ class _RecordingOlmKeyPublisher implements RecoveryIdentity {
 
   @override
   Future<void> republishAfterIdentityReset() async => calls++;
+
+  @override
+  Future<void> clearLocalCryptoState() async => _pending = null;
 
   // Bu testler kurtarmayi olcmuyor: kimlik yok, imza istenirse hata.
   @override

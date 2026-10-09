@@ -629,11 +629,22 @@ void main() {
   test(
     'Flutter group files and push senders keep routing and metadata private',
     () {
+      // Grup zarfi grup kimligini ACIK tasimaz: sunucu yalniz turetilmis
+      // bir yonlendirme jetonu gorur (eski libsignal GROUPSK:v2 ile ayni
+      // ozellik; v1 groupId'yi acik tasiyordu).
       final groupCrypto = source(
-        'lib/src/crypto/signal_protocol_crypto_service.dart',
+        'lib/src/crypto/vodozemac/vodozemac_crypto_service.dart',
       );
-      expect(groupCrypto, contains("return 'GROUPSK:v2:"));
-      expect(groupCrypto, isNot(contains("return 'GROUPSK:v1:")));
+      expect(groupCrypto, contains("static const groupPrefix = 'MEGOLM:v1:';"));
+      expect(
+        groupCrypto,
+        contains('final routingToken = await groupRoutingToken(groupId);'),
+      );
+      expect(
+        groupCrypto,
+        contains(r"'$groupPrefix$routingToken:${result.sessionId}:"),
+      );
+      expect(groupCrypto, isNot(contains(r"'$groupPrefix$groupId")));
 
       final files = source('lib/src/media/file_transfer_manager.dart');
       expect(files, contains("fileName: 'attachment.bin'"));

@@ -47,8 +47,7 @@ abstract interface class OlmPreKeyBundleProvider {
 /// Peer basina siraya alan kilit.
 ///
 /// Ayni peer icin es zamanli iki islem ratchet durumunu yarisa sokar.
-/// Eski libsignal servisindeki ayni desen; o dosya silinecegi icin kopyasi
-/// burada tutuluyor.
+/// Eski libsignal servisindeki ayni desen (o servis kaldirildi).
 class _AsyncKeyedMutex {
   final Map<String, Future<void>> _tails = {};
 

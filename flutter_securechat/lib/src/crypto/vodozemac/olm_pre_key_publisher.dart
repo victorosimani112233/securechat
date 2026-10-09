@@ -39,6 +39,12 @@ abstract interface class RecoveryIdentity implements OlmKeyPublisher {
   /// [publishIfNeeded] yerel "zaten yayinlandi" bilgisine guvenip hic
   /// yuklemeyebilir.
   Future<void> republishAfterIdentityReset();
+
+  /// Cikista / hesap degisiminde yerel kripto durumunu siler: Olm hesabi,
+  /// oturumlar, pinler ve devam eden kurtarma kaydi. Silinmezse sonraki
+  /// hesap oncekinin Olm kimligini kullanir ve yarim kalmis bir kurtarma
+  /// yetkisi cihazda kalir. Mesaj/sohbet verisi KORUNUR.
+  Future<void> clearLocalCryptoState();
 }
 
 /// Hesabin Olm acik anahtarlarini sunucuya yayinlar.
@@ -150,6 +156,10 @@ class OlmPreKeyPublisher implements OlmKeyPublisher, RecoveryIdentity {
 
   @override
   Future<void> clearPendingRecovery() => _store.clearPendingRecovery();
+
+  @override
+  Future<void> clearLocalCryptoState() =>
+      _database.clearCryptoProtocolState();
 
   @override
   Future<void> republishAfterIdentityReset() async {

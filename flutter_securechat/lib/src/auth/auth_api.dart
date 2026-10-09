@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../crypto/pre_key_manager.dart';
 
 enum OtpRequestStatus { sent, smtpDisabled, rateLimited }
 
@@ -195,18 +194,6 @@ class AuthApi {
       bearerToken: accessToken,
     );
     if (response.statusCode != 202) throw response.error();
-  }
-
-  Future<void> uploadPreKeys(
-    SerializedPreKeyBundle bundle,
-    String accessToken,
-  ) async {
-    final response = await _post(
-      '/api/v1/prekeys/upload',
-      bundle.toJson(),
-      bearerToken: accessToken,
-    );
-    if (response.statusCode != 200) throw response.error();
   }
 
   Future<Map<String, Object?>> recoveryRequest(

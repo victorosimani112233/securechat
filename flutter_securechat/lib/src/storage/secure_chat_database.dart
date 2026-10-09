@@ -118,8 +118,10 @@ class SecureChatDatabase {
   late final CryptoStateDao cryptoState;
   late final PendingSignalDao pendingSignals;
 
-  /// vodozemac gocusu: libsignal yolu ile YAN YANA durur. TASK_04 servisi
-  /// devralana kadar iki depo birlikte yasar.
+  /// vodozemac (Olm + Megolm) durumu. Eski libsignal koleksiyonlari
+  /// (identities/preKeys/signedPreKeys/sessions/senderKeys) yalniz eski
+  /// kurulumlarin diskinden okunup `clearCryptoProtocolState` ile
+  /// temizlenebilsin diye semada duruyor; uygulama artik onlara yazmiyor.
   late final VodozemacAccountDao vodozemacAccount;
   late final VodozemacSessionDao vodozemacSessions;
   late final VodozemacGroupSessionDao vodozemacGroupSessions;

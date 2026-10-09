@@ -28,8 +28,6 @@ import '../contacts/contact_service.dart';
 import '../contacts/private_contact_discovery.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../crypto/call_crypto_manager.dart';
-import '../crypto/crypto_protocol_store.dart';
-import '../crypto/pre_key_manager.dart';
 import '../crypto/vodozemac/olm_pre_key_bundle_api.dart';
 import '../crypto/vodozemac/olm_pre_key_publisher.dart';
 import '../crypto/vodozemac/securechat_crypto_ffi.dart';
@@ -404,15 +402,6 @@ class AppContainer {
       resources.register('websocket-signaling', signaling.dispose);
       final networkMonitor = SystemNetworkMonitor();
       resources.register('network-monitor', networkMonitor.dispose);
-      final protocolStore = DatabaseCryptoProtocolStore(database);
-      // `PreKeyManager` ve libsignal bundle yuklemesi BILEREK duruyor.
-      // Mesaj kriptosu vodozemac'a geciyor, ama hesap kurtarmanin kimlik
-      // pinlemesi `users.identity_public_key` kolonuna dayaniyor ve o
-      // kolonu dolduran sey libsignal bundle yuklemesi. Ikisini ayni adimda
-      // sokmek, kurtarmayi pinleyecek kimligi olmayan bir hesapta
-      // birakirdi. Sunucu iki sekli birden kabul ediyor; kurtarma Olm
-      // kimligine ayri bir adimda tasinacak.
-      final preKeyManager = PreKeyManager(protocolStore);
 
       // libsignal -> vodozemac gecisi. Isaret EN SON yazildigi icin yarida
       // kesilirse tekrar kosar; mesaj gecmisi KORUNUR, yalniz kripto
@@ -744,7 +733,6 @@ class AppContainer {
       final authCoordinator = AuthCoordinator(
         api: AuthApi(baseUrl: config.apiBaseUrl, client: httpClients.create()),
         session: session,
-        preKeys: preKeyManager,
         olmPreKeys: preKeyPublisher,
         signaling: signaling,
         signalingUrl: config.signalingUrl,
@@ -851,8 +839,6 @@ class AppContainer {
         crypto: crypto,
         signaling: signaling,
         cryptoRuntime: AppCryptoRuntime(
-          protocolStore: protocolStore,
-          preKeys: preKeyManager,
           callCrypto: CallCryptoManager(),
         ),
         networkRuntime: AppNetworkRuntime(
@@ -1007,13 +993,9 @@ class AppContainer {
 
 class AppCryptoRuntime {
   const AppCryptoRuntime({
-    required this.protocolStore,
-    required this.preKeys,
     required this.callCrypto,
   });
 
-  final DatabaseCryptoProtocolStore protocolStore;
-  final PreKeyManager preKeys;
   final CallCryptoManager callCrypto;
 }
 
@@ -1076,9 +1058,8 @@ class AppBackgroundRuntime {
   /// Olm acik anahtarlarinin yayini.
   ///
   /// Eskiden `PreKeyMaintenanceService` idi ve libsignal havuzunu
-  /// tamamliyordu. O havuz artik tuketilmiyor: libsignal bundle'i yalniz
-  /// hesap kurtarmanin kimlik pinlemesi icin duruyor ve bir kez, kayitta
-  /// yaziliyor. Tuketilen havuz Olm havuzu.
+  /// tamamliyordu. libsignal tamamen kaldirildi; mesajlasma da hesap
+  /// kurtarma da bu Olm hesabini kullaniyor.
   final OlmPreKeyPublisher preKeyPublisher;
 
   /// Tek bir bakim adiminin hatasinin bildirilecegi yer.

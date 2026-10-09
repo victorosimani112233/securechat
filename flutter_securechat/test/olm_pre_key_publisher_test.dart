@@ -222,6 +222,24 @@ void main() {
     });
   });
 
+  group('cikista yerel kripto silme', () {
+    // Eskiden libsignal store'u uzerinden test ediliyordu
+    // (recovery_key_material_test). Degismez ayni: cikis Olm kimligini ve
+    // yarim kalmis kurtarma yetkisini cihazdan siler, sohbet verisini korur.
+    test('Olm hesabi ve devam eden kurtarma silinir', () async {
+      final publisher = build();
+      await publisher.publishIfNeeded();
+      await publisher.writePendingRecovery('{"capability":"secret"}');
+      expect(await store.hasAccount(), isTrue);
+
+      await publisher.clearLocalCryptoState();
+
+      expect(await store.hasAccount(), isFalse);
+      expect(await publisher.readPendingRecovery(), isNull);
+      expect(await publisher.recoverySigningPublicKey(), isNull);
+    });
+  });
+
   group('kurtarmada kimlik sifirlamasi', () {
     // Kurtarma "replace" modunda sunucu bu hesabin Olm kimligini NULL'a
     // ceker ve havuzlari siler. Yerel durum ise "her sey yayinlandi" der.

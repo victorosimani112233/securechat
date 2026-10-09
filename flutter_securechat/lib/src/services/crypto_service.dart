@@ -143,8 +143,10 @@ String directDecryptionPeer({
 /// group identifier.
 ///
 /// Three formats are accepted: MEGOLM is the vodozemac group ratchet,
-/// GROUPSK is the legacy libsignal SenderKey envelope kept until the
-/// migration finishes, and GROUPMETA is used by local integration tests.
+/// GROUPSK is the legacy libsignal SenderKey envelope: still routed so a
+/// message from a pre-vodozemac client is attributed to the right group,
+/// but no longer decryptable here. GROUPMETA is used by local integration
+/// tests.
 String? groupRoutingTokenFromEnvelope(String envelope) {
   final prefix = envelope.startsWith('MEGOLM:v1:')
       ? 'MEGOLM:v1:'

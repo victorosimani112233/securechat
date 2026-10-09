@@ -12,8 +12,6 @@ import 'package:flutter_securechat/src/background/scheduled_message_service.dart
 import 'package:flutter_securechat/src/backup/backup_crypto.dart';
 import 'package:flutter_securechat/src/backup/backup_service.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
-import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
-import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
 import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 import 'package:flutter_securechat/src/domain/send_message_use_case.dart';
 import 'package:flutter_securechat/src/export/export_audit_service.dart';
@@ -285,7 +283,6 @@ Future<void> _verifyDataLifecycle() async {
     final auth = AuthCoordinator(
       api: AuthApi(baseUrl: server.baseUrl),
       session: session,
-      preKeys: PreKeyManager(DatabaseCryptoProtocolStore(database)),
       // Bu test coordinator'i YALNIZ deleteAccount icin kullaniyor;
       // registerAndLogin cagrilmiyor, yani prekey yayini hic tetiklenmiyor.
       // No-op yeterli; gercek vodozemac/native kurulumuna gerek yok.
@@ -401,4 +398,7 @@ class _UnusedOlmKeyPublisher implements RecoveryIdentity {
 
   @override
   Future<void> clearPendingRecovery() async {}
+
+  @override
+  Future<void> clearLocalCryptoState() async {}
 }

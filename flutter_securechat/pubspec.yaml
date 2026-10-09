@@ -28,9 +28,6 @@ dependencies:
   # 1.2.3 requires Dart 3.10; this project deliberately supports Dart 3.9.
   image_picker: 1.2.2
   just_audio: 0.10.6
-  # GPL-3.0 pure-Dart port of the legacy Signal Protocol V3 wire format used
-  # by the Kotlin client's signal-protocol-android 2.8.1 dependency.
-  libsignal_protocol_dart: 0.8.2
   path_provider: 2.1.6
   record: 7.1.1
   web_socket_channel: 3.0.3

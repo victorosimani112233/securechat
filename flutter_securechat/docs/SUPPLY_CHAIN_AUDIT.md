@@ -12,7 +12,7 @@ kilidi ve artefakt dogrulamasi release icin fail-closed kapidir.
 - Air-gapped yerel Maven repo kapsami: **PASS**
 - iOS SwiftPM kilidi: **macOS uzerinde tamamlanacak dis build kapisi**
 - Lisans bildirimi: **PASS**, uygulama Ayarlar ekranindan erisilebilir
-- GPL dagitim karari: **release oncesi hukuk/uyum onayi gerekli**
+- GPL dagitim karari: **gerekmiyor** — istemcide GPL bagimlilik kalmadi (2026-10-09)
 
 ## Kilitleme ve byte dogrulamasi
 
@@ -129,7 +129,6 @@ okunmustur; hukuki gorus degildir.
 | flutter_webrtc | 1.6.0 | MIT |
 | image_picker | 1.2.2 | BSD-3-Clause |
 | just_audio | 0.10.6 | MIT |
-| libsignal_protocol_dart | 0.8.2 | GPL-3.0 |
 | path_provider | 2.1.6 | BSD-3-Clause |
 | record | 7.1.1 | BSD-3-Clause |
 | web_socket_channel | 3.0.3 | BSD-3-Clause |
@@ -143,22 +142,31 @@ Flutter build'i dependency lisans metinlerini lisans registry/NOTICES
 artefaktina ekler. Uygulamadaki Ayarlar > Acik kaynak lisanslari aksiyonu bu
 registry'yi `showLicensePage` ile kullaniciya acar.
 
-## GPL-3.0 release kapisi
+## GPL-3.0 kaldirildi
 
-`libsignal_protocol_dart 0.8.2`, Kotlin istemcinin Signal Protocol V3 wire/state
-uyumlulugunu korumak icin kullanilir ve GPL-3.0 lisanslidir. Uygulama binary'sini
-dagitmak, Flutter uygulamasinin ilgili kaynaklarini, lisans metnini ve gerekli
-kurulum/degisiklik bilgisini GPL ile uyumlu bicimde saglama yukumlulugu
-dogurabilir. Play Store/App Store release'i su uc kanit olmadan onaylanmaz:
+`libsignal_protocol_dart 0.8.2` (GPL-3.0) istemciden tamamen kaldirildi.
+Mesaj kriptosu vodozemac'a (Olm + Megolm, Apache-2.0) goc etti; son bagimli
+yol olan hesap kurtarma da Olm hesabinin Ed25519 imzalama anahtarina
+tasindi. Sinyal sunucusundaki AGPL `org.signal:libsignal-client` de ayni
+gocle dustu (kullanan tek yer `RecoveryRecordCipher.verify` idi; artik JDK
+Ed25519).
 
-1. GPL uyumunun hukuk/uyum sorumlusu tarafindan yazili degerlendirilmesi.
-2. Dagitilan binary ile tam eslesen kaynak snapshot'i ve build talimatlari.
-3. Uygulama ici lisans bildirimi ile dagitim kanalindaki kaynak/teklif
-   erisiminin calisir olmasi.
+**Acik kalan:** `server_hardened/bot-api` hala GPL-3.0
+`org.whispersystems:signal-protocol-java 2.8.1` kullaniyor. Sunucu tarafinda
+calisan ayri bir servis oldugu ve kullaniciya dagitilmadigi icin uygulama
+binary'sinin lisansini etkilemez (GPL, AGPL degil). Ancak bot mesajlarini
+eski Signal V3 bicimiyle sifreliyor; vodozemac istemcileri bu mesajlari
+COZEMEZ. Bot API'nin Olm'a tasinmasi ya da kaldirilmasi ayri bir urun
+karari.
 
-Bu kosullar kriptografik pariteyi zayiflatmak icin paketi sessizce degistirme
-izni vermez. Lisans karari farkli bir Signal binding gerektirirse wire/state
-capraz testlerinin tamami yeni implementasyonla yeniden gecmelidir.
+Bu nedenle onceki "GPL release kapisi" (hukuki degerlendirme, kaynak
+snapshot'i, kaynak teklifi) store yayini icin artik gerekli degil.
+`test/supply_chain_gate_test.dart`, bagimliligin ve wire-compat fixture
+betiginin geri gelmesini engeller; `tool/audit_codemagic_privacy.dart`
+CI is akislarinin libsignal fixture'i hazirlamasini reddeder.
+
+vodozemac Apache-2.0 lisanslidir; lisans ve atif metinleri Hakkinda >
+Acik kaynak lisanslari ekranindan erisilebilir kalir.
 
 ## Otomatik kapilar
 

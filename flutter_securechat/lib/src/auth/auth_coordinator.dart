@@ -1,7 +1,6 @@
 import 'dart:math';
 
 import '../contacts/contact_discovery_api.dart';
-import '../crypto/pre_key_manager.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import 'auth_api.dart';
@@ -14,7 +13,6 @@ class AuthCoordinator {
   AuthCoordinator({
     required AuthApi api,
     required SessionStore session,
-    required PreKeyManager preKeys,
     required RecoveryIdentity olmPreKeys,
     required SignalingService signaling,
     required String signalingUrl,
@@ -23,7 +21,6 @@ class AuthCoordinator {
     AccountRecoveryCoordinator? recovery,
   }) : _api = api,
        _session = session,
-       _preKeys = preKeys,
        _olmPreKeys = olmPreKeys,
        _signaling = signaling,
        _signalingUrl = signalingUrl,
@@ -43,15 +40,11 @@ class AuthCoordinator {
 
   final AuthApi _api;
   final SessionStore _session;
-  final PreKeyManager _preKeys;
-
-  /// Olm acik anahtarlarini yayinlar.
+  /// Olm acik anahtarlarini yayinlar; hesap kurtarma kimligi de budur.
   ///
-  /// libsignal bundle'i da yuklenmeye devam ediyor ve bu BILEREK boyle:
-  /// hesap kurtarmanin kimlik pinlemesi `users.identity_public_key`
-  /// kolonuna dayaniyor ve o kolonu dolduran sey libsignal yuklemesi.
-  /// Ikisini ayni adimda ayirmak, kurtarmayi pinleyecek kimligi olmayan
-  /// bir hesapta birakirdi. Mesajlasmanin kullandigi anahtarlar bunlar.
+  /// Mesajlasmanin kullandigi tek kimlik. libsignal bundle yuklemesi
+  /// kaldirildi: kurtarma artik bu hesabin Ed25519 imzalama anahtarini
+  /// pinliyor (`users.signing_public_key`).
   final RecoveryIdentity _olmPreKeys;
   final SignalingService _signaling;
   final String _signalingUrl;
@@ -104,9 +97,7 @@ class AuthCoordinator {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
     );
-    final bundle = await _preKeys.generateAndSerializeInitialBundle();
-    await _api.uploadPreKeys(bundle, result.accessToken);
-    // Mesajlasmanin gercekte kullandigi anahtarlar. Bu cagri BASARISIZ
+    // Mesajlasmanin ve hesap kurtarmanin kullandigi TEK kimlik. Bu cagri BASARISIZ
     // olursa kayit da basarisiz olmali: Olm anahtari olmayan bir hesaba
     // kimse mesaj gonderemez ve kullanici bunu ancak ilk mesaj
     // gonderilmediginde fark eder.
@@ -161,7 +152,7 @@ class AuthCoordinator {
     } finally {
       await _signaling.disconnect();
       try {
-        await _preKeys.clearProtocolState();
+        await _olmPreKeys.clearLocalCryptoState();
       } finally {
         await _session.clearAndPersist();
       }
@@ -198,7 +189,7 @@ class AuthCoordinator {
   Future<void> clearLocalAuthentication() async {
     await _signaling.disconnect();
     try {
-      await _preKeys.clearProtocolState();
+      await _olmPreKeys.clearLocalCryptoState();
     } finally {
       await _session.clearAndPersist();
     }
