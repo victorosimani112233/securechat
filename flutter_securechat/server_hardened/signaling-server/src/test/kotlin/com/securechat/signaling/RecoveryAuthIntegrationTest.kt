@@ -356,6 +356,28 @@ class RecoveryAuthIntegrationTest {
         assertNull(signingKey(f.user))
     }
 
+    // Istemci artik libsignal bundle yuklemiyor; `registration_id` yalniz o
+    // yukleme ile yazildigi icin Olm-only hesapta NULL. Eskiden 0 okunur ve
+    // kurtarma hem istemcide (`reg < 1`) hem sunucuda (`!in 1..16383`)
+    // reddedilirdi.
+    @Test fun `olm only account without registration id can still recover`() {
+        val f = fixture()
+        Database.getConnection().use { connection ->
+            connection.prepareStatement("UPDATE users SET registration_id = NULL WHERE user_id = ?::uuid").use {
+                it.setString(1, f.user); it.executeUpdate()
+            }
+        }
+        bind(f)
+        val grant = grant(f)
+        assertEquals(RecoveryAuthService.OLM_RECOVERY_REGISTRATION_ID, grant.registrationId)
+        val unsigned = RecoveryComplete(grant.recoveryToken, RecoveryRecordCipher.opaque(), "preserve", "olm",
+            Base64.getEncoder().encodeToString(pub(f.key)), grant.registrationId, "")
+        val request = unsigned.copy(signature = sign(f.key, RecoveryAuthService.completionPreimage(f.user, unsigned)))
+        val response = service.complete(request)
+        assertNotNull(response)
+        assertFalse(response!!.identityReplaced)
+    }
+
     @Test fun `competing capabilities become stale after one recovery`() {
         val f = fixture(); bind(f)
         val first = completion(f, grant(f))

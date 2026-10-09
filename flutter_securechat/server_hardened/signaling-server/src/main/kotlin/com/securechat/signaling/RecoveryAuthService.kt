@@ -246,7 +246,16 @@ internal class RecoveryAuthService(
                 // `identity_public_key` (33 bayt) pinlenirdi; mesaj kriptosu
                 // Olm'a gectigi icin o kolon yalniz libsignal bundle servisine
                 // (PreKeyStore) kaldi ve kurtarmadan ayristirildi.
-                Account(rows.getString(1), "olm", rows.getBytes(2) ?: ByteArray(0), rows.getInt(3))
+                //
+                // `registration_id` yalniz libsignal bundle yuklemesiyle yazilir;
+                // Olm'da karsiligi yok. Bundle yuklemeyen (yalniz Olm) bir
+                // hesapta NULL kalir ve 0 okunurdu: istemci `reg < 1`, sunucu
+                // `!in 1..16383` ile kurtarmayi reddederdi. Deger kurtarma
+                // preimage'inde aynen geri yankilandigi icin sabit olmasi yeter.
+                val reg = rows.getInt(3).let {
+                    if (rows.wasNull() || it !in 1..16383) OLM_RECOVERY_REGISTRATION_ID else it
+                }
+                Account(rows.getString(1), "olm", rows.getBytes(2) ?: ByteArray(0), reg)
             }
         }
         // Burada bir zamanlar v2 prekey tablosu sorgulanir ve bundle varsa
@@ -361,6 +370,9 @@ internal class RecoveryAuthService(
     }
 
     companion object {
+        /** Bundle yuklemeyen (yalniz Olm) hesaplarin kurtarma registrationId'si. */
+        const val OLM_RECOVERY_REGISTRATION_ID = 1
+
         fun enrollmentPreimage(id: String, context: Context): String = listOf("securechat/recovery-enroll/v1", id, context.nonce,
             context.userId, context.epoch, context.email, context.protocol).joinToString("\n")
         fun completionPreimage(userId: String, request: RecoveryComplete): String = listOf("securechat/recovery-complete/v1",
