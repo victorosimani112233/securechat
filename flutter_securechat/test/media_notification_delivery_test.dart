@@ -5,10 +5,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_securechat/src/core/models.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
-import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
-import 'package:flutter_securechat/src/crypto/libsignal_protocol_store.dart';
-import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
-import 'package:flutter_securechat/src/crypto/signal_protocol_crypto_service.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/vodozemac_crypto_service.dart';
 import 'package:flutter_securechat/src/incoming/incoming_message_handler.dart';
 import 'package:flutter_securechat/src/l10n/service_strings.dart';
 import 'package:flutter_securechat/src/media/file_transfer_manager.dart';
@@ -21,7 +18,8 @@ import 'package:flutter_securechat/src/services/signaling_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart' as signal;
+
+import 'support/vodozemac_test_crypto.dart';
 
 const _voice = VoiceNoteMetadata(
   duration: Duration(seconds: 3),
@@ -31,6 +29,14 @@ final _bytes = Uint8List.fromList(List.generate(6590, (i) => i % 251));
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  if (resolveVodozemacLibrary() == null) {
+    test('medya bildirimi (atlandi: native kutuphane derlenmemis)', () {
+      markTestSkipped(
+        'Derlemek icin: cd native/securechat_crypto && cargo build --release',
+      );
+    }, skip: true);
+    return;
+  }
 
   for (final group in [false, true]) {
     final scope = group ? 'group' : 'direct';
@@ -295,28 +301,29 @@ class _Fixture {
       file: File('${directory.path}/sender.db'),
       crypto: storageCrypto,
     );
-    final senderStore = DatabaseCryptoProtocolStore(senderDatabase);
-    final receiverStore = DatabaseCryptoProtocolStore(database);
-    final bundles = _Bundles({
-      'alice': _bundle(
-        await PreKeyManager(
-          senderStore,
-          batchSize: 4,
-        ).generateAndSerializeInitialBundle(),
-      ),
-      'bob': _bundle(
-        await PreKeyManager(
-          receiverStore,
-          batchSize: 4,
-        ).generateAndSerializeInitialBundle(),
-      ),
-    });
-    final senderCrypto = SignalProtocolCryptoService(
-      store: PersistentSignalProtocolStore(senderStore),
+    final libraryPath = resolveVodozemacLibrary()!;
+    final masterKey = List<int>.filled(32, 23);
+    final senderStore = await openTestVodozemacStore(
+      senderDatabase,
+      masterKey,
+      libraryPath,
+    );
+    final receiverStore = await openTestVodozemacStore(
+      database,
+      masterKey,
+      libraryPath,
+    );
+    final bundles = OlmBundleDirectory()
+      ..register('alice', senderStore)
+      ..register('bob', receiverStore);
+    final senderCrypto = VodozemacCryptoService(
+      database: senderDatabase,
+      store: senderStore,
       preKeyBundles: bundles,
     );
     final receiverCrypto = _ReceiverCrypto(
-      store: PersistentSignalProtocolStore(receiverStore),
+      database: database,
+      store: receiverStore,
       preKeyBundles: bundles,
     );
     final wire = InMemorySignalingService()..setConnected(true);
@@ -512,8 +519,12 @@ class _Presenter implements LocalNotificationPresenter {
   Future<void> cancelAll() async {}
 }
 
-class _ReceiverCrypto extends SignalProtocolCryptoService {
-  _ReceiverCrypto({required super.store, required super.preKeyBundles});
+class _ReceiverCrypto extends VodozemacCryptoService {
+  _ReceiverCrypto({
+    required super.database,
+    required super.store,
+    required super.preKeyBundles,
+  });
   Completer<void>? senderKeyGate;
   final senderKeyStarted = Completer<void>();
   @override
@@ -528,29 +539,4 @@ class _ReceiverCrypto extends SignalProtocolCryptoService {
       plaintext: plaintext,
     );
   }
-}
-
-class _Bundles implements PreKeyBundleProvider {
-  _Bundles(this.values);
-  final Map<String, signal.PreKeyBundle> values;
-  @override
-  Future<signal.PreKeyBundle?> fetch(String recipientId) async =>
-      values[recipientId];
-}
-
-signal.PreKeyBundle _bundle(SerializedPreKeyBundle value) {
-  final key = value.oneTimePreKeys.first;
-  return signal.PreKeyBundle(
-    value.registrationId,
-    1,
-    key.keyId,
-    signal.Curve.decodePoint(Uint8List.fromList(key.publicKey), 0),
-    value.signedPreKeyId,
-    signal.Curve.decodePoint(Uint8List.fromList(value.signedPreKey), 0),
-    Uint8List.fromList(value.signedPreKeySignature),
-    signal.IdentityKey.fromBytes(
-      Uint8List.fromList(value.identityPublicKey),
-      0,
-    ),
-  );
 }

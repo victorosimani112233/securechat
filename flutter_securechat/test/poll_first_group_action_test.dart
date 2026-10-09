@@ -1,13 +1,9 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_securechat/src/chat/poll_service.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
-import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
-import 'package:flutter_securechat/src/crypto/libsignal_protocol_store.dart';
-import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
-import 'package:flutter_securechat/src/crypto/signal_protocol_crypto_service.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/vodozemac_crypto_service.dart';
 import 'package:flutter_securechat/src/domain/send_message_use_case.dart';
 import 'package:flutter_securechat/src/incoming/incoming_message_handler.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
@@ -16,11 +12,22 @@ import 'package:flutter_securechat/src/services/signaling_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart' as signal;
+
+import 'support/vodozemac_test_crypto.dart';
 
 const _groupId = 'new-two-member-group';
 
 void main() {
+  final libraryPath = resolveVodozemacLibrary();
+  if (libraryPath == null) {
+    test('ilk grup eylemi (atlandi: native kutuphane derlenmemis)', () {
+      markTestSkipped(
+        'Derlemek icin: cd native/securechat_crypto && cargo build --release',
+      );
+    }, skip: true);
+    return;
+  }
+
   for (final (sendTextFirst, rejectDistribution) in [
     (false, false),
     (true, false),
@@ -35,10 +42,10 @@ void main() {
       () async {
         final root = await Directory.systemTemp.createTemp('first_group_vote_');
         addTearDown(() => root.delete(recursive: true));
-        final bundles = _Bundles();
-        final alice = await _Peer.open(root, 'alice', bundles);
+        final bundles = OlmBundleDirectory();
+        final alice = await _Peer.open(root, 'alice', bundles, libraryPath);
         addTearDown(alice.close);
-        final bob = await _Peer.open(root, 'bob', bundles);
+        final bob = await _Peer.open(root, 'bob', bundles, libraryPath);
         addTearDown(bob.close);
 
         expect(
@@ -158,37 +165,26 @@ class _Peer {
   }
 
   final SecureChatDatabase database;
-  final SignalProtocolCryptoService crypto;
+  final VodozemacCryptoService crypto;
   final signaling = _Signaling();
   final failures = <Object>[];
   late final SendMessageUseCase sender;
   late final PollService polls;
   late final IncomingMessageHandler incoming;
 
-  static Future<_Peer> open(Directory root, String id, _Bundles bundles) async {
+  static Future<_Peer> open(
+    Directory root,
+    String id,
+    OlmBundleDirectory bundles,
+    String libraryPath,
+  ) async {
+    final masterKey = List<int>.filled(32, id.length);
     final database = await SecureChatDatabase.open(
       file: File('${root.path}/$id.securejson'),
-      crypto: LocalAeadCryptoService(SecretKey(List.filled(32, 1))),
+      crypto: LocalAeadCryptoService(SecretKey(masterKey)),
     );
-    final raw = DatabaseCryptoProtocolStore(database);
-    final bundle = await PreKeyManager(
-      raw,
-      batchSize: 4,
-    ).generateAndSerializeInitialBundle();
-    final oneTime = bundle.oneTimePreKeys.first;
-    bundles.values[id] = signal.PreKeyBundle(
-      bundle.registrationId,
-      1,
-      oneTime.keyId,
-      signal.Curve.decodePoint(Uint8List.fromList(oneTime.publicKey), 0),
-      bundle.signedPreKeyId,
-      signal.Curve.decodePoint(Uint8List.fromList(bundle.signedPreKey), 0),
-      Uint8List.fromList(bundle.signedPreKeySignature),
-      signal.IdentityKey.fromBytes(
-        Uint8List.fromList(bundle.identityPublicKey),
-        0,
-      ),
-    );
+    final store = await openTestVodozemacStore(database, masterKey, libraryPath);
+    bundles.register(id, store);
     await database.conversations.insert(
       const ConversationEntity(
         id: _groupId,
@@ -201,8 +197,9 @@ class _Peer {
     );
     return _Peer(
       database,
-      SignalProtocolCryptoService(
-        store: PersistentSignalProtocolStore(raw),
+      VodozemacCryptoService(
+        database: database,
+        store: store,
         preKeyBundles: bundles,
       ),
       id,
@@ -234,10 +231,3 @@ class _Signaling extends InMemorySignalingService {
       rejectSend ? false : super.send(message);
 }
 
-class _Bundles implements PreKeyBundleProvider {
-  final values = <String, signal.PreKeyBundle>{};
-
-  @override
-  Future<signal.PreKeyBundle?> fetch(String recipientId) async =>
-      values[recipientId];
-}
