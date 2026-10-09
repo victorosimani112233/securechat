@@ -55,7 +55,7 @@ internal class RecoveryAuthService(
         val otp = RecoveryRecordCipher.otp()
         val result = transaction { connection ->
             val account = lockAccount(connection, userId) ?: return@transaction null
-            if (account.epoch != epoch || account.key.size != 33) return@transaction null
+            if (account.epoch != epoch || account.key.size != 32) return@transaction null
             val ai = cipher.index("account", userId)
             val ei = cipher.index("email", email)
             if (!quota(connection, "enroll-account", ai, 5) || !quota(connection, "enroll-email", ei, 5)) return@transaction null
@@ -105,7 +105,7 @@ internal class RecoveryAuthService(
             if (!quota(connection, "login-email", ei, 5)) return@transaction false
             val bound = binding(connection, "email_index", ei)
             val account = bound?.let { lockAccount(connection, it.userId) }
-            val context = if (account != null && account.key.size == 33) {
+            val context = if (account != null && account.key.size == 32) {
                 bound.copy(epoch = account.epoch, protocol = account.protocol, identity = b64(account.key), registrationId = account.registrationId)
             } else Context(email = email)
             // Unknown addresses receive indistinguishable random challenges but can never verify.
@@ -139,10 +139,10 @@ internal class RecoveryAuthService(
                 ?: return@transaction receipt(connection, request)
             val context = challenge.context
             if (!currentBinding(connection, context, account)) return@transaction null
-            if (request.mode !in setOf("preserve", "replace") || request.identityProtocol !in setOf("v1", "v2") ||
+            if (request.mode !in setOf("preserve", "replace") || request.identityProtocol != "olm" ||
                 request.registrationId !in 1..16383) return@transaction null
             val key = runCatching { Base64.getDecoder().decode(request.identityPublicKey) }.getOrNull() ?: return@transaction null
-            if (key.size != 33 || b64(key) != request.identityPublicKey || !RecoveryRecordCipher.verify(
+            if (key.size != 32 || b64(key) != request.identityPublicKey || !RecoveryRecordCipher.verify(
                     key, completionPreimage(context.userId, request), request.signature,
                 )) return@transaction null
             if (request.mode == "preserve" && (request.identityProtocol != account.protocol ||
@@ -163,22 +163,28 @@ internal class RecoveryAuthService(
                         it.setString(1, context.userId); it.executeUpdate()
                     }
                 }
-                // Pin bos-bundle araligini asar ve yukleme yolunu cerceveler.
+                // Olm kimlik kolonlari NULL'a cekilir. Cekilmezse yeni cihaz
+                // `OlmPreKeyStore.setIdentity`'yi cagirdiginda eski degerle
+                // karsilastirip yeni kimligi REDDEDER ("Explicit identity
+                // recovery required"). Nulllayinca yeni cihaz kurtarmadan
+                // hemen sonra `publishIfNeeded` ile taze Olm kimligini +
+                // imza anahtarini yukler ve `signing_public_key` (= kurtarma
+                // pini) oradan yeniden yazilir. Pin kaydi `recovery_identity_
+                // pin`'de tutulur (yeni 32 bayt Ed25519 anahtari).
                 //
-                // Olm kimlik kolonlari da NULL'a cekilir. Cekilmezse kimlik
-                // degistikten sonra `OlmPreKeyStore.setIdentity` eski
-                // degerle karsilastirip yeni kimligi REDDEDER ("Explicit
-                // identity recovery required") ve kurtarilan hesap bir daha
-                // Olm kimligi kuramaz. Kurtarma kimligi degistirmenin tek
-                // mesru yolu oldugu icin temizleme yeri tam burasi.
+                // `identity_public_key` (libsignal bundle kimligi) da NULL'a
+                // cekilir: cihaz degisince eski libsignal bundle'i gecersiz
+                // ve kurtarma artik o kolona dayanmiyor. Ed25519 anahtarini
+                // oraya yazmak PreKeyStore'un 33 bayt bekleyen libsignal
+                // bundle servisini bozardi.
                 connection.prepareStatement(
-                    "UPDATE users SET identity_public_key = ?, registration_id = ?, " +
+                    "UPDATE users SET identity_public_key = NULL, registration_id = ?, " +
                         "recovery_identity_pin = ?, recovery_identity_protocol = ?, " +
                         "olm_identity_key = NULL, signing_public_key = NULL " +
                         "WHERE user_id = ?::uuid",
                 ).use {
-                    it.setBytes(1, key); it.setInt(2, request.registrationId); it.setBytes(3, key)
-                    it.setString(4, request.identityProtocol); it.setString(5, context.userId); it.executeUpdate()
+                    it.setInt(1, request.registrationId); it.setBytes(2, key)
+                    it.setString(3, request.identityProtocol); it.setString(4, context.userId); it.executeUpdate()
                 }
             }
             val epoch = RecoveryRecordCipher.opaque()
@@ -231,11 +237,16 @@ internal class RecoveryAuthService(
     }
 
     private fun lockAccount(connection: Connection, userId: String): Account? {
-        val legacy = connection.prepareStatement("SELECT credential_epoch, identity_public_key, registration_id, recovery_identity_protocol FROM users WHERE user_id = ?::uuid FOR UPDATE").use {
+        val legacy = connection.prepareStatement("SELECT credential_epoch, signing_public_key, registration_id FROM users WHERE user_id = ?::uuid FOR UPDATE").use {
             it.setString(1, userId)
             it.executeQuery().use { rows ->
                 if (!rows.next()) return null
-                Account(rows.getString(1), rows.getString(4) ?: "v1", rows.getBytes(2) ?: ByteArray(0), rows.getInt(3))
+                // Kurtarma kimligi artik vodozemac Ed25519 imzalama anahtari
+                // (`signing_public_key`, ham 32 bayt). Eskiden libsignal
+                // `identity_public_key` (33 bayt) pinlenirdi; mesaj kriptosu
+                // Olm'a gectigi icin o kolon yalniz libsignal bundle servisine
+                // (PreKeyStore) kaldi ve kurtarmadan ayristirildi.
+                Account(rows.getString(1), "olm", rows.getBytes(2) ?: ByteArray(0), rows.getInt(3))
             }
         }
         // Burada bir zamanlar v2 prekey tablosu sorgulanir ve bundle varsa

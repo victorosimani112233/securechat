@@ -2,7 +2,8 @@ package com.securechat.signaling
 
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
-import org.signal.libsignal.protocol.ecc.Curve
+import java.security.KeyPairGenerator
+import java.security.Signature
 import java.util.Base64
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -52,9 +53,17 @@ class RecoveryRecordCipherTest {
         val request = RecoveryComplete("token", "completion", "replace", "v1", "public", 42, "signature")
         val message = "securechat/recovery-complete/v1\ntoken\ncompletion\nuser\nreplace\nv1\npublic\n42"
         assertEquals(message, RecoveryAuthService.completionPreimage("user", request))
-        val pair = Curve.generateKeyPair()
-        val signature = Base64.getEncoder().encodeToString(Curve.calculateSignature(pair.privateKey, message.toByteArray()))
-        assertTrue(RecoveryRecordCipher.verify(pair.publicKey.serialize(), message, signature))
-        assertFalse(RecoveryRecordCipher.verify(pair.publicKey.serialize(), "$message\n", signature))
+        // Kurtarma imzasi artik Ed25519 (vodozemac `account.sign()`), 32 bayt
+        // ham acik anahtar. JDK Ed25519 X.509 ile cikti verdigi icin SPKI
+        // onekini (12 bayt) soyup ham anahtari aliyoruz.
+        val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val publicRaw = pair.public.encoded.copyOfRange(12, 44)
+        val signature = Signature.getInstance("Ed25519").run {
+            initSign(pair.private)
+            update(message.toByteArray())
+            Base64.getEncoder().encodeToString(sign())
+        }
+        assertTrue(RecoveryRecordCipher.verify(publicRaw, message, signature))
+        assertFalse(RecoveryRecordCipher.verify(publicRaw, "$message\n", signature))
     }
 }

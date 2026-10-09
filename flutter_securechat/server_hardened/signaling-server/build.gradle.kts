@@ -49,9 +49,6 @@ dependencies {
     implementation(libs.logback)
     implementation(libs.serialization.json)
 
-    // Official Signal certificate wire implementation for Sealed Sender.
-    implementation(libs.libsignal.client)
-
     // Firebase Admin SDK — sunucu tarafindan FCM push gondermek icin
     implementation("com.google.firebase:firebase-admin:9.2.0")
 

@@ -8,7 +8,9 @@ import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import org.signal.libsignal.protocol.ecc.Curve
+import java.security.KeyFactory
+import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
 
 internal class RecoveryRecordCipher(indexKey: ByteArray, encryptionKey: ByteArray) {
     private val indexKey = indexKey.copyOf()
@@ -65,10 +67,26 @@ internal class RecoveryRecordCipher(indexKey: ByteArray, encryptionKey: ByteArra
             return email
         }
 
+        // Kurtarma kimligi libsignal Curve25519/XEdDSA'dan vodozemac'in
+        // Ed25519 imzalama anahtarina tasindi: istemci `account.sign()`
+        // (standart Ed25519) uretiyor, pin ettigimiz anahtar `users.
+        // signing_public_key` (ham 32 bayt). JDK'nin Ed25519'u ham anahtar
+        // degil X.509 SPKI bekliyor, bu yuzden 32 bayt sabit bir
+        // SubjectPublicKeyInfo onekiyle sariliyor.
+        private val ed25519Spki = byteArrayOf(
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+        )
+
         fun verify(key: ByteArray, preimage: String, signature: String): Boolean = runCatching {
             val bytes = Base64.getDecoder().decode(signature)
-            key.size == 33 && bytes.size == 64 &&
-                Curve.verifySignature(Curve.decodePoint(key, 0), preimage.toByteArray(Charsets.UTF_8), bytes)
+            if (key.size != 32 || bytes.size != 64) return@runCatching false
+            val pub = KeyFactory.getInstance("Ed25519")
+                .generatePublic(X509EncodedKeySpec(ed25519Spki + key))
+            Signature.getInstance("Ed25519").run {
+                initVerify(pub)
+                update(preimage.toByteArray(Charsets.UTF_8))
+                verify(bytes)
+            }
         }.getOrDefault(false)
     }
 }

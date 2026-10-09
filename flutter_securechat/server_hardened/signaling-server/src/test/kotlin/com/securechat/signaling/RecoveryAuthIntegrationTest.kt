@@ -9,8 +9,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.*
-import org.signal.libsignal.protocol.ecc.Curve
-import org.signal.libsignal.protocol.ecc.ECKeyPair
+import java.security.KeyPair
+import java.security.KeyPairGenerator
+import java.security.Signature
 import org.testcontainers.DockerClientFactory
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.containers.GenericContainer
@@ -34,7 +35,7 @@ class RecoveryAuthIntegrationTest {
     private val codes = ConcurrentHashMap<String, String>()
     private lateinit var service: RecoveryAuthService
     private lateinit var cipher: RecoveryRecordCipher
-    private data class Fixture(val user: String, val email: String, val key: ECKeyPair, val epoch: String)
+    private data class Fixture(val user: String, val email: String, val key: KeyPair, val epoch: String)
 
     @BeforeAll fun setup() {
         Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable)
@@ -52,15 +53,23 @@ class RecoveryAuthIntegrationTest {
 
     private fun fixture(): Fixture {
         val user = UUID.randomUUID().toString()
-        val pair = Curve.generateKeyPair()
+        val pair = ed25519()
         Database.getConnection().use { connection ->
-            connection.prepareStatement("INSERT INTO users(user_id, directory_token, identity_public_key, registration_id) VALUES (?::uuid, ?, ?, 1234)").use {
-                it.setString(1, user); it.setString(2, "pending:$user"); it.setBytes(3, pair.publicKey.serialize()); it.executeUpdate()
+            // `signing_public_key`: kurtarma artik Ed25519 imzalama anahtarini
+            // pinliyor. `identity_public_key`: libsignal bundle yolu (PreKeyStore)
+            // icin ayri bir sahte 33 bayt kimlik; kurtarmadan ayrik.
+            connection.prepareStatement("INSERT INTO users(user_id, directory_token, identity_public_key, signing_public_key, registration_id) VALUES (?::uuid, ?, ?, ?, 1234)").use {
+                it.setString(1, user); it.setString(2, "pending:$user")
+                it.setBytes(3, ByteArray(33) { i -> i.toByte() }); it.setBytes(4, pub(pair)); it.executeUpdate()
             }
         }
         return Fixture(user, "$user@example.com", pair, CredentialState.snapshot(user)!!.credentialEpoch)
     }
-    private fun sign(pair: ECKeyPair, bytes: String) = Base64.getEncoder().encodeToString(Curve.calculateSignature(pair.privateKey, bytes.toByteArray(Charsets.UTF_8)))
+    private fun ed25519(): KeyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+    // JDK Ed25519 X.509/SPKI ciktisi verir; ham 32 bayt icin 12 baytlik oneki soy.
+    private fun pub(pair: KeyPair): ByteArray = pair.public.encoded.copyOfRange(12, 44)
+    private fun sign(pair: KeyPair, bytes: String) = Base64.getEncoder().encodeToString(
+        Signature.getInstance("Ed25519").run { initSign(pair.private); update(bytes.toByteArray(Charsets.UTF_8)); sign() })
     private fun enrollment(f: Fixture): Pair<RecoveryEnrollmentChallenge, RecoveryVerify> {
         val challenge = service.requestEnrollment(f.user, f.epoch, f.email)!!
         val context = RecoveryAuthService.Context(f.user, f.email, f.epoch, challenge.nonce, challenge.identityProtocol)
@@ -74,10 +83,15 @@ class RecoveryAuthIntegrationTest {
         val challenge = service.requestLogin(f.email)
         return service.verifyLogin(RecoveryVerify(challenge.challengeId, codes["login:${f.email}"]!!))!!
     }
-    private fun completion(f: Fixture, grant: RecoveryGrant, key: ECKeyPair = f.key, mode: String = "preserve", protocol: String = "v1"): RecoveryComplete {
+    private fun completion(f: Fixture, grant: RecoveryGrant, key: KeyPair = f.key, mode: String = "preserve", protocol: String = "olm"): RecoveryComplete {
         val unsigned = RecoveryComplete(grant.recoveryToken, RecoveryRecordCipher.opaque(), mode, protocol,
-            Base64.getEncoder().encodeToString(key.publicKey.serialize()), 1234, "")
+            Base64.getEncoder().encodeToString(pub(key)), 1234, "")
         return unsigned.copy(signature = sign(key, RecoveryAuthService.completionPreimage(f.user, unsigned)))
+    }
+    private fun signingKey(user: String): ByteArray? = Database.getConnection().use { connection ->
+        connection.prepareStatement("SELECT signing_public_key FROM users WHERE user_id = ?::uuid").use {
+            it.setString(1, user); it.executeQuery().use { rows -> if (rows.next()) rows.getBytes(1) else null }
+        }
     }
     private fun count(table: String, column: String, value: String): Int = Database.getConnection().use { connection ->
         connection.prepareStatement("SELECT COUNT(*) FROM $table WHERE $column = ?").use {
@@ -296,7 +310,7 @@ class RecoveryAuthIntegrationTest {
         val f = fixture(); bind(f)
         val before = CredentialState.snapshot(f.user)!!.credentialEpoch
         assertNull(service.complete(completion(f, grant(f)).copy(signature = "invalid")))
-        assertNull(service.complete(completion(f, grant(f), Curve.generateKeyPair())))
+        assertNull(service.complete(completion(f, grant(f), ed25519())))
         val badReg = completion(f, grant(f)).copy(registrationId = 5678)
         assertNull(service.complete(badReg.copy(signature = sign(f.key, RecoveryAuthService.completionPreimage(f.user, badReg)))))
         assertEquals(before, CredentialState.snapshot(f.user)!!.credentialEpoch)
@@ -307,17 +321,20 @@ class RecoveryAuthIntegrationTest {
     // degistikten sonra ESKI epoch ile gelen yazmalar reddedilmeli. Bu
     // ozellik olmazsa kuyruga takilmis eski bir yazma kurtarilmis hesabin
     // anahtarlarini geri diker.
-    @Test fun `replacement pins the identity and superseded uploads fail`() {
+    @Test fun `replacement clears the pin and superseded uploads fail`() {
         val f = fixture(); bind(f)
-        PreKeyStore.uploadBundle(f.user, f.key.publicKey.serialize(), 1234,
+        // libsignal bundle yolu kurtarma anahtarindan ayri bir 33 bayt kimlik
+        // kullanir (fixture'in `identity_public_key` seed'iyle ayni).
+        val libsignalIdentity = ByteArray(33) { it.toByte() }
+        PreKeyStore.uploadBundle(f.user, libsignalIdentity, 1234,
             PreKeyStore.SignedPreKey(1, ByteArray(33), ByteArray(64)), listOf(PreKeyStore.OneTimePreKey(1, ByteArray(33))))
-        val next = Curve.generateKeyPair()
-        val response = service.complete(completion(f, grant(f), next, "replace", "v2"))!!
+        val next = ed25519()
+        val response = service.complete(completion(f, grant(f), next, "replace", "olm"))!!
         assertTrue(response.identityReplaced)
         assertNull(PreKeyStore.fetchBundle(f.user))
         assertEquals(0, PreKeyStore.unconsumedCount(f.user))
         assertThrows(IllegalStateException::class.java) {
-            PreKeyStore.setIdentityKey(f.user, f.key.publicKey.serialize(), 1234)
+            PreKeyStore.setIdentityKey(f.user, libsignalIdentity, 1234)
         }
         assertThrows(IllegalStateException::class.java) {
             PreKeyStore.addOneTimePreKeys(f.user, listOf(PreKeyStore.OneTimePreKey(2, ByteArray(33))), f.epoch)
@@ -330,10 +347,13 @@ class RecoveryAuthIntegrationTest {
                 f.epoch,
             )
         }
-        val fresh = grant(f)
-        assertEquals("v2", fresh.identityProtocol)
-        assertEquals(Base64.getEncoder().encodeToString(next.publicKey.serialize()), fresh.identityPublicKey)
-        assertEquals(1234, fresh.registrationId)
+        // Temiz kirilma: replace Olm kimligini + kurtarma pinini (signing_
+        // public_key) NULL'a ceker. Yeni cihaz `publishIfNeeded` ile taze
+        // kimligi yukleyene dek pin yoktur; bu nedenle yeni bir kurtarma
+        // grant'i da (eski binding bayat + pin yok) mumkun degildir. O
+        // yeniden-kurulum + yeniden-enroll akisi cihaz + deploy testinde
+        // dogrulanacak; burada yalniz temizlemeyi olcuyoruz.
+        assertNull(signingKey(f.user))
     }
 
     @Test fun `competing capabilities become stale after one recovery`() {
@@ -346,7 +366,7 @@ class RecoveryAuthIntegrationTest {
 
     @Test fun `receipt storage failure rolls back credential rotation identity replacement and consumption`() {
         val f = fixture(); bind(f)
-        val request = completion(f, grant(f), Curve.generateKeyPair(), "replace")
+        val request = completion(f, grant(f), ed25519(), "replace")
         Database.getConnection().use { connection ->
             connection.createStatement().use { it.execute("ALTER TABLE account_recovery_receipts ADD CONSTRAINT recovery_test_failure CHECK (false) NOT VALID") }
         }
