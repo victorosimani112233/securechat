@@ -7,6 +7,10 @@ import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/config/app_config.dart';
 import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
 import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/securechat_crypto_ffi.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/vodozemac_migration.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/vodozemac_protocol_store.dart';
 import 'package:flutter_securechat/src/network/tls_pinning.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/key_material_store.dart';
@@ -51,6 +55,12 @@ Future<void> _runAuthLifecycle() async {
     file: databaseFile,
     crypto: crypto,
   );
+  await VodozemacMigration(database).runIfNeeded();
+  final vodozemacStore = VodozemacProtocolStore(
+    database: database,
+    crypto: SecureChatCrypto.open(),
+    pickleKey: await VodozemacProtocolStore.derivePickleKey(key),
+  );
   final session = await PersistentSessionStore.open(
     file: sessionFile,
     crypto: crypto,
@@ -63,6 +73,17 @@ Future<void> _runAuthLifecycle() async {
       DatabaseCryptoProtocolStore(database),
       batchSize: 8,
       refreshThreshold: 2,
+    ),
+    // registerAndLogin bu testte gercekten calisiyor; prekey yayini da
+    // gercek olmali, yoksa test Olm anahtarlari hic yuklenmeden gecer.
+    // Uretimdeki on plan kurulumuyla ayni: createAccountIfMissing=true.
+    olmPreKeys: OlmPreKeyPublisher(
+      database: database,
+      store: vodozemacStore,
+      apiBaseUrl: Uri.parse(config.apiBaseUrl),
+      httpClient: clients.create(),
+      accessTokenProvider: () async => session.accessToken,
+      createAccountIfMissing: true,
     ),
     signaling: signaling,
     signalingUrl: config.signalingUrl,

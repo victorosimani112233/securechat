@@ -14,6 +14,7 @@ import 'package:flutter_securechat/src/backup/backup_service.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
 import 'package:flutter_securechat/src/crypto/crypto_protocol_store.dart';
 import 'package:flutter_securechat/src/crypto/pre_key_manager.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 import 'package:flutter_securechat/src/domain/send_message_use_case.dart';
 import 'package:flutter_securechat/src/export/export_audit_service.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
@@ -285,6 +286,10 @@ Future<void> _verifyDataLifecycle() async {
       api: AuthApi(baseUrl: server.baseUrl),
       session: session,
       preKeys: PreKeyManager(DatabaseCryptoProtocolStore(database)),
+      // Bu test coordinator'i YALNIZ deleteAccount icin kullaniyor;
+      // registerAndLogin cagrilmiyor, yani prekey yayini hic tetiklenmiyor.
+      // No-op yeterli; gercek vodozemac/native kurulumuna gerek yok.
+      olmPreKeys: _UnusedOlmKeyPublisher(),
       signaling: signaling,
       signalingUrl: 'ws://device.invalid',
     );
@@ -371,4 +376,10 @@ class _DeviceAuthServer {
   }
 
   Future<void> close() => _server.close(force: true);
+}
+
+/// Prekey yayini bu testte tetiklenmedigi icin kullanilan no-op yayinci.
+class _UnusedOlmKeyPublisher implements OlmKeyPublisher {
+  @override
+  Future<void> publishIfNeeded() async {}
 }
