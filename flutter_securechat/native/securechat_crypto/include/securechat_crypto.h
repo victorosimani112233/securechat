@@ -54,6 +54,7 @@ void sc_string_free(char *value);
 #define SC_ERROR_DECRYPT_INVALID      5u  /* oturum kullanilamaz */
 #define SC_ERROR_DECRYPT_GAP          6u  /* oturum kullanilamaz */
 #define SC_ERROR_SESSION              7u
+#define SC_ERROR_IDENTITY_MISMATCH    8u  /* guven olayi; oturum saglam */
 
 uint32_t sc_last_error_code(void);
 

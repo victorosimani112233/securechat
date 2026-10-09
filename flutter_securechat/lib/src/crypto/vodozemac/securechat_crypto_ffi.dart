@@ -254,7 +254,12 @@ enum CryptoErrorKind {
   messageGap(6),
 
   /// Oturum kurulamadi.
-  session(7);
+  session(7),
+
+  /// Gelen PreKey mesajinin kimligi pinlenen kimlikle uyusmuyor. Guven
+  /// olayidir, olu oturum DEGIL: mevcut oturumlar saglam, silinmemeli.
+  /// Hesap durumu degismez; kimlik onaylaninca ayni mesaj cozulebilir.
+  identityMismatch(8);
 
   const CryptoErrorKind(this.code);
 

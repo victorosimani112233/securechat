@@ -156,8 +156,13 @@ class VodozemacCryptoService
             trustLevel: TrustLevel.trustedVerified,
           ),
         );
-        // Eski kimlige bagli oturumlar yeni kimlikle gecerli degil.
-        await _store.deleteSessionsForPeer(review.peerId);
+        // Eski kimlige bagli oturumlar yeni kimlikle gecerli degil. Kimlik
+        // DEGISMEDIYSE (kullanici guvenlik numarasini yalnizca dogruladi)
+        // oturum saglamdir ve korunur: silmek, karsi tarafin eski oturumla
+        // yolda olan mesajlarini cozulemez yapardi.
+        if (review.identityChanged) {
+          await _store.deleteSessionsForPeer(review.peerId);
+        }
       });
 
   Future<Uint8List> _localIdentityBytes() => _store.withAccount((account) async {
@@ -335,6 +340,16 @@ class VodozemacCryptoService
       try {
         return await _acceptInboundSession(senderId, message.body);
       } on SecureChatCryptoException catch (error) {
+        if (error.kind == CryptoErrorKind.identityMismatch) {
+          // Gonderen pinlenen kimlikten FARKLI bir kimlikle oturum kurmaya
+          // calisiyor (yeni cihaz ya da araya giren biri). Bu bir guven
+          // karari: kullaniciya bildirilir ve onay beklenir. Mevcut
+          // oturumlar SAGLAM ve korunur; silmek, tek bir mesajla saglikli
+          // oturumu yok etmeye izin verirdi. Hesap durumu degismedigi icin
+          // onaydan sonra ayni zarf cozulebilir.
+          await _onPeerIdentityRotated?.call(senderId);
+          throw PeerIdentityChangedException(senderId);
+        }
         lastError = error;
       }
     }

@@ -54,6 +54,11 @@ pub(crate) const ERROR_DECRYPT_INVALID: u32 = 5;
 pub(crate) const ERROR_DECRYPT_GAP: u32 = 6;
 /// Oturum kurulamadi.
 pub(crate) const ERROR_SESSION: u32 = 7;
+/// Gelen PreKey mesajinin kimligi pinlenen kimlikle uyusmuyor. Bu bir GUVEN
+/// olayidir, olu oturum degil: mevcut oturumlar saglam ve silinmemeli.
+/// Ayri sinif olmasa `ERROR_SESSION` ile karisir ve tek bir mesaj (karsi
+/// tarafin yeni cihazi ya da araya giren biri) saglikli oturumu yok ederdi.
+pub(crate) const ERROR_IDENTITY_MISMATCH: u32 = 8;
 
 /// Son hatanin sinifi. `sc_last_error()` ile ayni cagri icin gecerlidir.
 #[no_mangle]
@@ -454,6 +459,15 @@ pub unsafe extern "C" fn sc_account_create_inbound_session(
             return ptr::null_mut();
         }
     };
+    // Kimlik once ve AYRI kontrol edilir: uyusmazlik bir oturum hatasi
+    // degil, guven olayidir. Hesap durumu degismez (tek kullanimlik anahtar
+    // tuketilmez), boylece kullanici yeni kimligi onayladiktan sonra AYNI
+    // mesaj cozulebilir.
+    if message.identity_key() != identity {
+        set_error_code(ERROR_IDENTITY_MISMATCH);
+        set_error("gelen mesajin kimligi pinlenen kimlikle uyusmuyor");
+        return ptr::null_mut();
+    }
     match (*account).create_inbound_session(identity, &message) {
         Ok(result) => {
             let plaintext = B64.encode(result.plaintext);
@@ -668,6 +682,75 @@ mod tests {
         // `expectedAbiVersion` birlikte guncellenmeli; Dart testi ucunu de
         // birbirine bagliyor.
         assert_eq!(sc_abi_version(), 3);
+    }
+
+    #[test]
+    fn kimlik_uyusmazligi_ayri_siniftir_ve_hesabi_degistirmez() {
+        // Pinlenen kimlikle uyusmayan bir PreKey mesaji oturum hatasi DEGIL,
+        // guven olayidir: ayri sinif doner, tek kullanimlik anahtar
+        // tuketilmez ve dogru kimlik onaylaninca AYNI mesaj cozulur.
+        unsafe {
+            let alice = sc_account_new();
+            let bob = sc_account_new();
+            let mallory = sc_account_new();
+            let bob_keys: serde_json::Value =
+                serde_json::from_str(&take_string(sc_account_generate_one_time_keys(bob, 1)))
+                    .expect("json");
+            let bob_otk = bob_keys.as_object().expect("obje").values().next()
+                .expect("anahtar").as_str().expect("b64").to_owned();
+            let identity = |account: *const Account| -> String {
+                let keys: serde_json::Value =
+                    serde_json::from_str(&take_string(sc_account_identity_keys(account)))
+                        .expect("json");
+                keys["curve25519"].as_str().expect("curve").to_owned()
+            };
+            let session = sc_account_create_outbound_session(
+                alice,
+                c(&identity(bob)).as_ptr(),
+                c(&bob_otk).as_ptr(),
+            );
+            assert!(!session.is_null());
+            let envelope: serde_json::Value = serde_json::from_str(&take_string(
+                sc_session_encrypt(session, b"yeni cihaz".as_ptr(), 10),
+            ))
+            .expect("json");
+            let body = envelope["body"].as_str().expect("body").to_owned();
+            let prekey_b64 = match OlmMessage::from_parts(0, &B64.decode(&body).expect("b64"))
+                .expect("mesaj")
+            {
+                OlmMessage::PreKey(message) => message.to_base64(),
+                _ => panic!("PreKey bekleniyordu"),
+            };
+
+            // Bob baska bir kimligi (mallory) pinlemis.
+            let mut out: *mut Session = ptr::null_mut();
+            let result = sc_account_create_inbound_session(
+                bob,
+                c(&identity(mallory)).as_ptr(),
+                c(&prekey_b64).as_ptr(),
+                &mut out,
+            );
+            assert!(result.is_null());
+            assert!(out.is_null());
+            assert_eq!(sc_last_error_code(), ERROR_IDENTITY_MISMATCH);
+            assert_eq!(sc_account_stored_one_time_key_count(bob), 1, "OTK tuketilmemeli");
+
+            // Kimlik onaylandiktan sonra AYNI mesaj cozulur.
+            let decrypted = take_string(sc_account_create_inbound_session(
+                bob,
+                c(&identity(alice)).as_ptr(),
+                c(&prekey_b64).as_ptr(),
+                &mut out,
+            ));
+            assert!(!out.is_null());
+            assert_eq!(B64.decode(decrypted).expect("b64"), b"yeni cihaz");
+
+            sc_session_free(out);
+            sc_session_free(session);
+            sc_account_free(alice);
+            sc_account_free(bob);
+            sc_account_free(mallory);
+        }
     }
 
     #[test]
