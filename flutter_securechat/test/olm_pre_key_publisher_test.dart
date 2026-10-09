@@ -222,6 +222,70 @@ void main() {
     });
   });
 
+  group('kurtarmada kimlik sifirlamasi', () {
+    // Kurtarma "replace" modunda sunucu bu hesabin Olm kimligini NULL'a
+    // ceker ve havuzlari siler. Yerel durum ise "her sey yayinlandi" der.
+    test('duz yayin sunucu sifirlamasini GORMEZ (duzeltilen hata)', () async {
+      final publisher = build();
+      await publisher.publishIfNeeded();
+      fakeNow = fakeNow.add(const Duration(days: 1));
+
+      // Sunucu tarafinda kimlik silindi; yerel durum degismedi.
+      await publisher.publishIfNeeded();
+
+      // Hicbir sey yuklenmedi: kurtarilan hesap sunucuda kimliksiz kalirdi
+      // ve kimse bu hesaba mesaj atamazdi.
+      expect(uploads, hasLength(1));
+    });
+
+    test('republishAfterIdentityReset kimlik + fallback + yeni anahtar yukler', () async {
+      final publisher = build();
+      await publisher.publishIfNeeded();
+      fakeNow = fakeNow.add(const Duration(days: 1));
+      final firstKeys = (uploads.single['olmOneTimeKeys'] as List)
+          .cast<Map<String, Object?>>()
+          .map((entry) => entry['keyId'])
+          .toSet();
+
+      await publisher.republishAfterIdentityReset();
+
+      expect(uploads, hasLength(2));
+      final second = uploads[1];
+      // Ayni Olm hesabi: kimlik degismez, sunucu setIdentity ile yeniden pinler.
+      expect(second['olmIdentityKey'], uploads[0]['olmIdentityKey']);
+      expect(second['olmSigningKey'], uploads[0]['olmSigningKey']);
+      expect(second['olmFallbackKey'], isA<String>());
+      final secondKeys = (second['olmOneTimeKeys'] as List)
+          .cast<Map<String, Object?>>()
+          .map((entry) => entry['keyId'])
+          .toSet();
+      // Sunucu havuzu bos: taze anahtarlar gitmeli, eskiler tekrar degil.
+      expect(secondKeys, isNotEmpty);
+      expect(secondKeys.intersection(firstKeys), isEmpty);
+    });
+
+    test('yeniden yayin basarisiz olursa bakim kendini iyilestirir', () async {
+      final publisher = build();
+      await publisher.publishIfNeeded();
+      fakeNow = fakeNow.add(const Duration(days: 1));
+
+      statusFor = () => HttpStatus.internalServerError;
+      await expectLater(
+        publisher.republishAfterIdentityReset(),
+        throwsA(isA<OlmPreKeyPublishException>()),
+      );
+      statusFor = () => HttpStatus.ok;
+
+      // Fallback isareti yuklemeden ONCE silindi; siradan bakim yayini artik
+      // "yeni bir sey yok" demez.
+      await publisher.publishIfNeeded();
+
+      expect(uploads, hasLength(3));
+      expect(uploads[2]['olmFallbackKey'], isA<String>());
+      expect(uploads[2]['olmOneTimeKeys'] as List, isNotEmpty);
+    });
+  });
+
   group('basarisizlik', () {
     test('yukleme basarisiz olursa anahtarlar YAYINLANDI SAYILMAZ', () async {
       // Bu testin tasidigi degismez en onemlisi. `markKeysAsPublished`

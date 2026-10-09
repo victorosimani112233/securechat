@@ -15,7 +15,7 @@ class AuthCoordinator {
     required AuthApi api,
     required SessionStore session,
     required PreKeyManager preKeys,
-    required OlmKeyPublisher olmPreKeys,
+    required RecoveryIdentity olmPreKeys,
     required SignalingService signaling,
     required String signalingUrl,
     ContactDiscoveryApi? privateDirectory,
@@ -34,7 +34,7 @@ class AuthCoordinator {
         SecureAccountRecoveryCoordinator(
           api: api,
           session: session,
-          preKeys: preKeys,
+          recoveryKeys: olmPreKeys,
           signaling: signaling,
           signalingUrl: signalingUrl,
           refreshAccessToken: refreshAccessToken,
@@ -52,7 +52,7 @@ class AuthCoordinator {
   /// kolonuna dayaniyor ve o kolonu dolduran sey libsignal yuklemesi.
   /// Ikisini ayni adimda ayirmak, kurtarmayi pinleyecek kimligi olmayan
   /// bir hesapta birakirdi. Mesajlasmanin kullandigi anahtarlar bunlar.
-  final OlmKeyPublisher _olmPreKeys;
+  final RecoveryIdentity _olmPreKeys;
   final SignalingService _signaling;
   final String _signalingUrl;
   final ContactDiscoveryApi? _privateDirectory;
@@ -73,7 +73,7 @@ class AuthCoordinator {
     // A restored profile is still an existing identity even without tokens.
     // A generic registration grant must not replace it with a new UUID.
     if (_session.userId != null ||
-        await _preKeys.readPendingRecovery() != null) {
+        await _olmPreKeys.readPendingRecovery() != null) {
       throw const ExistingAccountLoginRequired();
     }
     final normalized = normalizePhoneDigits(phoneNumber);

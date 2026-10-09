@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
-import '../crypto/pre_key_manager.dart';
+import '../crypto/vodozemac/olm_pre_key_publisher.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import 'account_recovery_coordinator.dart';
@@ -11,14 +11,14 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
   SecureAccountRecoveryCoordinator({
     required AuthApi api,
     required SessionStore session,
-    required PreKeyManager preKeys,
+    required RecoveryIdentity recoveryKeys,
     required SignalingService signaling,
     required String signalingUrl,
     required Future<String?> Function() refreshAccessToken,
     DateTime Function()? now,
   }) : _api = api,
        _session = session,
-       _keys = preKeys,
+       _recovery = recoveryKeys,
        _signaling = signaling,
        _signalingUrl = signalingUrl,
        _refreshAccessToken = refreshAccessToken,
@@ -26,7 +26,9 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
 
   final AuthApi _api;
   final SessionStore _session;
-  final PreKeyManager _keys;
+  // Kurtarma kimligi vodozemac Ed25519 (mesaj kriptosuyla ayni Olm hesabi);
+  // imza, pending kayit ve kurtarma sonrasi Olm yayini buradan.
+  final RecoveryIdentity _recovery;
   final SignalingService _signaling;
   final String _signalingUrl;
   final Future<String?> Function() _refreshAccessToken;
@@ -61,7 +63,7 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
       _exclusive(() async {
         final userId = _session.userId;
         final access = _access;
-        if (await _keys.localIdentityPublicKey() == null) {
+        if (await _recovery.recoverySigningPublicKey() == null) {
           throw const AuthApiException('recovery_trusted_device_required');
         }
         final normalized = _email(email);
@@ -93,11 +95,11 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     if (challenge.userId != _session.userId ||
         challenge.nonce == null ||
         challenge.credentialEpoch == null ||
-        challenge.identityProtocol != 'v1') {
+        challenge.identityProtocol != 'olm') {
       throw const AuthApiException('recovery_trusted_device_required');
     }
     _unexpired(challenge.expiresAt);
-    final signature = await _keys.signRecoveryProof(
+    final signature = await _recovery.signRecoveryProof(
       [
         'securechat/recovery-enroll/v1',
         challenge.id,
@@ -105,7 +107,7 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
         challenge.userId!,
         challenge.credentialEpoch!,
         challenge.email,
-        'v1',
+        'olm',
       ].join('\n'),
     );
     final json = await _api.recoveryRequest(
@@ -152,10 +154,12 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     final reg = json['registrationId'];
     if (reg is! int || reg < 1 || reg > 16383)
       throw const AuthApiException.invalidResponse();
+    // Olm'da cihaza ozel registrationId yok; ayni cihaz = ayni Ed25519
+    // anahtari. registrationId sunucudan gelir ve tamamlama istegine aynen
+    // geri yazilir.
     final sameKey =
-        protocol == 'v1' &&
-        await _keys.localIdentityPublicKey() == public &&
-        await _keys.localRegistrationId() == reg;
+        protocol == 'olm' &&
+        await _recovery.recoverySigningPublicKey() == public;
     return RecoveryLoginApproval(
       userId: userId,
       requiresIdentityReplacement: !sameKey,
@@ -181,63 +185,56 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     if (approval.requiresIdentityReplacement && !acceptIdentityReplacement) {
       throw const AuthApiException('recovery_identity_confirmation_required');
     }
-    final RecoveryKeyMaterial? material;
-    final SerializedPreKeyBundle bundle;
-    if (approval.requiresIdentityReplacement) {
-      material = _keys.createRecoveryKeyMaterial();
-      bundle = material.bundle;
-    } else {
-      material = null;
-      if (await _keys.localIdentityPublicKey() != approval.identityPublicKey) {
-        throw const AuthApiException('recovery_identity_changed');
-      }
-      bundle = await _keys.generateAndSerializeInitialBundle();
-      if (bundle.registrationId != approval.registrationId) {
-        throw const AuthApiException('recovery_identity_changed');
-      }
+    // Kurtarma kimligi cihazin MEVCUT Olm Ed25519 anahtari; ayri bir kimlik
+    // uretilmez. "preserve" = sunucunun pinledigiyle ayni anahtar, "replace"
+    // = farkli (yeni cihaz). Iki durumda da kanit bu anahtarla imzalanir ve
+    // libsignal bundle/material yoktur. Replace sonrasi sunucu Olm kimligini
+    // NULL'a ceker; `_resume` icindeki `publishIfNeeded` yeniden pinler.
+    final identity = await _recovery.recoverySigningPublicKey();
+    if (identity == null) {
+      throw const AuthApiException('recovery_trusted_device_required');
     }
-    final mode = material == null ? 'preserve' : 'replace';
+    if (!approval.requiresIdentityReplacement &&
+        identity != approval.identityPublicKey) {
+      throw const AuthApiException('recovery_identity_changed');
+    }
+    final mode = approval.requiresIdentityReplacement ? 'replace' : 'preserve';
     final completionId = base64UrlEncode(
       List.generate(32, (_) => Random.secure().nextInt(256)),
     ).replaceAll('=', '');
-    final identity = base64Encode(bundle.identityPublicKey);
     final proof = [
       'securechat/recovery-complete/v1',
       approval.capability,
       completionId,
       approval.userId,
       mode,
-      'v1',
+      'olm',
       identity,
-      '${bundle.registrationId}',
+      '${approval.registrationId}',
     ].join('\n');
-    final signature = material == null
-        ? await _keys.signRecoveryProof(proof)
-        : material.sign(proof);
+    final signature = await _recovery.signRecoveryProof(proof);
     final pending = <String, Object?>{
-      'schema': 1,
+      'schema': 2,
       'userId': approval.userId,
       'request': {
         'recoveryToken': approval.capability,
         'completionId': completionId,
         'mode': mode,
-        'identityProtocol': 'v1',
+        'identityProtocol': 'olm',
         'identityPublicKey': identity,
-        'registrationId': bundle.registrationId,
+        'registrationId': approval.registrationId,
         'signature': signature,
       },
-      'material': material?.toJson(),
-      'bundle': bundle.toJson(),
       'displayName': _session.displayName ?? 'Elçim',
       'phoneNumber': _session.phoneNumber ?? '',
     };
-    await _keys.writePendingRecovery(jsonEncode(pending));
+    await _recovery.writePendingRecovery(jsonEncode(pending));
     await _resume();
   });
 
   @override
   Future<bool> hasPendingLogin() async =>
-      await _keys.readPendingRecovery() != null;
+      await _recovery.readPendingRecovery() != null;
 
   @override
   Future<bool> resumePendingLogin() => _exclusive(_resume);
@@ -246,77 +243,59 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
   Future<void> restartPendingLogin() => _exclusive(() async {
     if (_session.isLoggedIn)
       throw const AuthApiException('recovery_already_logged_in');
-    final raw = await _keys.readPendingRecovery();
+    final raw = await _recovery.readPendingRecovery();
     if (raw == null) return;
     final pending = _map(jsonDecode(raw));
-    // Preserve confirmed private keys before discarding expired credentials.
-    // Fresh OTP verification can then prove this same identity, not replace it.
+    // Sunucu tamamlamayi onayladiysa hesap sahipligi bilinir: profili bagla
+    // ki sonraki bir kayit bu cihazin kimligini yeni bir hesaba vermesin.
+    // Olm kimligi cihazda zaten duruyor, kurulacak ayri materyal yok.
+    // Schema 1 (libsignal kimligiyle imzalanmis) kayitlar temiz kirilmadan
+    // sonra gecersizdir; yalnizca silinir.
     final credentials = pending['credentials'];
-    if (credentials != null) {
+    if (credentials != null && pending['schema'] == 2) {
       final userId = _uuid(pending, 'userId');
       _checkOwner(userId);
-      final materialJson = pending['material'];
-      _validateCredentials(_map(credentials), userId, materialJson != null);
+      final replaced = _map(pending['request'])['mode'] == 'replace';
+      _validateCredentials(_map(credentials), userId, replaced);
       await _bindRecoveredProfile(pending, userId);
-      if (materialJson != null) {
-        final material = RecoveryKeyMaterial.fromJson(_map(materialJson));
-        if (base64Encode(material.bundle.identityPublicKey) !=
-            _map(pending['request'])['identityPublicKey']) {
-          throw const AuthApiException.invalidResponse();
-        }
-        await _keys.installRecoveryKeyMaterial(material, raw);
-      }
     }
-    await _keys.clearPendingRecovery();
+    await _recovery.clearPendingRecovery();
   });
 
   Future<bool> _resume() async {
-    var raw = await _keys.readPendingRecovery();
+    var raw = await _recovery.readPendingRecovery();
     if (raw == null) return false;
     final pending = _map(jsonDecode(raw));
-    if (pending['schema'] != 1) throw const AuthApiException.invalidResponse();
+    // Schema 1 libsignal kimligiyle imzalanmisti; temiz kirilmadan sonra
+    // tamamlanamaz. Kullanici restartPendingLogin ile yeniden baslar.
+    if (pending['schema'] != 2) throw const AuthApiException('recovery_expired');
     final userId = _uuid(pending, 'userId');
     _checkOwner(userId);
     final request = _map(pending['request']);
-    final materialJson = pending['material'];
-    final material = materialJson == null
-        ? null
-        : RecoveryKeyMaterial.fromJson(_map(materialJson));
+    final replaced = request['mode'] == 'replace';
     var credentials = pending['credentials'];
     if (credentials == null) {
       credentials = await _api.recoveryRequest(
         '/api/v1/auth/login/complete',
         request,
       );
-      _validateCredentials(_map(credentials), userId, material != null);
+      _validateCredentials(_map(credentials), userId, replaced);
       pending['credentials'] = credentials;
       raw = jsonEncode(pending);
       // Save the exact result before activating keys/session; retries need not
       // rely on the server receipt after its short lifetime has elapsed.
-      await _keys.writePendingRecovery(raw);
+      await _recovery.writePendingRecovery(raw);
     }
     final result = _map(credentials);
-    _validateCredentials(result, userId, material != null);
+    _validateCredentials(result, userId, replaced);
     await _signaling.disconnect();
     await _bindRecoveredProfile(pending, userId);
-    if (material != null) {
-      if (base64Encode(material.bundle.identityPublicKey) !=
-          request['identityPublicKey']) {
-        throw const AuthApiException.invalidResponse();
-      }
-      await _keys.installRecoveryKeyMaterial(material, raw);
-    } else if (await _keys.localIdentityPublicKey() !=
+    // Kanit bu cihazin Ed25519 anahtariyla imzalandi. Arada hesap yeniden
+    // yaratildiysa yayinlanacak kimlik sunucunun pinledigi olmaz.
+    if (await _recovery.recoverySigningPublicKey() !=
         request['identityPublicKey']) {
       throw const AuthApiException('recovery_identity_changed');
     }
-    final bundle = await _keys.generateAndSerializeInitialBundle();
-    if (base64Encode(bundle.identityPublicKey) !=
-        request['identityPublicKey']) {
-      throw const AuthApiException('recovery_identity_changed');
-    }
-    // The completion pins the public identity; this upload only fills its
-    // signed/one-time prekeys. A failure remains resumable, not a new account.
-    await _api.uploadPreKeys(bundle, _text(result, 'token'));
     final oldSession = _session.toJson();
     try {
       await _session.loginAndPersist(
@@ -330,7 +309,23 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
       _session.loadJson(oldSession);
       rethrow;
     }
-    await _keys.clearPendingRecovery();
+    // Olm anahtar yayini oturum KALICI olduktan sonra (yayinci erisim
+    // token'ini oturumdan okur). Replace'te sunucu kimligi ve havuzlari
+    // sildi: zorunlu yeniden yayin. Preserve'de havuz azalmis olabilir.
+    //
+    // Hata kurtarmayi GERI ALMAZ: sunucu hesabi kurtardi ve kimlik bilgileri
+    // donduruldu, bu cihaz artik yetkili. Yayinci hatayi kendi raporlar.
+    // Replace'te fallback isareti yuklemeden ONCE silindigi icin normal bakim
+    // dongusundeki publishIfNeeded kimligi + anahtarlari yine yukler; yeni
+    // bir OTP gerekmez.
+    try {
+      if (replaced) {
+        await _recovery.republishAfterIdentityReset();
+      } else {
+        await _recovery.publishIfNeeded();
+      }
+    } catch (_) {}
+    await _recovery.clearPendingRecovery();
     try {
       await _signaling.connect(
         userId: userId,
@@ -436,14 +431,19 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     return value;
   }
 
+  /// Ham 32 bayt Ed25519 acik anahtari, KANONIK dolgulu base64.
+  ///
+  /// Sunucu `b64(key) != request.identityPublicKey` ile kanonik bicimi
+  /// sart kosar ve imza preimage'ini istek alanindan kurar; dolgusuz bir
+  /// deger sessizce reddedilirdi. Yerel anahtar da ayni bicimde gelir
+  /// (`recoverySigningPublicKey`).
   static String _identity(Map<String, Object?> json, String key) {
     final value = _text(json, key);
     try {
       final bytes = base64Decode(value);
-      if (bytes.length != 33 ||
-          bytes.first != 5 ||
-          base64Encode(bytes) != value)
+      if (bytes.length != 32 || base64Encode(bytes) != value) {
         throw const FormatException();
+      }
     } on FormatException {
       throw const AuthApiException.invalidResponse();
     }
@@ -452,8 +452,7 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
 
   static String _protocol(Map<String, Object?> json) {
     final value = _text(json, 'identityProtocol');
-    if (value != 'v1' && value != 'v2')
-      throw const AuthApiException.invalidResponse();
+    if (value != 'olm') throw const AuthApiException.invalidResponse();
     return value;
   }
 }

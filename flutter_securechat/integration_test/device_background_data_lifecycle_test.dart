@@ -379,7 +379,26 @@ class _DeviceAuthServer {
 }
 
 /// Prekey yayini bu testte tetiklenmedigi icin kullanilan no-op yayinci.
-class _UnusedOlmKeyPublisher implements OlmKeyPublisher {
+class _UnusedOlmKeyPublisher implements RecoveryIdentity {
   @override
   Future<void> publishIfNeeded() async {}
+
+  @override
+  Future<void> republishAfterIdentityReset() async {}
+
+  @override
+  Future<String?> recoverySigningPublicKey() async => null;
+
+  @override
+  Future<String> signRecoveryProof(String message) async =>
+      throw StateError('kurtarma bu testte kullanilmiyor');
+
+  @override
+  Future<String?> readPendingRecovery() async => null;
+
+  @override
+  Future<void> writePendingRecovery(String record) async {}
+
+  @override
+  Future<void> clearPendingRecovery() async {}
 }

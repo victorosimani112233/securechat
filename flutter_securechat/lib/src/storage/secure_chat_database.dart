@@ -1734,6 +1734,19 @@ class VodozemacAccountDao {
         );
   });
 
+  /// Fallback yayin isaretini siler; pickle'a dokunmaz.
+  ///
+  /// Sunucu bu hesabin Olm anahtarlarini sildiginde (kurtarmada kimlik
+  /// degisimi) yerel "yayinlandi" bilgisi yalan olur. Isaret durursa
+  /// yayinci "yeni bir sey yok" deyip hic yuklemez ve hesap sunucuda
+  /// kimliksiz kalir.
+  Future<void> clearFallbackPublished() => _db._write((s) {
+    final existing = s.vodozemacAccount[VodozemacAccountEntity.singletonId];
+    if (existing == null) return;
+    s.vodozemacAccount[VodozemacAccountEntity.singletonId] =
+        VodozemacAccountEntity(pickle: existing.pickle);
+  });
+
   Future<void> delete() => _db._write(
     (s) => s.vodozemacAccount.remove(VodozemacAccountEntity.singletonId),
   );

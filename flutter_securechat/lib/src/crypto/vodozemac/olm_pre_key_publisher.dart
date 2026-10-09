@@ -16,6 +16,31 @@ abstract interface class OlmKeyPublisher {
   Future<void> publishIfNeeded();
 }
 
+/// Hesap kurtarmanin istemci tarafi kripto ihtiyaclari: vodozemac Ed25519
+/// kimligi, kurtarma kaniti imzasi, devam eden kurtarma kaydi, ve kurtarma
+/// sonrasi Olm anahtar yayini (`publishIfNeeded`).
+///
+/// [OlmKeyPublisher]'i genisletir ki `AuthCoordinator` kurtarma
+/// koordinatorune TEK bagimlilik gecebilsin. Uretimde `OlmPreKeyPublisher`
+/// uygular (store'a delege eder); testler kendi sahtesini verir.
+abstract interface class RecoveryIdentity implements OlmKeyPublisher {
+  /// base64 Ed25519 imzalama acik anahtari, ya da hesap yoksa null.
+  Future<String?> recoverySigningPublicKey();
+
+  /// Kurtarma kanitini hesabin Ed25519 anahtariyla imzalar (base64).
+  Future<String> signRecoveryProof(String message);
+
+  Future<String?> readPendingRecovery();
+  Future<void> writePendingRecovery(String record);
+  Future<void> clearPendingRecovery();
+
+  /// Sunucu bu hesabin Olm anahtarlarini sildikten sonra (kurtarmada kimlik
+  /// degisimi) kimligi + taze anahtarlari YENIDEN yayinlar. Duz
+  /// [publishIfNeeded] yerel "zaten yayinlandi" bilgisine guvenip hic
+  /// yuklemeyebilir.
+  Future<void> republishAfterIdentityReset();
+}
+
 /// Hesabin Olm acik anahtarlarini sunucuya yayinlar.
 ///
 /// libsignal tarafindaki `PreKeyManager` + `PreKeyMaintenanceService`
@@ -27,7 +52,7 @@ abstract interface class OlmKeyPublisher {
 ///    bosaldiginda oturum kurulumu fallback ile surer. Bu yol olmasa havuz
 ///    bosken bundle bos doner ve gonderen hic oturum kuramaz.
 ///  * **`registrationId` yok.** Olm'da karsiligi olmayan bir kavram.
-class OlmPreKeyPublisher implements OlmKeyPublisher {
+class OlmPreKeyPublisher implements OlmKeyPublisher, RecoveryIdentity {
   OlmPreKeyPublisher({
     required SecureChatDatabase database,
     required VodozemacProtocolStore store,
@@ -105,6 +130,43 @@ class OlmPreKeyPublisher implements OlmKeyPublisher {
   ///
   /// Yukleme basarisiz olursa hicbir sey "yayinlandi" olarak isaretlenmez;
   /// cagri yeniden denendiginde ayni anahtarlar tekrar gonderilir. Sunucu
+  // RecoveryIdentity: kurtarma kriptosunu sahip olunan store'a delege eder.
+  // Kurtarma kimligi mesaj kriptosuyla AYNI Olm hesabi oldugu icin ayri bir
+  // kimlik tutulmaz.
+  @override
+  Future<String?> recoverySigningPublicKey() =>
+      _store.recoverySigningPublicKey();
+
+  @override
+  Future<String> signRecoveryProof(String message) =>
+      _store.signRecoveryProof(message);
+
+  @override
+  Future<String?> readPendingRecovery() => _store.readPendingRecovery();
+
+  @override
+  Future<void> writePendingRecovery(String record) =>
+      _store.writePendingRecovery(record);
+
+  @override
+  Future<void> clearPendingRecovery() => _store.clearPendingRecovery();
+
+  @override
+  Future<void> republishAfterIdentityReset() async {
+    // Sunucu havuzu bosaltti ve kimligi NULL'a cekti. Yerel "yayinlandi"
+    // isareti ve markKeysAsPublished ile isaretlenmis anahtarlar artik
+    // yalan: fallback isaretini sil (yeni fallback + kimlik yuklensin) ve
+    // yeni bir tek kullanimlik parti uret (sunucu havuzu bos). Yayin
+    // basarisiz olursa isaret null kaldigi icin sonraki bakim tekrar dener.
+    await _database.vodozemacAccount.clearFallbackPublished();
+    if (await _store.hasAccount()) {
+      await _store.withAccount((account) async {
+        account.generateOneTimeKeys(targetOneTimeKeys);
+      });
+    }
+    await publishIfNeeded();
+  }
+
   /// ayni kimlik + ayni materyali idempotent kabul eder.
   @override
   Future<void> publishIfNeeded() async {

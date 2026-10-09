@@ -252,9 +252,30 @@ class _FakeScheduler implements BackgroundScheduler {
 }
 
 /// Kayit akisi testleri anahtar yayinini degil kayit mantigini olcuyor.
-class _RecordingOlmKeyPublisher implements OlmKeyPublisher {
+class _RecordingOlmKeyPublisher implements RecoveryIdentity {
   int calls = 0;
+  String? _pending;
 
   @override
   Future<void> publishIfNeeded() async => calls++;
+
+  @override
+  Future<void> republishAfterIdentityReset() async => calls++;
+
+  // Bu testler kurtarmayi olcmuyor: kimlik yok, imza istenirse hata.
+  @override
+  Future<String?> recoverySigningPublicKey() async => null;
+
+  @override
+  Future<String> signRecoveryProof(String message) async =>
+      throw StateError('kurtarma kimligi bu testte yok');
+
+  @override
+  Future<String?> readPendingRecovery() async => _pending;
+
+  @override
+  Future<void> writePendingRecovery(String record) async => _pending = record;
+
+  @override
+  Future<void> clearPendingRecovery() async => _pending = null;
 }

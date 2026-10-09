@@ -104,17 +104,44 @@ class VodozemacProtocolStore {
   /// olarak pinler ve kurtarma kanitini bu anahtarla dogrular. Mesaj kriptosu
   /// zaten ayni Olm hesabini kullandigi icin kurtarma icin ayri bir kimlik
   /// uretilmez. Durum degismez, bu yuzden [readAccount].
+  ///
+  /// KANONIK dolgulu base64 doner. vodozemac dolgusuz uretir; sunucu ise
+  /// `b64(key)` (dolgulu) ile karsilastirir ve kurtarma imzasinin preimage'i
+  /// bu metni icerir. Bicim tek yerde, burada sabitlenir.
   Future<String?> recoverySigningPublicKey() async {
     if (!await hasAccount()) return null;
-    return readAccount((account) async => account.identityKeys()['ed25519']!);
+    return readAccount(
+      (account) async => base64Encode(
+        base64Decode(base64.normalize(account.identityKeys()['ed25519']!)),
+      ),
+    );
   }
 
-  /// Kurtarma kanitini hesabin Ed25519 anahtariyla imzalar (base64 imza).
+  /// Kurtarma kanitini hesabin Ed25519 anahtariyla imzalar.
   ///
   /// vodozemac standart Ed25519 uretir; sunucu JDK Ed25519 ile dogrular.
-  /// Imzalama durumu ilerletmez, bu yuzden [readAccount].
-  Future<String> signRecoveryProof(String message) =>
-      readAccount((account) async => account.sign(utf8.encode(message)));
+  /// Cikti KANONIK dolgulu base64: vodozemac dolgusuz verir, sunucu testi ise
+  /// JDK'nin dolgulu ciktisini sinar. Sunucuya giden bicim sinanan bicimle
+  /// ayni olsun. Imzalama durumu ilerletmez, bu yuzden [readAccount].
+  Future<String> signRecoveryProof(String message) => readAccount(
+    (account) async => base64Encode(
+      base64Decode(base64.normalize(account.sign(utf8.encode(message)))),
+    ),
+  );
+
+  /// Devam eden kurtarma kaydi (sifreli yerel JSON). Depolama saf
+  /// `cryptoState` slotu; libsignal store'daki eski karsiliginla AYNI anahtar,
+  /// boylece kurtarma istemci kriptosundan bagimsiz tutulur.
+  static const recoveryPendingKey = 'account_recovery_pending_v1';
+
+  Future<String?> readPendingRecovery() =>
+      _database.cryptoState.get(recoveryPendingKey);
+
+  Future<void> writePendingRecovery(String record) =>
+      _database.cryptoState.put(recoveryPendingKey, record);
+
+  Future<void> clearPendingRecovery() =>
+      _database.cryptoState.delete(recoveryPendingKey);
 
   /// Bir peer icin kayitli oturumlari en son kullanilandan baslayarak doner.
   ///
