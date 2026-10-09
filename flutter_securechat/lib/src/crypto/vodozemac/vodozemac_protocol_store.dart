@@ -97,6 +97,25 @@ class VodozemacProtocolStore {
     }
   }
 
+  /// Hesabin Ed25519 imzalama acik anahtari (base64, ham 32 bayt), ya da
+  /// hesap yoksa null.
+  ///
+  /// Hesap kurtarma kimligi ARTIK bu anahtar: sunucu `users.signing_public_key`
+  /// olarak pinler ve kurtarma kanitini bu anahtarla dogrular. Mesaj kriptosu
+  /// zaten ayni Olm hesabini kullandigi icin kurtarma icin ayri bir kimlik
+  /// uretilmez. Durum degismez, bu yuzden [readAccount].
+  Future<String?> recoverySigningPublicKey() async {
+    if (!await hasAccount()) return null;
+    return readAccount((account) async => account.identityKeys()['ed25519']!);
+  }
+
+  /// Kurtarma kanitini hesabin Ed25519 anahtariyla imzalar (base64 imza).
+  ///
+  /// vodozemac standart Ed25519 uretir; sunucu JDK Ed25519 ile dogrular.
+  /// Imzalama durumu ilerletmez, bu yuzden [readAccount].
+  Future<String> signRecoveryProof(String message) =>
+      readAccount((account) async => account.sign(utf8.encode(message)));
+
   /// Bir peer icin kayitli oturumlari en son kullanilandan baslayarak doner.
   ///
   /// Olm ayni peer icin birden fazla oturuma izin verir; karsi taraf eski bir

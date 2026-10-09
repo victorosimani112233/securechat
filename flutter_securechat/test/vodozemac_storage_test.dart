@@ -49,6 +49,60 @@ void main() {
     });
   });
 
+  group('kurtarma kimligi (Ed25519)', () {
+    // Hesap kurtarma libsignal'den vodozemac Ed25519 imzalama anahtarina
+    // tasindi. Sunucu bu anahtari `signing_public_key` olarak pinler ve
+    // kurtarma kanitini JDK Ed25519 ile dogrular. Bu testler istemci
+    // tarafinin STANDART Ed25519 urettigini yerelde ispatlar: ayni imzayi
+    // `cryptography` paketi (sunucunun JDK dogrulamasiyla ayni standart)
+    // kabul ediyorsa, iki uc birbirini kabul eder.
+    test('imza anahtari hesap yokken null, olusunca 32 bayt', () async {
+      expect(await store.recoverySigningPublicKey(), isNull);
+      await store.withAccount((_) async {}); // hesabi olusturur
+      final key = await store.recoverySigningPublicKey();
+      expect(key, isNotNull);
+      expect(base64Decode(base64.normalize(key!)), hasLength(32));
+    });
+
+    test('signRecoveryProof standart Ed25519 uretir (sunucu dogrular)', () async {
+      await store.withAccount((_) async {});
+      const message = 'securechat/recovery-complete/v1\ntoken\nuser\nolm';
+      final publicKey = (await store.recoverySigningPublicKey())!;
+      final signature = await store.signRecoveryProof(message);
+
+      final verified = await Ed25519().verify(
+        utf8.encode(message),
+        signature: Signature(
+          base64Decode(base64.normalize(signature)),
+          publicKey: SimplePublicKey(
+            base64Decode(base64.normalize(publicKey)),
+            type: KeyPairType.ed25519,
+          ),
+        ),
+      );
+      expect(verified, isTrue);
+    });
+
+    test('degistirilen mesaj imzayi gecersiz kilar', () async {
+      await store.withAccount((_) async {});
+      const message = 'securechat/recovery-complete/v1\ntoken\nuser\nolm';
+      final publicKey = (await store.recoverySigningPublicKey())!;
+      final signature = await store.signRecoveryProof(message);
+
+      final verified = await Ed25519().verify(
+        utf8.encode('$message-tampered'),
+        signature: Signature(
+          base64Decode(base64.normalize(signature)),
+          publicKey: SimplePublicKey(
+            base64Decode(base64.normalize(publicKey)),
+            type: KeyPairType.ed25519,
+          ),
+        ),
+      );
+      expect(verified, isFalse);
+    });
+  });
+
   group('pickle anahtari', () {
     test('master key"den amac ayrimiyla turetilir', () async {
       final masterKey = List<int>.generate(32, (index) => index);
