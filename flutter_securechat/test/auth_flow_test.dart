@@ -26,8 +26,9 @@ void main() {
     // uygulama bir daha baglanamiyordu.
     test('degismemis token kurtarma sayilmaz, hata yukselir', () async {
       final session = _FakeSession(access: 'bayat', refresh: 'bayat-refresh');
+      final api = _FailingRefreshApi();
       final coordinator = AuthCoordinator(
-        api: _FailingRefreshApi(),
+        api: api,
         session: session,
         preKeys: PreKeyManager(
           DatabaseCryptoProtocolStore(await _throwawayDatabase()),
@@ -46,8 +47,9 @@ void main() {
         refresh: 'bayat-refresh',
         onReload: 'kazananin-tokeni',
       );
+      final api = _FailingRefreshApi();
       final coordinator = AuthCoordinator(
-        api: _FailingRefreshApi(),
+        api: api,
         session: session,
         preKeys: PreKeyManager(
           DatabaseCryptoProtocolStore(await _throwawayDatabase()),
@@ -58,6 +60,57 @@ void main() {
       );
 
       expect(await coordinator.refreshAccessToken(), 'kazananin-tokeni');
+      // Kilidi beklerken sonuc zaten gelmis: token BIR KEZ DAHA
+      // dondurulmemeli, yoksa kazananin token'ini biz oldururduk.
+      expect(api.refreshCalls, 0);
+    });
+
+    test('es zamanli iki yenileme SIRALI kosar', () async {
+      // Paralel yenileme, refresh token tek kullanimlik oldugu icin
+      // birinin token'ini kalici olarak oldururdu. Siralama gercek depoda
+      // yasiyor (dosya kilidi + isolate ici kuyruk), o yuzden sahte degil
+      // `PersistentSessionStore` kullaniliyor.
+      final directory = await Directory.systemTemp.createTemp('refresh-lock');
+      addTearDown(() => directory.delete(recursive: true));
+      final session = await PersistentSessionStore.open(
+        file: File('${directory.path}/session.securejson'),
+        crypto: LocalAeadCryptoService(
+          SecretKey(List<int>.generate(32, (index) => index + 11)),
+        ),
+      );
+      addTearDown(session.close);
+      session.login(
+        userId: 'kullanici',
+        displayName: 'Ad',
+        phoneNumber: '+900000000000',
+        accessToken: 'eski',
+        refreshToken: 'eski-refresh',
+      );
+      await session.updateTokensAndPersist(
+        accessToken: 'eski',
+        refreshToken: 'eski-refresh',
+      );
+      final api = _CountingRefreshApi();
+      final coordinator = AuthCoordinator(
+        api: api,
+        session: session,
+        preKeys: PreKeyManager(
+          DatabaseCryptoProtocolStore(await _throwawayDatabase()),
+        ),
+        olmPreKeys: _RecordingOlmKeyPublisher(),
+        signaling: InMemorySignalingService(),
+        signalingUrl: 'wss://example.invalid',
+      );
+
+      final results = await Future.wait([
+        coordinator.refreshAccessToken(),
+        coordinator.refreshAccessToken(),
+      ]);
+
+      // Ikincisi birincinin sonucunu gormeli, kendi basina yenilememeli.
+      expect(api.refreshCalls, 1, reason: 'token iki kez dondurulmus');
+      expect(results.first, 'yeni-1');
+      expect(results.last, 'yeni-1');
     });
   });
 
@@ -505,9 +558,29 @@ Future<SecureChatDatabase> _throwawayDatabase() async {
 class _FailingRefreshApi extends AuthApi {
   _FailingRefreshApi() : super(baseUrl: 'http://unused.invalid');
 
+  int refreshCalls = 0;
+
   @override
-  Future<TokenPair> refresh(String refreshToken) async =>
-      throw StateError('refresh reddedildi');
+  Future<TokenPair> refresh(String refreshToken) async {
+    refreshCalls++;
+    throw StateError('refresh reddedildi');
+  }
+}
+
+/// Her cagride farkli bir token dondurur; yenileme sayisini sayar.
+class _CountingRefreshApi extends AuthApi {
+  _CountingRefreshApi() : super(baseUrl: 'http://unused.invalid');
+
+  int refreshCalls = 0;
+
+  @override
+  Future<TokenPair> refresh(String refreshToken) async {
+    refreshCalls++;
+    return TokenPair(
+      accessToken: 'yeni-$refreshCalls',
+      refreshToken: 'yeni-refresh-$refreshCalls',
+    );
+  }
 }
 
 /// Diskten tazelemenin baska bir token getirip getirmedigini taklit eder.
@@ -517,18 +590,14 @@ class _FakeSession extends SessionStore {
     refreshToken = refresh;
   }
 
-  /// IKINCI tazelemede okunacak token; null ise token hic degismez.
+  /// Tazelemede okunacak token; null ise hic degismez.
   ///
-  /// Ikinci olmasi kasitli: gercek akista ilk tazeleme yenilemeden ONCE
-  /// yapiliyor, diger isolate ise biz denerken yeniliyor. Ilk tazelemede
-  /// degistirmek, yarisi hic yasanmamis gibi gosterirdi.
+  /// Yenileme kilidin ICINDE tazeliyor, yani bu "kilidi beklerken baska
+  /// bir isolate yeniledi" durumunu temsil eder.
   final String? onReload;
-
-  int reloadCount = 0;
 
   @override
   Future<void> reloadFromDisk() async {
-    reloadCount++;
-    if (onReload != null && reloadCount >= 2) accessToken = onReload;
+    if (onReload != null) accessToken = onReload;
   }
 }

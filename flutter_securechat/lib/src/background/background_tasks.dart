@@ -155,33 +155,27 @@ class SecureChatBackgroundRuntime {
         baseUrl: config.apiBaseUrl,
         client: httpClients.create(),
       );
-      Future<String?> refreshAccessToken() async {
-        // Diger isolate yenilemis olabilir; once diskten tazele. Refresh
-        // token tek kullanimlik, tazelemeden yenilemek olu bir token
-        // gondermek demek.
-        await session.reloadFromDisk();
-        final before = session.accessToken;
-        final refresh = session.refreshToken;
-        if (refresh == null || refresh.isEmpty) return null;
-        try {
+      // Yenileme isolate'ler arasi sirali kosar; bkz.
+      // `SessionStore.withRefreshLock`. Kilitsiz halinde on plan ve arka
+      // plan ayni anda yenileyip birbirinin token'ini kalici olarak
+      // oldurebiliyordu.
+      Future<String?> refreshAccessToken() {
+        final failed = session.accessToken;
+        return session.withRefreshLock(() async {
+          await session.reloadFromDisk();
+          final current = session.accessToken;
+          if (current != null && current.isNotEmpty && current != failed) {
+            return current;
+          }
+          final refresh = session.refreshToken;
+          if (refresh == null || refresh.isEmpty) return null;
           final pair = await authApi.refresh(refresh);
           await session.updateTokensAndPersist(
             accessToken: pair.accessToken,
             refreshToken: pair.refreshToken,
           );
           return pair.accessToken;
-        } catch (_) {
-          // Kazananin yazdigi token'i al — ama yalnizca DEGISMISSE.
-          // Degismemis bir token dondurmek, az once reddedileni gecerli
-          // gibi sunmak demek ve cagiran tarafi geri cekilmesiz bir
-          // yeniden deneme dongusune sokuyor.
-          await session.reloadFromDisk();
-          final recovered = session.accessToken;
-          if (recovered != null && recovered.isNotEmpty && recovered != before) {
-            return recovered;
-          }
-          rethrow;
-        }
+        });
       }
 
       // Gecis ON PLANDA da kosuyor; burada da yoklanmasi gerekiyor cunku

@@ -112,6 +112,20 @@ class SessionStore {
   /// Kalici depodan tazeler. Bellekte tutan uygulamalarda bos gecer.
   Future<void> reloadFromDisk() async {}
 
+  /// Token yenilemesini isolate'ler ARASI sirali kosar.
+  ///
+  /// Refresh token tek kullanimlik: sunucu her yenilemede generation'i
+  /// donduruyor. On plan ve arka plan ayri isolate'ler ve ayni oturum
+  /// dosyasini paylasiyor, dolayisiyla ikisi ayni anda yenilerse biri 401
+  /// alir ve elindeki token BIR DAHA gecerli olmaz — kullanicinin
+  /// yapabilecegi tek sey yeniden giris olur. Sadece "once diskten tazele"
+  /// demek yetmiyor: kaybeden, kazanan diske yazmadan once tazelerse yine
+  /// olu token'la kalir.
+  ///
+  /// Bellekte tutan uygulamada tek isolate varsayildigi icin dogrudan
+  /// kosar.
+  Future<T> withRefreshLock<T>(Future<T> Function() action) => action();
+
   Future<void> clearAndPersist() async => clear();
 
   /// Persists in-memory changes when this is a disk-backed session store.
@@ -237,6 +251,44 @@ class PersistentSessionStore extends SessionStore {
   /// yenilemede `rotateRefreshGeneration` cagiriyor), dolayisiyla biri
   /// yeniledigi anda digerinin elindeki token oluyor. Tazelemeden yenilemek,
   /// kaybeden tarafi kalici 401'e sokuyordu.
+  /// Ayni isolate icindeki es zamanli yenilemeleri siraya alir.
+  ///
+  /// POSIX dosya kilitleri SURECE ait: ayni surecten ikinci bir kilit
+  /// istegi beklemeden basarili olur. Dosya kilidi tek basina isolate ici
+  /// es zamanlilige karsi koruma saglamaz.
+  Future<void> _refreshTail = Future<void>.value();
+
+  @override
+  Future<T> withRefreshLock<T>(Future<T> Function() action) {
+    final result = _refreshTail.then<T>((_) => _withFileLock(action));
+    _refreshTail = result.then<void>((_) {}, onError: (_, _) {});
+    return result;
+  }
+
+  Future<T> _withFileLock<T>(Future<T> Function() action) async {
+    final lockFile = File('${_file.path}.refresh.lock');
+    RandomAccessFile? handle;
+    try {
+      handle = await lockFile.open(mode: FileMode.write);
+      await handle.lock(FileLock.exclusive);
+      return await action();
+    } on FileSystemException {
+      // Kilit alinamazsa yenilemeyi ENGELLEMEK yanlis olur: tek sonucu
+      // oturumun hic yenilenememesi olurdu. Sirasiz kosmak, hic
+      // kosmamaktan iyi.
+      return action();
+    } finally {
+      if (handle != null) {
+        try {
+          await handle.unlock();
+        } catch (_) {
+          // Kilit zaten birakilmis olabilir.
+        }
+        await handle.close();
+      }
+    }
+  }
+
   @override
   Future<void> reloadFromDisk() async {
     if (_closed) return;

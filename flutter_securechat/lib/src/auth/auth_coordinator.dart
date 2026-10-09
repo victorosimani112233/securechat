@@ -120,37 +120,33 @@ class AuthCoordinator {
     );
   }
 
-  Future<String?> refreshAccessToken() async {
-    // Arka plan isolate'i yenilemis olabilir; once diskten tazele. Refresh
-    // token tek kullanimlik (sunucu her yenilemede generation'i donduruyor),
-    // dolayisiyla bayat bir token gondermek 401 demek.
-    await _session.reloadFromDisk();
-    final before = _session.accessToken;
-    final refresh = _session.refreshToken;
-    if (refresh == null || refresh.isEmpty) return null;
-    try {
+  /// Access token'i yeniler.
+  ///
+  /// Yenileme isolate'ler ARASI sirali kosar. Refresh token tek
+  /// kullanimlik: sunucu her yenilemede generation'i donduruyor, yani iki
+  /// isolate ayni anda yenilerse birinin token'i KALICI olarak oluyor ve
+  /// kullanicinin yapabilecegi tek sey yeniden giris kaliyor. Kilidi alan
+  /// taraf once diske bakar; token zaten degismisse hic yenilemez,
+  /// digerinin sonucunu kullanir.
+  Future<String?> refreshAccessToken() {
+    final failed = _session.accessToken;
+    return _session.withRefreshLock(() async {
+      await _session.reloadFromDisk();
+      final current = _session.accessToken;
+      // Kilidi beklerken baskasi yeniledi: onun sonucunu kullan, token'i
+      // bir kez daha dondurme.
+      if (current != null && current.isNotEmpty && current != failed) {
+        return current;
+      }
+      final refresh = _session.refreshToken;
+      if (refresh == null || refresh.isEmpty) return null;
       final pair = await _api.refresh(refresh);
       await _session.updateTokensAndPersist(
         accessToken: pair.accessToken,
         refreshToken: pair.refreshToken,
       );
       return pair.accessToken;
-    } catch (_) {
-      // Yarisi kaybetmis olabiliriz: diger isolate bizden sonra yeniledi ve
-      // elimizdeki token oldu. Kazananin yazdigini al.
-      await _session.reloadFromDisk();
-      final recovered = _session.accessToken;
-      // DEGISMIS olmasi sart. Once yalnizca "bos degil" diye bakiliyordu ve
-      // bu, az once reddedilen token'in kendisini dondurebiliyordu: cagiran
-      // onu gecerli sanip baglaniyor, sunucu reddediyor, yeniden yenileme
-      // isteniyor — geri cekilmesiz sonsuz dongu. Iki cihazda olculdu:
-      // saniyede birkac `/api/v1/auth/refresh`, IP basina 30/10dk siniri
-      // aninda doluyor ve bir daha bosalmiyordu.
-      if (recovered != null && recovered.isNotEmpty && recovered != before) {
-        return recovered;
-      }
-      rethrow;
-    }
+    });
   }
 
   Future<void> logout() async {
