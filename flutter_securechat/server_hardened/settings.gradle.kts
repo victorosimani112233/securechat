@@ -21,4 +21,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "SecureChatHardenedServer"
 include(":signaling-server")
-include(":bot-api")

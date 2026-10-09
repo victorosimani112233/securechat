@@ -855,10 +855,7 @@ fun Application.configureRoutes(
 
         // Client kayit sonrasi identity_key + signed_prekey + one_time_prekeys upload eder
         post("/api/v1/prekeys/upload") {
-            val authedUserId = requirePrincipal(
-                call,
-                serviceScope = ServiceAssertion.Scope.PREKEY_UPLOAD,
-            ) ?: return@post
+            val authedUserId = requireAuth(call) ?: return@post
             val expectedEpoch = call.prekeyWriteEpoch()
             if (!RateLimiter.allow("prekey_write", authedUserId)) {
                 val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
@@ -1023,10 +1020,7 @@ fun Application.configureRoutes(
             // yolu olarak kalinca bu, oturum kurmayi tumuyle imkansiz
             // kilardi. Kaldirilan v2 esdegeri zaten `requirePrincipal`
             // kullaniyordu; dogru desen oydu.
-            val fetcherId = requirePrincipal(
-                call,
-                serviceScope = ServiceAssertion.Scope.PREKEY_FETCH,
-            ) ?: return@get
+            val fetcherId = requireAuth(call) ?: return@get
             // Her fetch hedefin bir one-time prekey'ini tuketir; cagiran
             // basina sinir, bilinen bir UUID'nin havuzunun bosaltilmasini
             // yavaslatir (whitebox bulgu).
@@ -1214,53 +1208,18 @@ private suspend inline fun <reified T> ApplicationCall.receivePrivateDirectoryJs
  * Gecerliyse userId (sub) doner; degilse 401 yanit verir ve null doner.
  */
 private suspend fun requireAuth(call: io.ktor.server.application.ApplicationCall): String? =
-    requirePrincipal(call, serviceScope = null)
-
-/**
- * Kullanici access token'i veya — yalniz `serviceScope` verilmisse — o
- * kapsamla sinirli bir servis assertion'i kabul eder.
- *
- * Servis assertion'i baska hicbir route'ta gecerli degildir: `serviceScope`
- * null oldugunda tek kabul edilen credential normal kullanici token'idir.
- */
-/**
- * Yalniz servis assertion'i kabul eder; kullanici access token'i reddedilir.
- *
- * Kullanici tarafina kapatilmis ama servisler icin acik kalmasi gereken
- * yollarda kullanilir.
- */
-private suspend fun requireServicePrincipal(
-    call: io.ktor.server.application.ApplicationCall,
-    serviceScope: ServiceAssertion.Scope,
-): String? {
-    val token = call.request.headers["Authorization"]?.removePrefix("Bearer ")?.trim()
-    if (token.isNullOrBlank()) {
-        call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authorization header gerekli"))
-        return null
-    }
-    ServiceAccounts.authenticate(token, serviceScope)?.let { return it }
-    // Gelistirme profilinde ve acikca istenmisse eski istemci de paketini
-    // alabilir; aksi halde V2'ye gecmemis bir istemci hic oturum kuramaz.
-    if (DeploymentProfile.allowsLegacyPreKeyFetch()) {
-        AuthService.verifyToken(token)?.let {
-            AuditLog.log(eventType = "LEGACY_PREKEY_FETCH_ALLOWED")
-            return it
-        }
-    }
-    AuditLog.log(eventType = "LEGACY_PREKEY_DOWNGRADE_REJECTED")
-    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "legacy_bundle_unavailable"))
-    return null
-}
+    requirePrincipal(call)
 
 private val authenticatedEpochKey = io.ktor.util.AttributeKey<String>("authenticated-credential-epoch")
-private val servicePrincipalKey = io.ktor.util.AttributeKey<Boolean>("authenticated-service-principal")
 
-private fun ApplicationCall.prekeyWriteEpoch(): String? =
-    if (attributes.getOrNull(servicePrincipalKey) == true) null else attributes[authenticatedEpochKey]
+private fun ApplicationCall.prekeyWriteEpoch(): String = attributes[authenticatedEpochKey]
 
+/**
+ * Yalniz kullanici access token'i kabul eder. Bot servis assertion'lari
+ * Bot API ile birlikte kaldirildi; sunucuda baska bir principal turu yok.
+ */
 private suspend fun requirePrincipal(
     call: io.ktor.server.application.ApplicationCall,
-    serviceScope: ServiceAssertion.Scope?,
 ): String? {
     val authHeader = call.request.headers["Authorization"]
     val token = authHeader?.removePrefix("Bearer ")?.trim()
@@ -1271,12 +1230,6 @@ private suspend fun requirePrincipal(
     AuthService.accessClaims(token)?.let {
         call.attributes.put(authenticatedEpochKey, it.epoch)
         return it.userId
-    }
-    if (serviceScope != null) {
-        ServiceAccounts.authenticate(token, serviceScope)?.let {
-            call.attributes.put(servicePrincipalKey, true)
-            return it
-        }
     }
     call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Gecersiz veya expired token"))
     return null

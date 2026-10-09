@@ -17,7 +17,7 @@ private val log = LoggerFactory.getLogger("AccountDeletion")
  *
  * Burada iki sey ayrilir:
  *
- *  1. **Kalici durum** — `fcm_tokens`, `bot_signal_session` ve `users` tek
+ *  1. **Kalici durum** — `fcm_tokens` ve `users` tek
  *     transaction'da silinir. Commit oldugu anda hesap authenticate
  *     edilemez hale gelir: `users` satiri yoksa hicbir token dogrulanamaz.
  *  2. **Gecici durum** — process RAM'i, acik socket ve kisa TTL'li Redis
@@ -94,12 +94,6 @@ object AccountDeletion {
                     "DELETE FROM fcm_tokens WHERE user_index = ?",
                 ).use { statement ->
                     statement.setString(1, ServerPrivacy.blindIndex("push-user", userId))
-                    statement.executeUpdate()
-                }
-                connection.prepareStatement(
-                    "DELETE FROM bot_signal_session WHERE recipient_index = ?",
-                ).use { statement ->
-                    statement.setString(1, ServerPrivacy.blindIndex("bot-signal-peer", userId))
                     statement.executeUpdate()
                 }
                 val removed = connection.prepareStatement(

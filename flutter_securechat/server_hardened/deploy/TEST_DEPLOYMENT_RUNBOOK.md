@@ -169,12 +169,6 @@ cp /path/firebase-service-account.json firebase_service_account
 chmod 0600 *
 ```
 
-Bot socket dizini:
-
-```bash
-install -d -o 10002 -g 10002 -m 0700 /srv/securechat/bot-sockets
-```
-
 ---
 
 ## Faz 5 — Image build (dikkat: bu snapshot'tan dogrudan calismaz)
@@ -192,7 +186,6 @@ makinesinde uretmelisin:
 ```bash
 JRE_IMAGE='registry.example/jre@sha256:<64-hex>' \
 SIGNALING_IMAGE_TAG='securechat-signaling:candidate' \
-BOT_API_IMAGE_TAG='securechat-bot-api:candidate' \
 SOURCE_COMMIT="$(git rev-parse HEAD)" \
 ./build_privacy_images.sh
 ```
@@ -249,7 +242,6 @@ REDIS_MEMORY_LIMIT=1g
 
 REDIS_IMAGE=registry.example/redis@sha256:<64-hex>
 SIGNALING_IMAGE=registry.example/securechat-signaling@sha256:<64-hex>
-BOT_API_IMAGE=registry.example/securechat-bot-api@sha256:<64-hex>
 
 DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/securechat?sslmode=verify-full
 DATABASE_USER=securechat
@@ -265,8 +257,6 @@ SMTP_TLS=starttls
 TURN_HOST=test.example.com
 TURN_TLS_PORT=5349
 
-BOT_SOCKET_DIR=/srv/securechat/bot-sockets
-
 # ... tum *_FILE yollari /srv/securechat/secrets/ altini gosterir
 ```
 
@@ -277,8 +267,8 @@ set -a && . /srv/securechat/.env && set +a
 ./deploy_privacy_stack.sh --check-only
 ```
 
-Preflight; image digest'lerini, DB URL'sini, 22 secret dosyasinin izin/boyut/
-tekilligini ve bot anahtar ciftinin eslesmesini dogrular. Gecerse:
+Preflight; image digest'lerini, DB URL'sini ve 13 secret dosyasinin izin/boyut/
+tekilligini dogrular. Gecerse:
 
 ```bash
 SECURECHAT_DEPLOY_CONFIRMATION='deploy-hardened-privacy-stack' \

@@ -14,9 +14,7 @@ data class PrivacyConfig(
     val offlineQueueEncryptionKey: ByteArray,
     val offlineQueueTtlSeconds: Long,
     val offlineFileTtlSeconds: Long,
-    val consumedPreKeyRetentionHours: Int,
     val pushTokenRetentionDays: Int,
-    val apiClientRetentionDays: Int,
     val turnCredentialTtlSeconds: Long,
     val allowLegacyPlaintextQueue: Boolean
 ) {
@@ -42,21 +40,9 @@ data class PrivacyConfig(
                     defaultValue = 300,
                     range = 60L..900L
                 ),
-                consumedPreKeyRetentionHours = boundedInt(
-                    environment,
-                    "CONSUMED_PREKEY_RETENTION_HOURS",
-                    defaultValue = 1,
-                    range = 1..168
-                ),
                 pushTokenRetentionDays = boundedInt(
                     environment,
                     "PUSH_TOKEN_RETENTION_DAYS",
-                    defaultValue = 30,
-                    range = 1..90
-                ),
-                apiClientRetentionDays = boundedInt(
-                    environment,
-                    "API_CLIENT_RETENTION_DAYS",
                     defaultValue = 30,
                     range = 1..90
                 ),

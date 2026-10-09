@@ -32,18 +32,8 @@ void main() {
       source('$signalingRoot/Application.kt'),
       contains('PurposeSeparatedSecrets.validate()'),
     );
-    expect(
-      source(
-        'server_hardened/bot-api/src/main/kotlin/'
-        'com/securechat/botapi/BotApiConfig.kt',
-      ),
-      allOf(
-        // Her zorunlu secret tek sinirdan gecer; ortam disaridan
-        // verilebilir olsa da okuma yolu degismez.
-        contains('SecretSource.required(name'),
-        contains('requirePurposeSeparatedSecrets()'),
-      ),
-    );
+    // Bot API kaldirildi; servisin kaynak agaci geri gelmemeli.
+    expect(Directory('server_hardened/bot-api').existsSync(), isFalse);
   });
 
   test('production deploy gate is immutable and non-mutating by default', () {
@@ -57,7 +47,6 @@ void main() {
         contains(r'mode="${1:---check-only}"'),
         contains('require_digest REDIS_IMAGE'),
         contains('require_digest SIGNALING_IMAGE'),
-        contains('require_digest BOT_API_IMAGE'),
         contains('sslmode=verify-full'),
         contains('secret_fingerprints'),
         contains('DATABASE_URL must not embed a database password'),
@@ -65,5 +54,6 @@ void main() {
     );
     expect(deploy, contains('SECURECHAT_DEPLOY_CONFIRMATION'));
     expect(deploy, isNot(contains('infra/docker-compose.yml')));
+    expect(deploy, isNot(contains('BOT_API_IMAGE')));
   });
 }

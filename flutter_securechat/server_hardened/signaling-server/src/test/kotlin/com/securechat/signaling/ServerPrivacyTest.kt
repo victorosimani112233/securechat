@@ -32,9 +32,7 @@ class ServerPrivacyTest {
         val defaults = PrivacyConfig.fromEnvironment(environment)
         assertEquals(900, defaults.offlineQueueTtlSeconds)
         assertEquals(300, defaults.offlineFileTtlSeconds)
-        assertEquals(1, defaults.consumedPreKeyRetentionHours)
         assertEquals(30, defaults.pushTokenRetentionDays)
-        assertEquals(30, defaults.apiClientRetentionDays)
         assertEquals(600, defaults.turnCredentialTtlSeconds)
         assertFalse(defaults.allowLegacyPlaintextQueue)
 
@@ -46,9 +44,6 @@ class ServerPrivacyTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             PrivacyConfig.fromEnvironment(environment + ("TURN_CREDENTIAL_TTL_SECONDS" to "3601"))
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            PrivacyConfig.fromEnvironment(environment + ("API_CLIENT_RETENTION_DAYS" to "91"))
         }
     }
 
@@ -223,22 +218,5 @@ class ServerPrivacyTest {
         assertFalse(redacted.contains("192.168.1.20"))
         assertFalse(redacted.contains("555 111"))
         assertFalse(redacted.contains("secret-token"))
-    }
-
-    @Test
-    fun `account deletion bot-session index matches the cross-service vector`() {
-        val vectorEnvironment = environment + (
-            "PRIVACY_INDEX_KEY" to Base64.getEncoder().encodeToString(
-                ByteArray(32) { (it + 81).toByte() },
-            )
-        )
-        val primitives = PrivacyPrimitives(PrivacyConfig.fromEnvironment(vectorEnvironment))
-        assertEquals(
-            "Q9yhE-3QYfEAfTg_j5L8la0Z-eZjWvSv7suBOSCzb0Y",
-            primitives.blindIndex(
-                "bot-signal-peer",
-                "123e4567-e89b-42d3-a456-426614174000",
-            ),
-        )
     }
 }

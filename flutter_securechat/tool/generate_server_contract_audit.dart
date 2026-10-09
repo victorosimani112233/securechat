@@ -23,13 +23,6 @@ import 'dart:io';
 
 /// Bir route'un ardinda calisan yetki kontrolu.
 enum Guard {
-  /// `requireServicePrincipal` — ayri anahtarla imzali servis assertion'i.
-  /// Kullanici token'i gecmez, yani normal istemci bu route'u cagiramaz.
-  servicePrincipal,
-
-  /// `requirePrincipal` — kullanici veya servis principal'i.
-  principal,
-
   /// `requireAuth` — kullanici access token'i.
   auth,
 
@@ -241,28 +234,35 @@ const _routeContracts = <String, RouteContract>{
     note: 'Kisa omurlu TURN yapilandirmasi.',
   ),
   'POST /api/v1/prekeys/upload': (
-    status: 'COVERED',
-    guard: Guard.principal,
-    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
-    note: 'Ilk bundle yuklemesi.',
+    status: 'SERVER_ONLY',
+    guard: Guard.auth,
+    evidence: _serverRoot,
+    note:
+        'libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve '
+        'kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. '
+        'Kaldirma, libsignal kolonlarini dusuren migration ile birlikte.',
   ),
   'POST /api/v1/prekeys/refresh': (
-    status: 'COVERED',
+    status: 'SERVER_ONLY',
     guard: Guard.auth,
-    evidence:
-        'flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart',
-    note: 'One-time prekey tamamlama; basarisiz yuklemede geri alma.',
+    evidence: _serverRoot,
+    note:
+        'libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve '
+        'kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. '
+        'Kaldirma, libsignal kolonlarini dusuren migration ile birlikte.',
   ),
   'GET /api/v1/prekeys/status': (
-    status: 'COVERED',
+    status: 'SERVER_ONLY',
     guard: Guard.auth,
-    evidence:
-        'flutter_securechat/lib/src/crypto/pre_key_maintenance_service.dart',
-    note: 'Kalan one-time prekey sayisi; tamamlama kararini bu verir.',
+    evidence: _serverRoot,
+    note:
+        'libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve '
+        'kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. '
+        'Kaldirma, libsignal kolonlarini dusuren migration ile birlikte.',
   ),
   'GET /api/v1/users/{userId}/prekeys': (
     status: 'COVERED',
-    guard: Guard.principal,
+    guard: Guard.auth,
     evidence:
         'flutter_securechat/lib/src/crypto/vodozemac/olm_pre_key_bundle_api.dart',
     note:
@@ -270,8 +270,10 @@ const _routeContracts = <String, RouteContract>{
         'kullanici token\'ini kabul etmiyordu, yani hicbir istemci peer '
         'bundle\'i cekemiyordu; tek prekey yolu haline gelince bu, oturum '
         'kurmayi tumuyle imkansiz kilardi. Kaldirilan v2 esdegeri zaten '
-        'requirePrincipal kullaniyordu. Numaralandirmanin siniri rate limit '
-        '(120/saat), erisimi kapatmak degil.',
+        'requirePrincipal kullaniyordu. Bot API kaldirilinca servis '
+        'principal\'i da kalkti; artik yalniz kullanici token\'i. '
+        'Numaralandirmanin siniri rate limit (120/saat), erisimi kapatmak '
+        'degil.',
   ),
   'GET /api/v1/sfu/room/{groupId}': (
     status: 'WS_EQUIVALENT',
@@ -315,7 +317,8 @@ const _routeContracts = <String, RouteContract>{
     status: 'COVERED',
     guard: Guard.recoveryPrincipal,
     evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
-    note: 'Yalniz cagiranin KENDI hesabi icin bagli/bagli degil doner. '
+    note:
+        'Yalniz cagiranin KENDI hesabi icin bagli/bagli degil doner. '
         'Guard sart: guard\'siz olsaydi hangi hesabin kurtarma e-postasi '
         'oldugunu soyleyen bir numaralandirma kehaneti olurdu.',
   ),
@@ -323,14 +326,16 @@ const _routeContracts = <String, RouteContract>{
     status: 'COVERED',
     guard: Guard.preAuth,
     evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
-    note: 'E-posta ile giris baslatir. Token\'i olmayan bir istemci '
+    note:
+        'E-posta ile giris baslatir. Token\'i olmayan bir istemci '
         'cagirdigi icin guard yok; siniri rate limit (`recovery_request`) '
         've sunucunun hesap varligini sizdirmayan sabit cevabi kuruyor.',
   ),
   'POST /api/v1/auth/login/verify': (
     status: 'COVERED',
     guard: Guard.preAuth,
-    evidence: 'flutter_securechat/lib/src/auth/secure_account_recovery_coordinator.dart',
+    evidence:
+        'flutter_securechat/lib/src/auth/secure_account_recovery_coordinator.dart',
     note: 'Giris kodunu tuketir. Guard yerine gecen sey kodun kendisi.',
   ),
   'POST /api/v1/auth/login/complete': (
@@ -414,8 +419,6 @@ String _routeBody(String source, int openBraceIndex) {
 
 Guard _detectGuard(String body) {
   if (body.contains('AbuseReports.requireAdmin(')) return Guard.adminToken;
-  if (body.contains('requireServicePrincipal(')) return Guard.servicePrincipal;
-  if (body.contains('requirePrincipal(')) return Guard.principal;
   if (body.contains('requireAuth(')) return Guard.auth;
   if (body.contains('MetricsAccess.isAuthorized')) return Guard.bearerToken;
   if (body.contains('recoveryPrincipal()')) return Guard.recoveryPrincipal;
@@ -472,12 +475,13 @@ void main() {
   final actualRoutes = <String>{};
   final guards = <String, Guard>{};
   final routeOrigins = <String, String>{};
-  final kotlinSources = sourceDirectory
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.kt'))
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final kotlinSources =
+      sourceDirectory
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.kt'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
   for (final file in kotlinSources) {
     final parsed = _parseHttpRoutes(file.readAsStringSync());
     for (final route in parsed.routes) {
@@ -534,16 +538,6 @@ void main() {
     guardMismatches.add(
       '${entry.key}: kod ${detected.name}, tablo ${declared.name}',
     );
-  }
-
-  // Servis assertion'i ardindaki bir route istemci tarafindan
-  // cagrilamaz; COVERED beyani kendi icinde celiskilidir.
-  final unreachableClaims = <String>[];
-  for (final entry in _routeContracts.entries) {
-    if (entry.value.guard == Guard.servicePrincipal &&
-        entry.value.status == 'COVERED') {
-      unreachableClaims.add(entry.key);
-    }
   }
 
   // Guard'siz route'lar: hepsi public ya da preAuth olarak YAZILMIS olmali.
@@ -673,10 +667,6 @@ void main() {
       '- Guard uyusmazligi: '
       '${guardMismatches.isEmpty ? 'yok' : guardMismatches.join('; ')}',
     )
-    ..writeln(
-      '- Servis guard\'i ardinda olup istemci cagiriyor diye beyan edilen: '
-      '${unreachableClaims.isEmpty ? 'yok' : unreachableClaims.join(', ')}',
-    )
     ..writeln()
     ..writeln('## Gizlilik nedeniyle kasitli wire daraltmalari')
     ..writeln()
@@ -711,7 +701,6 @@ void main() {
     'Eksik kanit dosyasi': missingEvidence,
     'Guard uyusmazligi (kod != tablo)': guardMismatches,
     'Guard\'siz ama public/preAuth olarak yazilmamis': undeclaredUnguarded,
-    'Servis guard\'i ardinda COVERED beyani': unreachableClaims,
     'Beyan edilmemis istemci boslugu': undeclaredClientGaps,
     'Artik gercek olmayan istemci boslugu beyani': staleClientGaps,
     'Kodda bulunmayan ret beyani': undeclaredRejections,

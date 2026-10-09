@@ -74,7 +74,7 @@ kilidi ve artefakt dogrulamasi release icin fail-closed kapidir.
 - Kaynak arsivi iki Gradle verification manifestini ve iki wrapper checksum'ini
   tasir. Dis bundle `SHA256SUMS.txt` ile yeniden dogrulanir.
 - Restore sonrasi hem Android `assembleDebug --offline` hem de
-  `:signaling-server:test :bot-api:test --offline` calismalidir.
+  `:signaling-server:test --offline` calismalidir.
 - Nihai cok-GB bundle, yalniz tum migration/release kapilari bittiginde yeniden
   uretilir; gelistirme turlarinda stale teslim paketi final diye isaretlenmez.
 
@@ -151,13 +151,10 @@ tasindi. Sinyal sunucusundaki AGPL `org.signal:libsignal-client` de ayni
 gocle dustu (kullanan tek yer `RecoveryRecordCipher.verify` idi; artik JDK
 Ed25519).
 
-**Acik kalan:** `server_hardened/bot-api` hala GPL-3.0
-`org.whispersystems:signal-protocol-java 2.8.1` kullaniyor. Sunucu tarafinda
-calisan ayri bir servis oldugu ve kullaniciya dagitilmadigi icin uygulama
-binary'sinin lisansini etkilemez (GPL, AGPL degil). Ancak bot mesajlarini
-eski Signal V3 bicimiyle sifreliyor; vodozemac istemcileri bu mesajlari
-COZEMEZ. Bot API'nin Olm'a tasinmasi ya da kaldirilmasi ayri bir urun
-karari.
+`server_hardened/bot-api` (GPL-3.0 `signal-protocol-java 2.8.1`'e bagli ve
+vodozemac istemcilerinin cozemedigi Signal V3 ile sifreleyen send-only bot
+servisi) da 2026-10-09'da tamamen kaldirildi; sunucuda Signal/libsignal
+bagimliligi kalmadi.
 
 Bu nedenle onceki "GPL release kapisi" (hukuki degerlendirme, kaynak
 snapshot'i, kaynak teklifi) store yayini icin artik gerekli degil.

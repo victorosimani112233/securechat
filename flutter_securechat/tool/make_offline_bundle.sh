@@ -107,7 +107,7 @@ Icerik:
 - `flutter_sdk.tar.gz`: Flutter SDK ve engine cache
 - `pub_cache.tar.gz`: Pub hosted paket cache'i
 - `gradle_cache.tar.gz`: Gradle wrapper/module cache'i
-- `maven_local_repo.tar.gz`: Hardened signaling/bot build'inin air-gapped Maven deposu
+- `maven_local_repo.tar.gz`: Hardened signaling build'inin air-gapped Maven deposu
 - `android_sdk_build.tar.gz`: Android SDK build subset'i (`platforms/android-34`, `platforms/android-35`, `platforms/android-36`, `build-tools/36.0.0`, `ndk/28.2.13676358`, licenses)
 - `app-debug.apk`: Bu ortamda uretilen debug APK, varsa
 - `app-release-unsigned.apk`: Bu ortamda uretilen release APK; dagitim anahtariyla imzalanmamistir
@@ -140,7 +140,7 @@ cd android
 ./gradlew assembleDebug --offline
 ./gradlew assembleRelease --offline
 cd ../server_hardened
-./gradlew :signaling-server:test :bot-api:test --offline --no-daemon
+./gradlew :signaling-server:test --offline --no-daemon
 ```
 
 Gradle wrapper dagitimlari `distributionSha256Sum` ile, Android ve hardened

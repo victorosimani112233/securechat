@@ -15,7 +15,6 @@ require_digest() {
 
 : "${JRE_IMAGE:?Set JRE_IMAGE to an approved immutable image@sha256 digest}"
 : "${SIGNALING_IMAGE_TAG:?Set the local signaling output tag}"
-: "${BOT_API_IMAGE_TAG:?Set the local bot-api output tag}"
 require_digest JRE_IMAGE "$JRE_IMAGE"
 
 (cd "$server_root/.." && \
@@ -32,7 +31,7 @@ SOURCE_BUILT_AT="${SOURCE_BUILT_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 # fatJar/installDist cagiriyordu; yesil olmayan bir agactan release image
 # cikabiliyordu.
 (cd "$server_root" && ./gradlew \
-  :signaling-server:test :bot-api:test \
+  :signaling-server:test \
   --offline --no-daemon --rerun-tasks)
 
 # SBOM + SCA kapisi. Manifest zaten release'e giren her artefaktin
@@ -43,18 +42,17 @@ sbom_path="$server_root/build/sbom-$SOURCE_COMMIT.json"
 # Belge yalniz dagitilan bilesenleri anlatir: dogrulama manifesti test
 # bagimliliklarini da tasir, test-only bir CVE release'i durdurmamalidir.
 (cd "$server_root" && ./gradlew \
-  :signaling-server:writeRuntimeArtifacts :bot-api:writeRuntimeArtifacts \
+  :signaling-server:writeRuntimeArtifacts \
   --offline --no-daemon)
 "${PYTHON_BIN:-python3}" "$deploy_dir/sbom.py" \
   --metadata "$server_root/gradle/verification-metadata.xml" \
   --advisories "$deploy_dir/known_vulnerable.txt" \
   --runtime "$server_root/signaling-server/build/runtime-artifacts.txt" \
-  --runtime "$server_root/bot-api/build/runtime-artifacts.txt" \
   --commit "$SOURCE_COMMIT" \
   --output "$sbom_path"
 
 (cd "$server_root" && ./gradlew \
-  :signaling-server:fatJar :bot-api:installDist \
+  :signaling-server:fatJar \
   -PsourceCommit="$SOURCE_COMMIT" -PsourceBuiltAt="$SOURCE_BUILT_AT" \
   --offline --no-daemon)
 
@@ -62,12 +60,6 @@ docker build \
   --build-arg "RUNTIME_IMAGE=$JRE_IMAGE" \
   --file "$deploy_dir/Dockerfile.signaling" \
   --tag "$SIGNALING_IMAGE_TAG" \
-  "$server_root"
-
-docker build \
-  --build-arg "RUNTIME_IMAGE=$JRE_IMAGE" \
-  --file "$deploy_dir/Dockerfile.bot-api" \
-  --tag "$BOT_API_IMAGE_TAG" \
   "$server_root"
 
 echo "SBOM: $sbom_path — surum kaydiyla birlikte saklayin."

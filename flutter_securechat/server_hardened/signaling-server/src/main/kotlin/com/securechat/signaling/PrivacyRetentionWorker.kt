@@ -96,13 +96,6 @@ object PrivacyRetentionWorker {
             connection.autoCommit = false
             try {
                 AccountRecovery.purgeExpired(connection)
-                val botPreKeys = connection.prepareStatement(
-                    "DELETE FROM bot_one_time_prekey WHERE consumed_at IS NOT NULL " +
-                        "AND consumed_at < NOW() - (? * INTERVAL '1 hour')",
-                ).use { statement ->
-                    statement.setInt(1, config.consumedPreKeyRetentionHours)
-                    statement.executeUpdate()
-                }
                 // Replay penceresi kapanmis registration grant isaretleri.
                 RegistrationGrants.purgeExpired(connection)
                 // Gecmis gun kovalarindaki rehber kotasi satirlari.
@@ -114,22 +107,11 @@ object PrivacyRetentionWorker {
                     statement.setInt(1, config.pushTokenRetentionDays)
                     statement.executeUpdate()
                 }
-                val apiClients = connection.prepareStatement(
-                    """DELETE FROM api_client
-                       WHERE (revoked_at IS NOT NULL AND
-                              revoked_at < NOW() - (? * INTERVAL '1 day'))
-                          OR (expires_at IS NOT NULL AND
-                              expires_at < NOW() - (? * INTERVAL '1 day'))""",
-                ).use { statement ->
-                    statement.setInt(1, config.apiClientRetentionDays)
-                    statement.setInt(2, config.apiClientRetentionDays)
-                    statement.executeUpdate()
-                }
                 connection.commit()
                 val pushCutoff = System.currentTimeMillis() -
                     config.pushTokenRetentionDays * 86_400_000L
                 tokenStore?.purgeExpiredMemory(pushCutoff)
-                RetentionResult(botPreKeys, pushTokens, apiClients, abuseReports)
+                RetentionResult(pushTokens, abuseReports)
             } catch (error: Exception) {
                 connection.rollback()
                 throw error
@@ -139,11 +121,8 @@ object PrivacyRetentionWorker {
         }.also { result ->
             if (result.total > 0) {
                 retentionLog.info(
-                    "[Privacy] Retention cleanup: consumed_prekeys={}, push_tokens={}, " +
-                        "api_clients={}, abuse_reports={}",
-                    result.consumedPreKeyRows,
+                    "[Privacy] Retention cleanup: push_tokens={}, abuse_reports={}",
                     result.pushTokenRows,
-                    result.apiClientRows,
                     result.abuseReportRows,
                 )
             }
@@ -164,11 +143,9 @@ object PrivacyRetentionWorker {
 }
 
 data class RetentionResult(
-    val consumedPreKeyRows: Int,
     val pushTokenRows: Int,
-    val apiClientRows: Int,
     val abuseReportRows: Int,
 ) {
     val total: Int
-        get() = consumedPreKeyRows + pushTokenRows + apiClientRows + abuseReportRows
+        get() = pushTokenRows + abuseReportRows
 }

@@ -80,14 +80,6 @@ class AccountDeletionIntegrationTest {
                 statement.setString(2, "v4:sealed-token")
                 statement.executeUpdate()
             }
-            connection.prepareStatement(
-                """INSERT INTO bot_signal_session(recipient_index, device_id, session_record)
-                   VALUES (?, 1, ?)""",
-            ).use { statement ->
-                statement.setString(1, ServerPrivacy.blindIndex("bot-signal-peer", userId))
-                statement.setBytes(2, "sealed-ratchet".toByteArray())
-                statement.executeUpdate()
-            }
         }
         CredentialState.clearCache()
         return userId
@@ -108,19 +100,13 @@ class AccountDeletionIntegrationTest {
                 statement.setString(1, ServerPrivacy.blindIndex("push-user", userId))
                 statement.executeQuery().use { rows -> rows.next(); total += rows.getInt(1) }
             }
-            connection.prepareStatement(
-                "SELECT COUNT(*) FROM bot_signal_session WHERE recipient_index = ?",
-            ).use { statement ->
-                statement.setString(1, ServerPrivacy.blindIndex("bot-signal-peer", userId))
-                statement.executeQuery().use { rows -> rows.next(); total += rows.getInt(1) }
-            }
             total
         }
 
     @Test
     fun `deletion removes every durable copy in one transaction`() = runBlocking {
         val userId = newAccountWithCopies()
-        assertEquals(3, copyCount(userId))
+        assertEquals(2, copyCount(userId))
         val token = AuthService.issueToken(userId)
 
         val result = AccountDeletion.execute(userId, steps = emptyList())
@@ -195,7 +181,7 @@ class AccountDeletionIntegrationTest {
             Database.init(postgres.jdbcUrl, postgres.username, postgres.password)
         }
         // Kalici kayit dokunulmadan durur; istemci yeniden deneyebilir.
-        assertEquals(3, copyCount(userId))
+        assertEquals(2, copyCount(userId))
     }
 
     private companion object {

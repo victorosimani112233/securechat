@@ -42,12 +42,6 @@ void main() {
         '"PUSH_TOKEN_RETENTION_DAYS",\n                    defaultValue = 30',
       ),
     );
-    expect(
-      privacy,
-      contains(
-        '"API_CLIENT_RETENTION_DAYS",\n                    defaultValue = 30',
-      ),
-    );
     expect(privacy, contains('Legacy plaintext offline queue entry rejected'));
     expect(privacy, contains('AES/GCM/NoPadding'));
     expect(privacy, contains('HmacSHA256'));
@@ -291,9 +285,9 @@ void main() {
     );
     // Kalici kopyalarin tamami tek transaction'da gitmeli.
     expect(deletion, contains('DELETE FROM fcm_tokens'));
-    expect(deletion, contains('DELETE FROM bot_signal_session'));
     expect(deletion, contains('DELETE FROM users'));
-    expect(deletion, contains('ServerPrivacy.blindIndex("bot-signal-peer"'));
+    // Bot API ve tablolari kaldirildi (V29).
+    expect(deletion, isNot(contains('bot_signal_session')));
     expect(deletion, contains('connection.commit()'));
     expect(deletion, contains('connection.rollback()'));
     // Gecici kopyalarin her adimi yalitilmis olmali: bir adimin hatasi
@@ -313,10 +307,10 @@ void main() {
     );
     expect(retention, isNot(contains('audit_log')));
     expect(retention, isNot(contains('DELETE FROM one_time_prekeys')));
-    expect(retention, contains('DELETE FROM bot_one_time_prekey'));
     expect(retention, contains('DELETE FROM fcm_tokens'));
-    expect(retention, contains('DELETE FROM api_client'));
-    expect(retention, contains('config.apiClientRetentionDays'));
+    // Bot API ve tablolari kaldirildi (V29).
+    expect(retention, isNot(contains('bot_one_time_prekey')));
+    expect(retention, isNot(contains('api_client')));
     expect(retention, contains('fun isHealthy(): Boolean'));
     expect(retention, contains('throw IllegalStateException'));
     expect(retention, contains('FAILURE_RETRY_MILLIS'));
@@ -388,15 +382,6 @@ void main() {
       ).existsSync(),
       isFalse,
     );
-
-    final botSend = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/send/SendPipeline.kt',
-    );
-    expect(botSend, contains('recipientUserIds'));
-    expect(botSend, contains('opaque-routing-token'));
-    expect(botSend, isNot(contains('group_members')));
-    expect(botSend, isNot(contains('BotGroupDirectoryPrivacy')));
 
     final turn = source(
       'server_hardened/signaling-server/src/main/kotlin/'
@@ -497,111 +482,18 @@ void main() {
     expect(retention, contains('tokenStore?.purgeExpiredMemory'));
   });
 
-  test('bot queue and all log sinks enforce the same privacy boundary', () {
-    final botQueue = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/delivery/OutboundQueue.kt',
-    );
-    expect(botQueue, contains('BotQueuePrivacy.seal'));
-    expect(botQueue, contains('outboundQueueTtlSeconds'));
-    expect(botQueue, contains('MAX_MESSAGES'));
-
-    final idempotency = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/send/IdempotencyStore.kt',
-    );
-    expect(idempotency, contains('BotQueuePrivacy.sealPrivate'));
-    expect(idempotency, contains('BotQueuePrivacy.openPrivate'));
-    expect(idempotency, contains('BotApiConfig.idempotencyTtlSeconds'));
-    expect(idempotency, isNot(contains('86400L')));
-    expect(idempotency, isNot(contains('"bot_idem:\$clientId:\$idemKey"')));
-
-    final botConfig = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/BotApiConfig.kt',
-    );
-    expect(botConfig, contains('BOT_OUTBOUND_TTL_SECONDS", "900"'));
-    expect(botConfig, contains('BOT_IDEMPOTENCY_TTL_SECONDS", "900"'));
-
-    final nonce = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/auth/NonceStore.kt',
-    );
-    expect(nonce, contains('BotQueuePrivacy.blindIndex'));
-
-    final botSessions = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/signal/PgSignalProtocolStore.kt',
-    );
-    expect(botSessions, contains('BotSessionRecordCipher.seal'));
-    expect(botSessions, contains('BotSessionRecordCipher.open'));
-    expect(botSessions, contains('recipient_index'));
-    expect(botSessions, isNot(contains('recipient_user_id')));
-
-    final botStartup = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/Application.kt',
-    );
-    expect(
-      botStartup,
-      contains('BotSessionPrivacyMigration.migrateAndVerify()'),
-    );
-    expect(
-      botStartup,
-      contains('ApiClientPrivacyMigration.migrateAndVerify()'),
-    );
-    expect(botStartup, contains('BotRedisManager.requireMemoryOnly()'));
-
-    final apiClients = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/db/ApiClientRepository.kt',
-    );
-    expect(apiClients, contains('ApiClientPrivateFields.sealName'));
-    expect(apiClients, contains('ApiClientPrivateFields.sealAllowList'));
-    expect(apiClients, contains('ApiClientPrivateFields.openAllowList'));
-
-    final credentialResolver = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/auth/ClientKeyCache.kt',
-    );
-    expect(
-      credentialResolver,
-      contains('ApiClientRepository.findActiveByKid(kid)'),
-    );
-    expect(credentialResolver, isNot(contains('ConcurrentHashMap')));
-    expect(credentialResolver, isNot(contains('cache[kid]')));
-
+  test('server log sink enforces the privacy boundary', () {
+    // Bot API kaldirildi; ayni sinir artik yalniz sinyal sunucusunda.
     final signalingLogback = source(
       'server_hardened/signaling-server/src/main/resources/logback.xml',
     );
-    final botLogback = source(
-      'server_hardened/bot-api/src/main/resources/logback.xml',
-    );
     expect(signalingLogback, contains('%privacyMessage'));
     expect(signalingLogback, isNot(contains(' - %msg%n')));
-    expect(botLogback, contains('%privacyMessage'));
-    expect(botLogback, isNot(contains(' - %msg%n')));
-
-    final botHealth = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/health/HealthListener.kt',
-    );
-    expect(botHealth, contains('metricsAuthorized'));
-    expect(botHealth, contains('MessageDigest.isEqual'));
-
-    final botAudit = source(
-      'server_hardened/bot-api/src/main/kotlin/'
-      'com/securechat/botapi/audit/BotAuditLog.kt',
-    );
-    expect(botAudit, contains('ConcurrentHashMap<String, LongAdder>'));
-    expect(botAudit, isNot(contains('BotDatabase')));
-    expect(botAudit, isNot(contains('audit_log')));
   });
 
   test('server production logs cannot emit request exception or identity data', () {
     final files = <File>[
       ...kotlinSources('server_hardened/signaling-server/src/main/kotlin'),
-      ...kotlinSources('server_hardened/bot-api/src/main/kotlin'),
     ];
     final unsafeIdentity = RegExp(
       r'\$(?:[A-Za-z]*(?:userId|senderId|recipientId|groupId|callerId|memberId|sessionId|handleId|jti|email)[A-Za-z]*)\b',

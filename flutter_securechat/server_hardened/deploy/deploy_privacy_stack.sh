@@ -57,10 +57,8 @@ command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
 
 : "${REDIS_IMAGE:?Set REDIS_IMAGE to an immutable image@sha256 digest}"
 : "${SIGNALING_IMAGE:?Set SIGNALING_IMAGE to an immutable image@sha256 digest}"
-: "${BOT_API_IMAGE:?Set BOT_API_IMAGE to an immutable image@sha256 digest}"
 require_digest REDIS_IMAGE "$REDIS_IMAGE"
 require_digest SIGNALING_IMAGE "$SIGNALING_IMAGE"
-require_digest BOT_API_IMAGE "$BOT_API_IMAGE"
 
 : "${DATABASE_URL:?Set the PostgreSQL JDBC URL}"
 [[ "$DATABASE_URL" == jdbc:postgresql://* ]] ||
@@ -86,12 +84,6 @@ secret_file_variables=(
   DIRECTORY_HSM_PIN_FILE
   JANUS_API_SECRET_FILE
   JANUS_ADMIN_SECRET_FILE
-  BOT_MASTER_KEY_FILE
-  BOT_QUEUE_KEY_FILE
-  BOT_ADMIN_TOKEN_FILE
-  BOT_METRICS_TOKEN_FILE
-  BOT_SERVICE_PRIVATE_KEY_FILE
-  BOT_SERVICE_PUBLIC_KEY_FILE
 )
 declare -A secret_fingerprints=()
 for variable in "${secret_file_variables[@]}"; do
@@ -102,33 +94,6 @@ for variable in "${secret_file_variables[@]}"; do
     fail "$variable reuses secret material assigned to $previous"
   secret_fingerprints["$fingerprint"]="$variable"
 done
-
-# Bot public/admin yuzu yalniz Unix domain socket uzerinden erisilir; socket
-# dizini host tarafinda dogru sahiplik ve izinle hazir olmalidir.
-: "${BOT_SOCKET_DIR:?Set the host directory that carries the bot sockets}"
-[[ -d "$BOT_SOCKET_DIR" ]] ||
-  fail "BOT_SOCKET_DIR is not an existing directory"
-socket_dir_mode="$(stat -c '%a' -- "$BOT_SOCKET_DIR")"
-[[ "$socket_dir_mode" == "700" ]] ||
-  fail "BOT_SOCKET_DIR must be mode 0700 (found $socket_dir_mode)"
-socket_dir_owner="$(stat -c '%u:%g' -- "$BOT_SOCKET_DIR")"
-[[ "$socket_dir_owner" == "10002:10002" ]] ||
-  fail "BOT_SOCKET_DIR must be owned by 10002:10002 (found $socket_dir_owner)"
-
-# Bot servis anahtar cifti eslesmezse bot signaling'e hic baglanamaz ve bu
-# yalnizca calisma aninda, sessiz bir fail-closed olarak gorunur. En olasi
-# operator hatasi burada yakalanir.
-if command -v openssl >/dev/null 2>&1; then
-  derived_public="$(base64 -d -- "$BOT_SERVICE_PRIVATE_KEY_FILE" |
-    openssl pkey -inform DER -pubout -outform DER 2>/dev/null |
-    base64 -w0)" ||
-    fail "BOT_SERVICE_PRIVATE_KEY_FILE is not a base64 PKCS#8 key"
-  configured_public="$(tr -d '\r\n' <"$BOT_SERVICE_PUBLIC_KEY_FILE")"
-  [[ "$derived_public" == "$configured_public" ]] ||
-    fail "BOT_SERVICE_PUBLIC_KEY_FILE does not match the bot private key"
-else
-  echo "WARN: openssl not found; bot service key pair match was not verified" >&2
-fi
 
 (cd -- "$project_root" &&
   "${DART_BIN:-dart}" tool/audit_server_deployment_privacy.dart)
@@ -143,7 +108,7 @@ fi
 [[ "$SECURECHAT_DEPLOY_CONFIRMATION" == "deploy-hardened-privacy-stack" ]] ||
   fail "deployment confirmation value is invalid"
 
-for image in "$REDIS_IMAGE" "$SIGNALING_IMAGE" "$BOT_API_IMAGE"; do
+for image in "$REDIS_IMAGE" "$SIGNALING_IMAGE"; do
   docker image inspect "$image" >/dev/null 2>&1 ||
     fail "a required digest-pinned image is not present locally"
 done

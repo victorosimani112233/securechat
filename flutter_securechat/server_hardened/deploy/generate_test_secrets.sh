@@ -49,24 +49,10 @@ for name in \
   metrics_token \
   janus_api_secret \
   janus_admin_secret \
-  bot_master_key \
-  bot_queue_key \
-  bot_admin_token \
-  bot_metrics_token \
   directory_hsm_pin
 do
   new_key "$name"
 done
-
-# Bot servis kimligi: Ed25519 PKCS#8 private + X.509 public, base64 tek satir.
-# Deploy preflight ciftin gercekten eslestigini openssl ile dogrular.
-tmp_key="$(mktemp)"
-trap 'rm -f -- "$tmp_key"' EXIT
-openssl genpkey -algorithm Ed25519 -outform DER -out "$tmp_key" 2>/dev/null
-base64 -w0 < "$tmp_key" > "$target/bot_service_private_key"
-openssl pkey -inform DER -in "$tmp_key" -pubout -outform DER 2>/dev/null |
-  base64 -w0 > "$target/bot_service_public_key"
-chmod 0600 "$target/bot_service_private_key" "$target/bot_service_public_key"
 
 # Butun degerlerin gercekten farkli oldugunu burada dogrula; preflight'ta
 # ogrenmek yerine uretim aninda yakala.

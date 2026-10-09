@@ -149,7 +149,8 @@ void main() {
     expect(bundle, contains('maven_local_repo.tar.gz'));
     expect(bundle, contains('LOCAL_MAVEN_REPO'));
     expect(bundle, contains('verification-metadata.xml'));
-    expect(bundle, contains(':signaling-server:test :bot-api:test --offline'));
+    expect(bundle, contains(':signaling-server:test --offline'));
+    expect(bundle, isNot(contains(':bot-api')));
 
     // libsignal (GPL-3.0) kaldirildi: ne bagimlilik ne de wire-compat
     // fixture betigi geri gelmemeli. Store yayini bu lisansla imkansizdi.

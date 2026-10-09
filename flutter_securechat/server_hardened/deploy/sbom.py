@@ -18,7 +18,6 @@ Kullanim:
     sbom.py --metadata gradle/verification-metadata.xml \
             --advisories deploy/known_vulnerable.txt \
             --runtime signaling-server/build/runtime-artifacts.txt \
-            --runtime bot-api/build/runtime-artifacts.txt \
             --commit <40-hex> --output build/sbom.json
 """
 

@@ -39,12 +39,18 @@ internal val PLAINTEXT_CHAT_CONTROL_TYPES = setOf(
 internal fun isPlaintextChatControlType(type: String?): Boolean =
     type in PLAINTEXT_CHAT_CONTROL_TYPES
 
-internal const val SERVICE_MESSAGE_ACK_TYPE = "message_ack"
+/**
+ * Eskiden bot servis hesabina "mesaj route edildi" bildiren cerceve. Bot API
+ * kaldirildi ve sunucu artik bunu uretmiyor; tip yine de sunucu-yalniz
+ * olarak REZERVE: bir istemci bu tipte cerceve gonderip baskasina sahte bir
+ * sunucu bildirimi iletemesin.
+ */
+internal const val RESERVED_SERVER_ACK_TYPE = "message_ack"
 internal const val DELIVERY_TRANSPORT_ACK_TYPE = "delivery_transport_ack"
 internal const val CALL_CAPABILITY_HEADER = "X-SecureChat-Call-Capable"
 
 internal fun isServerOnlyFrameType(type: String?): Boolean =
-    type in setOf(SERVICE_MESSAGE_ACK_TYPE, "sfu_room_created", "group_call_status_response",
+    type in setOf(RESERVED_SERVER_ACK_TYPE, "sfu_room_created", "group_call_status_response",
         "group_call_error", "group_call_coordinator_changed", "group_call_member_left")
 
 /**
@@ -160,18 +166,7 @@ fun Application.configureWebSocket(
             }
 
             // GUVENLIK: Token'in sub claim'i userId ile eslesmeli — kimlik taklidi onlemi.
-            // Servis hesabi yalniz `ws.connect` kapsamli assertion ile ve yalniz
-            // kendi saglanmis UUID'si adina baglanabilir.
-            val userSubject = AuthService.verifyToken(token)
-            val serviceSubject = if (userSubject == null) {
-                ServiceAccounts.authenticate(token, ServiceAssertion.Scope.WS_CONNECT)
-            } else {
-                null
-            }
-            val tokenSub = userSubject ?: serviceSubject
-            // Servis hesabi kuyrugunu ancak gercek bir ACK ile bosaltabilir;
-            // `send()` yalniz soket tamponunu ifade eder.
-            val isServiceAccount = serviceSubject != null
+            val tokenSub = AuthService.verifyToken(token)
             if (tokenSub == null) {
                 Metrics.wsAuthFailures.increment()
                 AuditLog.log(userId = claimedUserId, eventType = "WS_AUTH_INVALID", ipAddress = ip)
@@ -200,7 +195,7 @@ fun Application.configureWebSocket(
             if (!connectionManager.addConnection(userId, this, callCapable)) return@webSocket
 
             // Epoch cache is invalidated by pub/sub; its 10s TTL bounds the outage fallback.
-            val credentialWatch = if (!isServiceAccount) launch(Dispatchers.IO) {
+            val credentialWatch = launch(Dispatchers.IO) {
                 while (true) {
                     kotlinx.coroutines.delay(1_000)
                     if (AuthService.verifyToken(token) != userId) {
@@ -208,10 +203,10 @@ fun Application.configureWebSocket(
                         break
                     }
                 }
-            } else null
+            }
             try {
                 for (frame in incoming) {
-                    if (!isServiceAccount && AuthService.verifyToken(token) != userId) {
+                    if (AuthService.verifyToken(token) != userId) {
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Credentials superseded"))
                         return@webSocket
                     }
@@ -247,7 +242,6 @@ fun Application.configureWebSocket(
                                 text,
                                 connectionManager,
                                 userRegistry,
-                                if (isServiceAccount) this else null,
                             )
                         }
                         is Frame.Ping -> send(Frame.Pong(frame.data))
@@ -257,7 +251,7 @@ fun Application.configureWebSocket(
             } catch (e: Exception) {
                 logger.warn("[!] WebSocket hatasi: ${e.javaClass.simpleName}")
             } finally {
-                credentialWatch?.cancel()
+                credentialWatch.cancel()
                 // Aktif grup aramalarinda participant ise digerlerine ayrildigini bildir.
                 // Kullanici explicit HANGUP gondermeden app'i kapatirsa peer'lar bu yolla temizlenir.
                 if (callCapable && connectionManager.connections()[userId] === this) {
@@ -410,12 +404,6 @@ private suspend fun handleMessage(
     rawMessageJson: String,
     connectionManager: ConnectionManager,
     userRegistry: UserRegistry,
-    /**
-     * Yalniz servis hesabi baglantilarinda doludur. Bot kuyrugunu ancak
-     * mesajin sunucu tarafindan gercekten kabul edildigi bilgisiyle
-     * bosaltabilir; normal istemcilere bu cerceve gonderilmez.
-     */
-    serviceSession: io.ktor.websocket.WebSocketSession? = null,
 ) {
     try {
         val json = Json { ignoreUnknownKeys = true }
@@ -764,18 +752,6 @@ private suspend fun handleMessage(
             return
         }
         connectionManager.routeMessage(recipientId, messageJson)
-        // Servis hesabina, mesajin route edildigini bildiren ACK.
-        if (serviceSession != null) {
-            val ackedId = rawElement["messageId"]?.jsonPrimitive?.contentOrNull
-                ?.takeIf { it.isNotBlank() && it.length <= 128 }
-            if (ackedId != null) {
-                val ack = buildJsonObject {
-                    put("type", SERVICE_MESSAGE_ACK_TYPE)
-                    put("messageId", ackedId)
-                }.toString()
-                runCatching { serviceSession.send(Frame.Text(ack)) }
-            }
-        }
 
     } catch (e: Exception) {
         logger.warn("[!] Mesaj parse hatasi: ${e.javaClass.simpleName}")

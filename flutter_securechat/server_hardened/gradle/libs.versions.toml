@@ -6,7 +6,6 @@ compose-compiler = "1.5.9"
 hilt = "2.50"
 room = "2.6.1"
 webrtc = "1.1.2"
-signal-protocol = "2.8.1"
 ktor = "2.3.7"
 coroutines = "1.7.3"
 okhttp = "4.12.0"
@@ -69,10 +68,6 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 
-# Signal Protocol
-signal-protocol = { group = "org.whispersystems", name = "signal-protocol-android", version.ref = "signal-protocol" }
-# Pure Java (JVM) varianti — bot-api icin. Android bagimliliği yok, JNI yok.
-signal-protocol-java = { group = "org.whispersystems", name = "signal-protocol-java", version.ref = "signal-protocol" }
 
 # WebRTC
 webrtc = { group = "io.getstream", name = "stream-webrtc-android", version.ref = "webrtc" }

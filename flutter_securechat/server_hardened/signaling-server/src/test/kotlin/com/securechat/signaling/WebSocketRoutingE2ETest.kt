@@ -225,12 +225,13 @@ class WebSocketRoutingE2ETest {
 
         senderSession.send(
             Frame.Text(
-                """{"type":"$SERVICE_MESSAGE_ACK_TYPE","recipientId":"$receiver",""" +
+                """{"type":"$RESERVED_SERVER_ACK_TYPE","recipientId":"$receiver",""" +
                     """"messageId":"FAKE-ACK"}""",
             ),
         )
 
-        // Sahte bir ACK botun in-flight kaydini erken sildirebilirdi.
+        // Rezerve sunucu tipi istemciden route edilmez; aksi halde sahte bir
+        // sunucu bildirimi baskasina iletilebilirdi.
         assertNull(receiverSession.awaitFrame("FAKE-ACK", timeoutMillis = 1_500))
         senderSession.close()
         receiverSession.close()

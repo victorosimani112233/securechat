@@ -168,7 +168,7 @@ class WycheproofKatTest {
                 val sig = hex(str(t, "sig"))
                 out += DynamicTest.dynamicTest("ed25519#$id($result)") {
                     // Uygulamanin GERCEK dogrulama kontrati: once imza tam 64
-                    // byte olmali (EdDsaJwtVerifier:159, ServiceAssertion:96),
+                    // byte olmali (EdDsaJwtVerifier, RecoveryRecordCipher.verify),
                     // sonra verify. JVM ilkeli tek basina 64-byte olmayan
                     // imzaya (arkada cop) izin verir; uzunluk guard'i bunu kapatir.
                     val ok = if (sig.size != 64) {

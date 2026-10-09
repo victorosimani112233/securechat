@@ -22,8 +22,7 @@ List<String> auditServerDeploymentPrivacy({Directory? projectRoot}) {
   final signalingLog = read(
     'server_hardened/signaling-server/src/main/resources/logback.xml',
   );
-  final botLog = read('server_hardened/bot-api/src/main/resources/logback.xml');
-  for (final entry in {'signaling': signalingLog, 'bot-api': botLog}.entries) {
+  for (final entry in {'signaling': signalingLog}.entries) {
     requireText(
       entry.value,
       '<root level="ERROR">',
@@ -61,7 +60,7 @@ List<String> auditServerDeploymentPrivacy({Directory? projectRoot}) {
     'Ktor request logging must be disabled',
   );
 
-  for (final dockerfile in ['Dockerfile.signaling', 'Dockerfile.bot-api']) {
+  for (final dockerfile in ['Dockerfile.signaling']) {
     final source = read('server_hardened/deploy/$dockerfile');
     requireText(
       source,
@@ -107,7 +106,7 @@ List<String> auditServerDeploymentPrivacy({Directory? projectRoot}) {
   );
 
   final deploy = read('server_hardened/deploy/deploy_privacy_stack.sh');
-  for (final image in ['REDIS_IMAGE', 'SIGNALING_IMAGE', 'BOT_API_IMAGE']) {
+  for (final image in ['REDIS_IMAGE', 'SIGNALING_IMAGE']) {
     requireText(
       deploy,
       'require_digest $image',
@@ -172,21 +171,12 @@ List<String> auditServerDeploymentPrivacy({Directory? projectRoot}) {
     'server_hardened/signaling-server/src/main/kotlin/'
     'com/securechat/signaling/Application.kt',
   );
-  final botApplication = read(
-    'server_hardened/bot-api/src/main/kotlin/'
-    'com/securechat/botapi/Application.kt',
-  );
   requireText(
     signalingApplication,
     'ProductionDeploymentPolicy.validate()',
     'signaling binary must enforce the production deployment boundary',
   );
-  requireText(
-    botApplication,
-    'ProductionDeploymentPolicy.validate()',
-    'bot binary must enforce the production deployment boundary',
-  );
-  for (final image in ['REDIS_IMAGE', 'SIGNALING_IMAGE', 'BOT_API_IMAGE']) {
+  for (final image in ['REDIS_IMAGE', 'SIGNALING_IMAGE']) {
     requireText(
       compose,
       r'${' + image + ':?',
@@ -202,12 +192,6 @@ List<String> auditServerDeploymentPrivacy({Directory? projectRoot}) {
     'OFFLINE_QUEUE_ENCRYPTION_KEY',
     'FCM_TOKEN_ENCRYPTION_KEY',
     'METRICS_BEARER_TOKEN',
-    'BOT_MASTER_KEY',
-    'BOT_QUEUE_ENCRYPTION_KEY',
-    'BOT_ADMIN_TOKEN',
-    'BOT_METRICS_BEARER_TOKEN',
-    'BOT_SERVICE_PRIVATE_KEY',
-    'BOT_SERVICE_PUBLIC_KEY',
   ]) {
     forbidText(
       compose,
@@ -220,44 +204,36 @@ List<String> auditServerDeploymentPrivacy({Directory? projectRoot}) {
       '$secret must use a read-only secret file',
     );
   }
-  // Bot ihlali butun kullanicilarin taklit edilmesine donusmemeli: bot,
-  // signaling'in kullanici token'larini imzalayan secret'i asla gormemeli.
-  final botServiceBlock = _serviceBlock(compose, 'bot-api');
-  if (botServiceBlock == null) {
-    failures.add('bot-api service block not found in the hardened compose file');
-  } else {
+  // Bot API kaldirildi (GPL bagimliligi + vodozemac istemcilerinin
+  // cozemedigi eski Signal V3 sifrelemesi). Servisi, imaji veya servis
+  // kimligi geri gelirse signaling'de bir ikinci principal turu ve
+  // genis bir saldiri yuzeyi geri gelir.
+  if (_serviceBlock(compose, 'bot-api') != null) {
+    failures.add('bot-api was removed; it must not return to the compose file');
+  }
+  for (final source in [
+    compose,
+    deploy,
+    read('server_hardened/deploy/build_privacy_images.sh'),
+  ]) {
     forbidText(
-      botServiceBlock,
-      'jwt_secret',
-      'bot-api must not be granted the signaling user-token signing secret',
+      source,
+      'BOT_API_IMAGE',
+      'bot-api was removed; its image must not return',
     );
     forbidText(
-      botServiceBlock,
-      'JWT_SECRET',
-      'bot-api must not receive JWT_SECRET in its environment',
-    );
-    requireText(
-      botServiceBlock,
-      'BOT_SERVICE_PRIVATE_KEY_FILE',
-      'bot-api must authenticate with its own scoped service key',
-    );
-    // Public/admin yuzu ag uzerinden yayinlanmaz; erisim yalniz socket.
-    forbidText(
-      botServiceBlock,
-      'ports:',
-      'bot-api must not publish its public or admin surface on the network',
-    );
-    requireText(
-      botServiceBlock,
-      'target: /run/bot',
-      'bot-api must expose its surface through a mounted unix socket directory',
+      source,
+      'BOT_SERVICE_',
+      'bot service credentials were removed; signaling has no service principal',
     );
   }
 
   // Redis kisa TTL'li ciphertext tutar; disari cikan bir yolu olmamalidir.
   final redisBlock = _serviceBlock(compose, 'redis-ephemeral');
   if (redisBlock == null) {
-    failures.add('redis-ephemeral service block not found in the hardened compose file');
+    failures.add(
+      'redis-ephemeral service block not found in the hardened compose file',
+    );
   } else {
     forbidText(
       redisBlock,
@@ -288,7 +264,7 @@ List<String> auditServerDeploymentPrivacy({Directory? projectRoot}) {
   final buildScript = read('server_hardened/deploy/build_privacy_images.sh');
   requireText(
     buildScript,
-    ':signaling-server:test :bot-api:test',
+    ':signaling-server:test',
     'image build must run the server test suites first',
   );
   requireText(
@@ -315,11 +291,7 @@ List<String> auditServerDeploymentPrivacy({Directory? projectRoot}) {
   );
 
   // Container limiti olmadan JVM host RAM'ine gore hesaplar.
-  requireText(
-    compose,
-    'mem_limit:',
-    'services must declare a memory limit',
-  );
+  requireText(compose, 'mem_limit:', 'services must declare a memory limit');
   requireText(compose, 'cpus:', 'services must declare a cpu limit');
 
   forbidText(compose, 'redis_data', 'ephemeral Redis must not have a volume');
@@ -353,7 +325,6 @@ void main() {
   }
   exitCode = 1;
 }
-
 
 /// Compose dosyasindan tek bir servis blogunu ayirir.
 ///

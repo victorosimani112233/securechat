@@ -153,13 +153,6 @@ class PrivateDirectoryRegistryIntegrationTest {
                     "fcm_tokens",
                     "signed_prekeys",
                     "one_time_prekeys",
-                    "api_client",
-                    "bot_identity",
-                    "bot_signal_session",
-                    "bot_one_time_prekey",
-                    "bot_signed_prekey",
-                    "bot_control",
-                    "bot_peer_identity",
                     "registration_grant_use",
                     "directory_quota",
                     "olm_one_time_prekeys",
@@ -232,79 +225,12 @@ class PrivateDirectoryRegistryIntegrationTest {
                 columns(connection, "fcm_tokens"),
             )
             assertEquals(
-                setOf("recipient_index", "device_id", "session_record"),
-                columns(connection, "bot_signal_session"),
-            )
-            assertEquals(
                 setOf("user_id", "key_id", "public_key", "signature"),
                 columns(connection, "signed_prekeys"),
             )
             assertEquals(
                 setOf("id", "user_id", "key_id", "public_key"),
                 columns(connection, "one_time_prekeys"),
-            )
-            assertEquals(
-                setOf(
-                    "client_id",
-                    "kid",
-                    "name",
-                    "public_key",
-                    "allow_list",
-                    "rate_per_hour",
-                    "per_recipient_per_day",
-                    "expires_at",
-                    "revoked_at",
-                    "revoke_reason",
-                    "created_at",
-                    "updated_at",
-                ),
-                columns(connection, "api_client"),
-            )
-            assertEquals(
-                setOf(
-                    "id",
-                    "bot_user_id",
-                    "registration_id",
-                    "identity_public_key",
-                    "identity_private_key_enc",
-                    "identity_private_key_nonce",
-                    "created_at",
-                    "rotated_at",
-                ),
-                columns(connection, "bot_identity"),
-            )
-            assertEquals(
-                setOf(
-                    "key_id",
-                    "public_key",
-                    "private_key_enc",
-                    "private_key_nonce",
-                    "consumed_at",
-                    "created_at",
-                ),
-                columns(connection, "bot_one_time_prekey"),
-            )
-            assertEquals(
-                setOf(
-                    "key_id",
-                    "public_key",
-                    "private_key_enc",
-                    "private_key_nonce",
-                    "signature",
-                    "created_at",
-                ),
-                columns(connection, "bot_signed_prekey"),
-            )
-            // Operator kontrolu; hesap, zaman veya iliski verisi tasimaz.
-            assertEquals(
-                setOf("id", "emergency_stop"),
-                columns(connection, "bot_control"),
-            )
-            // Identity pini: blind index + muhurlu public anahtar; ham UUID
-            // ve zaman damgasi yok.
-            assertEquals(
-                setOf("recipient_index", "device_id", "identity_key_sealed"),
-                columns(connection, "bot_peer_identity"),
             )
             // Tek kullanimlik grant isareti: hesap/e-posta/telefon referansi
             // tasimaz, yalniz blind index ve replay penceresi.
@@ -342,47 +268,17 @@ class PrivateDirectoryRegistryIntegrationTest {
             assertTrue("modern_last_resort_kyber_prekeys" !in tables)
             assertTrue("group_members" !in tables)
             assertTrue("audit_log" !in tables)
-        }
-    }
-
-    @Test
-    fun `retention removes expired and revoked bot policies without identity logs`() {
-        Database.getConnection().use { connection ->
-            connection.createStatement().use { statement ->
-                statement.execute(
-                    """INSERT INTO api_client
-                       (kid, name, public_key, allow_list, expires_at, revoked_at)
-                       VALUES
-                       ('k_active', 'AC1:active', decode(repeat('01', 32), 'hex'), ARRAY[]::text[], NULL, NULL),
-                       ('k_recent_revoked', 'AC1:recent', decode(repeat('02', 32), 'hex'), ARRAY[]::text[], NULL, NOW() - INTERVAL '1 day'),
-                       ('k_old_revoked', 'AC1:old-r', decode(repeat('03', 32), 'hex'), ARRAY[]::text[], NULL, NOW() - INTERVAL '31 days'),
-                       ('k_old_expired', 'AC1:old-e', decode(repeat('04', 32), 'hex'), ARRAY[]::text[], NOW() - INTERVAL '31 days', NULL)""",
-                )
-            }
-        }
-        val config = PrivacyConfig.fromEnvironment(
-            mapOf(
-                "PRIVACY_INDEX_KEY" to Base64.getEncoder().encodeToString(
-                    ByteArray(32) { (it + 1).toByte() },
-                ),
-                "OFFLINE_QUEUE_ENCRYPTION_KEY" to Base64.getEncoder().encodeToString(
-                    ByteArray(32) { (it + 71).toByte() },
-                ),
-                "API_CLIENT_RETENTION_DAYS" to "30",
-            ),
-        )
-
-        val result = PrivacyRetentionWorker.runOnce(config)
-
-        assertEquals(2, result.apiClientRows)
-        Database.getConnection().use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery("SELECT kid FROM api_client ORDER BY kid").use { rows ->
-                    val remaining = buildList {
-                        while (rows.next()) add(rows.getString(1))
-                    }
-                    assertEquals(listOf("k_active", "k_recent_revoked"), remaining)
-                }
+            // Bot API kaldirildi (V29); tablolari geri gelmemeli.
+            for (table in listOf(
+                "api_client",
+                "bot_identity",
+                "bot_signal_session",
+                "bot_one_time_prekey",
+                "bot_signed_prekey",
+                "bot_control",
+                "bot_peer_identity",
+            )) {
+                assertTrue(table !in tables, table)
             }
         }
     }

@@ -22,7 +22,7 @@ volume'unu tasidigi icin hardened privacy release'inde kesinlikle kullanilmaz.
 - PostgreSQL bu compose'a bilincli olarak dahil degildir. Encrypted disk,
   private network, V1-V14 migration ve retention/backup politikasini kanitlayan
   ayri managed/self-hosted hedef verilmelidir.
-- Ayni sinirlar compose'a guvenmez: signaling ve bot binary'leri production
+- Ayni sinirlar compose'a guvenmez: signaling binary'si production
   mode, verify-full DB TLS ve legacy queue reddini listener'dan once tekrar
   dogrular; signaling ayrica PKCS#11 OPRF ile guvenli SMTP/Janus ister.
 
@@ -33,7 +33,7 @@ Iki ag vardir:
 - `securechat-internal` (`internal: true`) — servisler arasi trafik, disari
   cikisi yoktur. Redis **yalniz** bu agdadir: kisa TTL'li ciphertext tutan
   process'in disari cikan bir yolu olmamalidir.
-- `securechat-egress` — yalniz signaling ve bot baglanir.
+- `securechat-egress` — yalniz signaling baglanir.
 
 Egress'e cikan hedefler tam olarak sunlardir:
 
@@ -43,23 +43,10 @@ Egress'e cikan hedefler tam olarak sunlardir:
 | signaling | SMTP (TLS) | kayit OTP'si |
 | signaling | Firebase / APNs | generic wake-up push |
 | signaling | Janus kontrol WebSocket'i | grup cagri odasi yonetimi |
-| bot-api | PostgreSQL | bot identity, session ve policy |
 
 **Host firewall bu listenin disina cikisi reddetmelidir.** Compose tek basina
 allow-list saglayamaz; ag ayrimi yalniz "kim disari cikabilir" sorusunu
 cozer, "nereye cikabilir" sorusunu deployment katmani cozer.
-
-## Bot Unix socket dizini
-
-Bot public ve admin yuzu ag uzerinde yayinlanmaz; erisim yalniz Unix domain
-socket iledir. `BOT_SOCKET_DIR` host dizini onceden hazirlanmalidir:
-
-```bash
-install -d -o 10002 -g 10002 -m 0700 /srv/securechat/bot-sockets
-```
-
-Bot socket dosyalarini 0600 ile acar. Deploy preflight dizinin varligini,
-0700 modunu ve 10002:10002 sahipligini dogrular.
 
 ## Guvenilen proxy
 
@@ -89,19 +76,18 @@ calisir:
 ```bash
 JRE_IMAGE='registry.example/jre@sha256:<64-hex>' \
 SIGNALING_IMAGE_TAG='securechat-signaling:candidate' \
-BOT_API_IMAGE_TAG='securechat-bot-api:candidate' \
 ./build_privacy_images.sh
 ```
 
-Image'lari private registry'ye push edin, registry'nin verdigi digestleri
-`SIGNALING_IMAGE` ve `BOT_API_IMAGE` olarak kullanin. Local tag production
+Image'i private registry'ye push edin, registry'nin verdigi digest'i
+`SIGNALING_IMAGE` olarak kullanin. Local tag production
 deployment girdisi degildir.
 
 ## Zorunlu deployment preflight
 
 Production compose dogrudan cagrilmaz. `deploy_privacy_stack.sh` varsayilan
-olarak salt-okunur preflight calistirir; Redis, signaling ve bot image'larinin
-ucunu de immutable digest olarak, PostgreSQL URL'sini
+olarak salt-okunur preflight calistirir; Redis ve signaling image'larinin
+ikisini de immutable digest olarak, PostgreSQL URL'sini
 `sslmode=verify-full` ile ve tum host secret dosyalarini mutlak/regular,
 en fazla 64 KiB ve group/world izni kapali olarak dogrular:
 Secret materyalinin iki farkli amac icin tekrar kullanilmasi ve password'un
@@ -111,7 +97,6 @@ yazilmaz.
 ```bash
 REDIS_IMAGE='registry.example/redis@sha256:<64-hex>' \
 SIGNALING_IMAGE='registry.example/securechat-signaling@sha256:<64-hex>' \
-BOT_API_IMAGE='registry.example/securechat-bot-api@sha256:<64-hex>' \
 DATABASE_URL='jdbc:postgresql://db.internal/securechat?sslmode=verify-full' \
 # Diger config ve *_FILE girdileri secret manager tarafindan saglanir. \
 ./deploy_privacy_stack.sh --check-only

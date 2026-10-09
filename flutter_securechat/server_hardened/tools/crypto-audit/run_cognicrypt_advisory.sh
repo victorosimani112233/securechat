@@ -12,10 +12,10 @@ test "$(sha256sum "$rules" | awk '{print $1}')" = \
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
-./gradlew :signaling-server:jar :bot-api:jar --offline --no-daemon
+./gradlew :signaling-server:jar --offline --no-daemon
 
 report_root="$repo_root/build/reports/cognicrypt"
-for module in signaling-server bot-api; do
+for module in signaling-server; do
   mkdir -p "$report_root/$module"
   java -jar "$scanner" \
     --appPath="$repo_root/$module/build/libs/$module.jar" \
