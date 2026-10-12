@@ -479,6 +479,11 @@ class CallManager {
   Timer? _reconnectTimer;
   Timer? _terminalTimer;
   bool _terminating = false;
+  String? _speakerDefaultedCallId;
+
+  /// Oturumdan once (ya da baska bir callId icin) gelen son native rota
+  /// olayi; oturum kurulunca uygulanir.
+  (String, bool)? _earlyNativeSpeaker;
   bool _isGroupCoordinator = false;
   String? _currentGroupRoutingToken;
   final Map<String, String> _pendingGroupOffers = {};
@@ -562,7 +567,6 @@ class CallManager {
       direction: CallDirection.outgoing,
       state: CallState.initiating,
       createdAt: DateTime.now(),
-      isSpeakerOn: callType == CallType.video,
     );
     _setSession(session);
     var stage = 'native-registration';
@@ -637,7 +641,6 @@ class CallManager {
       direction: CallDirection.outgoing,
       state: CallState.initiating,
       createdAt: DateTime.now(),
-      isSpeakerOn: true,
       isGroupCall: true,
       groupId: groupId,
       peerIds: recipients,
@@ -929,9 +932,23 @@ class CallManager {
   Future<void> toggleSpeaker() async {
     final session = _current;
     if (session == null || session.isTerminal) return;
-    final enabled = !session.isSpeakerOn;
+    // `isSpeakerOn` gercek rotayi izler (native olaylar + basarili istekler);
+    // hedef ondan hesaplanir.
+    await _requestSpeaker(session.callId, !session.isSpeakerOn);
+  }
+
+  /// Ses rotasini ister; UI bayragi yalniz istek basarili olunca degisir.
+  ///
+  /// Telecom yonetimindeki cagrida rota Telecom'dandir; `AudioManager`
+  /// istegi onun tarafindan ezilir. Native entegrasyon istegi ustlenmezse
+  /// WebRTC yoluna dusulur.
+  Future<void> _requestSpeaker(String callId, bool enabled) async {
+    final session = _current;
+    if (session == null || session.callId != callId || session.isTerminal) {
+      return;
+    }
     final handledNatively =
-        await _nativeCalls?.setSpeaker(session.callId, enabled) ?? false;
+        await _nativeCalls?.setSpeaker(callId, enabled) ?? false;
     if (!handledNatively) {
       if (session.isGroupCall) {
         await _groupMedia?.setSpeakerOn(enabled);
@@ -939,7 +956,28 @@ class CallManager {
         await _media.setSpeakerOn(enabled);
       }
     }
-    _setSession(session.copyWith(isSpeakerOn: enabled));
+    final latest = _current;
+    if (latest == null || latest.callId != callId || latest.isTerminal) return;
+    _setSession(latest.copyWith(isSpeakerOn: enabled));
+  }
+
+  /// Goruntulu arama medya baglaninca bir kez hoparlore alinir.
+  ///
+  /// Onceden oturum `isSpeakerOn: true` ile aciliyordu ama Telecom'a istek
+  /// gitmiyordu: ses ahizede, dugme "acik" gorunuyor, ilk dokunus "kapat"
+  /// oluyordu (QA 2026-10-12 Bulgu 5). Istek native baglanti ACTIVE
+  /// olduktan sonra gonderilir; Telecom ACTIVE'de varsayilan rotayi yeniden
+  /// secebilir.
+  void _routeVideoToSpeakerOnce(CallSession session, Future<void>? activation) {
+    if (session.callType != CallType.video ||
+        _speakerDefaultedCallId == session.callId) {
+      return;
+    }
+    _speakerDefaultedCallId = session.callId;
+    _track(() async {
+      await activation;
+      await _requestSpeaker(session.callId, true);
+    }());
   }
 
   Future<void> toggleCamera() async {
@@ -1125,7 +1163,6 @@ class CallManager {
       direction: CallDirection.incoming,
       state: CallState.ringing,
       createdAt: DateTime.now(),
-      isSpeakerOn: type == CallType.video,
     );
     if (_hasLiveCall) {
       try {
@@ -1402,7 +1439,6 @@ class CallManager {
       direction: CallDirection.incoming,
       state: CallState.ringing,
       createdAt: DateTime.now(),
-      isSpeakerOn: true,
       isGroupCall: true,
       groupId: localGroupId,
       peerIds:
@@ -1731,6 +1767,7 @@ class CallManager {
       if (session.state != CallState.active) {
         final operation = _nativeCalls?.setActive(session.callId);
         if (operation != null) _track(operation);
+        _routeVideoToSpeakerOnce(session, operation);
       }
     }
     _setSession(
@@ -1935,6 +1972,7 @@ class CallManager {
         );
         final operation = _nativeCalls?.setActive(session.callId);
         if (operation != null) _track(operation);
+        _routeVideoToSpeakerOnce(session, operation);
       case MediaConnectionState.disconnected:
         if (session.state == CallState.active) {
           _setSession(session.copyWith(state: CallState.reconnecting));
@@ -2175,6 +2213,12 @@ class CallManager {
   }
 
   void _setSession(CallSession session) {
+    final early = _earlyNativeSpeaker;
+    if (early != null && early.$1 == session.callId) {
+      _earlyNativeSpeaker = null;
+      if (!session.isTerminal)
+        session = session.copyWith(isSpeakerOn: early.$2);
+    }
     _current = session;
     _sessions.add(session);
   }
@@ -2182,7 +2226,17 @@ class CallManager {
   void _handleNativeAction(NativeCallAction action) {
     if (_disposed) return;
     final session = _current;
-    if (session == null || session.callId != action.callId) return;
+    if (session == null || session.callId != action.callId) {
+      // Rota olayi oturumdan once gelebilir; kaybolursa UI yanlis kalir.
+      if (action.type == NativeCallActionType.speakerOn ||
+          action.type == NativeCallActionType.speakerOff) {
+        _earlyNativeSpeaker = (
+          action.callId,
+          action.type == NativeCallActionType.speakerOn,
+        );
+      }
+      return;
+    }
     switch (action.type) {
       case NativeCallActionType.answer:
         _requestCallOpen();

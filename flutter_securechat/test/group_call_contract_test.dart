@@ -55,9 +55,7 @@ void main() {
         await f.start(peers: [bob]);
         await _until(() => f.nodes[bob]!.manager.currentSession != null);
 
-        await _until(
-          () => f.nodes[alice]!.manager.currentSession!.isTerminal,
-        );
+        await _until(() => f.nodes[alice]!.manager.currentSession!.isTerminal);
         // Arayan: kimse cevaplamadi, hata degil.
         expect(
           f.nodes[alice]!.manager.currentSession!.state,
@@ -126,6 +124,37 @@ void main() {
       expect(f.nodes[alice]!.manager.currentSession, isNull);
       expect(await f.db.callLogs.getAll().first, isEmpty);
     });
+  });
+
+  group('QA 2026-10-12 Bulgu 5', () {
+    for (final type in CallType.values) {
+      test(
+        'group ${type.name} call speaker default follows the call type',
+        () async {
+          final f = await _Network.open();
+          addTearDown(f.dispose);
+          await f.start(peers: [bob], type: type);
+          await _until(() => f.nodes[bob]!.manager.currentSession != null);
+          // Grup sesli arama da ahizeyle baslar (WhatsApp davranisi).
+          expect(f.nodes[alice]!.manager.currentSession!.isSpeakerOn, isFalse);
+          await f.nodes[bob]!.manager.acceptCall();
+          await _until(() => f.nodes[alice]!.media.remoteSdp.contains(bob));
+          f.nodes[alice]!.media.states.add(
+            const GroupPeerState(bob, MediaConnectionState.connected),
+          );
+          await _until(
+            () =>
+                f.nodes[alice]!.manager.currentSession!.state ==
+                CallState.active,
+          );
+          await _settle();
+          final video = type == CallType.video;
+          expect(f.nodes[alice]!.media.speakerValues, video ? [true] : isEmpty);
+          expect(f.nodes[alice]!.manager.currentSession!.isSpeakerOn, video);
+          expect(f.failures, isEmpty);
+        },
+      );
+    }
   });
 
   test('incoming rekey waits for departing peer cleanup', () async {
@@ -1088,6 +1117,11 @@ class _GroupMedia implements GroupMediaEngine {
   Future<void> dispose() async {
     await states.close();
   }
+
+  final speakerValues = <bool>[];
+
+  @override
+  Future<void> setSpeakerOn(bool enabled) async => speakerValues.add(enabled);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

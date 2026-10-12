@@ -299,6 +299,106 @@ void main() {
     expect(manager.currentSession?.isSpeakerOn, isTrue);
   });
 
+  group('QA 2026-10-12 Bulgu 5 speaker route', () {
+    Future<(CallManager, _FakeMediaEngine, _FakeNativeCalls)> connectedCall(
+      CallType type, {
+      bool handlesSpeaker = true,
+    }) async {
+      final fixture = await _Fixture.open();
+      addTearDown(fixture.dispose);
+      final signaling = InMemorySignalingService();
+      await signaling.connect(
+        userId: 'me',
+        url: 'wss://test.invalid',
+        accessToken: 'token',
+      );
+      final media = _FakeMediaEngine();
+      final nativeCalls = _FakeNativeCalls()..handlesSpeaker = handlesSpeaker;
+      final manager = CallManager(
+        session: SessionStore(userId: 'me', accessToken: 'token'),
+        signaling: signaling,
+        media: media,
+        iceServers: const StaticIceServerProvider([]),
+        callLogs: fixture.database.callLogs,
+        nativeCalls: nativeCalls,
+        terminalVisibility: const Duration(minutes: 1),
+      );
+      addTearDown(manager.dispose);
+      expect(
+        await manager.initiateCall(
+          peerId: 'peer',
+          peerName: 'Peer',
+          callType: type,
+        ),
+        isTrue,
+      );
+      // Rota istenmeden UI "hoparlor acik" demez.
+      expect(manager.currentSession!.isSpeakerOn, isFalse);
+      expect(nativeCalls.speakerRequests, isEmpty);
+      signaling.addIncoming(
+        SdpAnswerSignal(
+          senderId: 'peer',
+          recipientId: 'me',
+          timestamp: DateTime.now(),
+          sdp: 'answer',
+        ),
+      );
+      await _flush();
+      media.emit(MediaConnectionState.connected);
+      await _flush();
+      return (manager, media, nativeCalls);
+    }
+
+    test('video call asks Telecom for the speaker once it connects', () async {
+      final (manager, media, nativeCalls) = await connectedCall(CallType.video);
+      final callId = manager.currentSession!.callId;
+      expect(nativeCalls.speakerRequests, [(callId, true)]);
+      expect(media.speakerValues, isEmpty);
+      expect(manager.currentSession!.isSpeakerOn, isTrue);
+
+      // Yeniden baglanma ikinci bir istek uretmez.
+      media.emit(MediaConnectionState.disconnected);
+      media.emit(MediaConnectionState.connected);
+      await _flush();
+      expect(nativeCalls.speakerRequests, hasLength(1));
+
+      // Tek dokunus ahizeye alir (onceden ilk dokunus "kapat" idi).
+      await manager.toggleSpeaker();
+      expect(nativeCalls.speakerRequests.last, (callId, false));
+      expect(manager.currentSession!.isSpeakerOn, isFalse);
+    });
+
+    test('video call without Telecom routes through WebRTC', () async {
+      final (manager, media, _) = await connectedCall(
+        CallType.video,
+        handlesSpeaker: false,
+      );
+      expect(media.speakerValues, [true]);
+      expect(manager.currentSession!.isSpeakerOn, isTrue);
+    });
+
+    test('voice call stays on the earpiece', () async {
+      final (manager, media, nativeCalls) = await connectedCall(CallType.voice);
+      expect(nativeCalls.speakerRequests, isEmpty);
+      expect(media.speakerValues, isEmpty);
+      expect(manager.currentSession!.isSpeakerOn, isFalse);
+    });
+
+    test('a failed route request leaves the button state alone', () async {
+      final (manager, _, nativeCalls) = await connectedCall(CallType.voice);
+      nativeCalls.failSpeaker = true;
+      await expectLater(manager.toggleSpeaker(), throwsStateError);
+      expect(manager.currentSession!.isSpeakerOn, isFalse);
+    });
+
+    test('a route event for another call does not touch this one', () async {
+      final (manager, _, nativeCalls) = await connectedCall(CallType.voice);
+      nativeCalls.emit(NativeCallActionType.speakerOn, 'another-call');
+      await _flush();
+      expect(manager.currentSession!.isSpeakerOn, isFalse);
+    });
+  });
+
   test(
     'group coordinator fans invites and opens mesh peer after accept',
     () async {
@@ -1527,8 +1627,11 @@ class _FakeNativeCalls implements NativeCallIntegration {
   Future<void> setActive(String callId) async {}
   @override
   Future<void> answer(String callId) async {}
+  bool failSpeaker = false;
+
   @override
   Future<bool> setSpeaker(String callId, bool enabled) async {
+    if (failSpeaker) throw StateError('route request failed');
     speakerRequests.add((callId, enabled));
     return handlesSpeaker;
   }

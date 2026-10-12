@@ -230,7 +230,9 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
           : false,
     });
     _localRenderer.srcObject = _localStream;
-    await Helper.setSpeakerphoneOn(true);
+    // Rota burada zorlanmaz: Telecom yonetimindeki cagrida bu istek ezilir
+    // ve UI ile gercek rota ayrisir. Goruntulu aramada CallManager medya
+    // baglaninca hoparlor ister; sesli arama ahizeyle baslar.
   }
 
   @override
