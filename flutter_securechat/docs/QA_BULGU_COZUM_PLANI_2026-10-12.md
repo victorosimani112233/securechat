@@ -69,22 +69,54 @@ flutter build apk --debug --target-platform android-arm64 \
 
 | Sıra | # | Önem | Başlık | Taraf | Durum |
 |---|---|---|---|---|---|
-| 1 | 1 | YÜKSEK (gizlilik) | Çıkış, önceki hesabın yerel verisini silmiyor | İstemci | Açık |
-| 2 | 8 | ORTA (sunucu kökenli) | Grup araması bitince "bitti" yayını gitmiyor (Janus sınıfı başlatılamıyor) + zaman aşımı durumları | Sunucu + istemci | Açık |
-| 3 | 12 | ORTA (güvenlik) | Tek gösterimlik dosyada "Uygulamayla aç" | İstemci | Açık |
-| 4 | 5 | ORTA | Görüntülü arama ahizeden başlıyor, hoparlör düğmesi yanlış durumda | İstemci (Android) | Açık |
-| 5 | 6 | ORTA | Rehber eşitlemesi elle eklenen kişiyi siliyor, grup seçicide görünmüyor | İstemci | Açık |
-| 6 | 3 | ORTA | Rehberde olmayan gönderenin adı UUID | İstemci | Açık |
-| 7 | 13 | DÜŞÜK | Tek gösterim: gönderende sahte "Açıldı", metinde "medya" | İstemci | Açık |
-| 8 | 9 | DÜŞÜK | Bitmiş grup araması için "Katıl" bandı kalıyor | İstemci | Açık |
-| 9 | 2 | DÜŞÜK | "son görülme 1 Oca 1970" | İstemci | Açık |
-| 10 | 10 | DÜŞÜK | Kendi mesajından sonra en alta kaymıyor | İstemci | Açık |
-| 11 | 14 | DÜŞÜK | Tek gösterimlik dosya "fotoğraf" diye etiketleniyor | İstemci | Açık |
-| 12 | 15 | DÜŞÜK | Tek gösterim anahtarı ankette yok sayılıyor | İstemci | Açık |
-| 13 | 16 | DÜŞÜK | Tek gösterim ekranı FLAG_SECURE'ı kendisi zorlamıyor; "1" düğmesinin erişilebilirlik etiketi yok | İstemci | Açık |
-| 14 | 7 | DÜŞÜK | Rehber araması tam numarayı bulmuyor | İstemci | Açık |
-| 15 | 4 | DÜŞÜK | İsimsiz kişilerin avatarı anlamsız | İstemci | Açık |
+| 1 | 1 | YÜKSEK (gizlilik) | Çıkış, önceki hesabın yerel verisini silmiyor | İstemci | Düzeltildi (955e825) |
+| 2 | 8 | ORTA (sunucu kökenli) | Grup araması bitince "bitti" yayını gitmiyor (Janus sınıfı başlatılamıyor) + zaman aşımı durumları | Sunucu + istemci | Düzeltildi (2a17afc sunucu, fa5d841 istemci, e597c10 test) |
+| 3 | 12 | ORTA (güvenlik) | Tek gösterimlik dosyada "Uygulamayla aç" | İstemci | Düzeltildi (91cdd94) |
+| 4 | 5 | ORTA | Görüntülü arama ahizeden başlıyor, hoparlör düğmesi yanlış durumda | İstemci (Android) | Düzeltildi (3095165) |
+| 5 | 6 | ORTA | Rehber eşitlemesi elle eklenen kişiyi siliyor, grup seçicide görünmüyor | İstemci | Düzeltildi (c1cae56) |
+| 6 | 3 | ORTA | Rehberde olmayan gönderenin adı UUID | İstemci | Düzeltildi (dcae8a6, d91e066) |
+| 7 | 13 | DÜŞÜK | Tek gösterim: gönderende sahte "Açıldı", metinde "medya" | İstemci | Düzeltildi (8f6641f) |
+| 8 | 9 | DÜŞÜK | Bitmiş grup araması için "Katıl" bandı kalıyor | İstemci | Düzeltildi (02f136e) |
+| 9 | 2 | DÜŞÜK | "son görülme 1 Oca 1970" | İstemci | Düzeltildi (cf90899) |
+| 10 | 10 | DÜŞÜK | Kendi mesajından sonra en alta kaymıyor | İstemci | Düzeltildi (5a33968) |
+| 11 | 14 | DÜŞÜK | Tek gösterimlik dosya "fotoğraf" diye etiketleniyor | İstemci | Düzeltildi (6cb8ee4) |
+| 12 | 15 | DÜŞÜK | Tek gösterim anahtarı ankette yok sayılıyor | İstemci | Düzeltildi (476079f) |
+| 13 | 16 | DÜŞÜK | Tek gösterim ekranı FLAG_SECURE'ı kendisi zorlamıyor; "1" düğmesinin erişilebilirlik etiketi yok | İstemci | Düzeltildi (ccd5a67) |
+| 14 | 7 | DÜŞÜK | Rehber araması tam numarayı bulmuyor | İstemci | Düzeltildi (ac38a0d) |
+| 15 | 4 | DÜŞÜK | İsimsiz kişilerin avatarı anlamsız | İstemci | Düzeltildi (79acba5) |
 | 16 | 11 | KARAR | Alınan dosyalar yerelde şifresiz | İstemci | Ürün kararı |
+
+
+### 1.1 Uygulama notları (2026-10-12, uygulayan oturum)
+
+- **Bulgu 8a doğrulandı:** canlı `sunucu.log`'da grup HANGUP anında
+  `WebSocketRoutes.kt:623` → `JanusOrchestrator.<clinit>` →
+  `JANUS_API_SECRET or JANUS_API_SECRET_FILE is required` (11:52) ve
+  sonrasında `NoClassDefFoundError` (11:56). Handler bitiş yayınından önce
+  ölüyordu.
+- **"Aralıklı 13 sunucu test hatası"nın kök nedeni bulundu:**
+  `GroupCallSessionStoreLincheckTest` her senaryoda global store'da arama
+  açıp kapatmıyordu; `MAX_ACTIVE_CALLS` (1024) doluyor, sonraki grup arama
+  testleri `SERVER_CAPACITY_REACHED` ile zincirleme düşüyordu (e597c10).
+  Tam suite artık 1272/1272.
+- **Bulgu 2 kök nedeni plandakinden farklı:** sunucu "çevrimiçi" bilgisini
+  bağlantı başına ve yalnız `presence_update` alınca tutuyor; istemci bunu
+  yalnız ön plana geçişte gönderiyordu. Uygulama açıkken soket kendiliğinden
+  yeniden bağlanınca (ağ değişimi, sunucu deploy'u) durum bildirilmiyor,
+  karşı taraf çevrimdışı + `lastSeen=0` görüyordu. İstemci artık her yeni
+  bağlantıda durumu yeniden bildiriyor; `lastSeen<=0` "bilinmiyor".
+- **Bulgu 12:** uygulamada video oynatıcı olmadığı için tek gösterim yalnız
+  `image/*` ve `text/plain` için izinli (plan video da diyordu).
+- **Bulgu 3 madde 3:** "Rehbere ekle" eklenmedi — alıcı karşı tarafın
+  numarasını bilmiyor (numara paylaşımı varsayılan kapalı); şeritte
+  Engelle + Kapat var.
+- **Bulgu 13 madde 2 uygulandı:** şifreli `view_once_opened` kontrolü;
+  okundu bilgisi kapalıysa gönderilmez.
+- **Yeni özel kontrol türleri** (`shared_profile_name`, `view_once_opened`)
+  eski istemcide "desteklenmeyen kontrol" olarak reddedilir; iki QA
+  telefonu birlikte güncellenmeli. iOS native tarafı (Swift) yalnız kanal
+  adları için güncellendi, Mac'te derlenmedi.
+- **Bulgu 11** ürün kararı bekliyor.
 
 ---
 
