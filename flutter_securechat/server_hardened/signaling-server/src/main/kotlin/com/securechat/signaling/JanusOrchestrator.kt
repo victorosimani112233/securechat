@@ -30,14 +30,39 @@ object JanusOrchestrator {
 
     private val janusWsUrl = System.getenv("JANUS_WS_URL") ?: "ws://localhost:8188"
 
-    // GUVENLIK: Production'da JANUS_API_SECRET ve JANUS_ADMIN_SECRET env zorunlu (H6 fix).
-    // Default fallback artik yok — env yoksa uygulama start'ta crash eder.
-    // Bu Janus admin API'sine yetkisiz erisimi tamamen onler.
-    private val janusApiSecret = requireSecret("JANUS_API_SECRET")
-    private val janusAdminSecret = requireSecret("JANUS_ADMIN_SECRET")
+    // GUVENLIK: SFU acikken JANUS_API_SECRET ve JANUS_ADMIN_SECRET zorunlu (H6 fix).
+    // Default fallback yok — `init()` sirlari okur, yoksa uygulama start'ta crash eder.
+    //
+    // Sirlar TEMBEL okunur. Onceden nesne alanlariydi: sinif baslaticisinda
+    // okunuyor, sir yoksa sinifa ilk erisim ExceptionInInitializerError,
+    // sonrakiler NoClassDefFoundError firlatiyordu. SFU kapali canli sunucuda
+    // grup HANGUP yolundaki `hasActiveRoom` cagrisi bu yuzden patliyor ve
+    // "arama bitti" yayini hic gitmiyordu (QA 2026-10-12, Bulgu 8a). Yalniz
+    // bellek haritasina bakan fonksiyonlar sir gerektirmez.
+    @Volatile
+    private var cachedSecrets: Pair<String, String>? = null
+
+    /** Sirlarin okundugu ortam; testler sirsiz sunucuyu bununla taklit eder. */
+    @Volatile
+    internal var secretEnvironment: () -> Map<String, String> = { System.getenv() }
+
+    private fun secrets(): Pair<String, String> =
+        cachedSecrets ?: synchronized(this) {
+            cachedSecrets ?: Pair(
+                requireSecret("JANUS_API_SECRET"),
+                requireSecret("JANUS_ADMIN_SECRET"),
+            ).also { cachedSecrets = it }
+        }
+
+    private val janusApiSecret: String get() = secrets().first
+    private val janusAdminSecret: String get() = secrets().second
+
+    internal fun resetSecretsForTest() {
+        cachedSecrets = null
+    }
 
     private fun requireSecret(envName: String): String {
-        val value = SecretSource.required(envName)
+        val value = SecretSource.required(envName, secretEnvironment())
         check(value.length >= 16) {
             "$envName cok kisa (${value.length} char). En az 16, ideal 32+ char random secret kullan."
         }
@@ -89,6 +114,8 @@ object JanusOrchestrator {
      * Sunucu baslatildiginda cagrilir.
      */
     fun init() {
+        // Fail-closed: SFU acikken sirlar eksikse sunucu baslamaz.
+        secrets()
         scope.launch {
             connectToJanus()
         }

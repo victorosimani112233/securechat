@@ -270,6 +270,35 @@ fun Application.configureWebSocket(
  * Grup aramasi sonlandi — yalnizca in-memory aktif arama katilimcilarina
  * isActive=false durum bildirimi gonder. Kalici bir grup sosyal grafigi yoktur.
  */
+/** SFU odasi var mi; testler Janus'un baslatilamadigi sunucuyu bununla taklit eder. */
+@Volatile
+internal var groupSfuRoomCheck: (String) -> Boolean = { JanusOrchestrator.hasActiveRoom(it) }
+
+/**
+ * Biten grup aramasinin SFU odasini arka planda temizler.
+ *
+ * Bitis yayinindan SONRA cagrilir ve hicbir hatayi disari sizdirmaz: Janus
+ * tarafi baslatilamazsa (`NoClassDefFoundError` bir `LinkageError`'dir,
+ * `Exception` degil) bile kalan uyeler "arama bitti" yayinini almis olur.
+ */
+private fun scheduleGroupSfuCleanup(groupId: String, force: Boolean = false) {
+    try {
+        if (force || groupSfuRoomCheck(groupId)) {
+            sfuScope.launch {
+                try {
+                    cleanExpiredGroupCalls()
+                } catch (error: LinkageError) {
+                    logger.error("[GroupCall] SFU temizligi basarisiz: ${error.javaClass.simpleName}")
+                }
+            }
+        }
+    } catch (error: Exception) {
+        logger.error("[GroupCall] SFU temizligi atlandi: ${error.javaClass.simpleName}")
+    } catch (error: LinkageError) {
+        logger.error("[GroupCall] SFU temizligi atlandi: ${error.javaClass.simpleName}")
+    }
+}
+
 private suspend fun broadcastGroupCallEnded(
     groupId: String,
     members: Collection<String>,
@@ -335,10 +364,8 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                 if (remaining.size <= 1) {
                     // <=1 kisi kaldi → aramayi tamamen sonlandir
                     GroupCallSessionStore.end(active.groupId, active.instanceId)
-                    if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
-                        sfuScope.launch { cleanExpiredGroupCalls() }
-                    }
                     broadcastGroupCallEnded(active.groupId, remaining, connectionManager)
+                    scheduleGroupSfuCleanup(active.groupId)
                     logger.info("[GroupCall] Koordinator disconnect + <=1 uye — arama sonlandirildi")
                 } else {
                     // GUVENLIK (H9 fix): Koordinator transfer ZORUNLU olarak online uyeye yapilir.
@@ -352,10 +379,8 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                         logger.warn("[!] Koordinator transfer atlandi: hicbir kalan uye online degil")
                         // Hicbir online uye yok → arama pratik olarak duzelmez, sonlandir.
                         GroupCallSessionStore.end(active.groupId, active.instanceId)
-                        if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
-                            sfuScope.launch { cleanExpiredGroupCalls() }
-                        }
                         broadcastGroupCallEnded(active.groupId, remaining, connectionManager)
+                        scheduleGroupSfuCleanup(active.groupId)
                         continue
                     }
                     val transferred = GroupCallSessionStore.transferCoordinator(
@@ -386,10 +411,8 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                 // 1 kisi kalmasi pratik olarak bos call demek (kendisiyle konusamaz).
                 if (remaining.size <= 1) {
                     GroupCallSessionStore.end(active.groupId, active.instanceId)
-                    if (JanusOrchestrator.hasActiveRoom(active.groupId)) {
-                        sfuScope.launch { cleanExpiredGroupCalls() }
-                    }
                     broadcastGroupCallEnded(active.groupId, remaining, connectionManager)
+                    scheduleGroupSfuCleanup(active.groupId)
                     logger.info("[GroupCall] <=1 uye kaldi — arama temizlendi")
                 }
             }
@@ -620,10 +643,8 @@ private suspend fun handleMessage(
                             // <=1 kisi kaldi → aramayi sonlandir; yalniz kalan kisinin de
                             // local session'i broadcast ile temizlenir
                             GroupCallSessionStore.end(hangupGroupId, active.instanceId)
-                            if (JanusOrchestrator.hasActiveRoom(hangupGroupId)) {
-                                sfuScope.launch { cleanExpiredGroupCalls() }
-                            }
                             broadcastGroupCallEnded(hangupGroupId, remaining, connectionManager)
+                            scheduleGroupSfuCleanup(hangupGroupId)
                             logger.info("[GroupCall] HANGUP sonrasi <=1 uye — arama sonlandirildi")
                         } else if (active.coordinatorId == senderId) {
                             // Koordinator ayrildi → online kalan biri devralir
@@ -632,8 +653,8 @@ private suspend fun handleMessage(
                             }
                             if (newCoordinator == null) {
                                 GroupCallSessionStore.end(hangupGroupId, active.instanceId)
-                                sfuScope.launch { cleanExpiredGroupCalls() }
                                 broadcastGroupCallEnded(hangupGroupId, remaining, connectionManager)
+                                scheduleGroupSfuCleanup(hangupGroupId, force = true)
                             }
                             val transferred = newCoordinator?.let { GroupCallSessionStore.transferCoordinator(hangupGroupId, it) }
                             if (transferred != null) {

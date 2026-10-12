@@ -553,6 +553,56 @@ class WebSocketRoutingE2ETest {
         calleeSession.close()
     }
 
+    /**
+     * QA 2026-10-12 Bulgu 8a: Janus katmani baslatilamasa bile (canlida SFU
+     * kapali, sir yok) kalan uye "arama bitti" yayinini almali; aksi halde
+     * gelen arama ekrani calmaya devam eder.
+     */
+    @Test
+    fun `a hangup still ends the call for the remaining member when the SFU layer cannot start`() = e2e {
+        val originalCheck = groupSfuRoomCheck
+        val originalEnvironment = JanusOrchestrator.secretEnvironment
+        groupSfuRoomCheck = {
+            throw NoClassDefFoundError("Could not initialize class com.securechat.signaling.JanusOrchestrator")
+        }
+        JanusOrchestrator.secretEnvironment = { emptyMap() }
+        JanusOrchestrator.resetSecretsForTest()
+        try {
+            val (caller, callerToken) = newAccount()
+            val (callee, calleeToken) = newAccount()
+            val group = opaqueGroupId()
+            val callerSession = connect(caller, callerToken)
+            val calleeSession = connect(callee, calleeToken)
+            callerSession.send(
+                Frame.Text(
+                    """{"type":"group_call_invite","groupId":"$group","callId":"${UUID.randomUUID()}",""" +
+                        """"callType":"VOICE","recipientId":"$callee"}""",
+                ),
+            )
+            withTimeoutOrNull(4_000) { while (GroupCallSessionStore.get(group) == null) delay(20) }
+
+            callerSession.send(
+                Frame.Text(
+                    """{"type":"call_control","action":"HANGUP","recipientId":"server",""" +
+                        """"groupId":"$group"}""",
+                ),
+            )
+
+            val ended = calleeSession.awaitFrame("\"isActive\":false", 5_000)
+            assertNotNull(ended, "kalan uye arama bitti yayinini almadi")
+            assertTrue(ended!!.contains(group), ended)
+            assertNull(GroupCallSessionStore.get(group))
+            // Handler hatasi soketi dusurmemeli.
+            assertTrue(connectionManager.isOnline(caller))
+            callerSession.close()
+            calleeSession.close()
+        } finally {
+            groupSfuRoomCheck = originalCheck
+            JanusOrchestrator.secretEnvironment = originalEnvironment
+            JanusOrchestrator.resetSecretsForTest()
+        }
+    }
+
     @Test
     fun `a hangup from outside the call is refused`() = e2e {
         val (caller, callerToken) = newAccount()
