@@ -121,42 +121,53 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Tooltip(
-                    message: _viewOnceAllowed
-                        ? context.l10n.view_once
-                        : context.l10n.view_once_only_photo_or_text,
-                    child: InkWell(
-                      key: const Key('media-view-once'),
-                      onTap: _viewOnceAllowed
-                          ? () => setState(() => _viewOnce = !_viewOnce)
-                          : null,
-                      customBorder: const CircleBorder(),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        width: 40,
-                        height: 40,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _viewOnce
-                              ? const Color(0xff3e7bfa).withValues(alpha: 0.18)
-                              : Colors.white.withValues(alpha: 0.06),
-                          border: Border.all(
-                            width: 1.5,
+                  // Erisilebilirlik agacinda yalniz "1" okunuyordu; acik/kapali
+                  // durumu yoktu (QA 2026-10-12 Bulgu 16).
+                  Semantics(
+                    label: context.l10n.view_once,
+                    button: true,
+                    toggled: _viewOnce,
+                    enabled: _viewOnceAllowed,
+                    excludeSemantics: true,
+                    child: Tooltip(
+                      message: _viewOnceAllowed
+                          ? context.l10n.view_once
+                          : context.l10n.view_once_only_photo_or_text,
+                      child: InkWell(
+                        key: const Key('media-view-once'),
+                        onTap: _viewOnceAllowed
+                            ? () => setState(() => _viewOnce = !_viewOnce)
+                            : null,
+                        customBorder: const CircleBorder(),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          width: 40,
+                          height: 40,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
                             color: _viewOnce
-                                ? const Color(0xff3e7bfa)
-                                : Colors.white.withValues(alpha: 0.25),
+                                ? const Color(
+                                    0xff3e7bfa,
+                                  ).withValues(alpha: 0.18)
+                                : Colors.white.withValues(alpha: 0.06),
+                            border: Border.all(
+                              width: 1.5,
+                              color: _viewOnce
+                                  ? const Color(0xff3e7bfa)
+                                  : Colors.white.withValues(alpha: 0.25),
+                            ),
                           ),
-                        ),
-                        child: Text(
-                          '1',
-                          style: TextStyle(
-                            color: _viewOnce
-                                ? const Color(0xff3e7bfa)
-                                : _viewOnceAllowed
-                                ? Colors.white70
-                                : Colors.white24,
-                            fontWeight: FontWeight.bold,
+                          child: Text(
+                            '1',
+                            style: TextStyle(
+                              color: _viewOnce
+                                  ? const Color(0xff3e7bfa)
+                                  : _viewOnceAllowed
+                                  ? Colors.white70
+                                  : Colors.white24,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),

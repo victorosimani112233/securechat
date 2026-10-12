@@ -10,6 +10,7 @@ import '../../media/local_file_actions.dart';
 import '../../media/media_attachment.dart';
 import '../../services/app_container.dart';
 import '../../widgets/local_image_view.dart';
+import '../../widgets/view_once_screen_protection.dart';
 import 'media_preview_screen.dart';
 
 /// Shared by the viewer and inline chat previews. Production resolves only
@@ -97,7 +98,12 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ViewOnceScreenProtection(
+    enabled: message.isViewOnce,
+    child: _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     if (_consumed) return const Scaffold(backgroundColor: Colors.black);
     final path = message.filePath;
     if (path == null ||

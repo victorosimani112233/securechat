@@ -95,8 +95,11 @@ enum SecureChatContactsAccess {
     }
     channel.setMethodCallHandler { [weak self] call, result in
       switch call.method {
-      case "enableScreenProtection":
+      case "enableScreenProtection", "enableScreenProtectionForced":
         self?.installPrivacyOverlayHooks()
+        result(nil)
+      case "releaseForcedScreenProtection":
+        // iOS'ta debug istisnasi yok; koruma kalici kalir.
         result(nil)
       case "registerCallIntegration":
         self?.callIntegration.initialize()

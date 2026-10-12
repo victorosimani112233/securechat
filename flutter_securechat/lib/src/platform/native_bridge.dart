@@ -37,6 +37,27 @@ class NativeBridge {
     return _methods.invokeMethod<void>('enableScreenProtection');
   }
 
+  /// Ekran korumasini debug istisnasina ragmen zorlar (tek gosterim
+  /// ekranlari). Her cagri [releaseForcedScreenProtection] ile eslenir.
+  Future<void> enableScreenProtectionForced() => _optional(
+    () => _methods.invokeMethod<void>('enableScreenProtectionForced'),
+  );
+
+  Future<void> releaseForcedScreenProtection() => _optional(
+    () => _methods.invokeMethod<void>('releaseForcedScreenProtection'),
+  );
+
+  Future<void> _optional(Future<void> Function() call) async {
+    try {
+      await call();
+    } on MissingPluginException {
+      // Masaustu/test ortaminda native kanal yok.
+    } on PlatformException {
+      // Koruma istegi ekrani acmayi engellememeli; release FLAG_SECURE
+      // varsayilan olarak zaten acik.
+    }
+  }
+
   Future<void> registerCallIntegration() {
     return _methods.invokeMethod<void>('registerCallIntegration');
   }

@@ -70,6 +70,16 @@ class MainActivity : FlutterFragmentActivity() {
                         enableScreenProtection()
                         result.success(null)
                     }
+                    "enableScreenProtectionForced" -> {
+                        forcedScreenProtection++
+                        enableScreenProtection()
+                        result.success(null)
+                    }
+                    "releaseForcedScreenProtection" -> {
+                        if (forcedScreenProtection > 0) forcedScreenProtection--
+                        applyScreenProtectionPolicy()
+                        result.success(null)
+                    }
                     "registerCallIntegration" -> registerCallIntegration(result)
                     "getOrCreatePushHintKey" -> getOrCreatePushHintKey(result)
                     "reportIncomingCall" -> reportIncomingCall(call.arguments, result)
@@ -531,8 +541,14 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
 
+    /**
+     * Tek gosterim ekranlari acikken FLAG_SECURE debug istisnasina ragmen
+     * zorlanir (QA 2026-10-12 Bulgu 16). Sayac: ic ice ekranlar guvenli.
+     */
+    private var forcedScreenProtection = 0
+
     private fun applyScreenProtectionPolicy() {
-        if (allowsDebugScreenCapture()) {
+        if (forcedScreenProtection == 0 && allowsDebugScreenCapture()) {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             enableScreenProtection()

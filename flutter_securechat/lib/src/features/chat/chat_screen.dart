@@ -30,6 +30,7 @@ import '../../services/conversation_repository.dart';
 import '../../services/peer_activity_source.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/local_video_thumbnail.dart';
+import '../../widgets/view_once_screen_protection.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/azure_options.dart';
 import '../../theme/secure_chat_theme.dart';
@@ -1442,26 +1443,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           context,
           MaterialPageRoute(
             fullscreenDialog: true,
-            builder: (viewerContext) => Scaffold(
-              backgroundColor: Colors.black,
-              appBar: AppBar(
+            builder: (viewerContext) => ViewOnceScreenProtection(
+              child: Scaffold(
                 backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
-                leading: IconButton(
-                  tooltip: viewerContext.l10n.action_close,
-                  onPressed: () => Navigator.pop(viewerContext),
-                  icon: const Icon(Icons.close),
+                appBar: AppBar(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  leading: IconButton(
+                    tooltip: viewerContext.l10n.action_close,
+                    onPressed: () => Navigator.pop(viewerContext),
+                    icon: const Icon(Icons.close),
+                  ),
+                  title: Text(viewerContext.l10n.view_once_protected),
                 ),
-                title: Text(viewerContext.l10n.view_once_protected),
-              ),
-              body: SafeArea(
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(28),
-                    child: Text(
-                      snapshot,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 20),
+                body: SafeArea(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(28),
+                      child: Text(
+                        snapshot,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                        ),
+                      ),
                     ),
                   ),
                 ),
