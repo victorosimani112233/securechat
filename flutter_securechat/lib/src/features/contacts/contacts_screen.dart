@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../../contacts/contact_search.dart';
 import '../../auth/phone_privacy.dart';
+import '../../contacts/contact_search.dart';
 import '../../contacts/contact_service.dart';
 import '../../contacts/private_contact_discovery.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
-import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
-import '../../widgets/azure_surface.dart';
 import '../../widgets/azure_empty_state.dart';
+import '../../widgets/azure_surface.dart';
+import '../../widgets/text_controller_scope.dart';
 import 'create_group_flow.dart';
 
 class ContactsScreen extends StatefulWidget {

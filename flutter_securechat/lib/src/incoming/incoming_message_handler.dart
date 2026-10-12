@@ -3,8 +3,6 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 
-import '../contacts/profile_name_sharing_service.dart';
-import '../core/peer_display_name.dart';
 import '../chat/conversation_preview.dart';
 import '../chat/disappearing_timer_notice.dart';
 import '../chat/message_interaction_service.dart';
@@ -12,14 +10,16 @@ import '../chat/poll_service.dart';
 import '../chat/private_chat_control.dart';
 import '../contacts/contact_service.dart';
 import '../contacts/phone_number_sharing_service.dart';
+import '../contacts/profile_name_sharing_service.dart';
+import '../core/peer_display_name.dart';
 import '../core/signal_message.dart';
 import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
 import '../l10n/service_strings.dart';
 import '../media/call_media_key.dart';
 import '../safety/block_list.dart';
-import '../services/crypto_service.dart';
 import '../services/async_operation_tracker.dart';
+import '../services/crypto_service.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import '../storage/secure_chat_database.dart';

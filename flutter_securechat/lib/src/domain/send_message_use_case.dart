@@ -2,16 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import '../contacts/profile_name_sharing_service.dart';
 import '../chat/conversation_preview.dart';
 import '../contacts/phone_number_sharing_service.dart';
+import '../contacts/profile_name_sharing_service.dart';
 import '../core/signal_message.dart';
 import '../crypto/group_sender_key_distribution.dart';
 import '../groups/private_group_control.dart';
 import '../groups/private_group_route.dart';
 import '../network/network_resilience.dart';
-import '../services/crypto_service.dart';
 import '../services/async_operation_tracker.dart';
+import '../services/crypto_service.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import '../storage/secure_chat_database.dart';
