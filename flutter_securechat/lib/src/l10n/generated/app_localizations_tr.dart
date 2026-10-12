@@ -2238,4 +2238,10 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get view_once_only_photo_or_text =>
       'Yalnız fotoğraf ve metin dosyaları tek gösterimlik gönderilebilir.';
+
+  @override
+  String get recipient_no_results => 'Eşleşen kişi yok';
+
+  @override
+  String get contacts_sync => 'Rehberi eşitle';
 }

@@ -2252,4 +2252,10 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get view_once_only_photo_or_text =>
       'Only photos and text files can be sent as view once.';
+
+  @override
+  String get recipient_no_results => 'No matching contacts';
+
+  @override
+  String get contacts_sync => 'Sync contacts';
 }

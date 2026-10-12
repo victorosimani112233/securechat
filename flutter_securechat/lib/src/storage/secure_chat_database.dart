@@ -1456,6 +1456,32 @@ class ContactDao {
   });
   Future<void> update(ContactEntity contact) => insert(contact);
   Future<void> delete(String id) => _db._write((s) => s.contacts.remove(id));
+
+  /// Gruba eklenebilecek kisiler: kayitli kisiler + rehberde olmasa da
+  /// birebir sohbeti olan karsi taraflar (kimlige gore tekil).
+  Stream<List<ContactEntity>> watchGroupCandidates() => _db._watch((s) {
+    final byId = {
+      for (final contact in s.contacts.values)
+        if (contact.isRegistered) contact.id: contact,
+    };
+    for (final conversation in s.conversations.values) {
+      if (conversation.isGroup ||
+          conversation.isReadOnly ||
+          conversation.peerId.isEmpty ||
+          byId.containsKey(conversation.peerId)) {
+        continue;
+      }
+      byId[conversation.peerId] = ContactEntity(
+        id: conversation.peerId,
+        phoneNumber: conversation.peerPhone,
+        phoneHash: '',
+        displayName: conversation.peerName,
+        isRegistered: true,
+        addedManually: true,
+      );
+    }
+    return byId.values.sortedBy((c) => c.displayName);
+  });
   Stream<List<ContactEntity>> search(String query) => _db._watch(
     (s) => _sorted(s)
         .where(

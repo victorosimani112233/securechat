@@ -1049,5 +1049,7 @@
   "logout_confirm_body": "Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again.",
   "call_no_answer": "No answer",
   "view_once_unsupported_type": "This file type cannot be opened as view once.",
-  "view_once_only_photo_or_text": "Only photos and text files can be sent as view once."
+  "view_once_only_photo_or_text": "Only photos and text files can be sent as view once.",
+  "recipient_no_results": "No matching contacts",
+  "contacts_sync": "Sync contacts"
 }

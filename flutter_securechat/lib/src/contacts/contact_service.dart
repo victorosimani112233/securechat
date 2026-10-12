@@ -167,6 +167,10 @@ class ContactService {
   Stream<List<ContactEntity>> watchRegistered() =>
       _database.contacts.getRegistered();
 
+  /// Grup uye secicisi icin: rehber kisileri + birebir sohbet karsi taraflari.
+  Stream<List<ContactEntity>> watchGroupCandidates() =>
+      _database.contacts.watchGroupCandidates();
+
   Future<bool> requestContactsPermission() =>
       _deviceContacts.requestPermission();
 
@@ -216,9 +220,21 @@ class ContactService {
       }
     }
 
+    // Yalniz rehber kaynakli kisiler rehberle eslenir. Elle eklenen kisi
+    // (tus takimindan numara) rehberde olmadigi icin siliniyordu.
     final deviceHashes = byHash.keys.toSet();
     for (final existing in await _database.contacts.getAllOnce()) {
-      if (!deviceHashes.contains(existing.phoneHash)) {
+      if (existing.addedManually ||
+          deviceHashes.contains(existing.phoneHash)) {
+        continue;
+      }
+      final conversation = await _database.conversations.getByPeerId(
+        existing.id,
+      );
+      if (conversation != null && !conversation.isGroup) {
+        // Rehberden silinen ama sohbeti suren kisi kaybolmaz.
+        await _database.contacts.insert(existing.asManual());
+      } else {
         await _database.contacts.delete(existing.id);
       }
     }
@@ -233,12 +249,19 @@ class ContactService {
     final match = (await _discover([hash], token)).firstOrNull;
     if (match == null) return null;
     if (match.userId == _session.userId) return null;
+    final known = await _database.contacts.getById(match.userId);
+    if (known != null && !known.addedManually) {
+      // Rehber kaydi (adiyla) zaten var; numarayla ezilmez.
+      await ensureConversation(known);
+      return known;
+    }
     final contact = ContactEntity(
       id: match.userId,
       phoneNumber: '+$normalized',
       phoneHash: hash,
       displayName: '+$normalized',
       isRegistered: true,
+      addedManually: true,
     );
     await _database.contacts.insert(contact);
     await ensureConversation(contact);

@@ -62,7 +62,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             IconButton(
               onPressed: _syncing ? null : _syncContacts,
               icon: const Icon(Icons.sync),
-              tooltip: context.l10n.action_retry,
+              tooltip: context.l10n.contacts_sync,
             ),
           ],
         ),

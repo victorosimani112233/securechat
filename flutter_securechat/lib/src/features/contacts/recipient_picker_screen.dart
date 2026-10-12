@@ -28,8 +28,12 @@ class RecipientPickerScreen extends StatefulWidget {
     this.initial = const [],
     this.allowEmpty = false,
     this.onConfirm,
+    this.emptyText,
   });
   final String title;
+
+  /// Arama eslesmesi yokken gosterilen metin; verilmezse sohbet secici metni.
+  final String? emptyText;
   final String actionLabel;
   final Stream<List<RecipientChoice>> choices;
   final List<RecipientChoice> initial;
@@ -150,7 +154,11 @@ class _RecipientPickerScreenState extends State<RecipientPickerScreen> {
                         )
                         .toList();
                     if (visible.isEmpty)
-                      return Center(child: Text(context.l10n.bulk_no_results));
+                      return Center(
+                        child: Text(
+                          widget.emptyText ?? context.l10n.bulk_no_results,
+                        ),
+                      );
                     return ListView.separated(
                       key: const ValueKey('recipient-list'),
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),

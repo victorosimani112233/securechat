@@ -63,6 +63,149 @@ void main() {
     expect(await fixture.database.contacts.getById('stale'), isNull);
   });
 
+  group('QA 2026-10-12 Bulgu 6', () {
+    test('a contact added by number survives the phonebook sync', () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final betaHash = await hashPhoneNumber('905321000413');
+      final service = ContactService(
+        deviceContacts: const _FakeGateway([]),
+        api: _FakeDiscoveryApi([
+          RegisteredUserMatch(userId: 'beta-id', phoneHash: betaHash),
+        ]),
+        database: fixture.database,
+        session: SessionStore(userId: 'me', accessToken: 'access'),
+      );
+
+      final manual = await service.resolvePhone('+90 532 100 04 13');
+      expect(manual!.addedManually, isTrue);
+      await service.importAndDiscover();
+
+      expect(await fixture.database.contacts.getById('beta-id'), isNotNull);
+    });
+
+    test(
+      'a phonebook contact with an open chat is kept as manual on removal',
+      () async {
+        final fixture = await _openFixture();
+        addTearDown(fixture.close);
+        await fixture.database.contacts.insert(
+          const ContactEntity(
+            id: 'friend',
+            phoneNumber: '+90222',
+            phoneHash: 'friend-hash',
+            displayName: 'Friend',
+            isRegistered: true,
+          ),
+        );
+        await fixture.database.conversations.insert(
+          const ConversationEntity(
+            id: 'friend',
+            peerId: 'friend',
+            peerName: 'Friend',
+            peerPhone: '+90222',
+          ),
+        );
+        final service = ContactService(
+          deviceContacts: const _FakeGateway([]),
+          api: _FakeDiscoveryApi(const []),
+          database: fixture.database,
+          session: SessionStore(userId: 'me', accessToken: 'access'),
+        );
+
+        await service.importAndDiscover();
+
+        final kept = await fixture.database.contacts.getById('friend');
+        expect(kept?.displayName, 'Friend');
+        expect(kept?.addedManually, isTrue);
+      },
+    );
+
+    test('adding a known phonebook contact by number keeps its name', () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final hash = await hashPhoneNumber('905321000413');
+      await fixture.database.contacts.insert(
+        ContactEntity(
+          id: 'beta-id',
+          phoneNumber: '+90 532 100 04 13',
+          phoneHash: hash,
+          displayName: 'QaBeta',
+          isRegistered: true,
+        ),
+      );
+      final service = ContactService(
+        deviceContacts: const _FakeGateway([]),
+        api: _FakeDiscoveryApi([
+          RegisteredUserMatch(userId: 'beta-id', phoneHash: hash),
+        ]),
+        database: fixture.database,
+        session: SessionStore(userId: 'me', accessToken: 'access'),
+      );
+
+      final contact = await service.resolvePhone('5321000413');
+
+      expect(contact?.displayName, 'QaBeta');
+      expect(
+        (await fixture.database.contacts.getById('beta-id'))?.displayName,
+        'QaBeta',
+      );
+    });
+
+    test(
+      'group candidates include direct chat peers outside the phonebook',
+      () async {
+        final fixture = await _openFixture();
+        addTearDown(fixture.close);
+        await fixture.database.contacts.insert(
+          const ContactEntity(
+            id: 'alice',
+            phoneNumber: '+901',
+            phoneHash: 'a',
+            displayName: 'Alice',
+            isRegistered: true,
+          ),
+        );
+        for (final conversation in const [
+          ConversationEntity(
+            id: 'alice',
+            peerId: 'alice',
+            peerName: 'Alice (chat)',
+            peerPhone: '+901',
+          ),
+          ConversationEntity(
+            id: 'beta',
+            peerId: 'beta',
+            peerName: 'QaBeta',
+            peerPhone: '+905321000413',
+          ),
+          ConversationEntity(
+            id: 'group',
+            peerId: 'group',
+            peerName: 'Group',
+            peerPhone: '',
+            isGroup: true,
+          ),
+        ]) {
+          await fixture.database.conversations.insert(conversation);
+        }
+        final service = ContactService(
+          deviceContacts: const _FakeGateway([]),
+          api: _FakeDiscoveryApi(const []),
+          database: fixture.database,
+          session: SessionStore(userId: 'me', accessToken: 'access'),
+        );
+
+        final candidates = await service.watchGroupCandidates().first;
+
+        expect(candidates.map((c) => (c.id, c.displayName)), [
+          ('alice', 'Alice'),
+          ('beta', 'QaBeta'),
+        ]);
+      },
+    );
+  });
+
   test('permission denial stops discovery before API call', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);

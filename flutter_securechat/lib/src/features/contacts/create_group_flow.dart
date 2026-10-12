@@ -49,7 +49,8 @@ Future<void> showCreateGroupFlow(BuildContext context) async {
       builder: (_) => RecipientPickerScreen(
         title: context.l10n.conv_new_group,
         actionLabel: context.l10n.create_group_and_add,
-        choices: service.watchRegistered().map((items) {
+        emptyText: context.l10n.recipient_no_results,
+        choices: service.watchGroupCandidates().map((items) {
           contacts
             ..clear()
             ..addEntries(items.map((item) => MapEntry(item.id, item)));

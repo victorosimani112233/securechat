@@ -2282,4 +2282,10 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get view_once_only_photo_or_text =>
       'Nur Fotos und Textdateien können als Einmalansicht gesendet werden.';
+
+  @override
+  String get recipient_no_results => 'Keine passenden Kontakte';
+
+  @override
+  String get contacts_sync => 'Kontakte synchronisieren';
 }

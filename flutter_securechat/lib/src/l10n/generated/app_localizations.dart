@@ -4133,6 +4133,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Only photos and text files can be sent as view once.'**
   String get view_once_only_photo_or_text;
+
+  /// No description provided for @recipient_no_results.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching contacts'**
+  String get recipient_no_results;
+
+  /// No description provided for @contacts_sync.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync contacts'**
+  String get contacts_sync;
 }
 
 class _AppLocalizationsDelegate

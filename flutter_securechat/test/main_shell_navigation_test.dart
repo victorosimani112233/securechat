@@ -370,6 +370,10 @@ class _NavigationContacts extends Fake implements ContactService {
   Stream<List<ContactEntity>> watchRegistered() => Stream.value([_contact]);
 
   @override
+  Stream<List<ContactEntity>> watchGroupCandidates() =>
+      Stream.value([_contact]);
+
+  @override
   Future<List<ContactEntity>> importAndDiscover() async => [_contact];
 
   @override

@@ -368,6 +368,7 @@ class ContactEntity {
     required this.isRegistered,
     this.avatarUri,
     this.lastSeen,
+    this.addedManually = false,
   });
 
   final String id;
@@ -378,6 +379,10 @@ class ContactEntity {
   final String? avatarUri;
   final int? lastSeen;
 
+  /// Telefon rehberinden degil, numarayla elle eklendi. Rehber eslemesi
+  /// yalniz rehber kaynakli kisileri siler (QA 2026-10-12 Bulgu 6).
+  final bool addedManually;
+
   factory ContactEntity.fromJson(Map<String, Object?> json) => ContactEntity(
     id: json['id'] as String? ?? '',
     phoneNumber: json['phoneNumber'] as String? ?? '',
@@ -386,6 +391,7 @@ class ContactEntity {
     isRegistered: json['isRegistered'] as bool? ?? false,
     avatarUri: json['avatarUri'] as String?,
     lastSeen: (json['lastSeen'] as num?)?.toInt(),
+    addedManually: json['addedManually'] as bool? ?? false,
   );
 
   Map<String, Object?> toJson() => {
@@ -396,7 +402,19 @@ class ContactEntity {
     'isRegistered': isRegistered,
     'avatarUri': avatarUri,
     'lastSeen': lastSeen,
+    'addedManually': addedManually,
   };
+
+  ContactEntity asManual() => ContactEntity(
+    id: id,
+    phoneNumber: phoneNumber,
+    phoneHash: phoneHash,
+    displayName: displayName,
+    isRegistered: isRegistered,
+    avatarUri: avatarUri,
+    lastSeen: lastSeen,
+    addedManually: true,
+  );
 }
 
 class CallLogEntity {
