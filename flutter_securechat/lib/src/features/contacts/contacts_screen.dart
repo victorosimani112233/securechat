@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../contacts/contact_search.dart';
 import '../../auth/phone_privacy.dart';
 import '../../contacts/contact_service.dart';
 import '../../contacts/private_contact_discovery.dart';
@@ -74,12 +75,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   final registered = snapshot.data ?? const <ContactEntity>[];
                   final contacts = registered
                       .where(
-                        (contact) =>
-                            _query.isEmpty ||
-                            contact.displayName.toLowerCase().contains(
-                              _query.toLowerCase(),
-                            ) ||
-                            contact.phoneNumber.contains(_query),
+                        (contact) => matchesContactQuery(
+                          name: contact.displayName,
+                          phone: contact.phoneNumber,
+                          query: _query,
+                        ),
                       )
                       .toList(growable: false);
                   final noSearchResults =

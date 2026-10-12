@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../contacts/contact_search.dart';
 import '../../l10n/l10n.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
@@ -148,9 +149,11 @@ class _RecipientPickerScreenState extends State<RecipientPickerScreen> {
                     };
                     final visible = unique.values
                         .where(
-                          (item) =>
-                              item.name.toLowerCase().contains(_query) ||
-                              item.detail.toLowerCase().contains(_query),
+                          (item) => matchesContactQuery(
+                            name: item.name,
+                            phone: item.detail,
+                            query: _query,
+                          ),
                         )
                         .toList();
                     if (visible.isEmpty)
