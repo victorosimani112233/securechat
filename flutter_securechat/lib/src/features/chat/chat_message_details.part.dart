@@ -6,6 +6,15 @@ class _MediaMessageContent extends StatelessWidget {
   final LocalMessage message;
   final bool outgoing;
 
+  /// Tek gosterim etiketi turu soyler; dosya "fotograf" degildir
+  /// (QA 2026-10-12 Bulgu 14).
+  String _viewOnceLabel(BuildContext context) {
+    final mime = message.fileMimeType ?? '';
+    if (mime.startsWith('image/')) return context.l10n.view_once_photo;
+    if (mime.startsWith('video/')) return context.l10n.view_once_video;
+    return context.l10n.view_once_file;
+  }
+
   @override
   Widget build(BuildContext context) {
     // Balon `primary` ile DOLU degil: giden balon %19 tonlu bir YUZEY.
@@ -32,7 +41,7 @@ class _MediaMessageContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    opened ? context.l10n.opened : context.l10n.view_once_photo,
+                    opened ? context.l10n.opened : _viewOnceLabel(context),
                     style: TextStyle(color: foreground),
                   ),
                   if (!message.isOutgoing || opened)

@@ -2309,4 +2309,10 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get message_no_longer_available =>
       'Diese Nachricht kann nicht mehr geöffnet werden';
+
+  @override
+  String get view_once_video => 'Einmal-Video';
+
+  @override
+  String get view_once_file => 'Einmal-Datei';
 }

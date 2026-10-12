@@ -1050,5 +1050,7 @@
   "settings_share_profile_name": "Profil adımı paylaş",
   "settings_share_profile_name_desc": "Yalnızca birebir mesaj gönderdiğin kişilerle, uçtan uca şifreli. Seni rehberinde kayıtlı tutmayanlar adını ~Ad olarak görür.",
   "view_once_message": "Tek gösterimlik mesaj",
-  "message_no_longer_available": "Bu mesaj artık açılamaz"
+  "message_no_longer_available": "Bu mesaj artık açılamaz",
+  "view_once_video": "Tek gösterimlik video",
+  "view_once_file": "Tek gösterimlik dosya"
 }

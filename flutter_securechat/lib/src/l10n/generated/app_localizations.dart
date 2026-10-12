@@ -4181,6 +4181,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This message can no longer be opened'**
   String get message_no_longer_available;
+
+  /// No description provided for @view_once_video.
+  ///
+  /// In en, this message translates to:
+  /// **'View once video'**
+  String get view_once_video;
+
+  /// No description provided for @view_once_file.
+  ///
+  /// In en, this message translates to:
+  /// **'View once file'**
+  String get view_once_file;
 }
 
 class _AppLocalizationsDelegate

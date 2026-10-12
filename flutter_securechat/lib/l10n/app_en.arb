@@ -1057,5 +1057,7 @@
   "settings_share_profile_name": "Share my profile name",
   "settings_share_profile_name_desc": "Only with people you message one-to-one, end-to-end encrypted. People who do not have you in their contacts see it as ~Name.",
   "view_once_message": "View once message",
-  "message_no_longer_available": "This message can no longer be opened"
+  "message_no_longer_available": "This message can no longer be opened",
+  "view_once_video": "View once video",
+  "view_once_file": "View once file"
 }

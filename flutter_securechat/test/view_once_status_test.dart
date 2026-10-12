@@ -30,6 +30,7 @@ void main() {
     required bool outgoing,
     required bool viewed,
     bool text = false,
+    String mime = 'image/jpeg',
   }) => LocalMessage(
     id: id,
     conversationId: 'peer-ayse',
@@ -39,7 +40,7 @@ void main() {
         ? (viewed ? '' : 'gizli')
         : LocalMessage.buildFileContent(
             fileName: 'foto.jpg',
-            mimeType: 'image/jpeg',
+            mimeType: mime,
             fileSize: 10,
             filePath: '/managed/foto.jpg',
           ),
@@ -101,6 +102,18 @@ void main() {
     expect(find.text(l10n.message_no_longer_available), findsOneWidget);
     expect(find.text(l10n.media_no_longer_available), findsNothing);
     expect(find.text(l10n.opened), findsNothing);
+  });
+
+  // QA 2026-10-12 Bulgu 14: dosya "fotograf" diye etiketleniyordu.
+  testWidgets('view-once label follows the file type', (tester) async {
+    await pump(tester, [
+      message(id: 'a', outgoing: false, viewed: false, mime: 'image/png'),
+      message(id: 'b', outgoing: false, viewed: false, mime: 'video/mp4'),
+      message(id: 'c', outgoing: false, viewed: false, mime: 'text/plain'),
+    ]);
+    expect(find.text(l10n.view_once_photo), findsOneWidget);
+    expect(find.text(l10n.view_once_video), findsOneWidget);
+    expect(find.text(l10n.view_once_file), findsOneWidget);
   });
 
   group('opened receipt', () {

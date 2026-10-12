@@ -2263,4 +2263,10 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get message_no_longer_available => 'Bu mesaj artık açılamaz';
+
+  @override
+  String get view_once_video => 'Tek gösterimlik video';
+
+  @override
+  String get view_once_file => 'Tek gösterimlik dosya';
 }

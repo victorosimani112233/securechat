@@ -2278,4 +2278,10 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get message_no_longer_available =>
       'This message can no longer be opened';
+
+  @override
+  String get view_once_video => 'View once video';
+
+  @override
+  String get view_once_file => 'View once file';
 }
