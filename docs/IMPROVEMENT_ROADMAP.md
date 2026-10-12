@@ -604,6 +604,8 @@ Hilt @IntoMap @MapKey ile registry.
 
 ## Faz 11 — bot-api Shadow plugin alternatifi
 
+> **GEÇERSİZ (2026-10-09):** bot-api ve bot-admin-cli depodan kaldırıldı; bu faz artık uygulanmayacak.
+
 **Önem:** P2 — offline build'lerde 8 MB BOM zinciri sorun çıkarıyor.
 
 ### Mevcut sorun

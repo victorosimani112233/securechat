@@ -45,7 +45,7 @@ Hardened server:
 
 ```bash
 (cd server_hardened && \
-  ./gradlew :signaling-server:test :bot-api:test --offline --no-daemon)
+  ./gradlew :signaling-server:test --offline --no-daemon)
 ```
 
 Guncel kanit 230/230 Flutter, 177/177 hardened server, temiz analyze/iOS statik

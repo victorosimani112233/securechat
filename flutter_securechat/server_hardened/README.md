@@ -3,7 +3,8 @@
 Bu dizin, kok Kotlin kaynak agacina dokunmadan uretilen production sunucu
 hedefidir. Flutter istemcinin privacy garantisi yalniz bu hedef veya ayni
 kontrolleri bagimsiz olarak kanitlanmis bir deployment ile gecerlidir. Kok
-`signaling-server`/`bot-api` referanstir ve production artefakti degildir.
+`signaling-server` referanstir ve production artefakti degildir. Bot API
+(burada ve kokte) 2026-10-09'da kaldirildi.
 
 Baglayici veri/retention sozlesmesi:
 [`../docs/SERVER_DATA_PRIVACY_AUDIT.md`](../docs/SERVER_DATA_PRIVACY_AUDIT.md).
@@ -16,8 +17,6 @@ bagimsiz uretilmelidir:
 - `PRIVACY_INDEX_KEY`: HMAC blind index ve pseudonym anahtari.
 - `OFFLINE_QUEUE_ENCRYPTION_KEY`: Redis offline envelope AES-256-GCM anahtari.
 - `FCM_TOKEN_ENCRYPTION_KEY`: push token `v4` AES-256-GCM anahtari.
-- `BOT_MASTER_KEY`: bot identity/session private state anahtari.
-- `BOT_QUEUE_ENCRYPTION_KEY`: bot queue/idempotency zarf anahtari.
 
 Ayrica zorunludur:
 
@@ -30,8 +29,7 @@ Ayrica zorunludur:
   `REDIS_PASSWORD`;
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_TLS=starttls|ssl` ve SMTP auth
   kullaniliyorsa `SMTP_USERNAME` + `SMTP_PASSWORD`;
-- `METRICS_BEARER_TOKEN`, `BOT_METRICS_BEARER_TOKEN` ve `BOT_ADMIN_TOKEN`
-  (her biri en az 32 karakter);
+- `METRICS_BEARER_TOKEN` (en az 32 karakter);
 - Firebase Admin service-account credential'i; mobil istemciye konmaz.
 
 Secret'lar image, Git, DB backup, log veya mobil bundle'a eklenmez. Bir key'in
@@ -175,7 +173,7 @@ kalmaz kalmaz tekrar kapatilir.
 env \
   PRIVACY_INDEX_KEY='<base64-32-byte>' \
   OFFLINE_QUEUE_ENCRYPTION_KEY='<different-base64-32-byte>' \
-  ./gradlew :signaling-server:test :bot-api:test --offline
+  ./gradlew :signaling-server:test --offline
 ```
 
 Test paketi unit testlere ek olarak gercek `postgres:16` Testcontainers ile
@@ -183,7 +181,9 @@ V1-V21 migration, legacy iliski varken V14 fail-closed davranisi, final exact
 schema, push-token AAD ve gun-bucket retention, kalici grup/audit/prekey
 timeline silinmesi ve hesap silme sinirlarini sorgular.
 
-Guncel sonuc 1.179 signaling + 190 bot testi, sifir failure/error/skip'tir.
+2026-10-09 itibariyla ~1.265 signaling testi. `GroupCallSignalingContractTest`
+ve `WebSocketRoutingE2ETest` tam suite yuku altinda aralikli dusebilir; tek
+basina tutarli gecerler.
 Kalici log appender'i, runtime log seviye acma, direct secret env, guvensiz DB
 TLS, secret amac tekrari ve production policy bypass'i statik/Kotlin
 kapilarinda reddedilir.
@@ -191,7 +191,7 @@ kapilarinda reddedilir.
 Artefakt:
 
 ```bash
-./gradlew :signaling-server:fatJar :bot-api:installDist --offline
+./gradlew :signaling-server:fatJar --offline
 ```
 
 Kodun yesil olmasi deployment'in kaniti degildir. Production oncesi secret

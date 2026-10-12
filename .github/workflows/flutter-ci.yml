@@ -213,7 +213,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Test
-        run: ./gradlew :signaling-server:test :bot-api:test --no-daemon
+        run: ./gradlew :signaling-server:test --no-daemon
 
       - name: Test raporlarini yukle
         if: failure()

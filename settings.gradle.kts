@@ -41,10 +41,8 @@ include(":common")
 //     olmayabilir ve APK build'ini configuration asamasinda blokliyordu.
 //  2) APK build eden gelistirici cogu zaman server'i build etmek istemiyor.
 // Server modullerini build etmek icin "-PincludeServer" bayragini ekle:
-//   .\gradlew.bat -PincludeServer :bot-api:shadowJar
+//   .\gradlew.bat -PincludeServer :signaling-server:build
 val includeServer = providers.gradleProperty("includeServer").isPresent
 if (includeServer) {
     include(":signaling-server")
-    include(":bot-api")
-    include(":bot-admin-cli")
 }

@@ -18,7 +18,7 @@
 8. [Use case'ler](#8-use-caseler)
 9. [ViewModel + manager pattern](#9-viewmodel--manager-pattern)
 10. [Server-side (signaling-server)](#10-server-side)
-11. [bot-api (programatik gönderim)](#11-bot-api)
+11. [bot-api (kaldırıldı)](#11-bot-api-kaldırıldı)
 12. [Build + deploy](#12-build--deploy)
 13. [Bilinen sınırlamalar + roadmap](#13-bilinen-sınırlamalar)
 
@@ -35,7 +35,6 @@ elçim, **WhatsApp benzeri uçtan uca şifreli mesajlaşma** uygulamasıdır. He
 - Planlı (scheduled) mesaj
 - Toplu (bulk) mesaj
 - Sohbet dışa aktarma + admin-only encrypted audit log
-- Programatik gönderim için bot API + admin CLI
 
 **Gizlilik öncelikleri:**
 - 1:1 mesajlar Signal Protocol (Double Ratchet + X3DH) ile E2EE
@@ -54,7 +53,7 @@ elçim, **WhatsApp benzeri uçtan uca şifreli mesajlaşma** uygulamasıdır. He
 - libsignal-android 2.8.1
 - WebRTC (sesli/görüntülü)
 - Janus Gateway (SFU)
-- Ktor (signaling-server, bot-api)
+- Ktor (signaling-server)
 - Firebase Cloud Messaging (push notification)
 - PostgreSQL 16 + Redis 7 (server)
 - Docker compose + Nginx + Prometheus + Grafana
@@ -98,15 +97,12 @@ elçim, **WhatsApp benzeri uçtan uca şifreli mesajlaşma** uygulamasıdır. He
 | **media** | Android library | CallManager, FileTransferManager, audio routing, ringtone, telecom integration |
 | **contacts** | Android library | ContactsContract bridge, PhoneEncryptor (hash-based discovery), ContactRepository |
 | **signaling-server** | JVM (Ktor) | WebSocket relay, Postgres/Redis backend, FCM push tetikleme, REST API (PreKey, OTP) |
-| **bot-api** | JVM (Ktor) | Programatik mesaj gönderme API'si, admin endpoints, Signal Protocol JVM variant |
-| **bot-admin-cli** | JVM | Komut satırı admin aracı (bot client CRUD, emergency-stop) |
 
 **Bağımlılık yönü** (yukarıdan aşağı):
 ```
 app → media, contacts → network → crypto, common
                      → storage → crypto, common
 signaling-server (bağımsız)
-bot-api → crypto (pure-Java variant)
 ```
 
 ---
@@ -512,7 +508,7 @@ UI değişmez — `viewModel.searchQuery` aynı çalışır, sadece logic ayrı 
 - FCM Admin SDK (push notification)
 - Janus orchestrator (4+ kişi grup arama için SFU room)
 - Prometheus metrics export
-- Flyway migrations (V1, V2, V3 — bot_api)
+- Flyway migrations (V1, V2, V3 — V3 eski bot_api tablolari; tarihsel)
 
 **Endpointler:**
 - `WS /ws?userId=X` (Bearer JWT auth)
@@ -539,7 +535,6 @@ UI değişmez — `viewModel.searchQuery` aynı çalışır, sadece logic ayrı 
 **Docker compose stack:**
 - nginx (TLS termination)
 - securechat-backend (Ktor)
-- securechat-bot-api (Ktor)
 - securechat-postgres
 - securechat-redis
 - securechat-janus (WebRTC SFU)
@@ -549,27 +544,12 @@ UI değişmez — `viewModel.searchQuery` aynı çalışır, sadece logic ayrı 
 
 ---
 
-## 11. bot-api
+## 11. bot-api (kaldırıldı)
 
-**Amaç:** Programatik mesaj gönderim — script/cron'dan mesaj atmak için (kişisel kullanım, send-only).
-
-**Endpoint'ler:**
-- `POST /v1/send` — şifreli mesaj gönder (Signal Protocol)
-- `POST /v1/admin/clients` — client CRUD (admin CLI)
-- `POST /v1/admin/emergency-stop` — acil durumda durdurma
-
-**Auth:**
-- API client'lar EdDSA key pair ile JWT mint eder
-- Body hash header (replay attack koruması)
-- Idempotency key (duplicate prevention)
-- Rate limit + allow list
-
-**Admin CLI** (`bot-admin-cli`):
-```
-bot-admin client list
-bot-admin client create --name "MyBot"
-bot-admin emergency stop
-```
+Send-only bot API ve `bot-admin-cli` 2026-10-09'da kaldırıldı. GPL
+`signal-protocol-java`'ya bağlıydı ve mesajları eski Signal V3 biçimiyle
+şifreliyordu; vodozemac (Olm/Megolm) istemcileri bu mesajları çözemiyordu.
+Hiç yayına alınmamıştı. Hardened sunucuda tabloları V29 ile düşürüldü.
 
 ---
 
@@ -591,7 +571,7 @@ Format: `1.0.<count>-<sha>` örn. `1.0.76-8aeaf79`
 
 ### Server deploy
 
-`signaling-server` veya `bot-api` değiştiyse:
+`signaling-server` değiştiyse:
 
 ```bash
 ./gradlew -PincludeServer :signaling-server:fatJar
