@@ -3,6 +3,9 @@
 Bu dosya testler sırasında **adım adım** güncellenir. Testte anlık düzeltme
 yapılmadı; her bulgu başka bir oturumda düzeltilmek üzere ayrıntılı yazıldı.
 
+**Çözüm planı:** [`QA_BULGU_COZUM_PLANI_2026-10-12.md`](QA_BULGU_COZUM_PLANI_2026-10-12.md)
+(kodda doğrulanmış kök nedenler, yapılacaklar, testler, öncelik sırası).
+
 ## Ortam
 
 | | |
