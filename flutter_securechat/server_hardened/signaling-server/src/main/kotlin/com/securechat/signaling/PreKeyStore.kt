@@ -163,6 +163,7 @@ object PreKeyStore {
                     }
 
                     if (oneTimePreKeys.isNotEmpty()) {
+                        rejectConflictingOneTimeKeys(conn, userId, oneTimePreKeys)
                         conn.prepareStatement(
                             "INSERT INTO one_time_prekeys (user_id, key_id, public_key) " +
                                 "VALUES (?::uuid, ?, ?) ON CONFLICT (user_id, key_id) DO NOTHING",
@@ -194,6 +195,53 @@ object PreKeyStore {
         }
     }
 
+    /**
+     * Ayni `keyId` farkli materyalle gelirse yukseltilir.
+     *
+     * Eskiden `ON CONFLICT DO NOTHING` eskisini SESSIZCE tutup basari
+     * donuyordu: istemci yeni anahtari yukledigini sanirken karsi taraf eski
+     * genel anahtarla oturum kurar ve mesaj cozulemezdi (2026-06-09 P0'inin
+     * ayni sekli). Olm havuzu bunu zaten `OlmPreKeyStore.KeyConflictException`
+     * ile reddediyor. AYNI materyalin yeniden yuklenmesi hata degildir:
+     * yeniden deneme idempotent olmali.
+     */
+    class KeyConflictException(val keyId: Int) : IllegalStateException(
+        "One-time prekey $keyId already exists with different material",
+    )
+
+    /**
+     * Catismayi yazmadan ONCE, ayni transaction icinde tespit eder.
+     * Ayni yukleme icinde ayni `keyId` iki farkli materyalle gelirse de
+     * catisma sayilir; aksi halde hangisinin yazildigi siraya kalirdi.
+     */
+    private fun rejectConflictingOneTimeKeys(
+        conn: java.sql.Connection,
+        userId: String,
+        keys: List<OneTimePreKey>,
+    ) {
+        val byId = keys.groupBy { it.keyId }
+        for ((keyId, group) in byId) {
+            if (group.any { !it.publicKey.contentEquals(group.first().publicKey) }) {
+                throw KeyConflictException(keyId)
+            }
+        }
+        conn.prepareStatement(
+            "SELECT key_id, public_key FROM one_time_prekeys " +
+                "WHERE user_id = ?::uuid AND key_id = ANY (?)",
+        ).use { statement ->
+            statement.setString(1, userId)
+            statement.setArray(2, conn.createArrayOf("integer", byId.keys.toTypedArray()))
+            statement.executeQuery().use { rows ->
+                while (rows.next()) {
+                    val keyId = rows.getInt(1)
+                    if (!rows.getBytes(2).contentEquals(byId.getValue(keyId).first().publicKey)) {
+                        throw KeyConflictException(keyId)
+                    }
+                }
+            }
+        }
+    }
+
     fun addOneTimePreKeys(userId: String, keys: List<OneTimePreKey>, expectedEpoch: String? = null) {
         if (keys.isEmpty()) return
         try {
@@ -201,6 +249,7 @@ object PreKeyStore {
                 conn.autoCommit = false
                 try {
                     PreKeyIdentityGuard.check(conn, userId, expectedEpoch = expectedEpoch)
+                    rejectConflictingOneTimeKeys(conn, userId, keys)
                     conn.prepareStatement(
                         "INSERT INTO one_time_prekeys (user_id, key_id, public_key) VALUES (?::uuid, ?, ?) ON CONFLICT (user_id, key_id) DO NOTHING"
                     ).use { stmt ->

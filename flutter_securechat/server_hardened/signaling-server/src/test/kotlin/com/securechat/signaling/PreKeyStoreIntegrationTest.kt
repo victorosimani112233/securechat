@@ -9,6 +9,7 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
@@ -95,6 +96,70 @@ class PreKeyStoreIntegrationTest {
         assertEquals(4242, bundle.identityKey.registrationId)
         assertEquals(7, bundle.signedPreKey.keyId)
         assertNotNull(bundle.oneTimePreKey)
+    }
+
+    // Ayni keyId farkli materyalle gelirse eskiden `ON CONFLICT DO NOTHING`
+    // eskisini SESSIZCE tutup basari donuyordu: istemci yeni anahtari
+    // yukledigini sanarken karsi taraf eski genel anahtarla oturum kurar ve
+    // mesaj cozulemezdi (2026-06-09 P0'inin ayni sekli). Olm havuzu bunu
+    // zaten 409 ile reddediyor; v1 de ayni kurala tabi.
+    @Test
+    fun `refreshing a one time key id with different material is rejected`() {
+        val user = account()
+        upload(user, oneTimeKeys = listOf(PreKeyStore.OneTimePreKey(1, key(80))))
+
+        val conflict = assertThrows(PreKeyStore.KeyConflictException::class.java) {
+            PreKeyStore.addOneTimePreKeys(user, listOf(PreKeyStore.OneTimePreKey(1, key(81))))
+        }
+
+        assertEquals(1, conflict.keyId)
+        assertTrue(PreKeyStore.fetchBundle(user)!!.oneTimePreKey!!.publicKey.contentEquals(key(80)))
+    }
+
+    @Test
+    fun `re uploading the same one time key is an idempotent retry`() {
+        val user = account()
+        upload(user, oneTimeKeys = listOf(PreKeyStore.OneTimePreKey(1, key(82))))
+
+        PreKeyStore.addOneTimePreKeys(user, listOf(PreKeyStore.OneTimePreKey(1, key(82))))
+
+        assertEquals(1, PreKeyStore.unconsumedCount(user))
+    }
+
+    @Test
+    fun `a bundle whose one time key conflicts is rejected and rolled back`() {
+        val user = account()
+        upload(user, oneTimeKeys = listOf(PreKeyStore.OneTimePreKey(1, key(83))))
+
+        assertThrows(PreKeyStore.KeyConflictException::class.java) {
+            upload(
+                user,
+                signedKeyId = 8,
+                oneTimeKeys = listOf(
+                    PreKeyStore.OneTimePreKey(2, key(84)),
+                    PreKeyStore.OneTimePreKey(1, key(85)),
+                ),
+            )
+        }
+
+        // Tek transaction: catisma, ayni yuklemedeki diger anahtarlari ve
+        // signed prekey degisimini de geri alir.
+        assertEquals(1, PreKeyStore.unconsumedCount(user))
+        assertEquals(7, PreKeyStore.fetchBundle(user)!!.signedPreKey.keyId)
+    }
+
+    @Test
+    fun `one upload cannot carry two materials for the same key id`() {
+        val user = account()
+        upload(user, oneTimeKeys = emptyList())
+
+        assertThrows(PreKeyStore.KeyConflictException::class.java) {
+            PreKeyStore.addOneTimePreKeys(
+                user,
+                listOf(PreKeyStore.OneTimePreKey(5, key(86)), PreKeyStore.OneTimePreKey(5, key(87))),
+            )
+        }
+        assertEquals(0, PreKeyStore.unconsumedCount(user))
     }
 
     @Test
@@ -226,7 +291,12 @@ class PreKeyStoreIntegrationTest {
         val user = account()
         upload(user, oneTimeKeys = listOf(PreKeyStore.OneTimePreKey(1, key(150))))
 
-        PreKeyStore.addOneTimePreKeys(user, listOf(PreKeyStore.OneTimePreKey(1, key(160))))
+        // Eskiden bu cagri BASARILI donuyordu (sessiz yutma) ve test o
+        // davranisi iddia ediyordu. Farkli materyal artik acikca reddedilir;
+        // ikinci satir yine olusmaz ve eski materyal korunur.
+        assertThrows(PreKeyStore.KeyConflictException::class.java) {
+            PreKeyStore.addOneTimePreKeys(user, listOf(PreKeyStore.OneTimePreKey(1, key(160))))
+        }
 
         assertEquals(1, PreKeyStore.unconsumedCount(user))
     }

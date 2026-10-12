@@ -632,6 +632,43 @@ class EndToEndServerTest {
     }
 
     @Test
+    fun `a v1 one time key reused with different material is a 409 not a silent 200`() = e2e {
+        // Eskiden ayni keyId farkli materyalle geldiginde sunucu eskisini
+        // SESSIZCE tutup 200 donuyordu; istemci yukledigini sandigi anahtarin
+        // karsi tarafa hic gitmedigini bilemezdi. Olm havuzuyla ayni kural:
+        // catisma 409, ayni materyal idempotent.
+        clearRateLimits()
+        val (_, token) = newAccount()
+        val encoder = java.util.Base64.getEncoder()
+        fun b64(seed: Int, size: Int) = encoder.encodeToString(ByteArray(size) { (seed + it).toByte() })
+        val original = b64(10, 33)
+        val upload = client.post("/api/v1/prekeys/upload") {
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody(
+                """{"identityPublicKey":"${b64(1, 33)}","registrationId":1234,""" +
+                    """"signedPreKeyId":1,"signedPreKey":"${b64(2, 33)}",""" +
+                    """"signedPreKeySignature":"${b64(3, 64)}",""" +
+                    """"oneTimePreKeys":[{"keyId":1,"publicKey":"$original"}]}""",
+            )
+        }
+        assertEquals(HttpStatusCode.OK, upload.status, upload.bodyAsText())
+
+        suspend fun refresh(material: String) = client.post("/api/v1/prekeys/refresh") {
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody("""[{"keyId":1,"publicKey":"$material"}]""")
+        }
+
+        val conflicting = refresh(b64(20, 33))
+        assertEquals(HttpStatusCode.Conflict, conflicting.status, conflicting.bodyAsText())
+        assertTrue(conflicting.bodyAsText().contains("prekey_conflict"))
+
+        val retry = refresh(original)
+        assertEquals(HttpStatusCode.OK, retry.status, retry.bodyAsText())
+    }
+
+    @Test
     fun `a prekey upload without a credential is refused`() = e2e {
         val response = client.post("/api/v1/prekeys/upload") {
             header("Content-Type", "application/json")

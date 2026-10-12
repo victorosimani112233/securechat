@@ -933,6 +933,15 @@ fun Application.configureRoutes(
                 call.respond(HttpStatusCode.OK, mapOf("status" to "ok",
                     "remaining" to PreKeyStore.unconsumedCount(authedUserId).toString(),
                     "olmRemaining" to OlmPreKeyStore.unconsumedCount(authedUserId).toString()))
+            } catch (conflict: PreKeyStore.KeyConflictException) {
+                // v1 havuzu da Olm ile ayni kurala tabi: ayni keyId farkli
+                // materyalle gelirse 409. Eskiden sessizce eskisi tutulup
+                // 200 donuyordu.
+                logger.warn("[PreKey] v1 key catismasi: keyId={}", conflict.keyId)
+                call.respond(
+                    HttpStatusCode.Conflict,
+                    mapOf("error" to "prekey_conflict", "keyId" to conflict.keyId.toString()),
+                )
             } catch (conflict: OlmPreKeyStore.KeyConflictException) {
                 // Ayni keyId farkli materyalle geldi. 409 donmek sart:
                 // sessizce eskisini tutup 200 donmek, istemcinin yuklendigini
@@ -995,6 +1004,12 @@ fun Application.configureRoutes(
                 )
                 call.respond(HttpStatusCode.OK, mapOf("status" to "ok",
                     "remaining" to PreKeyStore.unconsumedCount(authedUserId).toString()))
+            } catch (conflict: PreKeyStore.KeyConflictException) {
+                logger.warn("[PreKey] v1 key catismasi: keyId={}", conflict.keyId)
+                call.respond(
+                    HttpStatusCode.Conflict,
+                    mapOf("error" to "prekey_conflict", "keyId" to conflict.keyId.toString()),
+                )
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Gecersiz prekey"))
             }
@@ -1008,18 +1023,12 @@ fun Application.configureRoutes(
         // sender kaldirildi ve vodozemac post-quantum tasimiyor. Yani bu
         // artik bir gecis yolu degil, tek prekey yolu.
         //
-        // Yine de kullanici token'i ile DEGIL servis assertion'i ile acik
-        // kalmasi gerekiyor: assertion ayri bir anahtarla imzalanir ve
-        // kullanici token'i onun yerine gecemez, boylece sira bir hesap
-        // baskasinin bundle'ini cekemez.
+        // Kullanici token'i ile acik: mesajlasmanin calismasi icin her
+        // istemcinin peer bundle'i cekebilmesi gerekir. Bir zamanlar yalniz
+        // servis assertion'i kabul ediyordu ve hicbir istemci oturum
+        // kuramiyordu; Bot API kaldirilinca servis principal'i de tumden
+        // kalkti. Numaralandirmanin siniri asagidaki rate limit.
         get("/api/v1/users/{userId}/prekeys") {
-            // `requireServicePrincipal` -> `requirePrincipal`.
-            //
-            // Servis assertion'i kullanici token'ini KABUL ETMEZ, yani bu
-            // route'tan bir istemci peer bundle'i cekemiyordu; tek prekey
-            // yolu olarak kalinca bu, oturum kurmayi tumuyle imkansiz
-            // kilardi. Kaldirilan v2 esdegeri zaten `requirePrincipal`
-            // kullaniyordu; dogru desen oydu.
             val fetcherId = requireAuth(call) ?: return@get
             // Her fetch hedefin bir one-time prekey'ini tuketir; cagiran
             // basina sinir, bilinen bir UUID'nin havuzunun bosaltilmasini
