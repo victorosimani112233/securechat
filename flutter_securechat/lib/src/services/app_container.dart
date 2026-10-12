@@ -1,7 +1,4 @@
-import '../chat/view_once_receipts.dart';
-import '../contacts/profile_name_sharing_service.dart';
-import '../core/peer_display_name.dart';
-import '../core/signal_message.dart';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
@@ -16,20 +13,23 @@ import '../background/background_tasks.dart';
 import '../background/scheduled_message_service.dart';
 import '../backup/backup_service.dart';
 import '../bulk/bulk_message_service.dart';
-import '../chat/chat_info_service.dart';
-import '../chat/chat_activity_service.dart';
-import '../chat/message_forwarding_service.dart';
-import '../chat/read_receipt_service.dart';
-import '../calls/call_readiness_service.dart';
 import '../calls/call_history_service.dart';
-import '../chat/poll_service.dart';
-import '../chat/security_notice_service.dart';
+import '../calls/call_readiness_service.dart';
+import '../chat/chat_activity_service.dart';
+import '../chat/chat_info_service.dart';
+import '../chat/message_forwarding_service.dart';
 import '../chat/message_interaction_service.dart';
+import '../chat/poll_service.dart';
+import '../chat/read_receipt_service.dart';
+import '../chat/security_notice_service.dart';
+import '../chat/view_once_receipts.dart';
 import '../config/app_config.dart';
-import '../l10n/service_strings.dart';
 import '../contacts/contact_service.dart';
-import '../contacts/private_contact_discovery.dart';
 import '../contacts/phone_number_sharing_service.dart';
+import '../contacts/private_contact_discovery.dart';
+import '../contacts/profile_name_sharing_service.dart';
+import '../core/peer_display_name.dart';
+import '../core/signal_message.dart';
 import '../crypto/call_crypto_manager.dart';
 import '../crypto/vodozemac/olm_pre_key_bundle_api.dart';
 import '../crypto/vodozemac/olm_pre_key_publisher.dart';
@@ -37,32 +37,32 @@ import '../crypto/vodozemac/securechat_crypto_ffi.dart';
 import '../crypto/vodozemac/vodozemac_crypto_service.dart';
 import '../crypto/vodozemac/vodozemac_migration.dart';
 import '../crypto/vodozemac/vodozemac_protocol_store.dart';
-import '../domain/send_message_use_case.dart';
-import '../diagnostics/crash_reporter.dart';
 import '../debug/notification_debug_harness.dart';
+import '../diagnostics/crash_reporter.dart';
+import '../domain/send_message_use_case.dart';
 import '../export/export_audit_service.dart';
 import '../groups/group_management_service.dart';
-import '../groups/private_group_control.dart';
 import '../groups/private_group_call_routes.dart';
+import '../groups/private_group_control.dart';
+import '../incoming/incoming_message_handler.dart';
+import '../l10n/service_strings.dart';
 import '../media/call_manager.dart';
-import '../safety/abuse_report.dart';
-import '../safety/block_list.dart';
 import '../media/call_tone_service.dart';
 import '../media/file_transfer_manager.dart';
 import '../media/group_media_engine.dart';
 import '../media/ice_server_fetcher.dart';
 import '../media/janus_client.dart';
 import '../media/local_file_actions.dart';
-import '../media/media_engine.dart';
 import '../media/media_attachment.dart';
+import '../media/media_engine.dart';
 import '../media/media_message_service.dart';
+import '../media/media_vault.dart';
 import '../media/native_call_integration.dart';
 import '../media/voice_note_service.dart';
-import '../incoming/incoming_message_handler.dart';
-import '../network/network_resilience.dart';
 import '../network/network_monitor.dart';
-import '../network/socket_diagnostics.dart';
+import '../network/network_resilience.dart';
 import '../network/pinned_web_socket.dart';
+import '../network/socket_diagnostics.dart';
 import '../network/tls_pinning.dart';
 import '../notifications/message_notification_service.dart';
 import '../notifications/missed_call_tracker.dart';
@@ -70,21 +70,23 @@ import '../onboarding/onboarding_service.dart';
 import '../onboarding/permission_service.dart';
 import '../platform/mobile_permission_platform.dart';
 import '../push/push_service.dart';
-import '../settings/settings_service.dart';
-import '../settings/account_data_service.dart';
-import '../settings/local_data_owner_guard.dart';
+import '../safety/abuse_report.dart';
+import '../safety/block_list.dart';
 import '../security/chat_access_service.dart';
 import '../security/chat_lock_credential_service.dart';
-import '../storage/secure_chat_database.dart';
+import '../settings/account_data_service.dart';
+import '../settings/local_data_owner_guard.dart';
+import '../settings/settings_service.dart';
 import '../storage/legacy_room_importer.dart';
+import '../storage/secure_chat_database.dart';
 import '../storage/storage_management_service.dart';
-import 'conversation_repository.dart';
 import 'app_connection_status.dart';
-import 'peer_activity_source.dart';
 import 'app_lifecycle_coordinator.dart';
 import 'app_resource_scope.dart';
+import 'conversation_repository.dart';
 import 'crypto_service.dart';
 import 'key_material_store.dart';
+import 'peer_activity_source.dart';
 import 'session_store.dart';
 import 'signaling_service.dart';
 
@@ -723,9 +725,32 @@ class AppContainer {
       )..start();
       resources.register('call-tone-coordinator', callTones.close);
       final mediaDirectory = Directory('${support.path}/media');
+      // Medya diskte sifreli durur (QA 2026-10-12 Bulgu 11). Onceki
+      // calismadan kalan gecici duz kopyalar UI kurulmadan silinir; eski
+      // surumden kalan duz dosyalar arka planda muhurlenir.
+      final mediaVault = MediaVault(
+        keyBytes: await storageCrypto.deriveMediaKeyBytes(),
+        mediaDirectory: mediaDirectory,
+      );
+      try {
+        await mediaVault.purgeOpened();
+      } catch (error, stackTrace) {
+        await reportAsyncFailure('media-vault.purge', error, stackTrace);
+      }
+      unawaited(() async {
+        try {
+          await mediaVault.sealExisting([
+            Directory('${mediaDirectory.path}/received_files'),
+            Directory('${mediaDirectory.path}/sent'),
+          ]);
+        } catch (error, stackTrace) {
+          await reportAsyncFailure('media-vault.migrate', error, stackTrace);
+        }
+      }());
       final storageManagement = StorageManagementService(
         database,
         mediaDirectory: mediaDirectory,
+        vault: mediaVault,
       );
       final fileTransfers = FileTransferManager(
         signaling: signaling,
@@ -735,6 +760,7 @@ class AppContainer {
         groupRoutingResolver: groupCallRoutes.resolve,
         beforeReceive: incomingMessages.waitForIdle,
         onAsyncFailure: reportAsyncFailure,
+        vault: mediaVault,
       );
       resources.register('file-transfer-manager', fileTransfers.dispose);
       final mediaMessages = MediaMessageService(
@@ -748,6 +774,7 @@ class AppContainer {
         session: session,
         localMediaDirectory: mediaDirectory,
         storageManagement: storageManagement,
+        vault: mediaVault,
         networkKindProvider: networkMonitor,
         groupControls: privateGroupControls,
         phoneSharing: phoneSharing,
@@ -810,6 +837,7 @@ class AppContainer {
         stuckMessageRecovery: stuckMessageRecovery,
         signaling: signaling,
         preKeyPublisher: preKeyPublisher,
+        mediaVault: mediaVault,
         onStepFailure: reportAsyncFailure,
       );
       final messageNotifications = MessageNotificationCoordinator(
@@ -1082,6 +1110,7 @@ class AppBackgroundRuntime {
     required this.stuckMessageRecovery,
     required this.signaling,
     required this.preKeyPublisher,
+    this.mediaVault,
     this.onStepFailure,
   });
 
@@ -1098,6 +1127,13 @@ class AppBackgroundRuntime {
   /// tamamliyordu. libsignal tamamen kaldirildi; mesajlasma da hesap
   /// kurtarma da bu Olm hesabini kullaniyor.
   final OlmPreKeyPublisher preKeyPublisher;
+
+  /// Gecici duz medya kopyalarini yasina gore temizler (Bulgu 11).
+  final MediaVault? mediaVault;
+
+  /// On plana donuste bu sureden eski gecici duz kopyalar silinir. Dis bir
+  /// uygulamaya verilen kopya hemen silinmesin diye sifir degil.
+  static const openedMediaLifetime = Duration(minutes: 10);
 
   /// Tek bir bakim adiminin hatasinin bildirilecegi yer.
   final void Function(String operation, Object error, StackTrace stackTrace)?
@@ -1130,6 +1166,13 @@ class AppBackgroundRuntime {
       await _step('timer-updates-flush', timerUpdates.flush);
     }
     await _step('scheduled-messages', scheduledMessages.processDue);
+    final vault = mediaVault;
+    if (vault != null) {
+      await _step(
+        'media-open-purge',
+        () => vault.purgeOpened(olderThan: openedMediaLifetime),
+      );
+    }
   }
 
   Future<void> _step(String name, Future<void> Function() action) async {

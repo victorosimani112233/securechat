@@ -181,7 +181,12 @@ class _VoiceNoteContentState extends State<_VoiceNoteContent> {
   }
 
   Future<void> _toggle() async {
-    final path = widget.message.filePath;
+    final stored = widget.message.filePath;
+    // Ses dosyasi diskte sifreli; oynatici gecici duz kopyayi okur.
+    final path = stored == null || _loaded
+        ? stored
+        : await resolveChatMediaPath(context, stored);
+    if (!mounted) return;
     if (path == null || !await File(path).exists()) {
       if (mounted) setState(() => _error = context.l10n.audio_not_found);
       return;

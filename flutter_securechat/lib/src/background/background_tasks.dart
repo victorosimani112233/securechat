@@ -8,14 +8,14 @@ import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
 
-import '../contacts/profile_name_sharing_service.dart';
-import '../config/app_config.dart';
-import '../chat/private_chat_control.dart';
-import '../contacts/contact_service.dart';
-import '../contacts/private_contact_discovery.dart';
-import '../contacts/phone_number_sharing_service.dart';
-import '../core/signal_message.dart';
 import '../auth/auth_api.dart';
+import '../chat/private_chat_control.dart';
+import '../config/app_config.dart';
+import '../contacts/contact_service.dart';
+import '../contacts/phone_number_sharing_service.dart';
+import '../contacts/private_contact_discovery.dart';
+import '../contacts/profile_name_sharing_service.dart';
+import '../core/signal_message.dart';
 import '../crypto/vodozemac/olm_pre_key_bundle_api.dart';
 import '../crypto/vodozemac/olm_pre_key_publisher.dart';
 import '../crypto/vodozemac/securechat_crypto_ffi.dart';
@@ -23,19 +23,20 @@ import '../crypto/vodozemac/vodozemac_crypto_service.dart';
 import '../crypto/vodozemac/vodozemac_migration.dart';
 import '../crypto/vodozemac/vodozemac_protocol_store.dart';
 import '../domain/send_message_use_case.dart';
-import '../incoming/incoming_message_handler.dart';
 import '../groups/private_group_call_routes.dart';
+import '../incoming/incoming_message_handler.dart';
 import '../l10n/service_strings.dart';
 import '../media/file_transfer_manager.dart';
 import '../media/media_message_service.dart';
+import '../media/media_vault.dart';
 import '../network/network_monitor.dart';
 import '../network/network_resilience.dart';
 import '../network/pinned_web_socket.dart';
 import '../network/tls_pinning.dart';
 import '../notifications/message_notification_service.dart';
-import '../services/crypto_service.dart';
 import '../services/app_resource_scope.dart';
 import '../services/async_operation_tracker.dart';
+import '../services/crypto_service.dart';
 import '../services/key_material_store.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
@@ -264,6 +265,7 @@ class SecureChatBackgroundRuntime {
         metadataCrypto: storageCrypto,
         session: session,
         mediaDirectory: Directory('${support.path}/media'),
+        mediaKeyBytes: await storageCrypto.deriveMediaKeyBytes(),
         beforeReceive: incomingMessages.waitForIdle,
         networkKindProvider: networkMonitor,
         identityResolver: contactIdentityResolver,
@@ -511,10 +513,16 @@ class BackgroundMediaReceiver {
     required Directory mediaDirectory,
     required Future<void> Function() beforeReceive,
     required NetworkKindProvider networkKindProvider,
+    List<int>? mediaKeyBytes,
     ContactIdentityResolver? identityResolver,
     ServiceStrings? strings,
     AsyncOperationFailureHandler? onAsyncFailure,
   }) {
+    // On planla ayni anahtar: arka planda alinan dosya da diske sifreli
+    // yazilir (QA 2026-10-12 Bulgu 11).
+    final vault = mediaKeyBytes == null
+        ? null
+        : MediaVault(keyBytes: mediaKeyBytes, mediaDirectory: mediaDirectory);
     transfers = FileTransferManager(
       signaling: signaling,
       crypto: crypto,
@@ -523,6 +531,7 @@ class BackgroundMediaReceiver {
       groupRoutingResolver: PrivateGroupCallRoutes(database, session).resolve,
       beforeReceive: beforeReceive,
       onAsyncFailure: onAsyncFailure,
+      vault: vault,
     );
     messages = MediaMessageService(
       database: database,
@@ -532,7 +541,9 @@ class BackgroundMediaReceiver {
       storageManagement: StorageManagementService(
         database,
         mediaDirectory: mediaDirectory,
+        vault: vault,
       ),
+      vault: vault,
       networkKindProvider: networkKindProvider,
       identityResolver: identityResolver,
       strings: strings,

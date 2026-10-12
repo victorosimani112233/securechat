@@ -1,8 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cryptography/cryptography.dart'
+    show SecretBoxAuthenticationError;
+
 import '../chat/conversation_preview.dart';
 import '../core/models.dart';
+import '../media/media_vault.dart';
 import 'secure_chat_database.dart';
 import 'storage_entities.dart';
 
@@ -135,11 +139,19 @@ class StorageCleanupResult {
 }
 
 class StorageManagementService {
-  const StorageManagementService(this._database, {this.mediaDirectory});
+  const StorageManagementService(
+    this._database, {
+    this.mediaDirectory,
+    this.vault,
+  });
   static const _policyKey = 'auto_download_policy_v1';
   static const textOverheadPerMessage = 256;
   final SecureChatDatabase _database;
   final Directory? mediaDirectory;
+
+  /// Medya diskte sifreli durur; kullanilacak yol gecici duz kopyadir
+  /// (bkz MediaVault, QA 2026-10-12 Bulgu 11).
+  final MediaVault? vault;
 
   Future<ConversationEntity?> getConversation(String id) =>
       _database.conversations.getById(id);
@@ -210,11 +222,13 @@ class StorageManagementService {
         return null;
       final current = LocalMessage.fromJson(latest.toJson());
       if (current.filePath != message.filePath) return null;
+      final usable = await _usable(file);
+      if (usable == null) return null;
       final result = ChatStorageFile(
         message: current,
         diskBytes: bytes,
         available: true,
-        localPath: file.path,
+        localPath: usable.path,
       );
       return result.canOpen ? result : null;
     } on FileSystemException {
@@ -278,9 +292,42 @@ class StorageManagementService {
       if (strict && mediaDirectory == null) {
         throw const FileSystemException('Media directory unavailable');
       }
+      final file = await _resolveMediaFile(storedPath);
+      if (file == null) return null;
+      return (await _usable(file))?.path;
+    } on FileSystemException {
+      if (strict) rethrow;
+      return null;
+    }
+  }
+
+  /// Diskteki (sifreli) dosyanin yolu; silme ve boyut icin. Gosterim icin
+  /// [resolveMediaPath] kullanilir.
+  Future<String?> resolveStoredMediaPath(
+    String storedPath, {
+    bool strict = false,
+  }) async {
+    try {
+      if (strict && mediaDirectory == null) {
+        throw const FileSystemException('Media directory unavailable');
+      }
       return (await _resolveMediaFile(storedPath))?.path;
     } on FileSystemException {
       if (strict) rethrow;
+      return null;
+    }
+  }
+
+  /// Sifreli dosyayi kullanilabilir gecici kopyaya cozer. Bozuk ya da baska
+  /// anahtarla yazilmis dosya "yok" sayilir.
+  Future<File?> _usable(File stored) async {
+    final vault = this.vault;
+    if (vault == null) return stored;
+    try {
+      return await vault.openForUse(stored);
+    } on FormatException {
+      return null;
+    } on SecretBoxAuthenticationError {
       return null;
     }
   }
@@ -408,6 +455,7 @@ class StorageManagementService {
           if (!shared) {
             final size = await file.length();
             await file.delete();
+            await vault?.discardOpened(file.path);
             freed += size;
           }
         }

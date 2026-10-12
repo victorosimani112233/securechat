@@ -726,19 +726,27 @@ class _StorageFileTile extends StatelessWidget {
       return _fileType(context);
     }
     return switch (file.category) {
-      StorageFileCategory.photo => LocalImageThumbnail(
-        key: ValueKey('storage-preview-${message.id}'),
+      StorageFileCategory.photo => ResolvedMediaPath(
         path: path,
-        isViewOnce: false,
         fallback: _fileType(context),
+        builder: (context, usable) => LocalImageThumbnail(
+          key: ValueKey('storage-preview-${message.id}'),
+          path: usable,
+          isViewOnce: false,
+          fallback: _fileType(context),
+        ),
       ),
       StorageFileCategory.video => Center(
-        child: LocalVideoThumbnail(
-          key: ValueKey('storage-preview-${message.id}'),
+        child: ResolvedMediaPath(
           path: path,
-          isViewOnce: false,
-          preserveAspectRatio: true,
           fallback: _fileType(context),
+          builder: (context, usable) => LocalVideoThumbnail(
+            key: ValueKey('storage-preview-${message.id}'),
+            path: usable,
+            isViewOnce: false,
+            preserveAspectRatio: true,
+            fallback: _fileType(context),
+          ),
         ),
       ),
       _ => _fileType(context),

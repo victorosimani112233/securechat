@@ -308,6 +308,17 @@ class LocalAeadCryptoService implements CryptoService {
     return key.extractBytes();
   }
 
+  /// Medya kabi anahtari (bkz MediaVault). Diger anahtarlardan HKDF
+  /// baglami ve info degeriyle ayrilir.
+  Future<List<int>> deriveMediaKeyBytes() async {
+    final key = await _hkdf.deriveKey(
+      secretKey: _masterKey,
+      nonce: utf8.encode('media-at-rest'),
+      info: utf8.encode('securechat.flutter.media-vault.v1'),
+    );
+    return key.extractBytes();
+  }
+
   Future<SecretKey> _deriveKey(String context) {
     return _hkdf.deriveKey(
       secretKey: _masterKey,

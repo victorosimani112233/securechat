@@ -13,6 +13,7 @@ import '../groups/private_group_route.dart';
 import '../services/crypto_service.dart';
 import '../services/async_operation_tracker.dart';
 import '../services/signaling_service.dart';
+import 'media_vault.dart';
 
 sealed class FileTransferResult {
   const FileTransferResult();
@@ -98,7 +99,9 @@ class FileTransferManager {
     LocalAeadCryptoService? metadataCrypto,
     Future<void> Function()? beforeReceive,
     AsyncOperationFailureHandler? onAsyncFailure,
+    MediaVault? vault,
   }) : _signaling = signaling,
+       _vault = vault,
        _crypto = crypto,
        _filesDirectory = filesDirectory,
        _groupRoutingResolver = groupRoutingResolver,
@@ -119,6 +122,10 @@ class FileTransferManager {
   final Future<void> Function()? _beforeReceive;
   final AsyncOperationFailureHandler? _onAsyncFailure;
   final LocalAeadCryptoService _metadataCrypto;
+
+  /// Alinan parcalar ve birlesik dosya diske sifreli yazilir (Bulgu 11).
+  /// Verilmezse (eski testler) duz yazilir.
+  final MediaVault? _vault;
   final int chunkSize;
 
   final int maximumFileSize;
@@ -604,14 +611,21 @@ class FileTransferManager {
         return null;
       }
       final part = File('${partDirectory.path}/${signal.chunkIndex}.part');
-      await part.writeAsBytes(bytes, flush: true);
+      final vault = _vault;
+      await part.writeAsBytes(
+        vault == null ? bytes : await vault.sealBytes(bytes),
+        flush: true,
+      );
       final completed = <File>[];
       var receivedBytes = 0;
       for (var index = 0; index < signal.totalChunks; index++) {
         final value = File('${partDirectory.path}/$index.part');
         if (await value.exists()) {
           completed.add(value);
-          receivedBytes += await value.length();
+          final length = await value.length();
+          receivedBytes += vault == null
+              ? length
+              : MediaVault.plaintextLength(length);
         }
       }
       if (_disposed) return null;
@@ -744,13 +758,18 @@ class FileTransferManager {
         '${receivedDirectory.path}/'
         '${DateTime.now().millisecondsSinceEpoch}_$actualFileName',
       );
-      final sink = output.openWrite(mode: FileMode.writeOnly);
-      try {
-        for (final part in completed) {
-          await sink.addStream(part.openRead());
+      if (vault != null) {
+        // Parcalar cozulup dogrudan kaba yazilir; duz dosya olusmaz.
+        await vault.sealSealedParts(completed, output);
+      } else {
+        final sink = output.openWrite(mode: FileMode.writeOnly);
+        try {
+          for (final part in completed) {
+            await sink.addStream(part.openRead());
+          }
+        } finally {
+          await sink.close();
         }
-      } finally {
-        await sink.close();
       }
       await partDirectory.delete(recursive: true);
       final received = ReceivedFile(

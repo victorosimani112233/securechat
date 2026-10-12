@@ -248,10 +248,11 @@ class _FailingResolver extends StorageManagementService {
     : super(database, mediaDirectory: media);
   bool fail = true;
   bool strictRequested = false;
+  // Silme, gosterim yolunu degil diskteki (sifreli) dosyayi cozer.
   @override
-  Future<String?> resolveMediaPath(String path, {bool strict = false}) {
+  Future<String?> resolveStoredMediaPath(String path, {bool strict = false}) {
     strictRequested = strict;
     if (fail) throw const FileSystemException('Temporary resolver I/O failure');
-    return super.resolveMediaPath(path, strict: strict);
+    return super.resolveStoredMediaPath(path, strict: strict);
   }
 }

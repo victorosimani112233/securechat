@@ -8,6 +8,7 @@ import '../../storage/storage_entities.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/local_image_view.dart';
 import '../../widgets/local_video_thumbnail.dart';
+import 'media_viewer_screen.dart';
 
 enum SharedContentSection {
   search(Icons.search),
@@ -235,17 +236,25 @@ class _SharedContentBrowserState extends State<SharedContentBrowser>
           child: message.isMediaPreviewDeferred
               ? fallback()
               : isImage && attachment.path.isNotEmpty
-              ? LocalImageView(
+              ? ResolvedMediaPath(
                   path: attachment.path,
-                  maxDecodeSize: 384,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => fallback(),
-                )
-              : isVideo
-              ? LocalVideoThumbnail(
-                  path: attachment.path,
-                  isViewOnce: message.isViewOnce,
                   fallback: fallback(),
+                  builder: (context, path) => LocalImageView(
+                    path: path,
+                    maxDecodeSize: 384,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => fallback(),
+                  ),
+                )
+              : isVideo && attachment.path.isNotEmpty
+              ? ResolvedMediaPath(
+                  path: attachment.path,
+                  fallback: fallback(),
+                  builder: (context, path) => LocalVideoThumbnail(
+                    path: path,
+                    isViewOnce: message.isViewOnce,
+                    fallback: fallback(),
+                  ),
                 )
               : fallback(),
         ),

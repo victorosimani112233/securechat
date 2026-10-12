@@ -38,6 +38,53 @@ Future<String?> resolveChatMediaPath(BuildContext context, String path) async {
   }
 }
 
+/// [resolveChatMediaPath] sonucunu bir kez bekleyip [builder]'a verir.
+///
+/// Medya diskte sifreli durdugundan (Bulgu 11) kucuk resim/onizleme
+/// bilesenleri saklanan yolu degil, cozulmus gecici kopyanin yolunu almali.
+class ResolvedMediaPath extends StatefulWidget {
+  const ResolvedMediaPath({
+    super.key,
+    required this.path,
+    required this.builder,
+    required this.fallback,
+  });
+
+  final String path;
+  final Widget Function(BuildContext context, String usablePath) builder;
+  final Widget fallback;
+
+  @override
+  State<ResolvedMediaPath> createState() => _ResolvedMediaPathState();
+}
+
+class _ResolvedMediaPathState extends State<ResolvedMediaPath> {
+  Future<String?>? _resolved;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolved ??= resolveChatMediaPath(context, widget.path);
+  }
+
+  @override
+  void didUpdateWidget(covariant ResolvedMediaPath oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.path != widget.path) {
+      _resolved = resolveChatMediaPath(context, widget.path);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<String?>(
+    future: _resolved,
+    builder: (context, snapshot) {
+      final usable = snapshot.data;
+      return usable == null ? widget.fallback : widget.builder(context, usable);
+    },
+  );
+}
+
 class MediaViewerScreen extends StatefulWidget {
   const MediaViewerScreen({
     super.key,

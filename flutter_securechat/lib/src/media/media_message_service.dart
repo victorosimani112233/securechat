@@ -1,25 +1,26 @@
-import '../chat/view_once_receipts.dart';
-import '../contacts/profile_name_sharing_service.dart';
-import '../core/peer_display_name.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-import '../core/models.dart';
-import '../groups/private_group_control.dart';
 import '../chat/conversation_preview.dart';
-import '../contacts/phone_number_sharing_service.dart';
+import '../chat/view_once_receipts.dart';
 import '../contacts/contact_service.dart';
+import '../contacts/phone_number_sharing_service.dart';
+import '../contacts/profile_name_sharing_service.dart';
+import '../core/models.dart';
+import '../core/peer_display_name.dart';
+import '../groups/private_group_control.dart';
 import '../incoming/incoming_message_handler.dart';
 import '../l10n/service_strings.dart';
 import '../safety/block_list.dart';
-import '../services/session_store.dart';
 import '../services/async_operation_tracker.dart';
+import '../services/session_store.dart';
 import '../storage/secure_chat_database.dart';
 import '../storage/storage_entities.dart';
 import '../storage/storage_management_service.dart';
 import 'file_transfer_manager.dart';
 import 'media_attachment.dart';
+import 'media_vault.dart';
 import 'voice_note_service.dart';
 
 class MediaSendOutcome {
@@ -40,6 +41,7 @@ class MediaMessageService {
     PhoneNumberSharingService? phoneSharing,
     ProfileNameSharingService? profileNames,
     ViewOnceReceipts? viewOnceReceipts,
+    MediaVault? vault,
     PrivateGroupControlSender? groupControls,
     ContactIdentityResolver? identityResolver,
     ServiceStrings? strings,
@@ -52,6 +54,7 @@ class MediaMessageService {
        _phoneSharing = phoneSharing,
        _profileNames = profileNames,
        _viewOnceReceipts = viewOnceReceipts,
+       _vault = vault,
        _groupControls = groupControls,
        _identityResolver =
            identityResolver ?? ContactIdentityResolver(database: database),
@@ -69,6 +72,9 @@ class MediaMessageService {
   final PhoneNumberSharingService? _phoneSharing;
   final ProfileNameSharingService? _profileNames;
   final ViewOnceReceipts? _viewOnceReceipts;
+
+  /// Gonderilen dosyanin yerel kopyasi diske sifreli yazilir (Bulgu 11).
+  final MediaVault? _vault;
   final PrivateGroupControlSender? _groupControls;
   final ContactIdentityResolver _identityResolver;
   final ServiceStrings _strings;
@@ -205,11 +211,13 @@ class MediaMessageService {
         receiptRecipients: recipients,
       );
       late final FileTransferResult result;
+      // Sifreli yerel kopya degil, kullanicinin sectigi duz kaynak gonderilir.
+      final source = _vault == null ? retained : File(attachment.path);
       try {
         result = await _transfers.sendFile(
           localUserId: localUserId,
           recipientId: recipientId,
-          file: retained,
+          file: source,
           fileName: attachment.fileName,
           mimeType: attachment.mimeType,
           isGroup: isGroup,
@@ -224,6 +232,9 @@ class MediaMessageService {
           StorageMessageStatus.failed,
         );
         rethrow;
+      } finally {
+        // Kaynak ile kopya ayni dosyaysa gonderimden sonra muhurlenir.
+        await _vault?.sealInPlace(retained);
       }
       // Persist before transfer so a fast delivery receipt cannot be lost.
       await _database.messages.updateStatusIfSending(
@@ -337,14 +348,15 @@ class MediaMessageService {
       final message = LocalMessage.fromJson(entity.toJson());
       final path = message.isFileMessage ? message.filePath : null;
       if (path != null && path.isNotEmpty) {
-        final storage =
-            _storageManagement ??
-            StorageManagementService(
-              _database,
-              mediaDirectory: _localMediaDirectory,
-            );
-        final resolved = await storage.resolveMediaPath(path, strict: true);
-        if (resolved != null) await File(resolved).delete();
+        final storage = _storage;
+        final resolved = await storage.resolveStoredMediaPath(
+          path,
+          strict: true,
+        );
+        if (resolved != null) {
+          await File(resolved).delete();
+          await _vault?.discardOpened(resolved);
+        }
       }
       // Keep the viewed tombstone to prevent replay, but not the content or
       // caption. Retain the path on deletion failure so startup can retry.
@@ -361,8 +373,24 @@ class MediaMessageService {
     final target = File('${sentDirectory.path}/${messageId}_$safeName');
     final source = File(attachment.path);
     if (source.absolute.path == target.absolute.path) return source;
-    return source.copy(target.path);
+    final vault = _vault;
+    if (vault == null) return source.copy(target.path);
+    await vault.sealFiles([source], target);
+    return target;
   }
+
+  StorageManagementService get _storage =>
+      _storageManagement ??
+      StorageManagementService(
+        _database,
+        mediaDirectory: _localMediaDirectory,
+        vault: _vault,
+      );
+
+  /// Saklanan medya icin kullanilabilir (gerekirse cozulmus) yol; ileti
+  /// ve benzeri yeniden gonderim yollari icin.
+  Future<String?> usableMediaPath(String storedPath) async =>
+      _vault == null ? storedPath : _storage.resolveMediaPath(storedPath);
 
   Future<void> _persistOutgoing({
     required String messageId,

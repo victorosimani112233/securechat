@@ -98,7 +98,11 @@ class MessageForwardingService {
     LocalMessage source,
     Conversation target,
   ) async {
-    final path = source.filePath;
+    final storedPath = source.filePath;
+    // Yerel kopya diskte sifreli; gonderim icin duz gecici kopya kullanilir.
+    final path = storedPath == null || storedPath.isEmpty
+        ? null
+        : await _media.usableMediaPath(storedPath);
     final fileName = source.fileName;
     final mimeType = source.fileMimeType;
     if (path == null ||
