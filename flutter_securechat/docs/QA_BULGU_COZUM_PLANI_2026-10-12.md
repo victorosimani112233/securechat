@@ -84,7 +84,7 @@ flutter build apk --debug --target-platform android-arm64 \
 | 13 | 16 | DÜŞÜK | Tek gösterim ekranı FLAG_SECURE'ı kendisi zorlamıyor; "1" düğmesinin erişilebilirlik etiketi yok | İstemci | Düzeltildi (ccd5a67) |
 | 14 | 7 | DÜŞÜK | Rehber araması tam numarayı bulmuyor | İstemci | Düzeltildi (ac38a0d) |
 | 15 | 4 | DÜŞÜK | İsimsiz kişilerin avatarı anlamsız | İstemci | Düzeltildi (79acba5) |
-| 16 | 11 | KARAR | Alınan dosyalar yerelde şifresiz | İstemci | Ürün kararı |
+| 16 | 11 | KARAR | Alınan dosyalar yerelde şifresiz | İstemci | Karar: şifrele — düzeltildi (e462922) |
 
 
 ### 1.1 Uygulama notları (2026-10-12, uygulayan oturum)
@@ -116,7 +116,19 @@ flutter build apk --debug --target-platform android-arm64 \
   eski istemcide "desteklenmeyen kontrol" olarak reddedilir; iki QA
   telefonu birlikte güncellenmeli. iOS native tarafı (Swift) yalnız kanal
   adları için güncellendi, Mac'te derlenmedi.
-- **Bulgu 11** ürün kararı bekliyor.
+- **Bulgu 11 kararı: şifreli yaz.** ChaCha20-Poly1305 bölümlü kap
+  (`SCMEDIA1`), anahtar DB ana anahtarından HKDF ile ayrı türetilir.
+  Gösterim `media/.open` altına geçici çözme; açılışta tümü, ön plan
+  bakımında 10 dk'dan eskiler silinir. Eski düz dosyalar açılışta mühürlenir
+  — cihazda doğrulandı (iki telefonda `received_files`/`sent` başlıkları
+  `SCMEDIA1`, B'de mühürlü fotoğraf sohbette görüntüleniyor).
+- **Cihaz durumu (17:53):** A'da (`R5GL2452S4A`) oturum sunucuda geçersiz
+  (`/auth/refresh` 401, push kaydı reddedildi, giden kutusunda 13 mesaj).
+  İlk açılışta oluyor; büyük olasılıkla eski uygulama `adb install` sırasında
+  token yenilerken öldürüldü. Sunucu loguyla doğrulanacak; A yeniden giriş
+  (OTP) istiyor.
+- **Sunucu deploy'u bekliyor:** jar `0d623b6c…` (2a17afc) derlendi; SSH
+  master düştüğü için yüklenemedi.
 
 ---
 
