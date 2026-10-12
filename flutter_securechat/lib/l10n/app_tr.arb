@@ -1040,5 +1040,7 @@
   "legal_open_failed": "Sayfa açılamadı.",
   "logout_confirm_title": "Çıkış yapılsın mı?",
   "logout_confirm_body": "Çıkış yapınca bu cihazdaki tüm mesajlar, medya, arama geçmişi ve yerel yedekler silinir. Hesabınız sunucuda kalır; tekrar girişte geçmiş geri gelmez.",
-  "call_no_answer": "Cevap yok"
+  "call_no_answer": "Cevap yok",
+  "view_once_unsupported_type": "Bu dosya türü tek gösterimlik açılamaz.",
+  "view_once_only_photo_or_text": "Yalnız fotoğraf ve metin dosyaları tek gösterimlik gönderilebilir."
 }

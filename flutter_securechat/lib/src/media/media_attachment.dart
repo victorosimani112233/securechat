@@ -19,6 +19,9 @@ class MediaAttachment {
   bool get isImage => mimeType.startsWith('image/');
   bool get isVideo => mimeType.startsWith('video/');
 
+  /// Tek gosterimlik gonderilebilir mi (bkz [isViewOnceViewableMime]).
+  bool get canSendViewOnce => isViewOnceViewableMime(mimeType);
+
   static Future<MediaAttachment> fromPath(
     String path, {
     String? fileName,
@@ -141,6 +144,16 @@ String sanitizeMediaFileName(String raw) {
   final leaf = raw.replaceAll('\\', '/').split('/').last.trim();
   final safe = leaf.replaceAll(RegExp(r'[^A-Za-z0-9._() -]'), '_');
   return safe.isEmpty || safe == '.' || safe == '..' ? 'dosya' : safe;
+}
+
+/// Tek gosterimlik icerik yalniz uygulama icinde gosterilebilen turlerde
+/// izinlidir: gorsel ve duz metin. Diger turler ancak dis uygulamayla
+/// acilabilir; dis uygulama icerigi kalici kopyalayabilecegi icin tek
+/// gosterim vaadi tutulamaz (QA 2026-10-12 Bulgu 12). Uygulamada video
+/// oynatici yok, video da bu yuzden disarida.
+bool isViewOnceViewableMime(String mimeType) {
+  final mime = mimeType.trim().toLowerCase();
+  return mime.startsWith('image/') || mime.startsWith('text/plain');
 }
 
 String mediaMimeType(String fileName) {

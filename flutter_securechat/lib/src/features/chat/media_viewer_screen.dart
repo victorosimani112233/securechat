@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../core/models.dart';
 import '../../l10n/l10n.dart';
 import '../../media/local_file_actions.dart';
+import '../../media/media_attachment.dart';
 import '../../services/app_container.dart';
 import '../../widgets/local_image_view.dart';
 import 'media_preview_screen.dart';
@@ -150,6 +152,12 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
                 child: Center(
                   child: !exists
                       ? const _UnavailableMedia()
+                      : message.isViewOnce && !isImage
+                      // Tek gosterimlik icerik dis uygulamaya ASLA verilmez:
+                      // orada kalici kopyalanabilir (QA 2026-10-12 Bulgu 12).
+                      ? (isViewOnceViewableMime(mime)
+                            ? _ViewOnceTextViewer(path: path)
+                            : const _ViewOnceUnsupported())
                       : isImage
                       ? InteractiveViewer(
                           minScale: 0.5,
@@ -202,6 +210,8 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
   }
 
   Future<void> _open(BuildContext context, String path, String mime) async {
+    // Savunma: tek gosterimlik dosya icin FileProvider URI'si uretilmez.
+    if (message.isViewOnce) return;
     try {
       _externalOpen = true;
       await fileActions.open(path: path, mimeType: mime);
@@ -214,6 +224,7 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
   }
 
   Future<void> _share(BuildContext context, String path, String mime) async {
+    if (message.isViewOnce) return;
     try {
       await fileActions.share(
         path: path,
@@ -271,6 +282,77 @@ class _DocumentViewer extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Tek gosterimlik duz metin dosyasini uygulama icinde gosterir.
+class _ViewOnceTextViewer extends StatefulWidget {
+  const _ViewOnceTextViewer({required this.path});
+
+  final String path;
+
+  /// Bellege alinacak en fazla bayt; uzun dosyanin yalniz basi gosterilir.
+  static const maxBytes = 256 * 1024;
+
+  @override
+  State<_ViewOnceTextViewer> createState() => _ViewOnceTextViewerState();
+}
+
+class _ViewOnceTextViewerState extends State<_ViewOnceTextViewer> {
+  late final Future<String> _text = _read();
+
+  Future<String> _read() async {
+    final bytes = <int>[];
+    await for (final chunk in File(
+      widget.path,
+    ).openRead(0, _ViewOnceTextViewer.maxBytes + 1)) {
+      bytes.addAll(chunk);
+    }
+    final truncated = bytes.length > _ViewOnceTextViewer.maxBytes;
+    final text = utf8.decode(
+      truncated ? bytes.sublist(0, _ViewOnceTextViewer.maxBytes) : bytes,
+      allowMalformed: true,
+    );
+    return truncated ? '$text…' : text;
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<String>(
+    future: _text,
+    builder: (context, snapshot) {
+      if (snapshot.hasError) return const _UnavailableMedia();
+      final text = snapshot.data;
+      if (text == null) return const CircularProgressIndicator();
+      return SingleChildScrollView(
+        key: const ValueKey('view-once-text'),
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          text,
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
+      );
+    },
+  );
+}
+
+class _ViewOnceUnsupported extends StatelessWidget {
+  const _ViewOnceUnsupported();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(32),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.block, size: 72, color: Colors.white54),
+        const SizedBox(height: 12),
+        Text(
+          context.l10n.view_once_unsupported_type,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white70),
+        ),
+      ],
+    ),
+  );
 }
 
 class _UnavailableMedia extends StatelessWidget {

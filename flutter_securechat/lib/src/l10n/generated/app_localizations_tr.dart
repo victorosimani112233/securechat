@@ -2230,4 +2230,12 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get call_no_answer => 'Cevap yok';
+
+  @override
+  String get view_once_unsupported_type =>
+      'Bu dosya türü tek gösterimlik açılamaz.';
+
+  @override
+  String get view_once_only_photo_or_text =>
+      'Yalnız fotoğraf ve metin dosyaları tek gösterimlik gönderilebilir.';
 }

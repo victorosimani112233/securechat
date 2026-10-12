@@ -2274,4 +2274,12 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get call_no_answer => 'Keine Antwort';
+
+  @override
+  String get view_once_unsupported_type =>
+      'Dieser Dateityp kann nicht als Einmalansicht geöffnet werden.';
+
+  @override
+  String get view_once_only_photo_or_text =>
+      'Nur Fotos und Textdateien können als Einmalansicht gesendet werden.';
 }

@@ -31,6 +31,11 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
   var _currentPage = 0;
   var _viewOnce = false;
 
+  /// Tek gosterim yalniz uygulama icinde gosterilebilen turlerde mumkun
+  /// (bkz isViewOnceViewableMime).
+  bool get _viewOnceAllowed =>
+      widget.attachments.every((attachment) => attachment.canSendViewOnce);
+
   @override
   void dispose() {
     _caption.dispose();
@@ -110,10 +115,14 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
                   ),
                   const SizedBox(width: 6),
                   Tooltip(
-                    message: context.l10n.view_once,
+                    message: _viewOnceAllowed
+                        ? context.l10n.view_once
+                        : context.l10n.view_once_only_photo_or_text,
                     child: InkWell(
                       key: const Key('media-view-once'),
-                      onTap: () => setState(() => _viewOnce = !_viewOnce),
+                      onTap: _viewOnceAllowed
+                          ? () => setState(() => _viewOnce = !_viewOnce)
+                          : null,
                       customBorder: const CircleBorder(),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
@@ -137,7 +146,9 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
                           style: TextStyle(
                             color: _viewOnce
                                 ? const Color(0xff3e7bfa)
-                                : Colors.white70,
+                                : _viewOnceAllowed
+                                ? Colors.white70
+                                : Colors.white24,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -153,7 +164,7 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
                       MediaSendRequest(
                         attachments: widget.attachments,
                         caption: _caption.text.trim(),
-                        isViewOnce: _viewOnce,
+                        isViewOnce: _viewOnce && _viewOnceAllowed,
                       ),
                     ),
                     icon: const Icon(Icons.send),

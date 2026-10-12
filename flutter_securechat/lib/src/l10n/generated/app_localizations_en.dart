@@ -2239,4 +2239,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get call_no_answer => 'No answer';
+
+  @override
+  String get view_once_unsupported_type =>
+      'This file type cannot be opened as view once.';
+
+  @override
+  String get view_once_only_photo_or_text =>
+      'Only photos and text files can be sent as view once.';
 }

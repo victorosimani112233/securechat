@@ -4121,6 +4121,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No answer'**
   String get call_no_answer;
+
+  /// No description provided for @view_once_unsupported_type.
+  ///
+  /// In en, this message translates to:
+  /// **'This file type cannot be opened as view once.'**
+  String get view_once_unsupported_type;
+
+  /// No description provided for @view_once_only_photo_or_text.
+  ///
+  /// In en, this message translates to:
+  /// **'Only photos and text files can be sent as view once.'**
+  String get view_once_only_photo_or_text;
 }
 
 class _AppLocalizationsDelegate
