@@ -2227,4 +2227,7 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get logout_confirm_body =>
       'Çıkış yapınca bu cihazdaki tüm mesajlar, medya, arama geçmişi ve yerel yedekler silinir. Hesabınız sunucuda kalır; tekrar girişte geçmiş geri gelmez.';
+
+  @override
+  String get call_no_answer => 'Cevap yok';
 }

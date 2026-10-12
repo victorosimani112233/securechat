@@ -4115,6 +4115,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again.'**
   String get logout_confirm_body;
+
+  /// No description provided for @call_no_answer.
+  ///
+  /// In en, this message translates to:
+  /// **'No answer'**
+  String get call_no_answer;
 }
 
 class _AppLocalizationsDelegate

@@ -35,6 +35,9 @@ enum CallState {
   rejected,
   busy,
   failed,
+
+  /// Calma suresi doldu, kimse cevaplamadi. Hata degil: kayitta "Cevapsiz".
+  noAnswer,
 }
 
 class CallSession {
@@ -87,6 +90,7 @@ class CallSession {
     CallState.rejected,
     CallState.busy,
     CallState.failed,
+    CallState.noAnswer,
   }.contains(state);
 
   CallSession copyWith({

@@ -2271,4 +2271,7 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get logout_confirm_body =>
       'Beim Abmelden werden alle Nachrichten, Medien, der Anrufverlauf und lokale Backups auf diesem Gerät gelöscht. Dein Konto bleibt auf dem Server, aber der Verlauf kommt bei der nächsten Anmeldung nicht zurück.';
+
+  @override
+  String get call_no_answer => 'Keine Antwort';
 }

@@ -44,6 +44,90 @@ void main() {
     },
   );
 
+  group('QA 2026-10-12 Bulgu 8', () {
+    test(
+      'unanswered ring times out as noAnswer on both sides and logs MISSED',
+      () async {
+        final f = await _Network.open(
+          ringTimeout: const Duration(milliseconds: 300),
+        );
+        addTearDown(f.dispose);
+        await f.start(peers: [bob]);
+        await _until(() => f.nodes[bob]!.manager.currentSession != null);
+
+        await _until(
+          () => f.nodes[alice]!.manager.currentSession!.isTerminal,
+        );
+        // Arayan: kimse cevaplamadi, hata degil.
+        expect(
+          f.nodes[alice]!.manager.currentSession!.state,
+          CallState.noAnswer,
+        );
+        // Aranan: arayanin HANGUP'i kendi (payli) zaman asimindan once gelir
+        // ve calan ekran kapanir.
+        await _until(() => f.nodes[bob]!.manager.currentSession!.isTerminal);
+        expect(
+          f.nodes[bob]!.manager.currentSession!.state,
+          isNot(CallState.failed),
+        );
+        final logs = await f.db.callLogs.getAll().first;
+        expect(logs.map((log) => log.status).toSet(), {'MISSED'});
+        expect(f.failures, isEmpty);
+      },
+    );
+
+    test('ending a group call tells the server before member ACKs', () async {
+      final f = await _Network.open();
+      addTearDown(f.dispose);
+      await f.start(peers: [bob]);
+      await _until(() => f.nodes[bob]!.manager.currentSession != null);
+      f.frames.clear();
+
+      await f.nodes[alice]!.manager.endCall();
+
+      final hangups = f.frames
+          .whereType<CallControlSignal>()
+          .where((frame) => frame.senderId == alice && frame.action == 'HANGUP')
+          .map((frame) => frame.recipientId)
+          .toList();
+      expect(hangups.first, 'server');
+      expect(hangups, contains(bob));
+    });
+
+    test('late join to our own leftover call returns at once', () async {
+      final f = await _Network.open(keyTimeout: const Duration(seconds: 5));
+      addTearDown(f.dispose);
+      final callId = 'ghost-call';
+      f.statusOverride = (query) => GroupCallStatusResponseSignal(
+        recipientId: query.senderId,
+        timestamp: DateTime.now(),
+        groupId: query.groupId,
+        isActive: true,
+        callId: callId,
+        coordinatorId: alice,
+        callType: 'VOICE',
+        participants: const [alice],
+      );
+      final watch = Stopwatch()..start();
+      final joined = await f.nodes[alice]!.manager.joinActiveGroupCall(
+        ActiveGroupCall(
+          groupId: 'local-group',
+          routingToken: f.token,
+          callId: callId,
+          coordinatorId: alice,
+          callType: CallType.voice,
+          mediaE2ee: true,
+          participants: const [alice],
+        ),
+      );
+      expect(joined, isFalse);
+      // Medya anahtari beklenmeden (5 sn) doner, kayit acilmaz.
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(f.nodes[alice]!.manager.currentSession, isNull);
+      expect(await f.db.callLogs.getAll().first, isEmpty);
+    });
+  });
+
   test('incoming rekey waits for departing peer cleanup', () async {
     final f = await _Network.open();
     addTearDown(f.dispose);
@@ -640,6 +724,8 @@ class _Network {
   final heldKeys = <(String, String, String)>[];
   bool holdKeys = false;
   bool rejectOffers = false;
+  GroupCallStatusResponseSignal Function(GroupCallStatusQuerySignal query)?
+  statusOverride;
   bool preparedWhileConnected = false;
   int janusCreated = 0;
   int nativeAnswers = 0;
@@ -783,6 +869,11 @@ class _Wire extends InMemorySignalingService {
     final decoded = SignalMessage.decode(message.encode());
     network.frames.add(decoded);
     if (decoded is GroupCallStatusQuerySignal) {
+      final override = network.statusOverride;
+      if (override != null) {
+        network.deliver(override(decoded));
+        return true;
+      }
       final current = network.nodes[alice]!.manager.currentSession;
       final active = current != null && !current.isTerminal;
       network.deliver(

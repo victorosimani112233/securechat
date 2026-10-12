@@ -75,6 +75,7 @@ class CallManager {
     MissedCallLifecycle? missedCalls,
     bool Function(String userId)? isBlocked,
     this.ringTimeout = const Duration(seconds: 60),
+    this.incomingRingGrace = const Duration(seconds: 5),
     this.reconnectTimeout = const Duration(seconds: 15),
     this.terminalVisibility = const Duration(milliseconds: 900),
     this.mediaKeyTimeout = const Duration(seconds: 8),
@@ -200,6 +201,11 @@ class CallManager {
         active.routingToken != expected.routingToken ||
         _hasLiveCall)
       return false;
+    // Koordinatoru bu cihaz olan ama burada canli olmayan bir arama, bitmis
+    // kendi aramamizin sunucuda kalan izidir: koordinator anahtar
+    // gondermeyecegi icin katilim medya anahtarini bekleyip zaman asimina
+    // duserdi (QA 2026-10-12 Bulgu 8, 1. deneme).
+    if (active.coordinatorId == _session.userId) return false;
     if (active.participants.length >= maxGroupCallParticipants &&
         !active.participants.contains(_session.userId))
       return false;
@@ -375,6 +381,11 @@ class CallManager {
       if (mediaKey.epoch < current.epoch) return false;
       if (mediaKey.epoch == current.epoch) {
         if (mediaKey == current) return true;
+        _reportCallFailure(
+          'media-key-conflict',
+          StateError('Different media key for the same epoch'),
+          StackTrace.current,
+        );
         await _finish(CallState.failed, notifyPeer: true);
         return false;
       }
@@ -438,6 +449,11 @@ class CallManager {
   /// Senkron: arada bekleme olursa ayni anda gelen ICE adaylari kaybolur.
   final bool Function(String userId)? _isBlocked;
   final Duration ringTimeout;
+
+  /// Aranan tarafin calma suresine eklenen pay. Arayanin zaman asimi ve
+  /// HANGUP'i once gelsin; iki taraf ayni anda dusup ikisi de "Basarisiz"
+  /// yazmasin, aranan 61. saniyede cevaplayip olu bir aramaya baglanmasin.
+  final Duration incomingRingGrace;
   final Duration reconnectTimeout;
   final Duration terminalVisibility;
   final Duration mediaKeyTimeout;
@@ -1638,6 +1654,11 @@ class CallManager {
     // Yalniz koordinator kusak uretebilir. Dagitim eksik kalirsa ayrilan uye
     // eski anahtari bildigi icin cagri o anahtarla devam edemez.
     if (_isGroupCoordinator && !await _rotateMediaKey(peers)) {
+      _reportCallFailure(
+        'rotate-after-leave',
+        StateError('Media key rotation failed after a member left'),
+        StackTrace.current,
+      );
       await _finish(CallState.failed, notifyPeer: true);
     }
   }
@@ -1665,6 +1686,11 @@ class CallManager {
     );
     if (_isGroupCoordinator) {
       if (!await _rotateMediaKey(peers)) {
+        _reportCallFailure(
+          'rotate-after-coordinator-change',
+          StateError('Media key rotation failed after coordinator change'),
+          StackTrace.current,
+        );
         await _finish(CallState.failed, notifyPeer: true);
       }
       return;
@@ -1913,12 +1939,21 @@ class CallManager {
         if (session.state == CallState.active) {
           _setSession(session.copyWith(state: CallState.reconnecting));
           _reconnectTimer?.cancel();
-          _reconnectTimer = Timer(
-            reconnectTimeout,
-            () => _track(_finish(CallState.failed, notifyPeer: true)),
-          );
+          _reconnectTimer = Timer(reconnectTimeout, () {
+            _reportCallFailure(
+              'reconnect-timeout',
+              TimeoutException('Media did not reconnect', reconnectTimeout),
+              StackTrace.current,
+            );
+            _track(_finish(CallState.failed, notifyPeer: true));
+          });
         }
       case MediaConnectionState.failed:
+        _reportCallFailure(
+          'media-failed',
+          StateError('Media connection failed'),
+          StackTrace.current,
+        );
         _track(_finish(CallState.failed, notifyPeer: true));
       case MediaConnectionState.closed:
         if (!_terminating) {
@@ -1960,20 +1995,26 @@ class CallManager {
     }
     _reconnectTimer?.cancel();
     if (notifyPeer && session.isGroupCall) {
-      for (final peerId in session.peerIds) {
-        await _sendControl(
-          peerId,
-          action ?? 'HANGUP',
-          reliable: true,
-          groupId: _currentGroupRoutingToken,
-        );
-      }
+      // Sunucu bildirimi ONCE ve beklemeden: kalan uyelere "arama bitti"
+      // yayinini sunucu yapar. Onceden uye basina guvenilir gonderimlerin
+      // ACK'leri bekleniyordu; sunucu bu sure boyunca aramayi aktif
+      // bildiriyor ve "Katil" bandi gorunuyordu (QA 2026-10-12 Bulgu 8/9).
+      final routingToken = _currentGroupRoutingToken;
       await _sendControl(
         'server',
         'HANGUP',
         reliable: false,
-        groupId: _currentGroupRoutingToken,
+        groupId: routingToken,
       );
+      await Future.wait([
+        for (final peerId in session.peerIds)
+          _sendControl(
+            peerId,
+            action ?? 'HANGUP',
+            reliable: true,
+            groupId: routingToken,
+          ),
+      ]);
     } else if (notifyPeer) {
       await _sendControl(session.peerId, action ?? 'HANGUP', reliable: true);
     }
@@ -2013,7 +2054,11 @@ class CallManager {
       CallState.rejected => 'REJECTED',
       CallState.failed => 'FAILED',
       CallState.busy => 'BUSY',
-      CallState.ended => duration > Duration.zero ? 'ANSWERED' : 'MISSED',
+      CallState.noAnswer => 'MISSED',
+      CallState.ended when duration > Duration.zero => 'ANSWERED',
+      // Cevaplanip hic baglanamayan arama cevapsiz degildir.
+      CallState.ended when _wasAnswered(session) => 'FAILED',
+      CallState.ended => 'MISSED',
       _ => duration > Duration.zero ? 'ANSWERED' : 'MISSED',
     };
     return _callLogs.insert(
@@ -2031,6 +2076,12 @@ class CallManager {
       ),
     );
   }
+
+  /// Cagri calma asamasini gecmis mi (cevaplanmis ya da baglaniyor).
+  static bool _wasAnswered(CallSession session) => switch (session.state) {
+    CallState.connecting || CallState.active || CallState.reconnecting => true,
+    _ => false,
+  };
 
   Future<void> _sendIce({
     required String userId,
@@ -2091,10 +2142,36 @@ class CallManager {
 
   void _startRingTimeout() {
     _ringTimer?.cancel();
+    final session = _current;
+    final incomingRing =
+        session != null &&
+        session.direction == CallDirection.incoming &&
+        session.state == CallState.ringing;
     _ringTimer = Timer(
-      ringTimeout,
-      () => _track(_finish(CallState.failed, notifyPeer: true)),
+      incomingRing ? ringTimeout + incomingRingGrace : ringTimeout,
+      () => _track(_onRingTimeout()),
     );
+  }
+
+  /// Calma ya da baglanma suresi doldu.
+  ///
+  /// Hala caliyorsa kimse cevaplamamistir: hata degil, `noAnswer` (kayitta
+  /// "Cevapsiz"). Cevaplanmis ama baglanamamissa gercek bir hatadir ve
+  /// nedeni raporlanir.
+  Future<void> _onRingTimeout() async {
+    final session = _current;
+    if (session == null || session.isTerminal) return;
+    if (session.state == CallState.ringing ||
+        session.state == CallState.initiating) {
+      await _finish(CallState.noAnswer, action: 'HANGUP');
+      return;
+    }
+    _reportCallFailure(
+      'connect-timeout',
+      TimeoutException('Call did not connect', ringTimeout),
+      StackTrace.current,
+    );
+    await _finish(CallState.failed, notifyPeer: true);
   }
 
   void _setSession(CallSession session) {

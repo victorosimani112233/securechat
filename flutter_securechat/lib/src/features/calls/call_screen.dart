@@ -954,6 +954,7 @@ class _CallScreenState extends State<CallScreen> {
       CallState.rejected => context.l10n.call_rejected,
       CallState.busy => context.l10n.busy,
       CallState.failed => context.l10n.connection_failed,
+      CallState.noAnswer => context.l10n.call_no_answer,
       CallState.idle || CallState.active => '',
     };
   }

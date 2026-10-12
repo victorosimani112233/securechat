@@ -2236,4 +2236,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get logout_confirm_body =>
       'Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again.';
+
+  @override
+  String get call_no_answer => 'No answer';
 }
