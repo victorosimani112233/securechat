@@ -127,8 +127,14 @@ flutter build apk --debug --target-platform android-arm64 \
   İlk açılışta oluyor; büyük olasılıkla eski uygulama `adb install` sırasında
   token yenilerken öldürüldü. Sunucu loguyla doğrulanacak; A yeniden giriş
   (OTP) istiyor.
-- **Sunucu deploy'u bekliyor:** jar `0d623b6c…` (2a17afc) derlendi; SSH
-  master düştüğü için yüklenemedi.
+- **Sunucu deploy edildi (15:25 UTC):** `deploy_v5.sh`, jar `0d623b6c…`
+  (2a17afc), tek süreç, `/health` ok. `sunucu.log`'daki 15:25 Janus
+  `NoClassDefFoundError` satırları eski sürecin kapanış kancasından (eski
+  satır numaraları).
+- **A'nın 401'i:** sunucuda hesap ve `credential_epoch` yerinde; yenileme
+  nesli uyuşmuyor (rotasyon yanıtı istemcide kaydedilmemiş). Veri kaybı yok,
+  yeniden OTP girişi yeterli.
+- **Cihaz testleri** ayrı oturumda (`docs/QA_TEKRAR_2026-10-12.md`).
 
 ---
 
