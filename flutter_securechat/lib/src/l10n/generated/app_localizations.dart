@@ -4193,6 +4193,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'View once file'**
   String get view_once_file;
+
+  /// No description provided for @poll_view_once_unsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Polls cannot be sent as view once.'**
+  String get poll_view_once_unsupported;
 }
 
 class _AppLocalizationsDelegate

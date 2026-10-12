@@ -405,12 +405,16 @@ class _ChatAttachmentTray extends StatelessWidget {
     required this.onGallery,
     required this.onFile,
     required this.onPoll,
+    this.pollBlocked = false,
   });
 
   final VoidCallback onCamera;
   final VoidCallback onGallery;
   final VoidCallback onFile;
   final VoidCallback onPoll;
+
+  /// Tek gosterim acikken anket gonderilemez; secenek soluk gorunur.
+  final bool pollBlocked;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -441,11 +445,14 @@ class _ChatAttachmentTray extends StatelessWidget {
               color: const Color(0xFFEF8C00),
               onTap: onFile,
             ),
-            _AttachmentAction(
-              icon: Icons.poll_outlined,
-              label: context.l10n.poll,
-              color: const Color(0xFF8E44AD),
-              onTap: onPoll,
+            Opacity(
+              opacity: pollBlocked ? .38 : 1,
+              child: _AttachmentAction(
+                icon: Icons.poll_outlined,
+                label: context.l10n.poll,
+                color: const Color(0xFF8E44AD),
+                onTap: onPoll,
+              ),
             ),
           ],
         ),
@@ -503,8 +510,11 @@ class _ChatComposer extends StatefulWidget {
     required this.onRecord,
     required this.onSend,
     required this.readOnly,
+    required this.viewOnce,
   });
 
+  /// Tek gosterim anahtari; ust ekran da okur (anket, medya onizlemesi).
+  final ValueNotifier<bool> viewOnce;
   final TextEditingController controller;
   final VoidCallback onTap;
   final ValueChanged<String> onChanged;
@@ -518,7 +528,32 @@ class _ChatComposer extends StatefulWidget {
 }
 
 class _ChatComposerState extends State<_ChatComposer> {
-  bool _viewOnce = false;
+  bool get _viewOnce => widget.viewOnce.value;
+
+  void _onViewOnceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.viewOnce.addListener(_onViewOnceChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChatComposer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.viewOnce != widget.viewOnce) {
+      oldWidget.viewOnce.removeListener(_onViewOnceChanged);
+      widget.viewOnce.addListener(_onViewOnceChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.viewOnce.removeListener(_onViewOnceChanged);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -615,7 +650,7 @@ class _ChatComposerState extends State<_ChatComposer> {
                           message: context.l10n.view_once,
                           child: InkResponse(
                             key: const ValueKey('chat-view-once-action'),
-                            onTap: () => setState(() => _viewOnce = !_viewOnce),
+                            onTap: () => widget.viewOnce.value = !_viewOnce,
                             radius: 24,
                             child: SizedBox.square(
                               dimension: 48,
@@ -684,7 +719,7 @@ class _ChatComposerState extends State<_ChatComposer> {
                           tooltip: context.l10n.send,
                           onPressed: () {
                             final choice = _viewOnce;
-                            setState(() => _viewOnce = false);
+                            widget.viewOnce.value = false;
                             widget.onSend(choice);
                           },
                           icon: const Icon(Icons.send, size: 20),

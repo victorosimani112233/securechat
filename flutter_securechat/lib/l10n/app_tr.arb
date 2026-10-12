@@ -1052,5 +1052,6 @@
   "view_once_message": "Tek gösterimlik mesaj",
   "message_no_longer_available": "Bu mesaj artık açılamaz",
   "view_once_video": "Tek gösterimlik video",
-  "view_once_file": "Tek gösterimlik dosya"
+  "view_once_file": "Tek gösterimlik dosya",
+  "poll_view_once_unsupported": "Anketler tek gösterimlik gönderilemez."
 }

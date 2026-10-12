@@ -68,6 +68,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   var _showAttachments = false;
   var _nearBottom = true;
   var _unseenCount = 0;
+
   /// Son cizilen zaman cizelgesindeki mesaj kimlikleri; null = ilk cizim.
   Set<String>? _knownMessageIds;
   var _knownCallCount = 0;
@@ -92,6 +93,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Direkt sohbette karsi taraf engelli mi. Engelliyken yazma alani ve
   /// arama kapanir; gelen icerik zaten alicida atilir.
   bool _peerBlocked = false;
+
+  /// Giris cubugundaki tek gosterim anahtari (ek tepsisi de okur).
+  final _composerViewOnce = ValueNotifier<bool>(false);
 
   /// Karsi taraf kisi kayitlarinda yok (rehberde degil, elle eklenmedi).
   bool _peerUnknown = false;
@@ -125,6 +129,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _highlightTimer?.cancel();
     _composerScrollTimer?.cancel();
     _messageExpiryTimer?.cancel();
+    _composerViewOnce.dispose();
     _messageScroll
       ..removeListener(_onMessageScroll)
       ..dispose();
@@ -150,6 +155,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _peerBlocked = false;
       _peerUnknown = false;
       _unknownBannerDismissed = false;
+      _composerViewOnce.value = false;
       if (!routeConversation.isGroup) {
         unawaited(_refreshBlocked(container));
         unawaited(_refreshKnownContact(container));
@@ -612,17 +618,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             if (_forwardSelection.isEmpty &&
                 _showAttachments &&
                 !_readOnlyForLocalUser(container, conversation))
-              _ChatAttachmentTray(
-                onCamera: () =>
-                    _selectAttachment((selection) => selection.takePhoto()),
-                onGallery: () =>
-                    _selectAttachment((selection) => selection.pickGallery()),
-                onFile: () =>
-                    _selectAttachment((selection) => selection.pickDocuments()),
-                onPoll: () {
-                  setState(() => _showAttachments = false);
-                  unawaited(_showPollDialog(context, conversation));
-                },
+              ValueListenableBuilder<bool>(
+                valueListenable: _composerViewOnce,
+                builder: (context, pollBlocked, _) => _ChatAttachmentTray(
+                  onCamera: () =>
+                      _selectAttachment((selection) => selection.takePhoto()),
+                  onGallery: () =>
+                      _selectAttachment((selection) => selection.pickGallery()),
+                  onFile: () => _selectAttachment(
+                    (selection) => selection.pickDocuments(),
+                  ),
+                  pollBlocked: pollBlocked,
+                  onPoll: () {
+                    // Anketler tek gosterimlik gonderilemez; anahtar sessizce
+                    // yok sayiliyor ve sonraki metne kaliyordu (QA Bulgu 15).
+                    if (_composerViewOnce.value) {
+                      _notice(context, context.l10n.poll_view_once_unsupported);
+                      return;
+                    }
+                    setState(() => _showAttachments = false);
+                    unawaited(_showPollDialog(context, conversation));
+                  },
+                ),
               ),
             if (_forwardSelection.isEmpty &&
                 !_peerBlocked &&
@@ -637,6 +654,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 onSend: (isViewOnce) =>
                     _sendComposerText(repo, conversation, isViewOnce),
                 readOnly: _readOnlyForLocalUser(container, conversation),
+                viewOnce: _composerViewOnce,
               ),
           ],
         ),
@@ -1366,10 +1384,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       context,
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) => MediaPreviewScreen(attachments: attachments),
+        builder: (_) => MediaPreviewScreen(
+          attachments: attachments,
+          initialViewOnce: _composerViewOnce.value,
+        ),
       ),
     );
     if (!mounted || request == null) return;
+    // Anahtar bu gonderimde kullanildi; sonraki metne tasinmaz.
+    _composerViewOnce.value = false;
     final runtime = AppContainerScope.of(context).mediaRuntime;
     if (runtime == null) return;
     late final List<MediaSendOutcome> outcomes;

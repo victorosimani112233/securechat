@@ -2279,4 +2279,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get view_once_file => 'View once file';
+
+  @override
+  String get poll_view_once_unsupported => 'Polls cannot be sent as view once.';
 }

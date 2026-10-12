@@ -17,9 +17,16 @@ class MediaSendRequest {
 }
 
 class MediaPreviewScreen extends StatefulWidget {
-  const MediaPreviewScreen({super.key, required this.attachments});
+  const MediaPreviewScreen({
+    super.key,
+    required this.attachments,
+    this.initialViewOnce = false,
+  });
 
   final List<MediaAttachment> attachments;
+
+  /// Giris cubugunda tek gosterim acikken secilen ek ayni kararla acilir.
+  final bool initialViewOnce;
 
   @override
   State<MediaPreviewScreen> createState() => _MediaPreviewScreenState();
@@ -29,7 +36,7 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
   final _caption = TextEditingController();
   final _page = PageController();
   var _currentPage = 0;
-  var _viewOnce = false;
+  late var _viewOnce = widget.initialViewOnce && _viewOnceAllowed;
 
   /// Tek gosterim yalniz uygulama icinde gosterilebilen turlerde mumkun
   /// (bkz isViewOnceViewableMime).

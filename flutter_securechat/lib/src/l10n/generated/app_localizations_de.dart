@@ -2315,4 +2315,8 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get view_once_file => 'Einmal-Datei';
+
+  @override
+  String get poll_view_once_unsupported =>
+      'Umfragen können nicht als Einmalansicht gesendet werden.';
 }

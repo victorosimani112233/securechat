@@ -1059,5 +1059,6 @@
   "view_once_message": "View once message",
   "message_no_longer_available": "This message can no longer be opened",
   "view_once_video": "View once video",
-  "view_once_file": "View once file"
+  "view_once_file": "View once file",
+  "poll_view_once_unsupported": "Polls cannot be sent as view once."
 }

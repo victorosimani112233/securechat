@@ -681,5 +681,6 @@
   "view_once_message": "Einmal-Nachricht",
   "message_no_longer_available": "Diese Nachricht kann nicht mehr geöffnet werden",
   "view_once_video": "Einmal-Video",
-  "view_once_file": "Einmal-Datei"
+  "view_once_file": "Einmal-Datei",
+  "poll_view_once_unsupported": "Umfragen können nicht als Einmalansicht gesendet werden."
 }

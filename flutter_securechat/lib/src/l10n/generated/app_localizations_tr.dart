@@ -2269,4 +2269,8 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get view_once_file => 'Tek gösterimlik dosya';
+
+  @override
+  String get poll_view_once_unsupported =>
+      'Anketler tek gösterimlik gönderilemez.';
 }
