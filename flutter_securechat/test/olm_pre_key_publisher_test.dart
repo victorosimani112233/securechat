@@ -222,6 +222,34 @@ void main() {
     });
   });
 
+  group('oturum yokken', () {
+    // Cikis yapilmis cihazda bakim dongusu yayinciyi yine cagiriyor.
+    // Eskiden token'siz bir yukleme gidiyor, sunucu reddediyor ve her
+    // acilista bir hata raporu dusuyordu. Hesap ise OLUSTURULMALI: yeni
+    // kurulumda hesap kurtarma kaniti bu Olm hesabiyla imzalaniyor.
+    test('yukleme yapilmaz ama hesap olusturulur', () async {
+      await build(token: null).publishIfNeeded();
+
+      expect(uploads, isEmpty);
+      expect(await store.hasAccount(), isTrue);
+    });
+
+    test('olusturma yetkisi yoksa hesap da olusturulmaz', () async {
+      await build(token: null, createAccount: false).publishIfNeeded();
+
+      expect(uploads, isEmpty);
+      expect(await store.hasAccount(), isFalse);
+    });
+
+    test('giris yapilinca anahtarlar normal yayinlanir', () async {
+      await build(token: null).publishIfNeeded();
+      await build().publishIfNeeded();
+
+      expect(uploads, hasLength(1));
+      expect(uploads.single['olmIdentityKey'], isA<String>());
+    });
+  });
+
   group('cikista yerel kripto silme', () {
     // Eskiden libsignal store'u uzerinden test ediliyordu
     // (recovery_key_material_test). Degismez ayni: cikis Olm kimligini ve

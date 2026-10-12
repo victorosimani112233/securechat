@@ -194,6 +194,18 @@ class OlmPreKeyPublisher implements OlmKeyPublisher, RecoveryIdentity {
       // dogru: yaratma yetkisi olan yol kisa sure icinde kosacak.
       return;
     }
+    // Oturum yoksa yayinlanacak bir sunucu hesabi da yok. Cikis yapilmis
+    // cihazda bakim dongusu yayinciyi yine cagiriyor; eskiden token'siz bir
+    // yukleme gidiyor, sunucu reddediyor ve her acilista bir hata raporu
+    // dusuyordu. Hesap ise (yetki varsa) yine OLUSTURULUR: yeni kurulumda
+    // hesap kurtarma kaniti bu Olm hesabinin Ed25519 anahtariyla imzalanir.
+    final token = await _accessTokenProvider();
+    if (token == null || token.isEmpty) {
+      if (createAccountIfMissing && !await _store.hasAccount()) {
+        await _store.withAccount((_) async {});
+      }
+      return;
+    }
     final fallbackPublishedAt = await _database.vodozemacAccount
         .readFallbackPublishedAt();
     final now = _now();
