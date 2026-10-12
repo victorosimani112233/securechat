@@ -4,6 +4,7 @@ import org.jetbrains.kotlinx.lincheck.annotations.Operation
 import org.jetbrains.kotlinx.lincheck.check
 import org.jetbrains.kotlinx.lincheck.strategy.managed.modelchecking.ModelCheckingOptions
 import org.jetbrains.kotlinx.lincheck.strategy.stress.StressOptions
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 
 /**
@@ -78,6 +79,20 @@ class GroupCallSessionStoreLincheckTest {
             .threads(3)
             .actorsPerThread(4)
             .check(this::class)
+    }
+
+    /**
+     * Lincheck her senaryo icin yeni bir ornek (= yeni bir arama) yaratir ve
+     * bunlari kapatmaz. Global `MAX_ACTIVE_CALLS` tavani doluyor, sonraki
+     * grup aramasi testleri `SERVER_CAPACITY_REACHED` ile zincirleme
+     * dusuyordu (tam suite'te "aralikli" 13 hata). Senaryo aramalari burada
+     * kapatilir.
+     */
+    @AfterEach
+    fun endScenarioCalls() {
+        GroupCallSessionStore.all().keys
+            .filter { it.startsWith("lincheck-") }
+            .forEach { GroupCallSessionStore.end(it) }
     }
 
     companion object {
