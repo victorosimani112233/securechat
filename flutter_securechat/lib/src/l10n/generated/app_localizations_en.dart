@@ -2266,4 +2266,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settings_share_profile_name_desc =>
       'Only with people you message one-to-one, end-to-end encrypted. People who do not have you in their contacts see it as ~Name.';
+
+  @override
+  String get view_once_message => 'View once message';
+
+  @override
+  String get message_no_longer_available =>
+      'This message can no longer be opened';
 }

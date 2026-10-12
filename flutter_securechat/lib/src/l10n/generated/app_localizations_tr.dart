@@ -2257,4 +2257,10 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get settings_share_profile_name_desc =>
       'Yalnızca birebir mesaj gönderdiğin kişilerle, uçtan uca şifreli. Seni rehberinde kayıtlı tutmayanlar adını ~Ad olarak görür.';
+
+  @override
+  String get view_once_message => 'Tek gösterimlik mesaj';
+
+  @override
+  String get message_no_longer_available => 'Bu mesaj artık açılamaz';
 }

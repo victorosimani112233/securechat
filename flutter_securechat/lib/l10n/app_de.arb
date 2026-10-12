@@ -677,5 +677,7 @@
   "unknown_contact": "Unbekannter Kontakt",
   "not_in_contacts_banner": "Diese Person ist nicht in deinen Kontakten.",
   "settings_share_profile_name": "Meinen Profilnamen teilen",
-  "settings_share_profile_name_desc": "Nur mit Personen, denen du direkt schreibst, Ende-zu-Ende-verschlüsselt. Wer dich nicht in den Kontakten hat, sieht ihn als ~Name."
+  "settings_share_profile_name_desc": "Nur mit Personen, denen du direkt schreibst, Ende-zu-Ende-verschlüsselt. Wer dich nicht in den Kontakten hat, sieht ihn als ~Name.",
+  "view_once_message": "Einmal-Nachricht",
+  "message_no_longer_available": "Diese Nachricht kann nicht mehr geöffnet werden"
 }

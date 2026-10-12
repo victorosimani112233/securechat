@@ -4169,6 +4169,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Only with people you message one-to-one, end-to-end encrypted. People who do not have you in their contacts see it as ~Name.'**
   String get settings_share_profile_name_desc;
+
+  /// No description provided for @view_once_message.
+  ///
+  /// In en, this message translates to:
+  /// **'View once message'**
+  String get view_once_message;
+
+  /// No description provided for @message_no_longer_available.
+  ///
+  /// In en, this message translates to:
+  /// **'This message can no longer be opened'**
+  String get message_no_longer_available;
 }
 
 class _AppLocalizationsDelegate

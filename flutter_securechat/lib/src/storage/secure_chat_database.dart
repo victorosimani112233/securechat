@@ -1093,6 +1093,35 @@ class MessageDao {
     return claimed;
   }
 
+  /// Gonderilen tek gosterimlik mesaj karsi tarafca acildi.
+  ///
+  /// Yalniz bu cihazin gonderdigi, henuz acilmamis tek gosterimlik mesaj ve
+  /// yalniz o sohbetin karsi tarafi (grupta bir uye) icin gecerlidir.
+  Future<bool> markOutgoingViewOnceOpened(
+    String id, {
+    required String by,
+  }) async {
+    var marked = false;
+    await _db._write((s) {
+      final message = s.messages[id];
+      if (message == null ||
+          !message.isViewOnce ||
+          !message.isOutgoing ||
+          message.isViewed) {
+        return;
+      }
+      final conversation = s.conversations[message.conversationId];
+      if (conversation == null) return;
+      final allowed = conversation.isGroup
+          ? (conversation.groupMembers ?? '').split(',').contains(by)
+          : conversation.peerId == by;
+      if (!allowed) return;
+      s.messages[id] = message.copyWith(isViewed: true);
+      marked = true;
+    });
+    return marked;
+  }
+
   Future<void> eraseViewedOnceContent(String id) => _patch(
     id,
     (m) => m.isViewOnce && m.isViewed && !m.isOutgoing

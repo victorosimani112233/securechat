@@ -1048,5 +1048,7 @@
   "unknown_contact": "Bilinmeyen kişi",
   "not_in_contacts_banner": "Bu kişi rehberinizde değil.",
   "settings_share_profile_name": "Profil adımı paylaş",
-  "settings_share_profile_name_desc": "Yalnızca birebir mesaj gönderdiğin kişilerle, uçtan uca şifreli. Seni rehberinde kayıtlı tutmayanlar adını ~Ad olarak görür."
+  "settings_share_profile_name_desc": "Yalnızca birebir mesaj gönderdiğin kişilerle, uçtan uca şifreli. Seni rehberinde kayıtlı tutmayanlar adını ~Ad olarak görür.",
+  "view_once_message": "Tek gösterimlik mesaj",
+  "message_no_longer_available": "Bu mesaj artık açılamaz"
 }

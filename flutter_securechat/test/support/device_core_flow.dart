@@ -48,7 +48,8 @@ Future<void> runDeviceCoreFlow(WidgetTester tester) async {
     const Offset(0, -600),
   );
   await tester.pumpAndSettle();
-  expect(find.text('Bu medya artık açılamaz'), findsOneWidget);
+  // Gonderen, alici acmadan "acildi/artik acilamaz" gormez (QA Bulgu 13).
+  expect(find.text('Tek gösterimlik mesaj'), findsOneWidget);
   debugPrint('[device-core] view-once-sent');
 
   await tester.tap(find.byType(BackButton));

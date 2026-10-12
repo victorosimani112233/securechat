@@ -2302,4 +2302,11 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get settings_share_profile_name_desc =>
       'Nur mit Personen, denen du direkt schreibst, Ende-zu-Ende-verschlüsselt. Wer dich nicht in den Kontakten hat, sieht ihn als ~Name.';
+
+  @override
+  String get view_once_message => 'Einmal-Nachricht';
+
+  @override
+  String get message_no_longer_available =>
+      'Diese Nachricht kann nicht mehr geöffnet werden';
 }

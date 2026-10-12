@@ -14,8 +14,9 @@ class _MediaMessageContent extends StatelessWidget {
     // (dosya adlari, ek adlari, anket metinleri). Duz mesaj metni zaten
     // `onSurface` mirasiyla cizildigi icin dogru olan da budur.
     final foreground = Theme.of(context).colorScheme.onSurface;
-    final consumed =
-        message.isViewOnce && (message.isOutgoing || message.isViewed);
+    // Gonderende "Acildi" yalniz alicinin acildi bildirimiyle (isViewed)
+    // gorunur; onceden gonderilir gonderilmez yaziyordu (QA Bulgu 13).
+    final opened = message.isViewOnce && message.isViewed;
     if (message.isViewOnce) {
       return SizedBox(
         width: 210,
@@ -31,20 +32,19 @@ class _MediaMessageContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    consumed
-                        ? context.l10n.opened
-                        : context.l10n.view_once_photo,
+                    opened ? context.l10n.opened : context.l10n.view_once_photo,
                     style: TextStyle(color: foreground),
                   ),
-                  Text(
-                    consumed
-                        ? context.l10n.media_no_longer_available
-                        : context.l10n.tap_to_open,
-                    style: TextStyle(
-                      color: foreground.withValues(alpha: 0.65),
-                      fontSize: 11,
+                  if (!message.isOutgoing || opened)
+                    Text(
+                      opened
+                          ? context.l10n.media_no_longer_available
+                          : context.l10n.tap_to_open,
+                      style: TextStyle(
+                        color: foreground.withValues(alpha: 0.65),
+                        fontSize: 11,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),

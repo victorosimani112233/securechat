@@ -250,6 +250,11 @@ class IncomingMessageHandler {
         await _phoneSharing?.accept(signal);
       case SharedProfileNameSignal() when privateChatControl:
         await _profileNames?.accept(signal);
+      case ViewOnceOpenedSignal() when privateChatControl:
+        await _database.messages.markOutgoingViewOnceOpened(
+          signal.messageId,
+          by: signal.senderId,
+        );
       case PresenceUpdateSignal():
         _presenceSignal(signal);
       case AdminEncryptedLogSignal():

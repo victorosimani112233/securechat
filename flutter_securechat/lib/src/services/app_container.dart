@@ -1,3 +1,4 @@
+import '../chat/view_once_receipts.dart';
 import '../contacts/profile_name_sharing_service.dart';
 import '../core/peer_display_name.dart';
 import '../core/signal_message.dart';
@@ -737,6 +738,11 @@ class AppContainer {
       );
       resources.register('file-transfer-manager', fileTransfers.dispose);
       final mediaMessages = MediaMessageService(
+        viewOnceReceipts: ViewOnceReceipts(
+          session: session,
+          crypto: crypto,
+          signaling: signaling,
+        ),
         database: database,
         transfers: fileTransfers,
         session: session,

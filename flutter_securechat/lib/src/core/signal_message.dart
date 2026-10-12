@@ -49,6 +49,7 @@ sealed class SignalMessage {
       'disappearing_timer' => DisappearingTimerSignal.fromJson(data),
       'shared_phone' => SharedPhoneSignal.fromJson(data),
       'shared_profile_name' => SharedProfileNameSignal.fromJson(data),
+      'view_once_opened' => ViewOnceOpenedSignal.fromJson(data),
       'call_control' => CallControlSignal.fromJson(data),
       'call_control_ack' => CallControlAckSignal.fromJson(data),
       'session_reset_request' => SessionResetRequestSignal.fromJson(data),
@@ -130,6 +131,33 @@ class SharedProfileNameSignal extends SignalMessage {
     ..._base(this),
     'displayName': displayName,
   };
+}
+
+/// Alici tek gosterimlik mesaji acti. Yalniz sifreli ozel kontrol icinde,
+/// yalniz mesajin yazarina gider; gonderen ancak bunu alinca "Acildi" der.
+class ViewOnceOpenedSignal extends SignalMessage {
+  const ViewOnceOpenedSignal({
+    required super.senderId,
+    required super.recipientId,
+    required super.timestamp,
+    required this.messageId,
+  });
+
+  final String messageId;
+
+  @override
+  String get type => 'view_once_opened';
+
+  factory ViewOnceOpenedSignal.fromJson(Map<String, Object?> json) =>
+      ViewOnceOpenedSignal(
+        senderId: json['senderId'] as String? ?? '',
+        recipientId: json['recipientId'] as String? ?? '',
+        timestamp: _dt(json['timestamp']),
+        messageId: json['messageId'] as String? ?? '',
+      );
+
+  @override
+  Map<String, Object?> toJson() => {..._base(this), 'messageId': messageId};
 }
 
 Map<String, Object?> _base(SignalMessage msg) => {

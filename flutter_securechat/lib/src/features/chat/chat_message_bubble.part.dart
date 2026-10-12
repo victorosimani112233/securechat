@@ -355,7 +355,7 @@ class _ViewOnceTextContent extends StatelessWidget {
     mainAxisSize: MainAxisSize.min,
     children: [
       Icon(
-        message.isViewed || message.isOutgoing
+        message.isViewed
             ? Icons.visibility_off_outlined
             : Icons.looks_one_outlined,
         size: 19,
@@ -364,8 +364,14 @@ class _ViewOnceTextContent extends StatelessWidget {
       const SizedBox(width: 7),
       Flexible(
         child: Text(
-          message.isViewed || message.isOutgoing
-              ? context.l10n.media_no_longer_available
+          // Metin icin "medya" denmez; gonderen "Acildi"yi yalniz alicinin
+          // bildirimiyle gorur (QA 2026-10-12 Bulgu 13).
+          message.isViewed
+              ? (message.isOutgoing
+                    ? context.l10n.opened
+                    : context.l10n.message_no_longer_available)
+              : message.isOutgoing
+              ? context.l10n.view_once_message
               : context.l10n.tap_to_open,
         ),
       ),

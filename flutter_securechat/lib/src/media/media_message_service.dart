@@ -1,3 +1,4 @@
+import '../chat/view_once_receipts.dart';
 import '../contacts/profile_name_sharing_service.dart';
 import '../core/peer_display_name.dart';
 import 'dart:async';
@@ -38,6 +39,7 @@ class MediaMessageService {
     AsyncOperationFailureHandler? onAsyncFailure,
     PhoneNumberSharingService? phoneSharing,
     ProfileNameSharingService? profileNames,
+    ViewOnceReceipts? viewOnceReceipts,
     PrivateGroupControlSender? groupControls,
     ContactIdentityResolver? identityResolver,
     ServiceStrings? strings,
@@ -49,6 +51,7 @@ class MediaMessageService {
        _networkKindProvider = networkKindProvider,
        _phoneSharing = phoneSharing,
        _profileNames = profileNames,
+       _viewOnceReceipts = viewOnceReceipts,
        _groupControls = groupControls,
        _identityResolver =
            identityResolver ?? ContactIdentityResolver(database: database),
@@ -65,6 +68,7 @@ class MediaMessageService {
   final NetworkKindProvider? _networkKindProvider;
   final PhoneNumberSharingService? _phoneSharing;
   final ProfileNameSharingService? _profileNames;
+  final ViewOnceReceipts? _viewOnceReceipts;
   final PrivateGroupControlSender? _groupControls;
   final ContactIdentityResolver _identityResolver;
   final ServiceStrings _strings;
@@ -280,6 +284,14 @@ class MediaMessageService {
     try {
       final claimed = await _database.messages.markViewOnceAsViewed(message.id);
       if (!claimed) _activeViewOnce.remove(message.id);
+      final receipts = _viewOnceReceipts;
+      if (claimed && receipts != null) {
+        // Istege bagli bildirim; gosterimi geciktirmez.
+        _operations.run(
+          'media.view-once.opened',
+          receipts.notifyOpened(message),
+        );
+      }
       return claimed;
     } catch (_) {
       _activeViewOnce.remove(message.id);
