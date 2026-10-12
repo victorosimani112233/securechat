@@ -66,6 +66,27 @@ void main() {
       },
     );
   }
+
+  // QA 2026-10-12 Bulgu 9: az once ayrilinan arama icin bant kalmamali.
+  testWidgets('a call the manager says is not joinable shows no banner', (
+    tester,
+  ) async {
+    final calls = _Calls(CallType.voice)..joinable = false;
+    addTearDown(calls.changes.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('tr'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: GroupCallBanner(groupId: 'group', calls: calls),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('group-call-banner')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
 }
 
 Future<void> _screenshot(WidgetTester tester, String name) async {
@@ -97,6 +118,7 @@ class _Calls implements CallManager {
         participants: ['peer'],
       );
   ActiveGroupCall? active;
+  bool joinable = true;
   int joined = 0;
   int opened = 0;
   final changes = StreamController<CallSession?>.broadcast();
@@ -116,6 +138,9 @@ class _Calls implements CallManager {
   void openCurrentCall() {
     opened++;
   }
+
+  @override
+  bool isJoinable(ActiveGroupCall call) => joinable;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

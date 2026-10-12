@@ -157,6 +157,45 @@ void main() {
     }
   });
 
+  group('QA 2026-10-12 Bulgu 9', () {
+    ActiveGroupCall call(
+      String callId, {
+      String coordinator = bob,
+      List<String> participants = const [bob],
+    }) => ActiveGroupCall(
+      groupId: 'local-group',
+      routingToken: 'token',
+      callId: callId,
+      coordinatorId: coordinator,
+      callType: CallType.voice,
+      mediaE2ee: true,
+      participants: participants,
+    );
+
+    test('a call we just left is not offered for joining', () async {
+      final f = await _Network.open();
+      addTearDown(f.dispose);
+      await f.start(peers: [bob, carol]);
+      await _until(() => f.nodes[bob]!.manager.currentSession != null);
+      final manager = f.nodes[bob]!.manager;
+      final callId = manager.currentSession!.callId;
+      await manager.acceptCall();
+      await manager.endCall();
+
+      expect(manager.isJoinable(call(callId, coordinator: alice)), isFalse);
+      expect(manager.isJoinable(call('newer', coordinator: alice)), isTrue);
+    });
+
+    test('empty or self-coordinated leftovers are not joinable', () async {
+      final f = await _Network.open();
+      addTearDown(f.dispose);
+      final manager = f.nodes[alice]!.manager;
+      expect(manager.isJoinable(call('x', participants: const [])), isFalse);
+      expect(manager.isJoinable(call('x', coordinator: alice)), isFalse);
+      expect(manager.isJoinable(call('x')), isTrue);
+    });
+  });
+
   test('incoming rekey waits for departing peer cleanup', () async {
     final f = await _Network.open();
     addTearDown(f.dispose);

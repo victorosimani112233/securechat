@@ -126,6 +126,32 @@ class CallManager {
 
   void openCurrentCall() => _requestCallOpen();
 
+  /// Bu cihazin az once ayrildigi grup aramalari (callId -> ayrilma ani).
+  final _recentlyLeftGroupCalls = <String, DateTime>{};
+
+  /// Ayrildiktan sonra sunucunun bitisi isleyip yayinlamasi icin pay.
+  static const recentlyLeftWindow = Duration(seconds: 30);
+
+  /// "Katil" bandi gosterilebilir mi.
+  ///
+  /// Kullanici az once ayrildigi aramaya, sunucu henuz HANGUP'i islemeden
+  /// sorulan durum yanitiyla geri cagrilmamali; katilimcisi olmayan ya da
+  /// koordinatoru bu hesap olup burada canli olmayan (kendi bitmis aramamizin
+  /// izi) arama da gosterilmez (QA 2026-10-12 Bulgu 9).
+  bool isJoinable(ActiveGroupCall call) {
+    if (call.participants.isEmpty) return false;
+    final current = _current;
+    final liveHere =
+        current != null &&
+        !current.isTerminal &&
+        current.callId == call.callId;
+    if (liveHere) return true;
+    if (call.coordinatorId == _session.userId) return false;
+    final left = _recentlyLeftGroupCalls[call.callId];
+    return left == null ||
+        DateTime.now().difference(left) >= recentlyLeftWindow;
+  }
+
   Future<ActiveGroupCall?> activeGroupCall(String groupId) async {
     if (_disposed ||
         !await _signaling.ensureConnected(timeout: const Duration(seconds: 5)))
@@ -2060,6 +2086,12 @@ class CallManager {
         ? Duration.zero
         : DateTime.now().difference(session.startTime!);
     if (session.isGroupCall) {
+      final now = DateTime.now();
+      _recentlyLeftGroupCalls
+        ..removeWhere(
+          (_, leftAt) => now.difference(leftAt) >= recentlyLeftWindow,
+        )
+        ..[session.callId] = now;
       await _janusSubscription?.cancel();
       _janusSubscription = null;
       await _janus?.leaveRoom();

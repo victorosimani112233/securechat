@@ -52,7 +52,8 @@ class _GroupCallBannerState extends State<GroupCallBanner>
     _refreshing = true;
     try {
       final active = await widget.calls.activeGroupCall(widget.groupId);
-      if (mounted) setState(() => _active = active);
+      final joinable = active != null && widget.calls.isJoinable(active);
+      if (mounted) setState(() => _active = joinable ? active : null);
     } catch (_) {
       if (mounted) setState(() => _active = null);
     } finally {
