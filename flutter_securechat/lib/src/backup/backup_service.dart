@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 
 import '../services/session_store.dart';
+import '../settings/local_data_owner_guard.dart';
 import '../storage/secure_chat_database.dart';
 import 'backup_crypto.dart';
 
@@ -167,6 +168,13 @@ class BackupService {
         validateBeforeCommit: validateAccount,
       );
       validateAccount();
+      // Geri yuklenen gecmis yedegin hesabina aittir. Cevrimdisi geri
+      // yuklemeden sonraki kurtarma girisi onu "baska hesabin verisi" diye
+      // silmesin (bkz LocalDataOwnerGuard.claim).
+      await _database.cryptoState.put(
+        LocalDataOwnerGuard.ownerKey,
+        profile.userId,
+      );
       // Recovery credentials and the authenticated profile are authoritative.
       // Only an offline restore installs profile data from the backup.
       if (!wasLoggedIn) {

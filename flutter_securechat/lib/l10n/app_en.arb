@@ -1044,5 +1044,7 @@
   "legal_terms": "Terms of Use",
   "legal_privacy": "Privacy Policy",
   "legal_child_safety": "Child safety standards",
-  "legal_open_failed": "The page could not be opened."
+  "legal_open_failed": "The page could not be opened.",
+  "logout_confirm_title": "Log out?",
+  "logout_confirm_body": "Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again."
 }

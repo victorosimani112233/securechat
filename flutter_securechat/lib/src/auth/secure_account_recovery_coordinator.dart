@@ -16,13 +16,15 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     required String signalingUrl,
     required Future<String?> Function() refreshAccessToken,
     DateTime Function()? now,
+    Future<void> Function(String userId)? claimLocalData,
   }) : _api = api,
        _session = session,
        _recovery = recoveryKeys,
        _signaling = signaling,
        _signalingUrl = signalingUrl,
        _refreshAccessToken = refreshAccessToken,
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now,
+       _claimLocalData = claimLocalData;
 
   final AuthApi _api;
   final SessionStore _session;
@@ -33,6 +35,7 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
   final String _signalingUrl;
   final Future<String?> Function() _refreshAccessToken;
   final DateTime Function() _now;
+  final Future<void> Function(String userId)? _claimLocalData;
   Future<void> _tail = Future.value();
 
   Future<T> _exclusive<T>(Future<T> Function() action) {
@@ -296,6 +299,9 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
         request['identityPublicKey']) {
       throw const AuthApiException('recovery_identity_changed');
     }
+    // Cihazda baska hesabin verisi kaldiysa kurtarilan hesap onu gormemeli.
+    // Kimlik bilgileri pending kayitta duruyor; hata yeniden denenebilir.
+    await _claimLocalData?.call(userId);
     final oldSession = _session.toJson();
     try {
       await _session.loginAndPersist(

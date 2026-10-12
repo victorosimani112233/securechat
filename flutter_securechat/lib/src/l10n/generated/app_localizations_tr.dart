@@ -2220,4 +2220,11 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get legal_open_failed => 'Sayfa açılamadı.';
+
+  @override
+  String get logout_confirm_title => 'Çıkış yapılsın mı?';
+
+  @override
+  String get logout_confirm_body =>
+      'Çıkış yapınca bu cihazdaki tüm mesajlar, medya, arama geçmişi ve yerel yedekler silinir. Hesabınız sunucuda kalır; tekrar girişte geçmiş geri gelmez.';
 }

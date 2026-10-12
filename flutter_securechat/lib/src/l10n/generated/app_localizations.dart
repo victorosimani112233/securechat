@@ -4103,6 +4103,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The page could not be opened.'**
   String get legal_open_failed;
+
+  /// No description provided for @logout_confirm_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Log out?'**
+  String get logout_confirm_title;
+
+  /// No description provided for @logout_confirm_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again.'**
+  String get logout_confirm_body;
 }
 
 class _AppLocalizationsDelegate

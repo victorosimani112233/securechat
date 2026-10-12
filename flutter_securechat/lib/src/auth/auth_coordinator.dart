@@ -9,6 +9,10 @@ import 'secure_account_recovery_coordinator.dart';
 import '../crypto/vodozemac/olm_pre_key_publisher.dart';
 import 'phone_privacy.dart';
 
+/// Giris oncesi yerel verinin yeni hesaba ait olmasini saglar
+/// (bkz `LocalDataOwnerGuard.claim`).
+typedef LocalDataClaim = Future<void> Function(String userId);
+
 class AuthCoordinator {
   AuthCoordinator({
     required AuthApi api,
@@ -19,13 +23,15 @@ class AuthCoordinator {
     ContactDiscoveryApi? privateDirectory,
     Random? random,
     AccountRecoveryCoordinator? recovery,
+    LocalDataClaim? claimLocalData,
   }) : _api = api,
        _session = session,
        _olmPreKeys = olmPreKeys,
        _signaling = signaling,
        _signalingUrl = signalingUrl,
        _privateDirectory = privateDirectory,
-       _random = random ?? Random.secure() {
+       _random = random ?? Random.secure(),
+       _claimLocalData = claimLocalData {
     this.recovery =
         recovery ??
         SecureAccountRecoveryCoordinator(
@@ -35,6 +41,7 @@ class AuthCoordinator {
           signaling: signaling,
           signalingUrl: signalingUrl,
           refreshAccessToken: refreshAccessToken,
+          claimLocalData: claimLocalData,
         );
   }
 
@@ -50,6 +57,7 @@ class AuthCoordinator {
   final String _signalingUrl;
   final ContactDiscoveryApi? _privateDirectory;
   final Random _random;
+  final LocalDataClaim? _claimLocalData;
   late final AccountRecoveryCoordinator recovery;
 
   Future<OtpRequestResult> requestOtp(String email) =>
@@ -90,6 +98,8 @@ class AuthCoordinator {
     // Directory rejection must not establish a local session. Once it succeeds,
     // retain credentials before fallible key setup so upload errors cannot
     // strand the account that now owns this directory identity.
+    // Cihazda baska hesabin verisi kaldiysa yeni hesap onu gormemeli.
+    await _claimLocalData?.call(result.userId);
     await _session.loginAndPersist(
       userId: result.userId,
       displayName: _sanitizeName(displayName),

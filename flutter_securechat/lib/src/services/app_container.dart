@@ -69,6 +69,7 @@ import '../platform/mobile_permission_platform.dart';
 import '../push/push_service.dart';
 import '../settings/settings_service.dart';
 import '../settings/account_data_service.dart';
+import '../settings/local_data_owner_guard.dart';
 import '../security/chat_access_service.dart';
 import '../security/chat_lock_credential_service.dart';
 import '../storage/secure_chat_database.dart';
@@ -730,6 +731,17 @@ class AppContainer {
         onAsyncFailure: reportAsyncFailure,
       );
       resources.register('voice-note-recorder', voiceNotes.dispose);
+      // Cikis ve hesap silme ile ayni dizinler: onceki hesaba ait medya,
+      // profil fotografi ve yedekler yeni hesapta kalmamali.
+      final managedDirectories = [
+        mediaDirectory,
+        Directory('${support.path}/profile'),
+        Directory('${support.path}/backups'),
+      ];
+      final localDataOwner = LocalDataOwnerGuard(
+        database: database,
+        managedDirectories: managedDirectories,
+      );
       final authCoordinator = AuthCoordinator(
         api: AuthApi(baseUrl: config.apiBaseUrl, client: httpClients.create()),
         session: session,
@@ -737,6 +749,7 @@ class AppContainer {
         signaling: signaling,
         signalingUrl: config.signalingUrl,
         privateDirectory: privateDirectory,
+        claimLocalData: localDataOwner.claim,
       );
       final contacts = ContactService(
         deviceContacts: NativeDeviceContactsGateway(),
@@ -938,11 +951,7 @@ class AppContainer {
             auth: authCoordinator,
             database: database,
             scheduledMessages: scheduledMessages,
-            managedDirectories: [
-              mediaDirectory,
-              Directory('${support.path}/profile'),
-              Directory('${support.path}/backups'),
-            ],
+            managedDirectories: managedDirectories,
             unregisterPush: pushCoordinator?.unregister,
             afterLocalCleanup: () async {
               await messageNotifications.clear();

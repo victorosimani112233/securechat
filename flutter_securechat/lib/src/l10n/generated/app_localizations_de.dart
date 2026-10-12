@@ -2264,4 +2264,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get legal_open_failed => 'Die Seite konnte nicht geöffnet werden.';
+
+  @override
+  String get logout_confirm_title => 'Abmelden?';
+
+  @override
+  String get logout_confirm_body =>
+      'Beim Abmelden werden alle Nachrichten, Medien, der Anrufverlauf und lokale Backups auf diesem Gerät gelöscht. Dein Konto bleibt auf dem Server, aber der Verlauf kommt bei der nächsten Anmeldung nicht zurück.';
 }

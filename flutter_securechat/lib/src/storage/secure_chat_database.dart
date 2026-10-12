@@ -405,6 +405,35 @@ class SecureChatDatabase {
     _fullReset = true;
   });
 
+  /// Hesaba ait kullanici icerigi var mi (sohbet, mesaj, kisi, arama kaydi,
+  /// zamanlanmis mesaj). Kripto durumu sayilmaz.
+  Future<bool> hasAccountContent() async {
+    final snapshot = _snapshot;
+    return snapshot.conversations.isNotEmpty ||
+        snapshot.messages.isNotEmpty ||
+        snapshot.contacts.isNotEmpty ||
+        snapshot.callLogs.isNotEmpty ||
+        snapshot.scheduledMessages.isNotEmpty;
+  }
+
+  /// Kullanici icerigini siler, yerel kripto durumunu KORUR.
+  ///
+  /// Farkli hesapla giriste kullanilir: o anda cihazda yeni hesabin Olm
+  /// kimligi (kayit oncesi uretilmis ya da kurtarilan) bulunabilir; onu
+  /// silmek kaydi/kurtarmayi bozar. Onceki hesabin kripto durumu cikista
+  /// zaten `clearCryptoProtocolState` ile silinir.
+  Future<void> clearAccountContent() => _write((snapshot) {
+    snapshot.conversations.clear();
+    snapshot.messages.clear();
+    snapshot.contacts.clear();
+    snapshot.callLogs.clear();
+    snapshot.scheduledMessages.clear();
+    snapshot.scheduledMessageHistory.clear();
+    snapshot.exportLogs.clear();
+    snapshot.pendingTimerUpdates.clear();
+    snapshot.pendingSignals.clear();
+  });
+
   /// Drops only peer cryptographic state. Conversation/message/user data is
   /// preserved. Used once when replacing the pre-libsignal Flutter preview's
   /// incompatible JSON key records with real Signal protobuf records.

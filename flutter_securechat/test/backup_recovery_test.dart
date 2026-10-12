@@ -8,6 +8,7 @@ import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
+import 'package:flutter_securechat/src/settings/local_data_owner_guard.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _account = '11111111-1111-4111-8111-111111111111';
@@ -387,6 +388,33 @@ void main() {
     expect(session.isLoggedIn, isFalse);
   });
 
+  test(
+    'offline restore marks the history as owned by the backup account',
+    () async {
+      await seedHistory('stale');
+      await database.cryptoState.put(LocalDataOwnerGuard.ownerKey, 'previous');
+      final backup = await encryptedBackup(profile: {'userId': _account});
+      expect(
+        await service().restoreBackup(backup, _password),
+        isA<BackupRestoreSuccess>(),
+      );
+      expect(
+        await database.cryptoState.get(LocalDataOwnerGuard.ownerKey),
+        _account,
+      );
+      // Sonraki kurtarma girisi geri yuklenen gecmisi silmemeli.
+      final restored = await snapshot();
+      await LocalDataOwnerGuard(
+        database: database,
+        managedDirectories: const [],
+      ).claim(_account);
+      expect(
+        (await snapshot())['conversations'],
+        restored['conversations'],
+      );
+    },
+  );
+
   test('legacy phone-only profile is not proof of account ownership', () async {
     await login();
     await seedHistory('active');
@@ -510,6 +538,13 @@ void main() {
   );
 }
 
+/// Sahip isareti yedekten ICE AKTARILMAZ; geri yukleme onu yedegin hesabi
+/// icin yerelde yazar (bkz LocalDataOwnerGuard). Guvenlik durumu
+/// karsilastirmalarinin disinda tutulur.
 Map<String, Object?> _security(Map<String, Object?> snapshot) => {
-  for (final key in _securityCollections) key: snapshot[key],
+  for (final key in _securityCollections)
+    key: key == 'cryptoState' && snapshot[key] is Map
+        ? (Map<String, Object?>.of((snapshot[key] as Map).cast())
+            ..remove(LocalDataOwnerGuard.ownerKey))
+        : snapshot[key],
 };

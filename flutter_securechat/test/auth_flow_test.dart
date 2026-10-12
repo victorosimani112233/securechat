@@ -273,6 +273,36 @@ void main() {
     },
   );
 
+  test(
+    'registration claims local data for the new account before login',
+    () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final session = SessionStore();
+      final claims = <(String, bool)>[];
+      final coordinator = AuthCoordinator(
+        api: _RegistrationApi('accepted'),
+        session: session,
+        olmPreKeys: _RecordingOlmKeyPublisher(),
+        signaling: InMemorySignalingService(),
+        signalingUrl: 'ws://local',
+        privateDirectory: _RecordingDirectoryApi(),
+        claimLocalData: (userId) async =>
+            claims.add((userId, session.isLoggedIn)),
+      );
+
+      await coordinator.registerAndLogin(
+        displayName: 'Alice',
+        phoneNumber: '+905551234567',
+        registrationToken: 'otp-grant',
+      );
+
+      // Onceki hesabin verisi oturum acilmadan ONCE temizlenmeli.
+      expect(claims, [(session.userId, false)]);
+      expect(session.isLoggedIn, isTrue);
+    },
+  );
+
   for (final scenario in [
     'restored identity',
     'existing account response',
@@ -294,6 +324,7 @@ void main() {
         reject: scenario == 'directory rejection',
       );
       final signaling = InMemorySignalingService();
+      final claims = <String>[];
       final coordinator = AuthCoordinator(
         api: api,
         session: session,
@@ -301,6 +332,7 @@ void main() {
         signaling: signaling,
         signalingUrl: 'ws://local',
         privateDirectory: directory,
+        claimLocalData: (userId) async => claims.add(userId),
       );
       await expectLater(
         coordinator.registerAndLogin(
@@ -320,6 +352,8 @@ void main() {
       expect(signaling.currentStatus.isConnected, isFalse);
       // Reddedilen kayit yerel kimligi ne siler ne de yayinlar.
       expect(keys.clears, 0);
+      // Reddedilen kayit yerel veriye de dokunmaz.
+      expect(claims, isEmpty);
       if (scenario == 'restored identity') expect(api.registerCalls, 0);
       expect(keys.calls, 0);
       if (scenario.contains('response') || scenario == 'restored identity') {

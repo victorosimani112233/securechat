@@ -187,6 +187,33 @@ void main() {
     expect(keys.republishes, 0);
   });
 
+  test(
+    'recovery claims local data for the account before the session logs in',
+    () async {
+      final claims = <(String, bool)>[];
+      recovery = SecureAccountRecoveryCoordinator(
+        api: api,
+        session: session,
+        recoveryKeys: keys,
+        signaling: signaling,
+        signalingUrl: 'ws://test',
+        refreshAccessToken: () async => null,
+        now: () => now,
+        claimLocalData: (userId) async =>
+            claims.add((userId, session.isLoggedIn)),
+      );
+      api.pinned = (await store.recoverySigningPublicKey())!;
+      await recovery.completeLogin(
+        await approval(),
+        acceptIdentityReplacement: false,
+      );
+      // Onceki hesabin verisi oturum acilmadan ONCE temizlenmeli.
+      expect(claims, [(account, false)]);
+      expect(session.userId, account);
+      expect(session.isLoggedIn, isTrue);
+    },
+  );
+
   test('server key in another encoding is rejected, not silently adopted', () async {
     // Sunucu daima kanonik dolgulu base64 doner. Dolgusuz bir deger ayni
     // anahtar olsa bile reddedilmeli; aksi halde istemci karsilastirmasi

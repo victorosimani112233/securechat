@@ -1037,5 +1037,7 @@
   "legal_terms": "Kullanım Şartları",
   "legal_privacy": "Gizlilik Politikası",
   "legal_child_safety": "Çocuk güvenliği standartları",
-  "legal_open_failed": "Sayfa açılamadı."
+  "legal_open_failed": "Sayfa açılamadı.",
+  "logout_confirm_title": "Çıkış yapılsın mı?",
+  "logout_confirm_body": "Çıkış yapınca bu cihazdaki tüm mesajlar, medya, arama geçmişi ve yerel yedekler silinir. Hesabınız sunucuda kalır; tekrar girişte geçmiş geri gelmez."
 }

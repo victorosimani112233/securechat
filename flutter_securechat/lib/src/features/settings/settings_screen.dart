@@ -220,6 +220,14 @@ class SettingsScreen extends StatelessWidget {
               leading: const Icon(Icons.logout),
               title: Text(l10n.settings_logout),
               onTap: () async {
+                // Cikis bu cihazdaki tum yerel veriyi siler; aksi halde ayni
+                // cihazda giris yapan sonraki hesap onceki hesabin
+                // sohbetlerini gorur. Servis kurulamadiysa eski yola dus:
+                // sonraki giristeki sahip kontrolu veriyi yine temizler.
+                if (accountData != null) {
+                  await _confirmLogout(context, accountData);
+                  return;
+                }
                 await container.pushRuntime?.coordinator.unregister();
                 final auth = container.auth;
                 if (auth != null) {
@@ -502,6 +510,33 @@ class SettingsScreen extends StatelessWidget {
       ),
     ),
   );
+
+  static Future<void> _confirmLogout(
+    BuildContext context,
+    AccountDataService accountData,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.logout),
+        title: Text(dialogContext.l10n.logout_confirm_title),
+        content: Text(dialogContext.l10n.logout_confirm_body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(dialogContext.l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(dialogContext.l10n.settings_logout),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    // Push kaydini da deleteLocalData siler.
+    await _runAndLeave(context, accountData.deleteLocalData);
+  }
 
   static Future<void> _confirmLocalDelete(
     BuildContext context,

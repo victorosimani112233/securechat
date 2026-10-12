@@ -2229,4 +2229,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get legal_open_failed => 'The page could not be opened.';
+
+  @override
+  String get logout_confirm_title => 'Log out?';
+
+  @override
+  String get logout_confirm_body =>
+      'Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again.';
 }

@@ -20,6 +20,7 @@ import 'package:flutter_securechat/src/media/media_attachment.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
+import 'package:flutter_securechat/src/settings/account_data_service.dart';
 import 'package:flutter_securechat/src/settings/settings_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
@@ -528,6 +529,95 @@ void main() {
       expect(fixture.session.profilePhotoUri, isNull);
     },
   );
+  testWidgets(
+    'logout asks first, cancel keeps data, confirm wipes local data',
+    (tester) async {
+      final fixture = (await tester.runAsync(_SettingsFixture.open))!;
+      addTearDown(fixture.close);
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final accountData = _RecordingAccountData();
+      final container = AppContainer.testing(
+        session: fixture.session,
+        conversations: InMemoryConversationRepository(
+          conversations: [],
+          messages: {},
+        ),
+        crypto: fixture.crypto,
+        signaling: fixture.signaling,
+        settingsRuntime: AppSettingsRuntime(service: fixture.settings),
+        accountDataRuntime: AppAccountDataRuntime(service: accountData),
+        callReadinessRuntime: const AppCallReadinessRuntime(
+          service: CallReadinessService(
+            platform: NotApplicableCallReadinessPlatform(),
+          ),
+        ),
+        chatAccessRuntime: const AppChatAccessRuntime(
+          service: ChatAccessService(
+            authenticator: AlwaysAllowDeviceOwnerAuthenticator(),
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        AppContainerScope(
+          container: container,
+          child: MaterialApp(
+            locale: const Locale('tr'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const SettingsScreen(),
+            routes: {'/auth': (_) => const Text('auth-route')},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SettingsScreen)),
+      );
+      final logout = find.widgetWithText(ListTile, l10n.settings_logout);
+      await tester.scrollUntilVisible(
+        logout,
+        200,
+        scrollable: find.descendant(
+          of: find.byKey(const ValueKey('settings-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+
+      await tester.tap(logout);
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.logout_confirm_body), findsOneWidget);
+      await tester.tap(find.text(l10n.cancel));
+      await tester.pumpAndSettle();
+      expect(accountData.localDeletes, 0);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+
+      await tester.tap(logout);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(l10n.settings_logout),
+        ),
+      );
+      await tester.pumpAndSettle();
+      // Cikis "Yerel verileri sil" ile ayni tam silme yolunu kullanir.
+      expect(accountData.localDeletes, 1);
+      expect(find.text('auth-route'), findsOneWidget);
+    },
+  );
+}
+
+class _RecordingAccountData implements AccountDataService {
+  int localDeletes = 0;
+
+  @override
+  Future<void> deleteLocalData() async => localDeletes++;
+
+  @override
+  Future<void> deleteAccount() async {}
 }
 
 Future<_SettingsFixture> _pumpSettingsForSemantics(WidgetTester tester) async {
