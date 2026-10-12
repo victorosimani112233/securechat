@@ -1,3 +1,4 @@
+import '../contacts/profile_name_sharing_service.dart';
 import '../core/peer_display_name.dart';
 import '../core/signal_message.dart';
 import 'dart:io';
@@ -471,6 +472,13 @@ class AppContainer {
         discovery: privateDirectory,
         onAsyncFailure: reportAsyncFailure,
       );
+      final profileNames = ProfileNameSharingService(
+        session: session,
+        crypto: crypto,
+        signaling: signaling,
+        database: database,
+        onAsyncFailure: reportAsyncFailure,
+      );
       final offlineQueue = OfflineMessageQueue(
         database: database,
         signaling: signaling,
@@ -486,6 +494,7 @@ class AppContainer {
         strings: serviceStrings,
         identityResolver: contactIdentityResolver,
         phoneSharing: phoneSharing,
+        profileNames: profileNames,
         // Cozulemeyen mesaj sessizce dusmez: sohbete gorunur bir iz birakir.
         onUndecryptableMessage: (conversationId) async {
           diagnostics.log(
@@ -523,6 +532,7 @@ class AppContainer {
         crypto: crypto,
         reliableQueue: offlineQueue,
         phoneSharing: phoneSharing,
+        profileNames: profileNames,
         onAsyncFailure: reportAsyncFailure,
       );
       final chatActivity = ChatActivityService(
@@ -735,6 +745,7 @@ class AppContainer {
         networkKindProvider: networkMonitor,
         groupControls: privateGroupControls,
         phoneSharing: phoneSharing,
+        profileNames: profileNames,
         identityResolver: contactIdentityResolver,
         onAsyncFailure: reportAsyncFailure,
       )..start();

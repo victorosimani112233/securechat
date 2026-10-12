@@ -2250,4 +2250,11 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get not_in_contacts_banner => 'Bu kişi rehberinizde değil.';
+
+  @override
+  String get settings_share_profile_name => 'Profil adımı paylaş';
+
+  @override
+  String get settings_share_profile_name_desc =>
+      'Yalnızca birebir mesaj gönderdiğin kişilerle, uçtan uca şifreli. Seni rehberinde kayıtlı tutmayanlar adını ~Ad olarak görür.';
 }

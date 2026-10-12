@@ -1,3 +1,4 @@
+import '../contacts/profile_name_sharing_service.dart';
 import '../core/peer_display_name.dart';
 import 'dart:async';
 import 'dart:io';
@@ -36,6 +37,7 @@ class MediaMessageService {
     NetworkKindProvider? networkKindProvider,
     AsyncOperationFailureHandler? onAsyncFailure,
     PhoneNumberSharingService? phoneSharing,
+    ProfileNameSharingService? profileNames,
     PrivateGroupControlSender? groupControls,
     ContactIdentityResolver? identityResolver,
     ServiceStrings? strings,
@@ -46,6 +48,7 @@ class MediaMessageService {
        _storageManagement = storageManagement,
        _networkKindProvider = networkKindProvider,
        _phoneSharing = phoneSharing,
+       _profileNames = profileNames,
        _groupControls = groupControls,
        _identityResolver =
            identityResolver ?? ContactIdentityResolver(database: database),
@@ -61,6 +64,7 @@ class MediaMessageService {
   final StorageManagementService? _storageManagement;
   final NetworkKindProvider? _networkKindProvider;
   final PhoneNumberSharingService? _phoneSharing;
+  final ProfileNameSharingService? _profileNames;
   final PrivateGroupControlSender? _groupControls;
   final ContactIdentityResolver _identityResolver;
   final ServiceStrings _strings;
@@ -142,7 +146,10 @@ class MediaMessageService {
     if (conversation != null && conversation.isGroup != isGroup) {
       throw StateError('Conversation type changed; reopen the conversation');
     }
-    if (!isGroup) await _phoneSharing?.shareWith(recipientId);
+    if (!isGroup) {
+      await _phoneSharing?.shareWith(recipientId);
+      await _profileNames?.shareWith(recipientId);
+    }
     final outcomes = <MediaSendOutcome>[];
     for (var index = 0; index < attachments.length; index++) {
       var recipients = <String>[recipientId];
@@ -429,7 +436,13 @@ class MediaMessageService {
         peerId: conversationId,
         // Grup adi davetle gelir; birebirde ic kimlik ad olarak saklanmaz
         // (gosterim katmani "Bilinmeyen kisi" der).
-        peerName: received.groupId != null ? conversationId : '',
+        peerName: received.groupId != null
+            ? conversationId
+            : await ProfileNameSharingService.storedLabel(
+                    _database,
+                    received.senderId,
+                  ) ??
+                  '',
         peerPhone: '',
         isGroup: received.groupId != null,
         groupMembers: received.groupId == null ? null : received.senderId,

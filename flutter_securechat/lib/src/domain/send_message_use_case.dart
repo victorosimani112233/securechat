@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import '../contacts/profile_name_sharing_service.dart';
 import '../chat/conversation_preview.dart';
 import '../contacts/phone_number_sharing_service.dart';
 import '../core/signal_message.dart';
@@ -48,6 +49,7 @@ class SendMessageUseCase {
     Random? random,
     OfflineMessageQueue? reliableQueue,
     PhoneNumberSharingService? phoneSharing,
+    ProfileNameSharingService? profileNames,
     AsyncOperationFailureHandler? onAsyncFailure,
   }) : _database = database,
        _signaling = signaling,
@@ -58,6 +60,7 @@ class SendMessageUseCase {
            PrivateGroupControlSender(crypto: crypto, signaling: signaling),
        _reliableQueue = reliableQueue,
        _phoneSharing = phoneSharing,
+       _profileNames = profileNames,
        _onAsyncFailure = onAsyncFailure,
        _random = random ?? Random.secure();
 
@@ -68,6 +71,7 @@ class SendMessageUseCase {
   final PrivateGroupControlSender _groupControls;
   final OfflineMessageQueue? _reliableQueue;
   final PhoneNumberSharingService? _phoneSharing;
+  final ProfileNameSharingService? _profileNames;
   final AsyncOperationFailureHandler? _onAsyncFailure;
   final Random _random;
   final int maxRetryCount;
@@ -154,6 +158,11 @@ class SendMessageUseCase {
     try {
       if (!isGroup) {
         await _phoneSharing?.shareWith(
+          request.conversationId,
+          send: (signal) =>
+              _sendEncryptedDependency(signal, messageId: messageId),
+        );
+        await _profileNames?.shareWith(
           request.conversationId,
           send: (signal) =>
               _sendEncryptedDependency(signal, messageId: messageId),

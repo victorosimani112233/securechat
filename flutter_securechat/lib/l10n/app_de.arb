@@ -675,5 +675,7 @@
   "recipient_no_results": "Keine passenden Kontakte",
   "contacts_sync": "Kontakte synchronisieren",
   "unknown_contact": "Unbekannter Kontakt",
-  "not_in_contacts_banner": "Diese Person ist nicht in deinen Kontakten."
+  "not_in_contacts_banner": "Diese Person ist nicht in deinen Kontakten.",
+  "settings_share_profile_name": "Meinen Profilnamen teilen",
+  "settings_share_profile_name_desc": "Nur mit Personen, denen du direkt schreibst, Ende-zu-Ende-verschlüsselt. Wer dich nicht in den Kontakten hat, sieht ihn als ~Name."
 }

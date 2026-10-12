@@ -18,6 +18,7 @@ const _privateControlTypes = <String>{
   'typing_indicator',
   'disappearing_timer',
   'shared_phone',
+  'shared_profile_name',
 };
 
 bool isPrivateChatControl(String plaintext) =>

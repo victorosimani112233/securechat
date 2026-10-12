@@ -18,6 +18,7 @@ class SessionStore {
     this.shareOnline = true,
     this.shareReadReceipts = true,
     this.sharePhoneNumber = false,
+    this.shareProfileName = true,
     this.themePreference = 'system',
     this.languagePreference = 'system',
     this.showNotificationContent = false,
@@ -38,6 +39,9 @@ class SessionStore {
   bool shareOnline;
   bool shareReadReceipts;
   bool sharePhoneNumber;
+
+  /// Kendi gorunen adini birebir yazdigin kisilere sifreli paylasir.
+  bool shareProfileName;
   String themePreference;
   String languagePreference;
   bool showNotificationContent;
@@ -76,6 +80,7 @@ class SessionStore {
     shareOnline = true;
     shareReadReceipts = true;
     sharePhoneNumber = false;
+    shareProfileName = true;
     themePreference = 'system';
     languagePreference = 'system';
     showNotificationContent = false;
@@ -158,6 +163,7 @@ class SessionStore {
     'shareOnline': shareOnline,
     'shareReadReceipts': shareReadReceipts,
     'sharePhoneNumber': sharePhoneNumber,
+    'shareProfileName': shareProfileName,
     'themePreference': themePreference,
     'languagePreference': languagePreference,
     'showNotificationContent': showNotificationContent,
@@ -179,6 +185,7 @@ class SessionStore {
     shareOnline = json['shareOnline'] as bool? ?? true;
     shareReadReceipts = json['shareReadReceipts'] as bool? ?? true;
     sharePhoneNumber = json['sharePhoneNumber'] as bool? ?? false;
+    shareProfileName = json['shareProfileName'] as bool? ?? true;
     themePreference = _allowed(json['themePreference'], const {
       'system',
       'light',

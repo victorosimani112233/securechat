@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 
+import '../contacts/profile_name_sharing_service.dart';
 import '../core/peer_display_name.dart';
 import '../chat/conversation_preview.dart';
 import '../chat/disappearing_timer_notice.dart';
@@ -99,6 +100,7 @@ class IncomingMessageHandler {
     required SessionStore session,
     ContactIdentityResolver? identityResolver,
     PhoneNumberSharingService? phoneSharing,
+    ProfileNameSharingService? profileNames,
     ServiceStrings? strings,
     CallMediaKeyReceiver? applyCallMediaKey,
     AsyncOperationFailureHandler? onAsyncFailure,
@@ -110,6 +112,7 @@ class IncomingMessageHandler {
        _strings = strings ?? ServiceStrings.fixed('tr'),
        _identityResolver = identityResolver,
        _phoneSharing = phoneSharing,
+       _profileNames = profileNames,
        _applyCallMediaKey = applyCallMediaKey,
        _onUndecryptableMessage = onUndecryptableMessage,
        _blockList = BlockList(database.cryptoState),
@@ -122,6 +125,7 @@ class IncomingMessageHandler {
   final ServiceStrings _strings;
   final ContactIdentityResolver? _identityResolver;
   final PhoneNumberSharingService? _phoneSharing;
+  final ProfileNameSharingService? _profileNames;
   final CallMediaKeyReceiver? _applyCallMediaKey;
   final Future<void> Function(String conversationId)? _onUndecryptableMessage;
   final BlockList _blockList;
@@ -244,6 +248,8 @@ class IncomingMessageHandler {
         await _typingIfAllowed(signal);
       case SharedPhoneSignal() when privateChatControl:
         await _phoneSharing?.accept(signal);
+      case SharedProfileNameSignal() when privateChatControl:
+        await _profileNames?.accept(signal);
       case PresenceUpdateSignal():
         _presenceSignal(signal);
       case AdminEncryptedLogSignal():
@@ -642,7 +648,11 @@ class IncomingMessageHandler {
                   identity?.displayName ?? '',
                   peerId: signal.senderId,
                 )
-              ? ''
+              ? await ProfileNameSharingService.storedLabel(
+                      _database,
+                      signal.senderId,
+                    ) ??
+                    ''
               : identity!.displayName,
           peerPhone: identity?.phoneNumber ?? '',
           isGroup: isGroup,

@@ -2295,4 +2295,11 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get not_in_contacts_banner =>
       'Diese Person ist nicht in deinen Kontakten.';
+
+  @override
+  String get settings_share_profile_name => 'Meinen Profilnamen teilen';
+
+  @override
+  String get settings_share_profile_name_desc =>
+      'Nur mit Personen, denen du direkt schreibst, Ende-zu-Ende-verschlüsselt. Wer dich nicht in den Kontakten hat, sieht ihn als ~Name.';
 }

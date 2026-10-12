@@ -153,8 +153,11 @@ class PhoneNumberSharingService {
       conversation = await _database.conversations.getByPeerId(peerId);
       if (conversation?.isGroup == true) return false;
       final contact = await _database.contacts.getById(peerId);
+      // Paylasilan profil adi ("~Ad") numarayla ezilmez; numara peerPhone'da.
       final name = contact?.displayName.isNotEmpty == true
           ? contact!.displayName
+          : conversation?.peerName.startsWith('~') == true
+          ? conversation!.peerName
           : phone;
       final displayPhone = contact?.phoneNumber.isNotEmpty == true
           ? contact!.phoneNumber

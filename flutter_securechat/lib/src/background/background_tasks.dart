@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
 
+import '../contacts/profile_name_sharing_service.dart';
 import '../config/app_config.dart';
 import '../chat/private_chat_control.dart';
 import '../contacts/contact_service.dart';
@@ -224,6 +225,15 @@ class SecureChatBackgroundRuntime {
           _logBackgroundFailure('BG-PHONE', operation, error, stackTrace);
         },
       );
+      final profileNames = ProfileNameSharingService(
+        session: session,
+        crypto: crypto,
+        signaling: signaling,
+        database: database,
+        onAsyncFailure: (operation, error, stackTrace) async {
+          _logBackgroundFailure('BG-PROFILE', operation, error, stackTrace);
+        },
+      );
       final serviceStrings = ServiceStrings(
         languageCode: () async => session.languagePreference,
       );
@@ -235,6 +245,7 @@ class SecureChatBackgroundRuntime {
         strings: serviceStrings,
         identityResolver: contactIdentityResolver,
         phoneSharing: phoneSharing,
+        profileNames: profileNames,
         onAsyncFailure: (operation, error, stackTrace) async {
           _logBackgroundFailure('BG-INCOMING', operation, error, stackTrace);
         },
@@ -300,6 +311,7 @@ class SecureChatBackgroundRuntime {
         crypto: crypto,
         reliableQueue: outbox,
         phoneSharing: phoneSharing,
+        profileNames: profileNames,
         onAsyncFailure: (operation, error, stackTrace) async {
           _logBackgroundFailure('BG-SEND', operation, error, stackTrace);
         },

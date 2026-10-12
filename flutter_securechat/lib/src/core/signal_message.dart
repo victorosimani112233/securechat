@@ -48,6 +48,7 @@ sealed class SignalMessage {
       'presence_unsubscribe' => PresenceUnsubscribeSignal.fromJson(data),
       'disappearing_timer' => DisappearingTimerSignal.fromJson(data),
       'shared_phone' => SharedPhoneSignal.fromJson(data),
+      'shared_profile_name' => SharedProfileNameSignal.fromJson(data),
       'call_control' => CallControlSignal.fromJson(data),
       'call_control_ack' => CallControlAckSignal.fromJson(data),
       'session_reset_request' => SessionResetRequestSignal.fromJson(data),
@@ -98,6 +99,37 @@ class SharedPhoneSignal extends SignalMessage {
 
   @override
   Map<String, Object?> toJson() => {..._base(this), 'phoneNumber': phoneNumber};
+}
+
+/// Gonderenin kendi sectigi gorunen ad. Yalniz kimligi dogrulanmis,
+/// sifreli ozel sohbet kontrolu icinde kabul edilir; alici rehberinde
+/// olmayan kisiyi "~Ad" olarak gorur (WhatsApp davranisi).
+class SharedProfileNameSignal extends SignalMessage {
+  const SharedProfileNameSignal({
+    required super.senderId,
+    required super.recipientId,
+    required super.timestamp,
+    required this.displayName,
+  });
+
+  final String displayName;
+
+  @override
+  String get type => 'shared_profile_name';
+
+  factory SharedProfileNameSignal.fromJson(Map<String, Object?> json) =>
+      SharedProfileNameSignal(
+        senderId: json['senderId'] as String? ?? '',
+        recipientId: json['recipientId'] as String? ?? '',
+        timestamp: _dt(json['timestamp']),
+        displayName: json['displayName'] as String? ?? '',
+      );
+
+  @override
+  Map<String, Object?> toJson() => {
+    ..._base(this),
+    'displayName': displayName,
+  };
 }
 
 Map<String, Object?> _base(SignalMessage msg) => {

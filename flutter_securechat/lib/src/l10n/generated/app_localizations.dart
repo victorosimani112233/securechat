@@ -4157,6 +4157,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This person is not in your contacts.'**
   String get not_in_contacts_banner;
+
+  /// No description provided for @settings_share_profile_name.
+  ///
+  /// In en, this message translates to:
+  /// **'Share my profile name'**
+  String get settings_share_profile_name;
+
+  /// No description provided for @settings_share_profile_name_desc.
+  ///
+  /// In en, this message translates to:
+  /// **'Only with people you message one-to-one, end-to-end encrypted. People who do not have you in their contacts see it as ~Name.'**
+  String get settings_share_profile_name_desc;
 }
 
 class _AppLocalizationsDelegate

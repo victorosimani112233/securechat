@@ -1046,5 +1046,7 @@
   "recipient_no_results": "Eşleşen kişi yok",
   "contacts_sync": "Rehberi eşitle",
   "unknown_contact": "Bilinmeyen kişi",
-  "not_in_contacts_banner": "Bu kişi rehberinizde değil."
+  "not_in_contacts_banner": "Bu kişi rehberinizde değil.",
+  "settings_share_profile_name": "Profil adımı paylaş",
+  "settings_share_profile_name_desc": "Yalnızca birebir mesaj gönderdiğin kişilerle, uçtan uca şifreli. Seni rehberinde kayıtlı tutmayanlar adını ~Ad olarak görür."
 }

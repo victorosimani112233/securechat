@@ -409,6 +409,21 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
               SwitchListTile(
+                key: const ValueKey('settings-share-profile-name'),
+                secondary: const Icon(Icons.badge_outlined),
+                title: Text(context.l10n.settings_share_profile_name),
+                value: settings.shareProfileName,
+                onChanged: (value) =>
+                    _run(context, () => service.setShareProfileName(value)),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Text(
+                  context.l10n.settings_share_profile_name_desc,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              SwitchListTile(
                 secondary: const Icon(Icons.visibility_outlined),
                 title: Text(context.l10n.settings_show_message_preview),
                 subtitle: Text(context.l10n.settings_notification_preview_desc),

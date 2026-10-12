@@ -75,6 +75,7 @@ class AppSettingsState {
     this.shareOnline = true,
     this.shareReadReceipts = true,
     this.sharePhoneNumber = false,
+    this.shareProfileName = true,
     required this.profilePhotoPath,
   });
 
@@ -89,6 +90,7 @@ class AppSettingsState {
   final bool shareOnline;
   final bool shareReadReceipts;
   final bool sharePhoneNumber;
+  final bool shareProfileName;
   final String? profilePhotoPath;
 }
 
@@ -161,6 +163,7 @@ class SettingsService {
     shareOnline: _session.shareOnline,
     shareReadReceipts: _session.shareReadReceipts,
     sharePhoneNumber: _session.sharePhoneNumber,
+    shareProfileName: _session.shareProfileName,
     profilePhotoPath: _session.profilePhotoUri,
   );
 
@@ -274,6 +277,18 @@ class SettingsService {
     } catch (_) {
       // A failed opt-in must not authorize disclosure in this process.
       _session.sharePhoneNumber = false;
+      _emit();
+      rethrow;
+    }
+  }
+
+  Future<void> setShareProfileName(bool value) async {
+    final previous = _session.shareProfileName;
+    _session.shareProfileName = value;
+    try {
+      await _persistAndEmit();
+    } catch (_) {
+      _session.shareProfileName = previous && value;
       _emit();
       rethrow;
     }
