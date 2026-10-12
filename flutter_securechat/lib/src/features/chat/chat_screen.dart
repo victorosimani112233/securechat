@@ -68,7 +68,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   var _showAttachments = false;
   var _nearBottom = true;
   var _unseenCount = 0;
-  var _knownMessageCount = -1;
+  /// Son cizilen zaman cizelgesindeki mesaj kimlikleri; null = ilk cizim.
+  Set<String>? _knownMessageIds;
+  var _knownCallCount = 0;
   bool _initialNavigationDone = false;
   var _searchIndex = 0;
   String? _highlightedMessageId;
@@ -201,7 +203,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _accessGranted = !routeConversation.isLocked;
       _accessChecking = false;
       _markedRead = false;
-      _knownMessageCount = -1;
+      _knownMessageIds = null;
+      _knownCallCount = 0;
       _messageExpiryTimer?.cancel();
       _scheduledExpiryAt = null;
       _unseenCount = 0;
@@ -647,7 +650,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required List<LocalMessage> messages,
     required List<CallHistoryEntry> calls,
   }) {
-    _handleTimelineSnapshot(messages.length + calls.length);
+    _handleTimelineSnapshot(messages, calls.length);
     if (messages.isEmpty && calls.isEmpty) {
       return const Center(
         child: Padding(
@@ -745,14 +748,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
-  void _handleTimelineSnapshot(int nextCount) {
-    final previousCount = _knownMessageCount;
-    if (nextCount == previousCount) return;
-    _knownMessageCount = nextCount;
-    final added = previousCount < 0
+  void _handleTimelineSnapshot(List<LocalMessage> messages, int callCount) {
+    final ids = {for (final message in messages) message.id};
+    final previous = _knownMessageIds;
+    final previousCalls = _knownCallCount;
+    if (previous != null &&
+        callCount == previousCalls &&
+        setEquals(previous, ids)) {
+      return;
+    }
+    _knownMessageIds = ids;
+    _knownCallCount = callCount;
+    final fresh = previous == null
+        ? const <LocalMessage>[]
+        : messages.where((message) => !previous.contains(message.id)).toList();
+    // Kullanici kendi gonderdigini gormek ister: yukaridayken dosya/anket
+    // gonderince ekran yerinde kaliyor, "en yeni" rozeti kendi mesajlarini
+    // sayiyordu (QA 2026-10-12 Bulgu 10). Rozet yalniz gelenleri sayar.
+    final sentByMe = fresh.any((message) => message.isOutgoing);
+    final added = previous == null
         ? 0
-        : (nextCount - previousCount).clamp(0, nextCount).toInt();
-    final shouldFollow = previousCount < 0 || _nearBottom;
+        : fresh.where((message) => !message.isOutgoing).length +
+              (callCount - previousCalls).clamp(0, callCount).toInt();
+    final shouldFollow = previous == null || _nearBottom || sentByMe;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_messageScroll.hasClients) return;
       if (!_initialNavigationDone &&
@@ -763,7 +781,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         return;
       }
       if (shouldFollow) {
-        _messageScroll.jumpTo(_messageScroll.position.maxScrollExtent);
+        _jumpToBottomSettled();
         if (!_nearBottom || _unseenCount != 0) {
           setState(() {
             _nearBottom = true;
@@ -774,6 +792,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         setState(() => _unseenCount += added);
       }
     });
+  }
+
+  /// En alta atlar; tembel liste yeni ogeleri olcunce kapsam buyuyebilir,
+  /// bu yuzden sonraki karelerde (en fazla iki kez) yeniden hizalar.
+  void _jumpToBottomSettled([int remaining = 2]) {
+    if (!mounted || !_messageScroll.hasClients) return;
+    final position = _messageScroll.position;
+    position.jumpTo(position.maxScrollExtent);
+    if (remaining == 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_messageScroll.hasClients) return;
+      final next = _messageScroll.position;
+      if (next.pixels < next.maxScrollExtent) {
+        _jumpToBottomSettled(remaining - 1);
+      }
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   Future<void> _openInitialTarget() async {
