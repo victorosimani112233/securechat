@@ -1,3 +1,4 @@
+import '../core/peer_display_name.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
@@ -426,7 +427,9 @@ class MediaMessageService {
       conversation = ConversationEntity(
         id: conversationId,
         peerId: conversationId,
-        peerName: conversationId,
+        // Grup adi davetle gelir; birebirde ic kimlik ad olarak saklanmaz
+        // (gosterim katmani "Bilinmeyen kisi" der).
+        peerName: received.groupId != null ? conversationId : '',
         peerPhone: '',
         isGroup: received.groupId != null,
         groupMembers: received.groupId == null ? null : received.senderId,
@@ -494,11 +497,14 @@ class MediaMessageService {
     // background shutdown observe a fully persisted message.
     final strings = await _strings.load();
     final identity = await _identityResolver.resolve(received.senderId);
-    final senderName =
-        identity.displayName.isEmpty ||
-            identity.displayName == received.senderId
-        ? strings.group_unknown_member
-        : identity.displayName;
+    final senderName = peerDisplayName(
+      identity.displayName,
+      peerId: received.senderId,
+      phone: conversation.isGroup ? '' : identity.phoneNumber,
+      unknown: conversation.isGroup
+          ? strings.group_unknown_member
+          : strings.unknown_contact,
+    );
     _acceptedMessages.add(
       IncomingMessageEvent(
         messageId: messageId,

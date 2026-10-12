@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 
+import '../core/peer_display_name.dart';
 import '../chat/conversation_preview.dart';
 import '../chat/disappearing_timer_notice.dart';
 import '../chat/message_interaction_service.dart';
@@ -633,9 +634,16 @@ class IncomingMessageHandler {
         ConversationEntity(
           id: conversationId,
           peerId: conversationId,
+          // Ic kimlik ad olarak saklanmaz; gosterim katmani "Bilinmeyen
+          // kisi" der (QA 2026-10-12 Bulgu 3).
           peerName: isGroup
               ? conversationId
-              : (identity?.displayName ?? signal.senderId),
+              : isOpaquePeerName(
+                  identity?.displayName ?? '',
+                  peerId: signal.senderId,
+                )
+              ? ''
+              : identity!.displayName,
           peerPhone: identity?.phoneNumber ?? '',
           isGroup: isGroup,
           groupMembers: isGroup ? signal.senderId : null,
@@ -677,9 +685,12 @@ class IncomingMessageHandler {
     final isMention = parsed.mentionedUserIds.contains(_session.userId);
     final title = isGroup
         ? '${await _groupMemberName(signal.senderId)} (${storedConversation?.peerName ?? conversationId})'
-        : (storedConversation?.peerName.isNotEmpty == true
-              ? storedConversation!.peerName
-              : signal.senderId);
+        : peerDisplayName(
+            storedConversation?.peerName ?? '',
+            peerId: signal.senderId,
+            phone: storedConversation?.peerPhone ?? '',
+            unknown: (await _strings.load()).unknown_contact,
+          );
     _messageController.add(
       IncomingMessageEvent(
         messageId: messageId,

@@ -472,7 +472,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                conversation.peerName,
+                                context.conversationTitle(conversation),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.titleSmall
@@ -646,7 +646,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     LocalMessage message,
     Conversation? conversation,
   ) {
-    final title = conversation?.peerName ?? message.conversationId;
+    final title = conversation == null
+        ? context.l10n.unknown_contact
+        : context.conversationTitle(conversation);
     return AzureGlassPanel(
       padding: EdgeInsets.zero,
       radius: 14,
@@ -1066,7 +1068,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           content: Text(
             _keepsGroup(context, conversation)
                 ? context.l10n.clear_group_history_body
-                : context.l10n.delete_chat_body(conversation.peerName),
+                : context.l10n.delete_chat_body(
+                    context.conversationTitle(conversation),
+                  ),
           ),
           actions: [
             TextButton(

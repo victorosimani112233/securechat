@@ -4145,6 +4145,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sync contacts'**
   String get contacts_sync;
+
+  /// No description provided for @unknown_contact.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown contact'**
+  String get unknown_contact;
+
+  /// No description provided for @not_in_contacts_banner.
+  ///
+  /// In en, this message translates to:
+  /// **'This person is not in your contacts.'**
+  String get not_in_contacts_banner;
 }
 
 class _AppLocalizationsDelegate

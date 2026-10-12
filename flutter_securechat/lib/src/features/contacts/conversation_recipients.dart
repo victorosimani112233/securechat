@@ -1,14 +1,18 @@
 import 'dart:async';
 
 import '../../core/models.dart';
+import '../../core/peer_display_name.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
 import 'recipient_picker_screen.dart';
 
 /// Includes registered contacts without creating empty chats while browsing.
 class ConversationRecipients {
-  ConversationRecipients(this.container);
+  ConversationRecipients(this.container, {required this.unknownLabel});
   final AppContainer container;
+
+  /// Adi bilinmeyen birebir sohbet icin gosterilen metin (UUID degil).
+  final String unknownLabel;
   final _contacts = <String, ContactEntity>{};
 
   late final Stream<List<RecipientChoice>> choices = Stream.multi((controller) {
@@ -22,7 +26,14 @@ class ConversationRecipients {
         for (final item in conversations)
           RecipientChoice(
             id: item.id,
-            name: item.peerName,
+            name: item.isGroup
+                ? item.peerName
+                : peerDisplayName(
+                    item.peerName,
+                    peerId: item.peerId,
+                    phone: item.peerPhone,
+                    unknown: unknownLabel,
+                  ),
             detail: item.peerPhone,
             isGroup: item.isGroup,
           ),

@@ -1044,5 +1044,7 @@
   "view_once_unsupported_type": "Bu dosya türü tek gösterimlik açılamaz.",
   "view_once_only_photo_or_text": "Yalnız fotoğraf ve metin dosyaları tek gösterimlik gönderilebilir.",
   "recipient_no_results": "Eşleşen kişi yok",
-  "contacts_sync": "Rehberi eşitle"
+  "contacts_sync": "Rehberi eşitle",
+  "unknown_contact": "Bilinmeyen kişi",
+  "not_in_contacts_banner": "Bu kişi rehberinizde değil."
 }

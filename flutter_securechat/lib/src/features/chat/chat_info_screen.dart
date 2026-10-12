@@ -104,7 +104,16 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
           children: [
             GeneratedAvatar(name: c.peerName, size: 96, isGroup: c.isGroup),
             const SizedBox(height: 12),
-            Text(c.peerName, style: Theme.of(context).textTheme.headlineSmall),
+            Text(
+              c.isGroup
+                  ? c.peerName
+                  : context.peerLabel(
+                      c.peerName,
+                      peerId: c.peerId,
+                      phone: c.peerPhone,
+                    ),
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
             Text(c.peerPhone),
           ],
         ),

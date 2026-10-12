@@ -254,7 +254,13 @@ void main() {
     expect(receiptWire.toJson()['type'], 'encrypted_message');
     final event = await notification;
     expect(event.conversationId, 'alice');
-    expect(event.title, 'alice');
+    // Kisi kaydi yokken ic kimlik ad olarak ne saklanir ne gosterilir
+    // (QA 2026-10-12 Bulgu 3).
+    expect(event.title, 'Bilinmeyen kişi');
+    expect(
+      (await fixture.database.conversations.getById('alice'))?.peerName,
+      '',
+    );
     expect(event.preview, 'hello');
   });
 

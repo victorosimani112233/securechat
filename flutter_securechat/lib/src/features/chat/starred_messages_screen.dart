@@ -58,7 +58,7 @@ class StarredMessagesScreen extends StatelessWidget {
                         if (chat.isLocked)
                           return ListTile(
                             leading: const Icon(Icons.lock_outline),
-                            title: Text(chat.peerName),
+                            title: Text(context.conversationTitle(chat)),
                             onTap: () => _open(context, chat, starred: true),
                           );
                         return ExpansionTile(
@@ -69,7 +69,7 @@ class StarredMessagesScreen extends StatelessWidget {
                             isGroup: chat.isGroup,
                             size: 36,
                           ),
-                          title: Text(chat.peerName),
+                          title: Text(context.conversationTitle(chat)),
                           children: [
                             for (final message in messages)
                               ListTile(

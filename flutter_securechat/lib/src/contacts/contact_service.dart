@@ -167,6 +167,10 @@ class ContactService {
   Stream<List<ContactEntity>> watchRegistered() =>
       _database.contacts.getRegistered();
 
+  /// Kisi kaydi var mi (rehberden ya da numarayla elle eklenmis).
+  Future<bool> isKnownContact(String userId) async =>
+      await _database.contacts.getById(userId) != null;
+
   /// Grup uye secicisi icin: rehber kisileri + birebir sohbet karsi taraflari.
   Stream<List<ContactEntity>> watchGroupCandidates() =>
       _database.contacts.watchGroupCandidates();

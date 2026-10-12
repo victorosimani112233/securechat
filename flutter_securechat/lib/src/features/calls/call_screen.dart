@@ -248,7 +248,9 @@ class _CallScreenState extends State<CallScreen> {
     required bool compact,
   }) {
     final name = Text(
-      session.peerName,
+      session.isGroupCall
+          ? session.peerName
+          : context.peerLabel(session.peerName, peerId: session.peerId),
       key: const ValueKey('call-peer-name'),
       textAlign: compact ? TextAlign.start : TextAlign.center,
       maxLines: 3,
@@ -538,7 +540,12 @@ class _CallScreenState extends State<CallScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  session.peerName,
+                  session.isGroupCall
+                      ? session.peerName
+                      : context.peerLabel(
+                          session.peerName,
+                          peerId: session.peerId,
+                        ),
                   key: const ValueKey('call-peer-name'),
                   maxLines: MediaQuery.sizeOf(context).height < 400 ? 1 : 2,
                   overflow: TextOverflow.ellipsis,

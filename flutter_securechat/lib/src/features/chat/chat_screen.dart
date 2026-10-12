@@ -90,6 +90,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Direkt sohbette karsi taraf engelli mi. Engelliyken yazma alani ve
   /// arama kapanir; gelen icerik zaten alicida atilir.
   bool _peerBlocked = false;
+
+  /// Karsi taraf kisi kayitlarinda yok (rehberde degil, elle eklenmedi).
+  bool _peerUnknown = false;
+  bool _unknownBannerDismissed = false;
   StreamSubscription<List<Conversation>>? _conversationSubscription;
   StreamSubscription<Map<String, ContactIdentity>>? _groupIdentitySubscription;
   Map<String, ContactIdentity> _groupIdentities = const {};
@@ -142,7 +146,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final container = AppContainerScope.of(context);
       _conversation = routeConversation;
       _peerBlocked = false;
-      if (!routeConversation.isGroup) unawaited(_refreshBlocked(container));
+      _peerUnknown = false;
+      _unknownBannerDismissed = false;
+      if (!routeConversation.isGroup) {
+        unawaited(_refreshBlocked(container));
+        unawaited(_refreshKnownContact(container));
+      }
       _groupIdentitySubscription?.cancel();
       _groupIdentities = const {};
       _groupIdentitySubscription = routeConversation.isGroup
@@ -239,7 +248,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 const Icon(Icons.lock_outline, size: 48),
                 const SizedBox(height: 16),
                 Text(
-                  conversation.peerName,
+                  context.conversationTitle(conversation),
                   style: Theme.of(context).textTheme.titleLarge,
                   textAlign: TextAlign.center,
                 ),
@@ -293,7 +302,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            conversation.peerName,
+                            context.conversationTitle(conversation),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.titleMedium,
@@ -471,6 +480,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               MaterialBanner(
                 content: Text(context.l10n.read_only_announcement),
                 actions: const [SizedBox.shrink()],
+              )
+            else if (!conversation.isGroup &&
+                _peerUnknown &&
+                !_unknownBannerDismissed)
+              // WhatsApp'taki gibi: rehberde olmayan birinden gelen sohbet.
+              MaterialBanner(
+                key: const ValueKey('chat-unknown-banner'),
+                content: Text(context.l10n.not_in_contacts_banner),
+                actions: [
+                  TextButton(
+                    onPressed: () =>
+                        _handleMenu(context, conversation, 'block'),
+                    child: Text(context.l10n.safety_block),
+                  ),
+                  TextButton(
+                    onPressed: () =>
+                        setState(() => _unknownBannerDismissed = true),
+                    child: Text(context.l10n.action_close),
+                  ),
+                ],
               ),
             AnimatedSize(
               duration: const Duration(milliseconds: 200),
@@ -924,7 +953,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   String _senderLabel(LocalMessage message) {
     if (message.isOutgoing) return context.l10n.chat_you;
-    if (_conversation?.isGroup != true) return _conversation!.peerName;
+    if (_conversation?.isGroup != true) {
+      return context.conversationTitle(_conversation!);
+    }
     return _memberLabel(message.senderId);
   }
 
@@ -1845,6 +1876,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         peerIds: conversation.groupMembers,
       ),
     );
+  }
+
+  Future<void> _refreshKnownContact(AppContainer container) async {
+    final conversation = _conversation;
+    final contacts = container.contacts;
+    if (conversation == null || conversation.isGroup || contacts == null) {
+      return;
+    }
+    final known = await contacts.isKnownContact(conversation.peerId);
+    if (!mounted || _conversation?.id != conversation.id) return;
+    if (_peerUnknown == known) setState(() => _peerUnknown = !known);
   }
 
   Future<void> _refreshBlocked(AppContainer container) async {

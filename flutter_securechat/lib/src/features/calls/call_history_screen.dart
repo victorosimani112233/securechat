@@ -166,7 +166,14 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                             ? null
                             : () => _confirmDelete(call),
                         leading: GeneratedAvatar(name: call.peerName),
-                        title: Text(call.peerName),
+                        title: Text(
+                          call.groupId != null
+                              ? call.peerName
+                              : context.peerLabel(
+                                  call.peerName,
+                                  peerId: call.peerId,
+                                ),
+                        ),
                         subtitle: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -239,7 +246,10 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         builder: (dialogContext) => AlertDialog(
           scrollable: true,
           title: Text(context.l10n.conv_delete),
-          content: Text('${call.peerName}\n${_description(context, call)}'),
+          content: Text(
+            '${call.groupId != null ? call.peerName : context.peerLabel(call.peerName, peerId: call.peerId)}'
+            '\n${_description(context, call)}',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),

@@ -1051,5 +1051,7 @@
   "view_once_unsupported_type": "This file type cannot be opened as view once.",
   "view_once_only_photo_or_text": "Only photos and text files can be sent as view once.",
   "recipient_no_results": "No matching contacts",
-  "contacts_sync": "Sync contacts"
+  "contacts_sync": "Sync contacts",
+  "unknown_contact": "Unknown contact",
+  "not_in_contacts_banner": "This person is not in your contacts."
 }

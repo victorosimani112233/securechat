@@ -1,3 +1,4 @@
+import '../core/peer_display_name.dart';
 import '../core/signal_message.dart';
 import 'dart:io';
 
@@ -596,11 +597,24 @@ class AppContainer {
       );
       final groupCallRoutes = PrivateGroupCallRoutes(database, session);
 
+      // Arama ekrani, Telecom bildirimi, cevapsiz arama ve arama kaydi bu
+      // adi kullanir: ic kimlik (UUID) asla ad olarak donmez.
       Future<String> resolvePeerName(String peerId) async {
         final conversation = await database.conversations.getById(peerId);
-        if (conversation != null) return conversation.peerName;
+        if (conversation != null && conversation.isGroup) {
+          return conversation.peerName;
+        }
         final contact = await database.contacts.getById(peerId);
-        return contact?.displayName ?? peerId;
+        final name =
+            !isOpaquePeerName(conversation?.peerName ?? '', peerId: peerId)
+            ? conversation!.peerName
+            : contact?.displayName ?? '';
+        return peerDisplayName(
+          name,
+          peerId: peerId,
+          phone: conversation?.peerPhone ?? contact?.phoneNumber ?? '',
+          unknown: (await serviceStrings.load()).unknown_contact,
+        );
       }
 
       Future<String> preparePrivateGroupCall({
@@ -851,9 +865,7 @@ class AppContainer {
         ),
         crypto: crypto,
         signaling: signaling,
-        cryptoRuntime: AppCryptoRuntime(
-          callCrypto: CallCryptoManager(),
-        ),
+        cryptoRuntime: AppCryptoRuntime(callCrypto: CallCryptoManager()),
         networkRuntime: AppNetworkRuntime(
           offlineQueue: offlineQueue,
           stuckMessageRecovery: stuckMessageRecovery,
@@ -1001,9 +1013,7 @@ class AppContainer {
 }
 
 class AppCryptoRuntime {
-  const AppCryptoRuntime({
-    required this.callCrypto,
-  });
+  const AppCryptoRuntime({required this.callCrypto});
 
   final CallCryptoManager callCrypto;
 }
@@ -1064,6 +1074,7 @@ class AppBackgroundRuntime {
   final MessageDao messages;
   final StuckMessageRecovery stuckMessageRecovery;
   final SignalingService signaling;
+
   /// Olm acik anahtarlarinin yayini.
   ///
   /// Eskiden `PreKeyMaintenanceService` idi ve libsignal havuzunu
@@ -1093,7 +1104,10 @@ class AppBackgroundRuntime {
   /// kilitlenme, ustelik hicbir iz birakmadan.
   Future<void> runForegroundMaintenance() async {
     await _step('expire-messages', expireMessages);
-    await _step('stuck-message-recovery', stuckMessageRecovery.recoverStuckMessages);
+    await _step(
+      'stuck-message-recovery',
+      stuckMessageRecovery.recoverStuckMessages,
+    );
     await _step('publish-crypto-keys', preKeyPublisher.publishIfNeeded);
     if (signaling.currentStatus.isConnected) {
       await _step('timer-updates-flush', timerUpdates.flush);

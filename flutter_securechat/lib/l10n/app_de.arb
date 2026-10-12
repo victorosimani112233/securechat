@@ -673,5 +673,7 @@
   "view_once_unsupported_type": "Dieser Dateityp kann nicht als Einmalansicht geöffnet werden.",
   "view_once_only_photo_or_text": "Nur Fotos und Textdateien können als Einmalansicht gesendet werden.",
   "recipient_no_results": "Keine passenden Kontakte",
-  "contacts_sync": "Kontakte synchronisieren"
+  "contacts_sync": "Kontakte synchronisieren",
+  "unknown_contact": "Unbekannter Kontakt",
+  "not_in_contacts_banner": "Diese Person ist nicht in deinen Kontakten."
 }

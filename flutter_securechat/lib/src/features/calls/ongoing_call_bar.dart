@@ -105,6 +105,9 @@ class _OngoingCallBarState extends State<OngoingCallBar> {
   @override
   Widget build(BuildContext context) {
     final session = widget.session;
+    final peerName = session.isGroupCall
+        ? session.peerName
+        : context.peerLabel(session.peerName, peerId: session.peerId);
     final status = switch (session.state) {
       CallState.ringing =>
         session.direction == CallDirection.incoming
@@ -120,7 +123,7 @@ class _OngoingCallBarState extends State<OngoingCallBar> {
       child: SafeArea(
         bottom: false,
         child: Semantics(
-          label: '${context.l10n.return_to_call}: ${session.peerName}',
+          label: '${context.l10n.return_to_call}: $peerName',
           button: true,
           excludeSemantics: true,
           child: InkWell(
@@ -150,7 +153,7 @@ class _OngoingCallBarState extends State<OngoingCallBar> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                session.peerName,
+                                peerName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.titleSmall

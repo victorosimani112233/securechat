@@ -68,7 +68,10 @@ class _BulkMessageScreenState extends State<BulkMessageScreen> {
     }
     setState(() {
       _message = message;
-      _recipients = ConversationRecipients(AppContainerScope.of(context));
+      _recipients = ConversationRecipients(
+        AppContainerScope.of(context),
+        unknownLabel: context.l10n.unknown_contact,
+      );
     });
   }
 

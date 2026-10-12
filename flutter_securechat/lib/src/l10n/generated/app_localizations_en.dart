@@ -2253,4 +2253,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get contacts_sync => 'Sync contacts';
+
+  @override
+  String get unknown_contact => 'Unknown contact';
+
+  @override
+  String get not_in_contacts_banner => 'This person is not in your contacts.';
 }

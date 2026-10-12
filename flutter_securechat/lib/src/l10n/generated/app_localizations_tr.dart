@@ -2244,4 +2244,10 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get contacts_sync => 'Rehberi eşitle';
+
+  @override
+  String get unknown_contact => 'Bilinmeyen kişi';
+
+  @override
+  String get not_in_contacts_banner => 'Bu kişi rehberinizde değil.';
 }

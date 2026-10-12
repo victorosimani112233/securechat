@@ -287,12 +287,7 @@ class _MessageInfoDialog extends StatelessWidget {
         : <String>{};
     String label(String id) => conversation.isGroup
         ? recipientLabels[id] ?? context.l10n.group_unknown_member
-        : conversation.peerName.isNotEmpty &&
-              conversation.peerName != conversation.peerId
-        ? conversation.peerName
-        : conversation.peerPhone.isNotEmpty
-        ? conversation.peerPhone
-        : context.l10n.group_unknown_member;
+        : context.conversationTitle(conversation);
     // Old direct status has one unambiguous recipient; a group status does not.
     if (!conversation.isGroup && validRecipient(conversation.peerId)) {
       if (message.status == MessageStatus.delivered ||
@@ -502,7 +497,7 @@ class _ForwardConversationDialogState
                           name: conversation.peerName,
                           size: 40,
                         ),
-                        title: Text(conversation.peerName),
+                        title: Text(context.conversationTitle(conversation)),
                         subtitle: Text(
                           conversation.isReadOnly
                               ? context.l10n.read_only_chat

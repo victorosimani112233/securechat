@@ -2288,4 +2288,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get contacts_sync => 'Kontakte synchronisieren';
+
+  @override
+  String get unknown_contact => 'Unbekannter Kontakt';
+
+  @override
+  String get not_in_contacts_banner =>
+      'Diese Person ist nicht in deinen Kontakten.';
 }

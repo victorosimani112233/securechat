@@ -450,7 +450,10 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
   }
 
   Future<void> _pickRecipients() async {
-    final recipients = ConversationRecipients(AppContainerScope.of(context));
+    final recipients = ConversationRecipients(
+      AppContainerScope.of(context),
+      unknownLabel: context.l10n.unknown_contact,
+    );
     List<RecipientChoice>? resolved;
     final selected = await Navigator.of(context).push<List<RecipientChoice>>(
       MaterialPageRoute(
