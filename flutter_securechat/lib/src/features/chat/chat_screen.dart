@@ -717,7 +717,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     if (activity.isOnline) return context.l10n.chat_online;
     final lastSeen = activity.lastSeen;
-    if (lastSeen != null) {
+    // Savunma: 2000 oncesi bir "son gorulme" gercek olamaz (epoch 0).
+    if (lastSeen != null && lastSeen.year >= 2000) {
       final local = lastSeen.toLocal();
       final now = DateTime.now();
       final material = MaterialLocalizations.of(context);

@@ -418,6 +418,46 @@ void main() {
     },
   );
 
+  // QA 2026-10-12 Bulgu 2: sunucu durumu baglanti basina tutar; on plandayken
+  // kendiliginden yeniden baglanan soket durumu yeniden bildirmeliydi.
+  test('a foreground reconnect announces presence again', () async {
+    final h = _LifecycleHarness();
+    await h.lifecycle.enterForeground();
+    expect(h.presence, [true]);
+
+    await h.signaling.disconnect();
+    await _eventLoop();
+    await h.signaling.connect(
+      userId: 'me',
+      url: 'wss://test.invalid',
+      accessToken: 'access',
+    );
+    for (var i = 0; i < 5; i++) {
+      await _eventLoop();
+    }
+
+    expect(h.presence, [true, true]);
+  });
+
+  test('presence parsing treats a missing or zero last seen as unknown', () {
+    for (final raw in [
+      '{"type":"presence_update","senderId":"b","recipientId":"a",'
+          '"timestamp":1,"isOnline":false}',
+      '{"type":"presence_update","senderId":"b","recipientId":"a",'
+          '"timestamp":1,"isOnline":false,"lastSeen":0}',
+    ]) {
+      final signal = SignalMessage.decode(raw) as PresenceUpdateSignal;
+      expect(signal.lastSeen, isNull);
+    }
+    final known =
+        SignalMessage.decode(
+              '{"type":"presence_update","senderId":"b","recipientId":"a",'
+              '"timestamp":1,"isOnline":false,"lastSeen":1791806666623}',
+            )
+            as PresenceUpdateSignal;
+    expect(known.lastSeen?.year, greaterThan(2000));
+  });
+
   test('logged-out foreground runs cleanup without opening a socket', () async {
     final signaling = InMemorySignalingService();
     var maintenanceRuns = 0;

@@ -40,6 +40,59 @@ class AppLifecycleCoordinator {
     _transferSubscription = transferActivity?.distinct().listen((active) {
       if (!_disposed) unawaited(_applyActivity(active, isCall: false));
     });
+    _statusSubscription = signaling.statuses.listen(_onSignalingStatus);
+  }
+
+  StreamSubscription<SignalingStatus>? _statusSubscription;
+  bool _wasConnected = false;
+
+  /// Gecerli baglanti icin cevrimici durum bildirildi mi.
+  bool _presenceAnnounced = false;
+
+  /// Sunucu cevrimici durumu baglanti basina tutar ve kopmada siler. Soket
+  /// on plandayken kendiliginden yeniden baglaninca (ag degisimi, sunucu
+  /// yeniden baslatma) durum yeniden bildirilmezse karsi taraf bu kullaniciyi
+  /// cevrimdisi ve "son gorulme 1 Oca 1970" gorur (QA 2026-10-12 Bulgu 2).
+  void _onSignalingStatus(SignalingStatus status) {
+    final connected = status.isConnected;
+    final reconnected = connected && !_wasConnected;
+    _wasConnected = connected;
+    if (!connected) _presenceAnnounced = false;
+    if (!reconnected || _disposed || !_foreground) return;
+    unawaited(
+      _serialize(() async {
+        // On plana gecis kendi bildirimini yapar; bu yalniz kendiliginden
+        // yeniden baglanmayi kapsar.
+        if (_presenceAnnounced) return;
+        if (_disposed || !_foreground || !_session.isLoggedIn) return;
+        if (!_signaling.currentStatus.isConnected) return;
+        if (await _signaling.send(_presence(isOnline: _session.shareOnline))) {
+          _presenceAnnounced = true;
+        }
+      }).catchError((Object error, StackTrace stackTrace) async {
+        try {
+          await _onAsyncFailure?.call(
+            'lifecycle.presence-reconnect',
+            error,
+            stackTrace,
+          );
+        } catch (_) {
+          // Teshis hatasi akis geri cagrisindan kacmamali.
+        }
+      }),
+    );
+  }
+
+  PresenceUpdateSignal _presence({required bool isOnline}) {
+    final now = DateTime.now();
+    return PresenceUpdateSignal(
+      senderId: _session.userId!,
+      recipientId: 'server',
+      timestamp: now,
+      isOnline: isOnline,
+      lastSeen: now,
+      hideLastSeen: !_session.shareLastSeen,
+    );
   }
 
   final SessionStore _session;
@@ -118,16 +171,9 @@ class AppLifecycleCoordinator {
     if (await _signaling.ensureConnected(
       timeout: const Duration(seconds: 10),
     )) {
-      await _signaling.send(
-        PresenceUpdateSignal(
-          senderId: userId,
-          recipientId: 'server',
-          timestamp: DateTime.now(),
-          isOnline: _session.shareOnline,
-          lastSeen: DateTime.now(),
-          hideLastSeen: !_session.shareLastSeen,
-        ),
-      );
+      if (await _signaling.send(_presence(isOnline: _session.shareOnline))) {
+        _presenceAnnounced = true;
+      }
     }
     try {
       await _refreshPushRegistration();
@@ -273,6 +319,8 @@ class AppLifecycleCoordinator {
     if (active != null) return active;
     _disposed = true;
     final operation = _serialize(() async {
+      await _statusSubscription?.cancel();
+      _statusSubscription = null;
       try {
         await _callSubscription?.cancel();
       } finally {

@@ -76,6 +76,14 @@ sealed class SignalMessage {
 DateTime _dt(Object? value) =>
     DateTime.fromMillisecondsSinceEpoch((value as num?)?.toInt() ?? 0);
 
+/// Eksik ya da <= 0 zaman damgasi "bilinmiyor"dur.
+DateTime? _dtOrNull(Object? value) {
+  final millis = (value as num?)?.toInt();
+  return millis == null || millis <= 0
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(millis);
+}
+
 /// Accepted only inside an authenticated, encrypted private chat control.
 class SharedPhoneSignal extends SignalMessage {
   const SharedPhoneSignal({
@@ -729,7 +737,10 @@ class PresenceUpdateSignal extends SignalMessage {
   });
 
   final bool isOnline;
-  final DateTime lastSeen;
+
+  /// Sunucu son gorulmeyi bilmiyorsa 0 yollar; bu "1 Oca 1970" degil,
+  /// bilinmiyor demektir (QA 2026-10-12 Bulgu 2).
+  final DateTime? lastSeen;
   final bool hideLastSeen;
 
   @override
@@ -741,7 +752,7 @@ class PresenceUpdateSignal extends SignalMessage {
         recipientId: json['recipientId'] as String? ?? '',
         timestamp: _dt(json['timestamp']),
         isOnline: json['isOnline'] as bool? ?? false,
-        lastSeen: _dt(json['lastSeen']),
+        lastSeen: _dtOrNull(json['lastSeen']),
         hideLastSeen: json['hideLastSeen'] as bool? ?? false,
       );
 
@@ -749,7 +760,7 @@ class PresenceUpdateSignal extends SignalMessage {
   Map<String, Object?> toJson() => {
     ..._base(this),
     'isOnline': isOnline,
-    'lastSeen': lastSeen.millisecondsSinceEpoch,
+    'lastSeen': lastSeen?.millisecondsSinceEpoch ?? 0,
     'hideLastSeen': hideLastSeen,
   };
 }
