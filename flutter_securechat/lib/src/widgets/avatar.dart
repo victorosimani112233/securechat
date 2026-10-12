@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/peer_display_name.dart';
+
 class GeneratedAvatar extends StatelessWidget {
   const GeneratedAvatar({
     super.key,
@@ -48,6 +50,13 @@ class GeneratedAvatar extends StatelessWidget {
     return letters;
   }
 
+  /// Ad gercek bir ad degilse (yalniz rakam/isaret: numara; ya da ic kimlik)
+  /// bas harf yerine kisi simgesi gosterilir. "+90 532..." -> "9", UUID ->
+  /// "33" gibi anlamsiz avatarlar olusuyordu (QA 2026-10-12 Bulgu 4).
+  static bool showsPersonIcon(String name) =>
+      isOpaquePeerName(name) ||
+      !RegExp(r'\p{L}', unicode: true).hasMatch(name);
+
   @override
   Widget build(BuildContext context) {
     final colors = [
@@ -63,6 +72,8 @@ class GeneratedAvatar extends StatelessWidget {
       backgroundColor: color,
       child: isGroup
           ? Icon(Icons.groups, color: Colors.white, size: size * .55)
+          : showsPersonIcon(name)
+          ? Icon(Icons.person, color: Colors.white, size: size * .6)
           : Text(
               initials.isEmpty ? '?' : initials,
               style: TextStyle(

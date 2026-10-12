@@ -48,4 +48,25 @@ void main() {
       reason: 'iki sohbet ayni tek harfe dusmemeli',
     );
   });
+
+  // QA 2026-10-12 Bulgu 4: numara "9", UUID "33" gibi anlamsiz bas harf
+  // gosteriyordu; adi olmayan kisi icin kisi simgesi gosterilir.
+  testWidgets('a nameless contact shows a person icon', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Row(
+          children: [
+            GeneratedAvatar(name: '+90 532 100 04 13'),
+            GeneratedAvatar(name: '3b3663e9-3046-4ba9-acd6-dfdaf3fa510c'),
+            GeneratedAvatar(name: ''),
+            GeneratedAvatar(name: '~QaAlfa'),
+          ],
+        ),
+      ),
+    );
+    expect(find.byIcon(Icons.person), findsNWidgets(3));
+    expect(find.text('9'), findsNothing);
+    expect(find.text('33'), findsNothing);
+    expect(find.text('Q'), findsOneWidget);
+  });
 }
