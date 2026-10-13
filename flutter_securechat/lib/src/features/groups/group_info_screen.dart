@@ -14,6 +14,7 @@ import '../../widgets/chat_lock_dialog.dart';
 import '../chat/chat_info_screen.dart';
 import '../chat/shared_content_browser.dart';
 import '../safety/safety_ui.dart';
+import '../../widgets/system_inset_padding.dart';
 
 class GroupInfoScreen extends StatelessWidget {
   const GroupInfoScreen({super.key});
@@ -83,7 +84,10 @@ class _GroupInfoBody extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(title: Text(context.l10n.group_info)),
         body: ListView(
-          padding: const EdgeInsets.only(bottom: 32),
+          padding: withSystemBottomInset(
+            context,
+            const EdgeInsets.only(bottom: 32),
+          ),
           children: [
             Padding(
               padding: const EdgeInsets.all(24),

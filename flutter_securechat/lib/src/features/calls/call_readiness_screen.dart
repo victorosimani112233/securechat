@@ -5,6 +5,7 @@ import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../theme/secure_chat_theme.dart';
+import '../../widgets/system_inset_padding.dart';
 
 class CallReadinessScreen extends StatefulWidget {
   const CallReadinessScreen({super.key});
@@ -55,7 +56,10 @@ class _CallReadinessScreenState extends State<CallReadinessScreen>
             : RefreshIndicator(
                 onRefresh: _refresh,
                 child: ListView(
-                  padding: const EdgeInsets.all(24),
+                  padding: withSystemBottomInset(
+                    context,
+                    const EdgeInsets.all(24),
+                  ),
                   children: [
                     Icon(
                       state.allGranted

@@ -12,6 +12,7 @@ import '../../settings/settings_service.dart';
 import '../../storage/storage_entities.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/chat_lock_dialog.dart';
+import '../../widgets/system_inset_padding.dart';
 
 class ScheduledMessagesScreen extends StatefulWidget {
   const ScheduledMessagesScreen({super.key});
@@ -194,7 +195,7 @@ class _ScheduledMessagesScreenState extends State<ScheduledMessagesScreen>
 
   Widget _buildForm(ScheduledMessageService service) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: withSystemBottomInset(context, const EdgeInsets.all(16)),
       children: [
         if (_editingId != null)
           Row(
@@ -820,7 +821,10 @@ class _ScheduledHistoryDetailsState extends State<_ScheduledHistoryDetails>
             : _conversations == null
             ? const Center(child: CircularProgressIndicator())
             : ListView(
-                padding: const EdgeInsets.all(16),
+                padding: withSystemBottomInset(
+                  context,
+                  const EdgeInsets.all(16),
+                ),
                 children: [
                   Text(
                     context.l10n.sched_history_executed_at,

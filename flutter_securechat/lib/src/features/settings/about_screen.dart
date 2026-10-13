@@ -6,6 +6,7 @@ import '../../services/app_container.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/azure_surface.dart';
 import '../../widgets/legal_links.dart';
+import '../../widgets/system_inset_padding.dart';
 
 /// Hakkinda: surum, guvenlik ozeti ve lisanslar.
 ///
@@ -32,7 +33,10 @@ class AboutScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(title: Text(l10n.settings_about)),
         body: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+          padding: withSystemBottomInset(
+            context,
+            const EdgeInsets.fromLTRB(12, 12, 12, 24),
+          ),
           children: [
             AzureSurface(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),

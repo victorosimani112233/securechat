@@ -9,6 +9,7 @@ import '../../theme/secure_chat_theme.dart';
 import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/system_inset_padding.dart';
 
 class BackupScreen extends StatefulWidget {
   const BackupScreen({super.key});
@@ -40,7 +41,7 @@ class _BackupScreenState extends State<BackupScreen> {
       child: Scaffold(
         appBar: AppBar(title: Text(context.l10n.encrypted_backup)),
         body: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: withSystemBottomInset(context, const EdgeInsets.all(16)),
           children: [
             Text(context.l10n.backup_explanation),
             const SizedBox(height: 20),
