@@ -77,6 +77,13 @@ class ReadReceiptService {
         StorageMessageStatus.read,
       );
       if (!shareReceipts || !_session.shareReadReceipts) continue;
+      // Yerel sistem satirlarinin (guvenlik numarasi degisti, sure ayari...)
+      // gondericisi "SYSTEM"; okundu bilgisi ona oturum kurmaya calisip
+      // sunucuda hataya yol aciyordu (QA 2026-10-13 T7).
+      if (message.contentType == StorageMessageContentType.system ||
+          message.senderId == 'SYSTEM') {
+        continue;
+      }
       if (await sendPrivateChatControl(
         crypto: _crypto,
         signaling: _signaling,

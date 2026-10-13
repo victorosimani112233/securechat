@@ -86,6 +86,25 @@ void main() {
     },
   );
 
+  // QA 2026-10-13 T7: yerel sistem satirina okundu bilgisi "SYSTEM" icin
+  // oturum kurmaya calisiyordu.
+  test('local system rows are read without a receipt', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    await fixture.insertIncoming('notice', senderId: 'SYSTEM');
+    await fixture.insertIncoming('m1', senderId: 'alice');
+
+    expect(await fixture.service.markConversationRead('alice'), 1);
+    expect(
+      (await fixture.database.messages.getById('notice'))!.status,
+      StorageMessageStatus.read,
+    );
+    final receipts = (await fixture.sentControls())
+        .whereType<DeliveryReceiptSignal>()
+        .toList(growable: false);
+    expect(receipts.map((receipt) => receipt.recipientId), ['alice']);
+  });
+
   test(
     'a new message arriving in the open conversation gets its own receipt',
     () async {
