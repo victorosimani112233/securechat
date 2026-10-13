@@ -161,11 +161,24 @@ object AuthService {
     class RefreshClaims(val userId: String, val refreshGeneration: String)
 
     /**
+     * Credential durumu okunamadi; token hakkinda karar verilemedi.
+     *
+     * Istemci 401'i "oturum kalici olarak bitti" diye yorumluyor (QA
+     * 2026-10-12 R1). Gecici bir DB hatasi 401 donerse cihaz gereksiz yere
+     * oturumunu kapatir; yenileme ucu bunu 503 olarak bildirir.
+     */
+    class CredentialStateUnavailable : Exception("credential state unavailable")
+
+    /**
      * Refresh token'in imza, tip ve epoch kontrolunu yapar; rotasyon
      * kusagini cagirana verir. Kusagin gecerli olup olmadigi rotasyonun
      * kendisinde atomik olarak sinanir.
+     *
+     * [throwWhenUnavailable] true ise durum okunamadiginda null yerine
+     * [CredentialStateUnavailable] firlatir (yine fail-closed: token kabul
+     * edilmez).
      */
-    fun refreshClaims(token: String): RefreshClaims? {
+    fun refreshClaims(token: String, throwWhenUnavailable: Boolean = false): RefreshClaims? {
         return try {
             val decoded = verifier.verify(token)
             if (decoded.getClaim("typ").asString() != "refresh") return null
@@ -181,6 +194,7 @@ object AuthService {
             null
         } catch (e: Exception) {
             log.error("[Auth] Credential state okunamadi (fail-closed)")
+            if (throwWhenUnavailable) throw CredentialStateUnavailable()
             null
         }
     }

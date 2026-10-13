@@ -228,6 +228,7 @@ fun Application.signalingModule(
         "WS_AUTH_MISMATCH",
         "WS_AUTH_TOKEN_IN_QUERY",
         "AUTH_REFRESH_REUSE",
+        "AUTH_REFRESH_LOST_RESPONSE_REDEEMED",
         "REGISTER_GRANT_REPLAY",
         "RATE_LIMIT_HIT",
         "ROUTE_UNKNOWN_RECIPIENT",

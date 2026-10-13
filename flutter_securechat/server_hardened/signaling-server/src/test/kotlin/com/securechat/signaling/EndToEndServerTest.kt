@@ -917,8 +917,43 @@ class EndToEndServerTest {
         }
         assertEquals(HttpStatusCode.OK, first.status)
 
-        // Ayni token'in ikinci kullanimi: calinmis bir refresh token
-        // sonsuza kadar gecerli olamaz.
+        // Ilk yanit kaybolmus olabilir (QA 2026-10-12 R1): kisa pencerede
+        // ayni token bir kez daha kabul edilir.
+        val lostResponseRetry = client.post("/api/v1/auth/refresh") {
+            header("Content-Type", "application/json")
+            setBody("""{"refreshToken":"$refresh"}""")
+        }
+        assertEquals(HttpStatusCode.OK, lostResponseRetry.status)
+
+        // Ucuncu kullanim: calinmis bir refresh token sonsuza kadar gecerli
+        // olamaz.
+        val replay = client.post("/api/v1/auth/refresh") {
+            header("Content-Type", "application/json")
+            setBody("""{"refreshToken":"$refresh"}""")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, replay.status)
+    }
+
+    @Test
+    fun `an old refresh token is refused once its successor has been used`() = e2e {
+        val (user, _) = newAccount()
+        val refresh = AuthService.issueRefreshToken(user)
+
+        val first = client.post("/api/v1/auth/refresh") {
+            header("Content-Type", "application/json")
+            setBody("""{"refreshToken":"$refresh"}""")
+        }
+        assertEquals(HttpStatusCode.OK, first.status)
+        val successor = Regex("\"refreshToken\"\\s*:\\s*\"([^\"]+)\"")
+            .find(first.bodyAsText())!!.groupValues[1]
+        val second = client.post("/api/v1/auth/refresh") {
+            header("Content-Type", "application/json")
+            setBody("""{"refreshToken":"$successor"}""")
+        }
+        assertEquals(HttpStatusCode.OK, second.status)
+
+        // Istemci yeni token'i aldi ve kullandi; yanit kaybi yok, eski
+        // token'in tekrar gelmesi yeniden kullanimdir.
         val replay = client.post("/api/v1/auth/refresh") {
             header("Content-Type", "application/json")
             setBody("""{"refreshToken":"$refresh"}""")

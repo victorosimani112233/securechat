@@ -7,7 +7,10 @@ import java.nio.file.Path
 import java.sql.DriverManager
 import java.util.UUID
 import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
@@ -138,6 +141,53 @@ class CredentialInvalidationIntegrationTest {
 
         // Yayin yalniz adreslenen hesabi dusurmeli.
         assertTrue(CredentialState.isCached(bystander), "ilgisiz hesap dusuruldu")
+    }
+
+    // QA 2026-10-12 R1: rotasyon yaniti kaybolunca cihazdaki token
+    // kalici olarak oluyordu.
+    @Test
+    fun `a lost rotation is redeemed once for the current generation`() {
+        val user = newAccount()
+        val original = CredentialState.snapshot(user)!!.refreshGeneration
+        val rotated = CredentialState.rotateRefreshGeneration(user, original)
+        assertNotNull(rotated)
+
+        val redeemed = CredentialState.redeemLostRotation(user, original)
+        assertEquals(rotated!!.refreshGeneration, redeemed?.refreshGeneration)
+        assertEquals(rotated.refreshGeneration, CredentialState.snapshot(user)!!.refreshGeneration)
+        // Tek kullanimlik: ucuncu deneme reddedilir.
+        assertNull(CredentialState.redeemLostRotation(user, original))
+    }
+
+    @Test
+    fun `no redemption once the successor was used`() {
+        val user = newAccount()
+        val original = CredentialState.snapshot(user)!!.refreshGeneration
+        val first = CredentialState.rotateRefreshGeneration(user, original)!!
+        assertNotNull(CredentialState.rotateRefreshGeneration(user, first.refreshGeneration))
+
+        assertNull(CredentialState.redeemLostRotation(user, original))
+    }
+
+    @Test
+    fun `no redemption after logout or for a generation never rotated`() {
+        val user = newAccount()
+        val original = CredentialState.snapshot(user)!!.refreshGeneration
+        assertNull(CredentialState.redeemLostRotation(user, original))
+
+        assertNotNull(CredentialState.rotateRefreshGeneration(user, original))
+        CredentialState.rotateCredentialEpoch(user)
+        assertNull(CredentialState.redeemLostRotation(user, original))
+    }
+
+    @Test
+    fun `a redemption belongs to its own account`() {
+        val user = newAccount()
+        val other = newAccount()
+        val original = CredentialState.snapshot(user)!!.refreshGeneration
+        assertNotNull(CredentialState.rotateRefreshGeneration(user, original))
+
+        assertNull(CredentialState.redeemLostRotation(other, original))
     }
 
     @Test

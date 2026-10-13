@@ -231,9 +231,66 @@ object CredentialState {
                             refreshGeneration = rows.getString("refresh_generation"),
                         )
                     }
-                }.also { forget(userId) }
+                }.also { rotated ->
+                    forget(userId)
+                    if (rotated != null) rememberRotation(userId, presentedGeneration, rotated.refreshGeneration)
+                }
             }
         }
+    }
+
+    /**
+     * Kaybolan yenileme yanitini telafi penceresi (QA 2026-10-12 R1).
+     *
+     * Sunucu rotasyonu yaptiktan sonra yanit istemciye ulasmazsa (uygulama
+     * oldurulur, ag kopar) cihazdaki refresh token kalici olarak olur ve
+     * kullanici yeniden giris yapmak zorunda kalirdi. Rotasyondan sonra kisa
+     * bir sure, eski kusagin halefini Redis'te tutariz; ayni eski token bu
+     * pencerede BIR KEZ daha gelirse yeni rotasyon yapilmadan mevcut kusak
+     * icin token verilir.
+     *
+     * Kayit PostgreSQL'e yazilmaz: `users` satiri bilerek zaman damgasi ve
+     * etkinlik sirasi tasimiyor (V15). Redis kaybi yalniz telafiyi kapatir;
+     * davranis eski fail-closed hale doner.
+     */
+    private const val LOST_ROTATION_GRACE_SECONDS = 120L
+
+    private fun lostRotationKey(userId: String, generation: String): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$userId\u0000$generation".toByteArray(Charsets.UTF_8))
+        return "auth:refresh_grace:" + digest.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun rememberRotation(userId: String, previous: String, successor: String) {
+        try {
+            RedisManager.use {
+                it.setex(lostRotationKey(userId, previous), LOST_ROTATION_GRACE_SECONDS, successor)
+            }
+        } catch (error: Exception) {
+            log.warn("[Auth] Rotasyon telafi kaydi yazilamadi: {}", error.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * Supersede edilmis [presentedGeneration] icin kaybolmus bir rotasyonu
+     * telafi eder.
+     *
+     * Yalniz su durumda kabul edilir: bu kusak son [LOST_ROTATION_GRACE_SECONDS]
+     * icinde donduruldu, telafi henuz kullanilmadi (tek kullanimlik) ve
+     * halef kusak hala gecerli. Halef bir kez kullanildiysa (istemci yeni
+     * token'i aldi demektir) ya da logout epoch'u dondurduyse eski token
+     * reddedilir. Yeni kusak uretilmez; mevcut kusak doner.
+     */
+    fun redeemLostRotation(userId: String, presentedGeneration: String): Snapshot? {
+        val successor = try {
+            RedisManager.use { it.getDel(lostRotationKey(userId, presentedGeneration)) }
+        } catch (error: Exception) {
+            log.warn("[Auth] Rotasyon telafi kaydi okunamadi: {}", error.javaClass.simpleName)
+            null
+        } ?: return null
+        forget(userId)
+        val current = snapshot(userId) ?: return null
+        return current.takeIf { it.refreshGeneration == successor }
     }
 
     private fun newValue(): String {

@@ -801,7 +801,12 @@ fun Application.configureRoutes(
                 return@post
             }
             val body = call.receiveBounded<RefreshTokenRequest>(SMALL_BODY_LIMIT) ?: return@post
-            val claims = AuthService.refreshClaims(body.refreshToken)
+            val claims = try {
+                AuthService.refreshClaims(body.refreshToken, throwWhenUnavailable = true)
+            } catch (_: AuthService.CredentialStateUnavailable) {
+                call.respondCredentialStateUnavailable()
+                return@post
+            }
             if (claims == null) {
                 AuditLog.log(eventType = "AUTH_REFRESH_INVALID", ipAddress = ip)
                 call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Gecersiz refresh token"))
@@ -811,13 +816,22 @@ fun Application.configureRoutes(
             // paralel iki istek gelirse yalniz biri yeni kusak uretebilir.
             // Supersede edilmis bir token'in yeniden kullanilmasi burada
             // fail-closed olur.
+            // Yanit kaybolduysa (QA 2026-10-12 R1) ayni eski token kisa bir
+            // pencerede bir kez daha kabul edilir; yeni kusak uretilmez.
             val rotated = try {
                 CredentialState.rotateRefreshGeneration(
                     claims.userId,
                     claims.refreshGeneration,
-                )
+                ) ?: CredentialState.redeemLostRotation(
+                    claims.userId,
+                    claims.refreshGeneration,
+                )?.also {
+                    AuditLog.log(userId = claims.userId, eventType = "AUTH_REFRESH_LOST_RESPONSE_REDEEMED", ipAddress = ip)
+                }
             } catch (_: Exception) {
-                null
+                // Karar verilemedi; 401 istemcide oturumu kapatirdi.
+                call.respondCredentialStateUnavailable()
+                return@post
             }
             if (rotated == null) {
                 AuditLog.log(eventType = "AUTH_REFRESH_REUSE", ipAddress = ip)
@@ -1242,4 +1256,10 @@ private suspend fun requirePrincipal(
     }
     call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Gecersiz veya expired token"))
     return null
+}
+
+/** Gecici credential durumu hatasi: istemci oturumu korur, sonra yeniden dener. */
+private suspend fun ApplicationCall.respondCredentialStateUnavailable() {
+    response.header("Retry-After", "30")
+    respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "credential_state_unavailable"))
 }

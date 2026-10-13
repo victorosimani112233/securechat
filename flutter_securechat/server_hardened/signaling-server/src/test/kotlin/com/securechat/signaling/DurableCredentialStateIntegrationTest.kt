@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
@@ -159,6 +160,29 @@ class DurableCredentialStateIntegrationTest {
             CredentialState.rotateRefreshGeneration(it.userId, it.refreshGeneration)
         }
         assertNull(reuse)
+    }
+
+    // QA 2026-10-12 R1: istemci 401'de oturumu kapatiyor; okunamayan durum
+    // 401 degil ayri bir hata olmali, ama yine kabul edilmemeli.
+    @Test
+    fun `an unreadable credential state is reported, not treated as invalid`() {
+        val userId = newAccount()
+        val refresh = AuthService.issueRefreshToken(userId)
+        restartProcess()
+        fun execute(sql: String) = Database.getConnection().use { connection ->
+            connection.createStatement().use { it.execute(sql) }
+        }
+        execute("ALTER TABLE users RENAME TO users_unavailable")
+        try {
+            assertNull(AuthService.refreshClaims(refresh))
+            assertThrows(AuthService.CredentialStateUnavailable::class.java) {
+                AuthService.refreshClaims(refresh, throwWhenUnavailable = true)
+            }
+        } finally {
+            execute("ALTER TABLE users_unavailable RENAME TO users")
+        }
+        restartProcess()
+        assertNotNull(AuthService.refreshClaims(refresh, throwWhenUnavailable = true))
     }
 
     @Test
