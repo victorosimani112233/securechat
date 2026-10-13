@@ -236,7 +236,7 @@ void main() {
     );
     final rows = [
       (label: l10n.settings_chat_theme, type: ListTile),
-      (label: l10n.settings_backdrop, type: SwitchListTile),
+      (label: l10n.settings_backdrop, type: ListTile),
       (label: l10n.settings_fullscreen, type: SwitchListTile),
     ];
     final bounds = <Rect>[];
@@ -298,6 +298,65 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  // Kullanici istegi (2026-10-13): kayan desen, sabit desen ve duz renkler.
+  test('backdrop choice maps the legacy pattern flag both ways', () async {
+    final fixture = await _SettingsFixture.open();
+    addTearDown(fixture.close);
+
+    fixture.session
+      ..backdrop = null
+      ..useDoodleBackground = false;
+    expect(fixture.settings.current.backdrop, BackdropPreference.plain);
+    fixture.session.useDoodleBackground = true;
+    expect(fixture.settings.current.backdrop, BackdropPreference.drifting);
+
+    await fixture.settings.setBackdrop(BackdropPreference.still);
+    expect(fixture.session.backdrop, 'still');
+    expect(fixture.session.useDoodleBackground, isTrue);
+    expect(fixture.settings.current.useDoodleBackground, isTrue);
+
+    await fixture.settings.setBackdrop(BackdropPreference.purple);
+    expect(fixture.session.useDoodleBackground, isFalse);
+
+    await fixture.settings.setUseDoodleBackground(true);
+    expect(fixture.settings.current.backdrop, BackdropPreference.drifting);
+    fixture.session.backdrop = 'artik-yok';
+    expect(
+      fixture.settings.current.backdrop,
+      BackdropPreference.defaultBackdrop,
+    );
+  });
+
+  testWidgets('backdrop tile opens the choices and applies one', (
+    tester,
+  ) async {
+    final fixture = await _pumpSettingsForSemantics(tester);
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(SettingsScreen)),
+    );
+    await tester.ensureVisible(find.text(l10n.settings_backdrop));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.settings_backdrop));
+    await tester.pumpAndSettle();
+    for (final option in BackdropPreference.values) {
+      expect(
+        find.byKey(ValueKey('backdrop-option-${option.name}')),
+        findsOneWidget,
+      );
+    }
+
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('backdrop-option-still')));
+      await fixture.session.persist();
+    });
+    await tester.pumpAndSettle();
+
+    expect(fixture.session.backdrop, 'still');
+    expect(find.byKey(const ValueKey('backdrop-option-still')), findsNothing);
+    expect(find.text(l10n.backdrop_still), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'phone privacy switch is reachable and persists on a narrow screen',
@@ -382,7 +441,7 @@ void main() {
       await fixture.settings.setNotificationSound(
         NotificationSoundPreference.silent,
       );
-      await fixture.settings.setUseDoodleBackground(false);
+      await fixture.settings.setBackdrop(BackdropPreference.green);
       await fixture.settings.setFullscreenMode(true);
       await fixture.settings.setSharePhoneNumber(true);
 
@@ -394,6 +453,7 @@ void main() {
       expect(reopened.languagePreference, 'ar');
       expect(reopened.showNotificationContent, isFalse);
       expect(reopened.notificationSound, 'silent');
+      expect(reopened.backdrop, 'green');
       expect(reopened.useDoodleBackground, isFalse);
       expect(reopened.fullscreenMode, isTrue);
       expect(reopened.sharePhoneNumber, isTrue);

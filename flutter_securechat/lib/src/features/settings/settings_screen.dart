@@ -109,13 +109,11 @@ class SettingsScreen extends StatelessWidget {
                   : () => _showThemeDialog(context, service, settings!.theme),
             ),
             if (settings != null && service != null) ...[
-              SwitchListTile(
-                secondary: const Icon(Icons.wallpaper_outlined),
-                title: Text(l10n.settings_backdrop),
-                subtitle: Text(l10n.settings_watermark_desc),
-                value: settings.useDoodleBackground,
-                onChanged: (value) =>
-                    _run(context, () => service.setUseDoodleBackground(value)),
+              _tile(
+                Icons.wallpaper_outlined,
+                l10n.settings_backdrop,
+                _backdropLabel(context, settings.backdrop),
+                onTap: () => _showBackdropSheet(context, service),
               ),
               SwitchListTile(
                 secondary: const Icon(Icons.fullscreen_outlined),
@@ -355,6 +353,69 @@ class SettingsScreen extends StatelessWidget {
         onSystemSettings: service.openSystemSoundSettings,
       ),
     ),
+  );
+
+  static String _backdropLabel(
+    BuildContext context,
+    BackdropPreference backdrop,
+  ) {
+    final l10n = context.l10n;
+    return switch (backdrop) {
+      BackdropPreference.drifting => l10n.backdrop_drifting,
+      BackdropPreference.still => l10n.backdrop_still,
+      BackdropPreference.plain => l10n.backdrop_plain,
+      BackdropPreference.blue => l10n.backdrop_blue,
+      BackdropPreference.green => l10n.backdrop_green,
+      BackdropPreference.purple => l10n.backdrop_purple,
+      BackdropPreference.gray => l10n.backdrop_gray,
+    };
+  }
+
+  /// Arka plan secimi: kayan/sabit desen ve duz renkler. Her secenegin
+  /// solunda o zeminin acik/koyu temadaki rengi gorunur.
+  static Future<void> _showBackdropSheet(
+    BuildContext context,
+    SettingsService service,
+  ) => showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) {
+      final dark = Theme.of(sheetContext).brightness == Brightness.dark;
+      final selected = service.current.backdrop;
+      return SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final option in BackdropPreference.values)
+                ListTile(
+                  key: ValueKey('backdrop-option-${option.name}'),
+                  leading: CircleAvatar(
+                    backgroundColor: BackdropPalette.ground(option, dark: dark),
+                    child: option.hasPattern
+                        ? Icon(
+                            option == BackdropPreference.drifting
+                                ? Icons.blur_on
+                                : Icons.texture,
+                            color: Theme.of(sheetContext).colorScheme.primary,
+                          )
+                        : null,
+                  ),
+                  title: Text(_backdropLabel(sheetContext, option)),
+                  trailing: option == selected ? const Icon(Icons.check) : null,
+                  selected: option == selected,
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _run(context, () => service.setBackdrop(option));
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
+    },
   );
 
   /// Gizlilik — karsi tarafin ve kilit ekraninin ne gorecegi.

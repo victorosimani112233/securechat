@@ -603,7 +603,28 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settings_language => 'Language';
 
   @override
-  String get settings_backdrop => 'Backdrop Pattern';
+  String get settings_backdrop => 'Background';
+
+  @override
+  String get backdrop_drifting => 'Moving pattern';
+
+  @override
+  String get backdrop_still => 'Still pattern';
+
+  @override
+  String get backdrop_plain => 'Plain – default';
+
+  @override
+  String get backdrop_blue => 'Plain – blue';
+
+  @override
+  String get backdrop_green => 'Plain – green';
+
+  @override
+  String get backdrop_purple => 'Plain – purple';
+
+  @override
+  String get backdrop_gray => 'Plain – gray';
 
   @override
   String get settings_fullscreen => 'Fullscreen Mode';

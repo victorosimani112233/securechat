@@ -24,6 +24,7 @@ class SessionStore {
     this.showNotificationContent = false,
     this.notificationSound = 'flow',
     this.useDoodleBackground = true,
+    this.backdrop,
     this.fullscreenMode = false,
     this.scheduledMessagesEnabled = true,
   });
@@ -47,6 +48,9 @@ class SessionStore {
   bool showNotificationContent;
   String notificationSound;
   bool useDoodleBackground;
+
+  /// `BackdropPreference.name`; null ise [useDoodleBackground]'dan turetilir.
+  String? backdrop;
   bool fullscreenMode;
   bool scheduledMessagesEnabled;
 
@@ -103,6 +107,7 @@ class SessionStore {
     showNotificationContent = false;
     notificationSound = 'flow';
     useDoodleBackground = true;
+    backdrop = null;
     fullscreenMode = false;
     scheduledMessagesEnabled = true;
     credentialsExpired = false;
@@ -187,6 +192,7 @@ class SessionStore {
     'showNotificationContent': showNotificationContent,
     'notificationSound': notificationSound,
     'useDoodleBackground': useDoodleBackground,
+    'backdrop': backdrop,
     'fullscreenMode': fullscreenMode,
     'scheduledMessagesEnabled': scheduledMessagesEnabled,
     'credentialsExpired': credentialsExpired,
@@ -223,6 +229,7 @@ class SessionStore {
     // kaldirilmis bir ses) varsayilana duser — bkz. `fromStorage`.
     notificationSound = (json['notificationSound'] as String?) ?? 'flow';
     useDoodleBackground = json['useDoodleBackground'] as bool? ?? true;
+    backdrop = json['backdrop'] as String?;
     fullscreenMode = json['fullscreenMode'] as bool? ?? false;
     scheduledMessagesEnabled =
         json['scheduledMessagesEnabled'] as bool? ?? true;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_securechat/src/services/app_container.dart';
+import 'package:flutter_securechat/src/settings/settings_service.dart';
 import 'package:flutter_securechat/src/widgets/azure_backdrop.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -70,5 +71,64 @@ void main() {
     expect(doodleLayer(), findsOneWidget, reason: 'desen gorunur kalmali');
     expect(driftX(tester), 0, reason: 'hareket durmali');
   });
+
+  // Kullanici istegi (2026-10-13): kayan desenin sabit hali ve duz renkler.
+  Future<void> pumpLayer(
+    WidgetTester tester,
+    BackdropPreference backdrop, {
+    Brightness brightness = Brightness.light,
+  }) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures();
+    addTearDown(() {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(brightness: brightness),
+        home: AzureBackdropLayer(
+          backdrop: backdrop,
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pump();
+  }
+
+  testWidgets('sabit desen gorunur ama kaymaz', (tester) async {
+    await pumpLayer(tester, BackdropPreference.still);
+    expect(doodleLayer(), findsOneWidget);
+    final moving = find.ancestor(
+      of: doodleLayer(),
+      matching: find.byType(Transform),
+    );
+    expect(moving, findsNothing, reason: 'sabit desen otelenmemeli');
+    await tester.pump(const Duration(seconds: 10));
+    expect(tester.hasRunningAnimations, isFalse);
+  });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('duz renkler desensiz ve kendi zemin rengiyle ($brightness)', (
+      tester,
+    ) async {
+      final colors = <Color>{};
+      for (final backdrop in BackdropPreference.values.where(
+        (value) => !value.hasPattern,
+      )) {
+        await pumpLayer(tester, backdrop, brightness: brightness);
+        expect(doodleLayer(), findsNothing, reason: backdrop.name);
+        final ground = tester.widget<ColoredBox>(
+          find.byKey(const ValueKey('azure-backdrop-ground')),
+        );
+        expect(
+          ground.color,
+          BackdropPalette.ground(backdrop, dark: brightness == Brightness.dark),
+        );
+        colors.add(ground.color);
+      }
+      expect(colors.length, BackdropPreference.values.length - 2);
+    });
+  }
 
 }

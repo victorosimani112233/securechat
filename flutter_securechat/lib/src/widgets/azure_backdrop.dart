@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/app_container.dart';
+import '../settings/settings_service.dart';
 import '../theme/secure_chat_theme.dart';
 
 class AzureBackdrop extends StatelessWidget {
@@ -9,21 +10,53 @@ class AzureBackdrop extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final useDoodle =
+  Widget build(BuildContext context) => AzureBackdropLayer(
+    backdrop:
         AppContainerScope.of(
           context,
-        ).settingsRuntime?.service.current.useDoodleBackground ??
-        true;
+        ).settingsRuntime?.service.current.backdrop ??
+        BackdropPreference.defaultBackdrop,
+    child: child,
+  );
+}
+
+/// Arka plan katmani; secim disaridan verilir (ayar servisinden bagimsiz
+/// test edilebilsin diye).
+class AzureBackdropLayer extends StatelessWidget {
+  const AzureBackdropLayer({
+    super.key,
+    required this.backdrop,
+    required this.child,
+  });
+
+  final BackdropPreference backdrop;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
     return Stack(
       fit: StackFit.expand,
       children: [
         // Zemin sabittir: yalnizca desen katmani kayar. Zemin de kaysaydi
         // kenarlarda boyanmamis serit acilirdi.
-        ColoredBox(color: AzureTokens.ground(dark)),
-        if (useDoodle) _DriftingDoodles(dark: dark),
+        ColoredBox(
+          key: const ValueKey('azure-backdrop-ground'),
+          color: BackdropPalette.ground(backdrop, dark: dark),
+        ),
+        if (backdrop == BackdropPreference.drifting)
+          _DriftingDoodles(dark: dark)
+        else if (backdrop == BackdropPreference.still)
+          RepaintBoundary(
+            child: CustomPaint(
+              painter: AzureDoodlePainter(
+                dark: dark,
+                enabled: true,
+                drawBase: false,
+              ),
+            ),
+          ),
         Theme(
           data: theme.copyWith(scaffoldBackgroundColor: Colors.transparent),
           child: child,
@@ -31,6 +64,25 @@ class AzureBackdrop extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Duz arka plan renkleri. Tonlar dusuk doygunlukta tutulur: balonlar ve
+/// metin her zeminde ayni kontrastla okunmali.
+abstract final class BackdropPalette {
+  static Color ground(BackdropPreference backdrop, {required bool dark}) =>
+      switch (backdrop) {
+        BackdropPreference.drifting ||
+        BackdropPreference.still ||
+        BackdropPreference.plain => AzureTokens.ground(dark),
+        BackdropPreference.blue =>
+          dark ? const Color(0xFF0E1A2B) : const Color(0xFFE3EEFB),
+        BackdropPreference.green =>
+          dark ? const Color(0xFF0F1F17) : const Color(0xFFE4F2E8),
+        BackdropPreference.purple =>
+          dark ? const Color(0xFF1B1428) : const Color(0xFFEDE7F6),
+        BackdropPreference.gray =>
+          dark ? const Color(0xFF16181C) : const Color(0xFFECEEF1),
+      };
 }
 
 /// Desen katmani: cok yavas, capraz ve sonsuz kayar.

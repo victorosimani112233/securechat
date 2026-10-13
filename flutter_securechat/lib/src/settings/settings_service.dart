@@ -62,6 +62,39 @@ enum NotificationSoundPreference {
   }
 }
 
+/// Uygulama arka plani (kullanici istegi 2026-10-13).
+///
+/// Desenli iki secenek ayni Elcim filigranini kullanir; biri yavasca kayar,
+/// digeri sabit durur. Digerleri desensiz duz zeminlerdir; renkleri acik ve
+/// koyu tema icin `BackdropPalette` icinde tanimlidir.
+enum BackdropPreference {
+  drifting,
+  still,
+  plain,
+  blue,
+  green,
+  purple,
+  gray;
+
+  /// Yeni kurulumlarin ve taninmayan kayitlarin varsayilani.
+  static const defaultBackdrop = drifting;
+
+  bool get hasPattern => this == drifting || this == still;
+
+  /// Kayit yoksa eski acik/kapali desen ayarindan turetilir: acik = kayan
+  /// desen, kapali = varsayilan duz zemin.
+  static BackdropPreference fromStorage(
+    String? value, {
+    required bool legacyPattern,
+  }) {
+    if (value == null) return legacyPattern ? drifting : plain;
+    for (final option in values) {
+      if (option.name == value) return option;
+    }
+    return defaultBackdrop;
+  }
+}
+
 class AppSettingsState {
   const AppSettingsState({
     required this.theme,
@@ -69,6 +102,7 @@ class AppSettingsState {
     required this.showNotificationContent,
     required this.notificationSound,
     required this.useDoodleBackground,
+    this.backdrop = BackdropPreference.defaultBackdrop,
     required this.fullscreenMode,
     required this.scheduledMessagesEnabled,
     required this.shareLastSeen,
@@ -84,6 +118,7 @@ class AppSettingsState {
   final bool showNotificationContent;
   final NotificationSoundPreference notificationSound;
   final bool useDoodleBackground;
+  final BackdropPreference backdrop;
   final bool fullscreenMode;
   final bool scheduledMessagesEnabled;
   final bool shareLastSeen;
@@ -157,6 +192,10 @@ class SettingsService {
       _session.notificationSound,
     ),
     useDoodleBackground: _session.useDoodleBackground,
+    backdrop: BackdropPreference.fromStorage(
+      _session.backdrop,
+      legacyPattern: _session.useDoodleBackground,
+    ),
     fullscreenMode: _session.fullscreenMode,
     scheduledMessagesEnabled: _session.scheduledMessagesEnabled,
     shareLastSeen: _session.shareLastSeen,
@@ -219,8 +258,15 @@ class SettingsService {
     await _persistAndEmit();
   }
 
-  Future<void> setUseDoodleBackground(bool value) async {
-    _session.useDoodleBackground = value;
+  /// Eski acik/kapali anahtar: acik = kayan desen, kapali = duz zemin.
+  Future<void> setUseDoodleBackground(bool value) => setBackdrop(
+    value ? BackdropPreference.drifting : BackdropPreference.plain,
+  );
+
+  Future<void> setBackdrop(BackdropPreference value) async {
+    _session.backdrop = value.name;
+    // Eski alan da tutarli kalir; onu okuyan eski kod/yedekler bozulmaz.
+    _session.useDoodleBackground = value.hasPattern;
     await _persistAndEmit();
   }
 
