@@ -482,6 +482,9 @@ class IncomingMessageHandler {
   Future<void> _sessionResetRequest(SessionResetRequestSignal signal) async {
     final localUserId = _session.userId;
     if (localUserId == null || localUserId != signal.recipientId) return;
+    // Karsi taraf yerel durumunu kaybetmis olabilir; paylasilan ad yeniden
+    // gonderilsin (QA 2026-10-13 T12).
+    await _profileNames?.forgetSentTo(signal.senderId);
   }
 
   /// Karsi tarafin gonderdigi zaman damgasini makul bir pencereye kirpar.

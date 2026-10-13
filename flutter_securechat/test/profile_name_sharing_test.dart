@@ -64,6 +64,34 @@ void main() {
       expect(await f.names.shareWith('peer'), isTrue);
     });
 
+    // QA 2026-10-13 T12: yeniden kurulan/kurtarilan karsi taraf adi 7 gun
+    // boyunca hic gormuyordu.
+    test('a peer with a new identity is introduced again at once', () async {
+      final f = await _Fixture.open();
+      addTearDown(f.close);
+      Future<void> pin(int byte) => f.db.identities.insert(
+        IdentityEntity(
+          addressName: 'peer',
+          identityKey: List.filled(64, byte),
+          trustLevel: TrustLevel.trustedUnverified,
+        ),
+      );
+      await pin(1);
+      expect(await f.names.shareWith('peer'), isTrue);
+      expect(await f.names.shareWith('peer'), isFalse);
+      await f.db.identities.delete('peer');
+      await pin(2);
+      expect(await f.names.shareWith('peer'), isTrue);
+    });
+
+    test('a session reset from the peer forgets the introduction', () async {
+      final f = await _Fixture.open();
+      addTearDown(f.close);
+      expect(await f.names.shareWith('peer'), isTrue);
+      await f.names.forgetSentTo('peer');
+      expect(await f.names.shareWith('peer'), isTrue);
+    });
+
     test('nothing is shared when disabled or in a group', () async {
       final f = await _Fixture.open();
       addTearDown(f.close);

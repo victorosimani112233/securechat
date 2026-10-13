@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../chat/private_chat_control.dart';
 import '../core/peer_display_name.dart';
 import '../core/signal_message.dart';
@@ -92,7 +94,9 @@ class ProfileNameSharingService {
       final marker = await _database.cryptoState.get(
         '$_sentPrefix$recipientId',
       );
-      if (_isFresh(marker, name, now)) return false;
+      if (_isFresh(marker, name, await _peerIdentity(recipientId), now)) {
+        return false;
+      }
       final envelope = await _crypto.encryptDirect(
         recipientId: recipientId,
         plaintext: encodePrivateChatControl(
@@ -120,9 +124,13 @@ class ProfileNameSharingService {
           ? _signaling.send(signal)
           : send(signal));
       if (sent) {
+        // Isaret karsi tarafin o anki kimligine baglanir: yeniden kurulan ya
+        // da kurtarilan karsi taraf adi hemen yeniden alir (QA 2026-10-13
+        // T12).
         await _database.cryptoState.put(
           '$_sentPrefix$recipientId',
-          '${now.millisecondsSinceEpoch}|$name',
+          '${now.millisecondsSinceEpoch}|'
+              '${await _peerIdentity(recipientId)}|$name',
         );
       }
       return sent;
@@ -132,17 +140,30 @@ class ProfileNameSharingService {
     }
   }
 
-  bool _isFresh(String? marker, String name, DateTime now) {
+  bool _isFresh(String? marker, String name, String identity, DateTime now) {
     if (marker == null) return false;
-    final separator = marker.indexOf('|');
-    if (separator <= 0) return false;
-    final sentAt = int.tryParse(marker.substring(0, separator));
-    if (sentAt == null || marker.substring(separator + 1) != name) {
+    final parts = marker.split('|');
+    if (parts.length < 3) return false;
+    final sentAt = int.tryParse(parts[0]);
+    if (sentAt == null ||
+        parts[1] != identity ||
+        parts.sublist(2).join('|') != name) {
       return false;
     }
     final age = now.difference(DateTime.fromMillisecondsSinceEpoch(sentAt));
     return !age.isNegative && age < resendAfter;
   }
+
+  /// Karsi tarafin pinli kimligi; oturum yoksa bos.
+  Future<String> _peerIdentity(String peerId) async {
+    final identity = await _database.identities.get(peerId);
+    return identity == null ? '' : base64UrlEncode(identity.identityKey);
+  }
+
+  /// Karsi taraf durumunu kaybettiginde (oturum sifirlama istegi) ad bir
+  /// sonraki gonderimde yeniden paylasilir.
+  Future<void> forgetSentTo(String peerId) =>
+      _database.cryptoState.delete('$_sentPrefix$peerId');
 
   /// Gonderen kimligi sifreli kanaldan dogrulanmistir; ad yalniz etiket.
   Future<bool> accept(SharedProfileNameSignal signal) async {
