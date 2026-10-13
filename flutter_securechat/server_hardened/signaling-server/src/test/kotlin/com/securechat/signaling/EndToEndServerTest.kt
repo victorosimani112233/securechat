@@ -1088,6 +1088,18 @@ class EndToEndServerTest {
     }
 
     @Test
+    fun `bundle request for a non-UUID id is rejected before the database`() = e2e {
+        // QA 2026-10-13 T7: istemci yerel sistem mesajinin gondericisi
+        // "SYSTEM" icin bundle istedi; sunucu Postgres hatasiyla 500 donuyordu.
+        clearRateLimits()
+        val (_, token) = newAccount()
+        val response = client.get("/api/v1/users/SYSTEM/prekeys") {
+            header("Authorization", "Bearer $token")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
     fun `publishing Olm keys twice succeeds the second time`() = e2e {
         // Istemci her on plana gecisde `publishIfNeeded()` cagiriyor. Ilk
         // yayindan sonraki her cagri ayni kimligi, bos bir anahtar listesi

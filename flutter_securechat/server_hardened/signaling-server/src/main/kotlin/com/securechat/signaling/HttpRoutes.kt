@@ -1106,10 +1106,15 @@ fun Application.configureRoutes(
                 call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
                 return@get
             }
-            val targetUserId = call.parameters["userId"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "userId gerekli"))
-                return@get
-            }
+            // UUID olmayan kimlik DB'ye gitmeden reddedilir; eskiden Postgres
+            // `invalid input syntax for type uuid` atip 500 donuyordu
+            // (QA 2026-10-13 T7: istemci "SYSTEM" icin bundle istiyordu).
+            val targetUserId = call.parameters["userId"]
+                ?.let { runCatching { java.util.UUID.fromString(it).toString() }.getOrNull() }
+                ?: run {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Gecersiz userId"))
+                    return@get
+                }
             // IKI sekil de servis edilir. Hangisinin bulunacagi peer'in
             // goc edip etmedigine bagli, ve 404 kosulu bu yuzden
             // "libsignal bundle'i yok" DEGIL "hicbiri yok" olmali: goc
