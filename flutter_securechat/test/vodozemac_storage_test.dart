@@ -64,24 +64,27 @@ void main() {
       expect(base64Decode(base64.normalize(key!)), hasLength(32));
     });
 
-    test('signRecoveryProof standart Ed25519 uretir (sunucu dogrular)', () async {
-      await store.withAccount((_) async {});
-      const message = 'securechat/recovery-complete/v1\ntoken\nuser\nolm';
-      final publicKey = (await store.recoverySigningPublicKey())!;
-      final signature = await store.signRecoveryProof(message);
+    test(
+      'signRecoveryProof standart Ed25519 uretir (sunucu dogrular)',
+      () async {
+        await store.withAccount((_) async {});
+        const message = 'securechat/recovery-complete/v1\ntoken\nuser\nolm';
+        final publicKey = (await store.recoverySigningPublicKey())!;
+        final signature = await store.signRecoveryProof(message);
 
-      final verified = await Ed25519().verify(
-        utf8.encode(message),
-        signature: Signature(
-          base64Decode(base64.normalize(signature)),
-          publicKey: SimplePublicKey(
-            base64Decode(base64.normalize(publicKey)),
-            type: KeyPairType.ed25519,
+        final verified = await Ed25519().verify(
+          utf8.encode(message),
+          signature: Signature(
+            base64Decode(base64.normalize(signature)),
+            publicKey: SimplePublicKey(
+              base64Decode(base64.normalize(publicKey)),
+              type: KeyPairType.ed25519,
+            ),
           ),
-        ),
-      );
-      expect(verified, isTrue);
-    });
+        );
+        expect(verified, isTrue);
+      },
+    );
 
     test('degistirilen mesaj imzayi gecersiz kilar', () async {
       await store.withAccount((_) async {});
@@ -601,6 +604,52 @@ void main() {
       // Kullanici verisi KORUNDU — kullanici hicbir mesajini kaybetmemeli.
       final conversations = await database.conversations.getAllImmediate();
       expect(conversations.map((c) => c.id), contains('alice'));
+    });
+
+    // QA 2026-10-13 T5: cikis/"Farkli hesapla basla" depoyu (isaret dahil)
+    // bosaltiyordu; ayni surecte kayit olunca sonraki gecis kosusu YENI
+    // hesabin Olm kimligini ve oturumlarini siliyor, sunucu da yeni kimligi
+    // reddediyordu.
+    test('var olan vodozemac hesabini ve oturumlarini silmez', () async {
+      await store.withAccount(
+        (account) async => account.generateOneTimeKeys(3),
+      );
+      final identity = await store.recoverySigningPublicKey();
+      final peer = crypto.createAccount();
+      addTearDown(peer.dispose);
+      final peerOneTime = peer.generateOneTimeKeys(1);
+      await store.withAccount((account) async {
+        final session = account.createOutboundSession(
+          theirIdentityKey: peer.identityKeys()['curve25519']!,
+          theirOneTimeKey: peerOneTime.values.single,
+        );
+        try {
+          await store.persistNewSession('bob', session);
+        } finally {
+          session.dispose();
+        }
+      });
+      final migration = VodozemacMigration(database);
+      expect(await migration.isPending(), isTrue);
+
+      expect(await migration.runIfNeeded(), isFalse);
+
+      expect(await migration.isPending(), isFalse);
+      expect(await store.hasAccount(), isTrue);
+      expect(await store.recoverySigningPublicKey(), identity);
+      expect(await store.sessionIdsForPeer('bob'), hasLength(1));
+    });
+
+    test('isaret kosmadan da yazilabilir', () async {
+      final migration = VodozemacMigration(database);
+      await database.preKeys.insert(
+        const PreKeyEntity(id: 1, record: [9, 9, 9]),
+      );
+
+      await migration.markDone();
+
+      expect(await migration.isPending(), isFalse);
+      expect(await migration.runIfNeeded(), isFalse);
     });
 
     test('vodozemac durumu da temizlenir', () async {

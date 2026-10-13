@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../auth/auth_coordinator.dart';
 import '../background/scheduled_message_service.dart';
+import '../crypto/vodozemac/vodozemac_migration.dart';
 import '../storage/secure_chat_database.dart';
 
 typedef PushUnregister = Future<bool> Function();
@@ -67,6 +68,10 @@ class AccountDataService {
   Future<void> _clearDeviceData() async {
     try {
       await _database.clearAll();
+      // Bos depoda gecirilecek legacy kripto yok; isaret silinmis kalirsa
+      // ayni surecte kurulan yeni hesabin Olm kimligi sonraki gecis
+      // kosusunda silinir (QA 2026-10-13 T5).
+      await VodozemacMigration(_database).markDone();
       for (final directory in _managedDirectories) {
         if (!await directory.exists()) continue;
         await directory.delete(recursive: true);

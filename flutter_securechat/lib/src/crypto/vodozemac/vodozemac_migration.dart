@@ -37,6 +37,16 @@ class VodozemacMigration {
   Future<bool> runIfNeeded() async {
     if (!await isPending()) return false;
 
+    // Cihazda vodozemac hesabi varsa gecis zaten yapilmistir: hesap ancak
+    // gecisten SONRA uretilir. Isaret yine de eksik olabilir (yerel veri
+    // silindi, ayni surecte yeni hesap kuruldu). O hesabi silmek, kullanicinin
+    // kimligini degistirir; sunucu yeni kimligi acik kurtarma olmadan kabul
+    // etmedigi icin hesap mesajlasamaz hale gelir (QA 2026-10-13 T5).
+    if (await _database.vodozemacAccount.exists()) {
+      await markDone();
+      return false;
+    }
+
     // Temizlik taze kurulumda da zararsiz: silinecek bir sey yoksa islem
     // bos gecer. Varligi ayrica yoklamiyoruz, cunku "legacy durum var mi"
     // sorusunun her kaynagini saymak bu kontrolu kendi basina bir hata
@@ -44,10 +54,17 @@ class VodozemacMigration {
     await _database.clearCryptoProtocolState();
 
     // Isaret EN SON: yukarisi kesilirse gecis tekrar kosar.
-    await _database.cryptoState.put(
-      markerKey,
-      DateTime.now().toUtc().toIso8601String(),
-    );
+    await markDone();
     return true;
   }
+
+  /// Gecisi kosmadan "yapildi" olarak isaretler.
+  ///
+  /// Yerel veri tamamen silindiginde (cikis, "Farkli hesapla basla") depo
+  /// bostur ve gecirilecek legacy durum yoktur; isaret de silindigi icin
+  /// hemen yeniden yazilir (QA 2026-10-13 T5).
+  Future<void> markDone() => _database.cryptoState.put(
+    markerKey,
+    DateTime.now().toUtc().toIso8601String(),
+  );
 }

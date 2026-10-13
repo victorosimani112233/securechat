@@ -16,6 +16,7 @@ import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/vodozemac_migration.dart';
 
 void main() {
   test('local data deletion logs out and clears every managed store', () async {
@@ -30,6 +31,29 @@ void main() {
     expect(fixture.server.paths, contains('/api/v1/auth/logout'));
     expect(fixture.scheduler.cancelled, contains('plan-1'));
     expect(fixture.afterCleanupCalls, 1);
+  });
+
+  // QA 2026-10-13 T5: temizlenen depoda gecis isareti de gidiyordu; ayni
+  // surecte yapilan yeni kaydin Olm hesabi sonraki gecis kosusunda
+  // siliniyordu. Bos depo "gecis yapilmis" sayilmali.
+  test('local data deletion keeps the migration marked as done', () async {
+    final fixture = await _AccountFixture.open();
+    addTearDown(fixture.close);
+    await VodozemacMigration(fixture.database).markDone();
+
+    await fixture.service.deleteLocalData();
+
+    expect(await VodozemacMigration(fixture.database).isPending(), isFalse);
+  });
+
+  test('starting over from an expired session keeps the marker too', () async {
+    final fixture = await _AccountFixture.open();
+    addTearDown(fixture.close);
+    await fixture.session.expireCredentialsAndPersist();
+
+    await fixture.service.deleteLocalData();
+
+    expect(await VodozemacMigration(fixture.database).isPending(), isFalse);
   });
 
   // QA 2026-10-12 R2: cikistan sonra 200 cokme kaydi onceki hesabin
