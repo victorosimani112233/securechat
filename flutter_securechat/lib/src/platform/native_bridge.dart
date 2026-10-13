@@ -106,6 +106,23 @@ class NativeBridge {
         false;
   }
 
+  /// Izinlerin mevcut durumu; soru sormaz. Kanal yoksa (iOS, test) bos.
+  Future<Map<String, bool>> getPermissionStatus() async {
+    try {
+      final result = await _methods.invokeMapMethod<String, Object?>(
+        'getPermissionStatus',
+      );
+      return {
+        for (final entry in (result ?? const {}).entries)
+          if (entry.value is bool) entry.key: entry.value! as bool,
+      };
+    } on MissingPluginException {
+      return const {};
+    } on PlatformException {
+      return const {};
+    }
+  }
+
   Future<bool> requestContactsPermission() async =>
       await _methods.invokeMethod<bool>('requestContactsPermission') ?? false;
 

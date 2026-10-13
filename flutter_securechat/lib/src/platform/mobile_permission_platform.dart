@@ -2,6 +2,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../contacts/contact_service.dart';
 import '../onboarding/permission_service.dart';
+import 'native_bridge.dart';
 
 class MobileAppPermissionPlatform implements AppPermissionPlatform {
   const MobileAppPermissionPlatform({
@@ -21,6 +22,15 @@ class MobileAppPermissionPlatform implements AppPermissionPlatform {
     AppPermission.microphone => _requestMedia(audio: true, video: false),
     AppPermission.camera => _requestMedia(audio: false, video: true),
   };
+
+  @override
+  Future<Set<AppPermission>> granted() async {
+    final status = await const NativeBridge().getPermissionStatus();
+    return {
+      for (final permission in AppPermission.values)
+        if (status[permission.name] == true) permission,
+    };
+  }
 
   Future<bool> _requestMedia({required bool audio, required bool video}) async {
     MediaStream? stream;

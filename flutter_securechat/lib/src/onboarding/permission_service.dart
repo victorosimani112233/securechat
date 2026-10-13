@@ -2,6 +2,9 @@ enum AppPermission { notifications, contacts, microphone, camera }
 
 abstract interface class AppPermissionPlatform {
   Future<bool> request(AppPermission permission);
+
+  /// Kullaniciya sormadan, zaten verilmis izinler.
+  Future<Set<AppPermission>> granted();
 }
 
 class AppPermissionService {
@@ -11,4 +14,6 @@ class AppPermissionService {
 
   Future<bool> request(AppPermission permission) =>
       _platform.request(permission);
+
+  Future<Set<AppPermission>> granted() => _platform.granted();
 }

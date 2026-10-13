@@ -13,6 +13,7 @@ import 'package:flutter_securechat/src/services/signaling_service.dart';
 AppContainer createWidgetTestContainer({
   AppNotificationRuntime? notificationRuntime,
   AppMediaRuntime? mediaRuntime,
+  AppOnboardingRuntime? onboardingRuntime,
 
   /// Uzun sohbet davranisini (kaydirma, sinir tahmini) sinamak isteyen
   /// testler kendi mesaj listesini verebilir.
@@ -34,6 +35,7 @@ AppContainer createWidgetTestContainer({
     signaling: InMemorySignalingService(),
     notificationRuntime: notificationRuntime,
     mediaRuntime: mediaRuntime,
+    onboardingRuntime: onboardingRuntime,
     chatAccessRuntime: const AppChatAccessRuntime(
       service: ChatAccessService(
         authenticator: AlwaysAllowDeviceOwnerAuthenticator(),

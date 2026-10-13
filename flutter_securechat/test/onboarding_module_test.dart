@@ -56,4 +56,7 @@ class _RecordingPermissionPlatform implements AppPermissionPlatform {
     requested.add(permission);
     return true;
   }
+
+  @override
+  Future<Set<AppPermission>> granted() async => const {};
 }

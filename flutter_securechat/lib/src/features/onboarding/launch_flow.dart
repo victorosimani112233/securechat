@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
@@ -277,6 +279,37 @@ class _PermissionWalkthroughScreenState
     extends State<PermissionWalkthroughScreen> {
   final _granted = <String, bool>{};
   String? _busy;
+  var _statusLoaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_statusLoaded) return;
+    _statusLoaded = true;
+    unawaited(_loadGranted());
+  }
+
+  /// Verilmis izinler "Izin ver" yerine onay isaretiyle gosterilir; hepsi
+  /// verilmisse ekran kendiliginden gecilir (QA 2026-10-13 T8).
+  Future<void> _loadGranted() async {
+    final service = AppContainerScope.of(
+      context,
+    ).onboardingRuntime?.permissions;
+    if (service == null) return;
+    Set<AppPermission> granted;
+    try {
+      granted = await service.granted();
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      for (final permission in granted) {
+        _granted[permission.name] = true;
+      }
+    });
+    if (granted.length == AppPermission.values.length) await _finish();
+  }
 
   Future<void> _request(String key) async {
     setState(() => _busy = key);

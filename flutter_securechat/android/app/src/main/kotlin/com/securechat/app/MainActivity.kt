@@ -17,6 +17,7 @@ import android.provider.Settings
 import android.provider.MediaStore
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.biometric.BiometricManager
@@ -115,6 +116,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "openNotificationChannelSettings" -> openNotificationChannelSettings(call.arguments, result)
                     "openCallReadinessSetting" -> openCallReadinessSetting(call.arguments, result)
                     "openExternalUrl" -> openExternalUrl(call.arguments, result)
+                    "getPermissionStatus" -> result.success(permissionStatus())
                     "requestContactsPermission" -> requestContactsPermission(result)
                     "readContacts" -> readContacts(result)
                     "openLocalFile" -> openLocalFile(call.arguments, result)
@@ -462,6 +464,27 @@ class MainActivity : FlutterFragmentActivity() {
             pendingContactsPermission?.success(granted)
             pendingContactsPermission = null
         }
+    }
+
+    /**
+     * Izin ekrani verilmis izinleri "Izin ver" diye gostermesin diye mevcut
+     * durumu SORMADAN okur (QA 2026-10-13 T8).
+     */
+    private fun permissionStatus(): Map<String, Boolean> {
+        fun granted(permission: String) =
+            ContextCompat.checkSelfPermission(this, permission) ==
+                PackageManager.PERMISSION_GRANTED
+        val notifications = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            granted(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            NotificationManagerCompat.from(this).areNotificationsEnabled()
+        }
+        return mapOf(
+            "notifications" to notifications,
+            "contacts" to granted(Manifest.permission.READ_CONTACTS),
+            "microphone" to granted(Manifest.permission.RECORD_AUDIO),
+            "camera" to granted(Manifest.permission.CAMERA),
+        )
     }
 
     private fun requestContactsPermission(result: MethodChannel.Result) {
