@@ -638,7 +638,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       return;
                     }
                     setState(() => _showAttachments = false);
-                    unawaited(_showPollDialog(context, conversation));
+                    unawaited(_showPollDialog(conversation));
                   },
                 ),
               ),
@@ -1527,10 +1527,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _showPollDialog(
-    BuildContext context,
-    Conversation conversation,
-  ) async {
+  /// Ekranin kendi context'ini kullanir. Ek paneli anket secilince kapanir;
+  /// onun context'i pencere kapandiktan sonra gecersizdir ve servis aramasi
+  /// hata verip anketi dusururdu (QA 2026-10-13 T15).
+  Future<void> _showPollDialog(Conversation conversation) async {
     final poll = await showDialog<PollData>(
       context: context,
       builder: (_) => const _CreatePollDialog(),

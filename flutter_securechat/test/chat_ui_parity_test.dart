@@ -56,6 +56,41 @@ void main() {
     },
   );
 
+  // QA 2026-10-13 T15: ek paneli bir builder icine alininca anket penceresi
+  // panelin kisa omurlu context'ini kullaniyordu; pencere kapaninca
+  // "deactivated widget's ancestor" hatasi atiliyor, anket hic gitmiyordu.
+  testWidgets('creating a poll from the attachment tray finishes cleanly', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.625;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = createWidgetTestContainer();
+    await tester.pumpWidget(SecureChatFlutterApp(container: container));
+    await tester.pumpAndSettle();
+    await _openFirstConversation(tester);
+
+    await tester.tap(find.byIcon(Icons.attach_file));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Anket'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('poll-question')), 'Soru');
+    await tester.enterText(find.byKey(const Key('poll-create-option-0')), 'A');
+    await tester.enterText(find.byKey(const Key('poll-create-option-1')), 'B');
+    await tester.pump();
+    final create = find.widgetWithText(FilledButton, 'Oluştur');
+    expect(tester.widget<FilledButton>(create).onPressed, isNotNull);
+    await tester.ensureVisible(create);
+    await tester.pumpAndSettle();
+    await tester.tap(create);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('poll-question')), findsNothing);
+    expect(find.byType(SnackBar), findsOneWidget);
+  });
+
   testWidgets('view-once composer persists the privacy flag', (tester) async {
     final container = createWidgetTestContainer();
     final repository =
