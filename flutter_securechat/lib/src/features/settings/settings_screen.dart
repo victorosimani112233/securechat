@@ -392,16 +392,29 @@ class SettingsScreen extends StatelessWidget {
               for (final option in BackdropPreference.values)
                 ListTile(
                   key: ValueKey('backdrop-option-${option.name}'),
-                  leading: CircleAvatar(
-                    backgroundColor: BackdropPalette.ground(option, dark: dark),
-                    child: option.hasPattern
-                        ? Icon(
-                            option == BackdropPreference.drifting
-                                ? Icons.blur_on
-                                : Icons.texture,
-                            color: Theme.of(sheetContext).colorScheme.primary,
-                          )
-                        : null,
+                  // Koyu temada zemin renkleri sayfaya yakin; ince kenarlik
+                  // ornegi gorunur kilar.
+                  leading: DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Theme.of(sheetContext).colorScheme.outline,
+                      ),
+                    ),
+                    child: CircleAvatar(
+                      backgroundColor: BackdropPalette.ground(
+                        option,
+                        dark: dark,
+                      ),
+                      child: option.hasPattern
+                          ? Icon(
+                              option == BackdropPreference.drifting
+                                  ? Icons.blur_on
+                                  : Icons.texture,
+                              color: Theme.of(sheetContext).colorScheme.primary,
+                            )
+                          : null,
+                    ),
                   ),
                   title: Text(_backdropLabel(sheetContext, option)),
                   trailing: option == selected ? const Icon(Icons.check) : null,
