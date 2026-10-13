@@ -706,5 +706,9 @@
   "view_once_file": "Einmal-Datei",
   "poll_view_once_unsupported": "Umfragen können nicht als Einmalansicht gesendet werden.",
   "recovery_reminder_banner": "Füge eine Wiederherstellungs-E-Mail hinzu, damit du dein Konto nicht verlierst",
-  "identity_recovery_banner": "Die Identität dieses Geräts passt nicht mehr zu deinem Konto, daher erreichen dich keine neuen Nachrichten. Melde dich mit deiner Wiederherstellungs-E-Mail erneut an."
+  "identity_recovery_banner": "Die Identität dieses Geräts passt nicht mehr zu deinem Konto, daher erreichen dich keine neuen Nachrichten. Melde dich mit deiner Wiederherstellungs-E-Mail erneut an.",
+  "profile_name_title": "Dein Name",
+  "profile_name_hint": "Der Name, den deine Chatpartner sehen",
+  "profile_name_add": "Namen hinzufügen",
+  "profile_name_edit": "Namen ändern"
 }

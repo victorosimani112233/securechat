@@ -2364,4 +2364,16 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get identity_recovery_banner =>
       'لم تعد هوية هذا الجهاز تطابق حسابك، لذا لن تصلك رسائل جديدة. سجّل الدخول مجددًا ببريد الاسترداد.';
+
+  @override
+  String get profile_name_title => 'اسمك';
+
+  @override
+  String get profile_name_hint => 'الاسم الذي يراه من تراسلهم';
+
+  @override
+  String get profile_name_add => 'أضف اسمك';
+
+  @override
+  String get profile_name_edit => 'غيّر اسمك';
 }

@@ -2365,4 +2365,16 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get identity_recovery_banner =>
       'The identity of this device no longer matches your account, so new messages cannot reach you. Sign in again with your recovery email.';
+
+  @override
+  String get profile_name_title => 'Your name';
+
+  @override
+  String get profile_name_hint => 'The name people you message will see';
+
+  @override
+  String get profile_name_add => 'Add your name';
+
+  @override
+  String get profile_name_edit => 'Change your name';
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../services/app_container.dart';
 import '../../l10n/l10n.dart';
 import '../../widgets/text_controller_scope.dart';
+import '../../contacts/profile_name_sharing_service.dart';
 import '../../settings/account_data_service.dart';
 import '../../settings/settings_service.dart';
 import '../../widgets/avatar.dart';
@@ -59,12 +60,26 @@ class SettingsScreen extends StatelessWidget {
           // hangi ayarin nereye ait oldugu belli.
           children: azureSections(<Widget>[
             ListTile(
+              key: const ValueKey('settings-profile-name'),
               leading: _profileAvatar(
                 settings?.profilePhotoPath,
-                session.displayName ?? 'Elçim',
+                _profileName(session.displayName) ?? 'Elçim',
               ),
-              title: Text(session.displayName ?? 'Elçim'),
+              title: Text(
+                _profileName(session.displayName) ?? l10n.profile_name_add,
+              ),
               subtitle: Text(session.phoneNumber ?? ''),
+              // Profil adi baska hicbir yerden degistirilemiyordu; e-postayla
+              // kurtarilan hesap uygulama adiyla kaliyordu (cihaz testi
+              // 2026-10-13).
+              onTap: () async {
+                // Oturum degisiklik yayinlamaz; ayarlar akisinin bu
+                // olusturucusu yeniden cizilir.
+                if (await _editProfileName(context, container) &&
+                    context.mounted) {
+                  (context as Element).markNeedsBuild();
+                }
+              },
               trailing: IconButton(
                 tooltip: l10n.profile_photo_change,
                 onPressed: service == null
@@ -600,6 +615,59 @@ class SettingsScreen extends StatelessWidget {
       ),
     ),
   );
+
+  /// Kullanicinin verdigi ad; bos ise "ad yok". ("Elcim" gercek bir isim de
+  /// olabildigi icin uygulama adi ozel sayilmaz.)
+  static String? _profileName(String? value) {
+    final name = value?.trim() ?? '';
+    return name.isEmpty ? null : name;
+  }
+
+  static Future<bool> _editProfileName(
+    BuildContext context,
+    AppContainer container,
+  ) async {
+    final session = container.session;
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        final l10n = dialogContext.l10n;
+        // Controller cikis animasyonu bitene kadar yasamali.
+        return TextControllerScope(
+          initialText: _profileName(session.displayName) ?? '',
+          builder: (_, controller) => AlertDialog(
+            title: Text(l10n.profile_name_title),
+            content: TextField(
+              key: const ValueKey('settings-profile-name-field'),
+              controller: controller,
+              autofocus: true,
+              maxLength: ProfileNameSharingService.maxNameLength,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(helperText: l10n.profile_name_hint),
+              onSubmitted: (text) => Navigator.pop(dialogContext, text),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(l10n.cancel),
+              ),
+              FilledButton(
+                key: const ValueKey('settings-profile-name-save'),
+                onPressed: () => Navigator.pop(dialogContext, controller.text),
+                child: Text(l10n.save),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (value == null) return false;
+    final name = ProfileNameSharingService.sanitize(value);
+    if (name == null) return false;
+    session.displayName = name;
+    await session.persist();
+    return true;
+  }
 
   static Future<void> _confirmLogout(
     BuildContext context,

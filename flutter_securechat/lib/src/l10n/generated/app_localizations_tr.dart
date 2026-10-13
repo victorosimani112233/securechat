@@ -2355,4 +2355,16 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get identity_recovery_banner =>
       'Bu cihazın kimliği hesabınla uyuşmuyor; yeni mesaj alamazsın. Kurtarma e-postanla yeniden giriş yap.';
+
+  @override
+  String get profile_name_title => 'Adın';
+
+  @override
+  String get profile_name_hint => 'Mesajlaştığın kişilerin göreceği ad';
+
+  @override
+  String get profile_name_add => 'Adını ekle';
+
+  @override
+  String get profile_name_edit => 'Adını değiştir';
 }

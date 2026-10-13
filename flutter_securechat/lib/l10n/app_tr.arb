@@ -1077,5 +1077,9 @@
   "view_once_file": "Tek gösterimlik dosya",
   "poll_view_once_unsupported": "Anketler tek gösterimlik gönderilemez.",
   "recovery_reminder_banner": "Hesabını kaybetmemek için kurtarma e-postası ekle",
-  "identity_recovery_banner": "Bu cihazın kimliği hesabınla uyuşmuyor; yeni mesaj alamazsın. Kurtarma e-postanla yeniden giriş yap."
+  "identity_recovery_banner": "Bu cihazın kimliği hesabınla uyuşmuyor; yeni mesaj alamazsın. Kurtarma e-postanla yeniden giriş yap.",
+  "profile_name_title": "Adın",
+  "profile_name_hint": "Mesajlaştığın kişilerin göreceği ad",
+  "profile_name_add": "Adını ekle",
+  "profile_name_edit": "Adını değiştir"
 }

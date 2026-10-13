@@ -4343,6 +4343,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The identity of this device no longer matches your account, so new messages cannot reach you. Sign in again with your recovery email.'**
   String get identity_recovery_banner;
+
+  /// Title of the profile name editor
+  ///
+  /// In en, this message translates to:
+  /// **'Your name'**
+  String get profile_name_title;
+
+  /// No description provided for @profile_name_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'The name people you message will see'**
+  String get profile_name_hint;
+
+  /// No description provided for @profile_name_add.
+  ///
+  /// In en, this message translates to:
+  /// **'Add your name'**
+  String get profile_name_add;
+
+  /// No description provided for @profile_name_edit.
+  ///
+  /// In en, this message translates to:
+  /// **'Change your name'**
+  String get profile_name_edit;
 }
 
 class _AppLocalizationsDelegate

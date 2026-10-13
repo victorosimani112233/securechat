@@ -227,7 +227,7 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
         'registrationId': approval.registrationId,
         'signature': signature,
       },
-      'displayName': _session.displayName ?? 'Elçim',
+      'displayName': _session.displayName ?? '',
       'phoneNumber': _session.phoneNumber ?? '',
     };
     await _recovery.writePendingRecovery(jsonEncode(pending));
@@ -305,7 +305,7 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     try {
       await _session.loginAndPersist(
         userId: userId,
-        displayName: pending['displayName'] as String? ?? 'Elçim',
+        displayName: pending['displayName'] as String? ?? '',
         phoneNumber: pending['phoneNumber'] as String? ?? '',
         accessToken: _text(result, 'token'),
         refreshToken: _text(result, 'refreshToken'),
@@ -361,7 +361,7 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     // prekey upload is pending. Do not let a later registration reuse its keys.
     await _session.restoreProfileAndPersist(
       userId: userId,
-      displayName: pending['displayName'] as String? ?? 'Elçim',
+      displayName: pending['displayName'] as String? ?? '',
       phoneNumber: pending['phoneNumber'] as String? ?? '',
     );
   }

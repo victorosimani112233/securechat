@@ -1090,5 +1090,12 @@
   "identity_recovery_banner": "The identity of this device no longer matches your account, so new messages cannot reach you. Sign in again with your recovery email.",
   "@identity_recovery_banner": {
     "description": "Chat list banner shown when the server rejects this device's Olm identity"
-  }
+  },
+  "profile_name_title": "Your name",
+  "@profile_name_title": {
+    "description": "Title of the profile name editor"
+  },
+  "profile_name_hint": "The name people you message will see",
+  "profile_name_add": "Add your name",
+  "profile_name_edit": "Change your name"
 }

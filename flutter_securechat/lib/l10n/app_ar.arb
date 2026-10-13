@@ -726,5 +726,9 @@
   "message_no_longer_available": "لم يعد بالإمكان فتح هذه الرسالة",
   "view_once_video": "فيديو لعرض واحد",
   "view_once_file": "ملف لعرض واحد",
-  "poll_view_once_unsupported": "لا يمكن إرسال الاستطلاعات للعرض لمرة واحدة."
+  "poll_view_once_unsupported": "لا يمكن إرسال الاستطلاعات للعرض لمرة واحدة.",
+  "profile_name_title": "اسمك",
+  "profile_name_hint": "الاسم الذي يراه من تراسلهم",
+  "profile_name_add": "أضف اسمك",
+  "profile_name_edit": "غيّر اسمك"
 }
