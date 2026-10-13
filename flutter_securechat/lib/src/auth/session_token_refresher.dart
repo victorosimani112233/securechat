@@ -80,7 +80,9 @@ Future<TokenPair?> _reauthenticateWithDevice({
       sign: deviceKey.signRecoveryProof,
     );
   } on AuthApiException catch (error) {
-    if (error.statusCode == 401) return null;
+    // 404: cihaz yolunu bilmeyen eski sunucu. Gecici sayilirsa olu oturum
+    // hic bitmez ve her yenilemede yeniden denenirdi.
+    if (error.statusCode == 401 || error.statusCode == 404) return null;
     rethrow;
   }
 }

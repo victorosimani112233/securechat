@@ -224,6 +224,22 @@ void main() {
       expect(api.deviceCalls, 1);
     });
 
+    test('cihaz yolu olmayan eski sunucuda oturum suresi doldu olur', () async {
+      final session = await openLoggedIn();
+      addTearDown(session.close);
+      final api = _DeviceReauthApi.failing(
+        const AuthApiException('not found', statusCode: 404),
+      );
+      final coordinator = coordinatorWithDeviceKey(
+        session,
+        api,
+        _DeviceKeyPublisher(),
+      );
+
+      expect(await coordinator.refreshAccessToken(), isNull);
+      expect(session.credentialsExpired, isTrue);
+    });
+
     test('cihaz yolunda gecici hata oturumu korur', () async {
       final session = await openLoggedIn();
       addTearDown(session.close);
