@@ -27,6 +27,8 @@ object RateLimiter {
         // aksine rate-limit'siz'di (deep-scan bulgu). Token yuksek-entropili
         // olsa da defense-in-depth icin IP basina sinir uygulanir.
         "auth_refresh" to RateLimit(30, 600),        // 30 req/10dk per IP
+        // Cihaz anahtariyla yeniden oturum (QA 2026-10-13 R3): soru + dogrulama.
+        "auth_device_reauth" to RateLimit(10, 600),  // 10 req/10dk per IP
         "ice_config" to RateLimit(30, 3600),          // 30 req/saat per userId
         // Prekey fetch her cagride hedefin bir one-time prekey'ini tuketir;
         // sinirsizken bir saldirgan bilinen bir UUID'nin havuzunu bosaltip

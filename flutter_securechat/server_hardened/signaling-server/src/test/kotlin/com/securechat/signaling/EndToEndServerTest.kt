@@ -1276,6 +1276,27 @@ class EndToEndServerTest {
     }
 
     @Test
+    fun `device reauth endpoints issue a challenge and refuse a bad proof`() = e2e {
+        clearRateLimits()
+        val challenge = client.post("/api/v1/auth/device/challenge") {
+            header("Content-Type", "application/json")
+            setBody("{}")
+        }
+        assertEquals(HttpStatusCode.OK, challenge.status)
+        assertEquals("no-store", challenge.headers["Cache-Control"])
+        val body = challenge.bodyAsText()
+        assertTrue(body.contains("\"challengeId\"") && body.contains("\"nonce\""))
+
+        val challengeId = Regex("\"challengeId\":\"([^\"]+)\"").find(body)!!.groupValues[1]
+        val rejected = client.post("/api/v1/auth/device/verify") {
+            header("Content-Type", "application/json")
+            setBody("""{"challengeId":"$challengeId","refreshToken":"not.a.token","signature":"AAAA"}""")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, rejected.status)
+        assertFalse(rejected.bodyAsText().contains("accessToken"))
+    }
+
+    @Test
     fun `registration binds the verified email only when the user asks`() = e2e {
         clearRateLimits()
         val email = "e2e-${UUID.randomUUID()}@example.com"

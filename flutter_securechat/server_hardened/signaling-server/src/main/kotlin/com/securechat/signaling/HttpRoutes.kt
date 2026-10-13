@@ -860,6 +860,53 @@ fun Application.configureRoutes(
             call.respond(RefreshTokenResponse(newAccess, newRefresh))
         }
 
+        // Cihaz anahtariyla yeniden oturum (QA 2026-10-13 R3 madde 3): refresh
+        // 401 aldiginda istemci reddedilen token'i ve sunucu sorusunun Olm
+        // Ed25519 imzasini sunar. Ayrintilar `DeviceReauth`.
+        post("/api/v1/auth/device/challenge") {
+            val ip = call.clientAddress()
+            if (!RateLimiter.allow("auth_device_reauth", ip)) {
+                call.response.header("Retry-After", RateLimiter.retryAfter("auth_device_reauth", ip).toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi"))
+                return@post
+            }
+            call.response.headers.append("Cache-Control", "no-store")
+            val challenge = DeviceReauth.issueChallenge()
+            if (challenge == null) {
+                call.respondCredentialStateUnavailable()
+                return@post
+            }
+            call.respond(challenge)
+        }
+
+        post("/api/v1/auth/device/verify") {
+            val ip = call.clientAddress()
+            if (!RateLimiter.allow("auth_device_reauth", ip)) {
+                call.response.header("Retry-After", RateLimiter.retryAfter("auth_device_reauth", ip).toString())
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi"))
+                return@post
+            }
+            call.response.headers.append("Cache-Control", "no-store")
+            val body = call.receiveBounded<DeviceReauthRequest>(SMALL_BODY_LIMIT) ?: return@post
+            when (val outcome = DeviceReauth.reauthenticate(body)) {
+                is DeviceReauth.Outcome.Issued -> {
+                    val access = AuthService.issueToken(outcome.userId, outcome.snapshot.credentialEpoch)
+                    val refresh = AuthService.issueRefreshToken(
+                        outcome.userId,
+                        outcome.snapshot.credentialEpoch,
+                        outcome.snapshot.refreshGeneration,
+                    )
+                    AuditLog.log(userId = outcome.userId, eventType = "AUTH_DEVICE_REAUTH", ipAddress = ip)
+                    call.respond(RefreshTokenResponse(access, refresh))
+                }
+                DeviceReauth.Outcome.Rejected -> {
+                    AuditLog.log(eventType = "AUTH_DEVICE_REAUTH_REJECTED", ipAddress = ip)
+                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "device_reauth_rejected"))
+                }
+                DeviceReauth.Outcome.Unavailable -> call.respondCredentialStateUnavailable()
+            }
+        }
+
         // --- Dinamik TURN Credential — AUTH GEREKLI ---
         get("/api/v1/ice/config") {
             val authedUserId = requireAuth(call) ?: return@get
