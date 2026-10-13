@@ -140,7 +140,10 @@ void main() {
       );
     });
 
-    test('bozuk ciphertext oturumu kullanilamaz sayar ve siler', () async {
+    // QA 2026-10-13 T16: tek bir bozuk ya da eski cerceve (sunucu tasir)
+    // saglam oturumu siliyordu; her yeniden baglantida tekrar teslim edilen
+    // eski bir mesaj konusmayi yeniden kopariyordu.
+    test('bozuk ciphertext cozulemez ama oturumu silmez', () async {
       final envelope = await alice.service.encryptDirect(
         recipientId: 'bob',
         plaintext: 'bir',
@@ -157,8 +160,53 @@ void main() {
         bob.service.decryptDirect(senderId: 'alice', envelope: tampered),
         throwsA(isA<SignalSessionUnusableException>()),
       );
-      expect(await bob.store.sessionIdsForPeer('alice'), isEmpty);
+      expect(await bob.store.sessionIdsForPeer('alice'), isNotEmpty);
+      expect(
+        await bob.service.decryptDirect(senderId: 'alice', envelope: next),
+        'iki',
+      );
     });
+
+    test(
+      'silinmis eski oturumdan gec gelen mesaj yeni oturumu bozmaz',
+      () async {
+        final first = await alice.service.encryptDirect(
+          recipientId: 'bob',
+          plaintext: 'eski-1',
+        );
+        await bob.service.decryptDirect(senderId: 'alice', envelope: first);
+        // Eski oturumla sifrelenmis ama gec teslim edilecek mesaj.
+        final late = await alice.service.encryptDirect(
+          recipientId: 'bob',
+          plaintext: 'eski-2',
+        );
+        // Iki taraf eski oturumu birakir; Alice yeni oturum kurar.
+        await bob.service.resetPeerSession('alice');
+        expect(await alice.service.rebuildPeerSession('bob'), isTrue);
+        final fresh = await alice.service.encryptDirect(
+          recipientId: 'bob',
+          plaintext: 'yeni-1',
+        );
+        expect(
+          await bob.service.decryptDirect(senderId: 'alice', envelope: fresh),
+          'yeni-1',
+        );
+
+        await expectLater(
+          bob.service.decryptDirect(senderId: 'alice', envelope: late),
+          throwsA(isA<SignalSessionUnusableException>()),
+        );
+
+        final after = await alice.service.encryptDirect(
+          recipientId: 'bob',
+          plaintext: 'yeni-2',
+        );
+        expect(
+          await bob.service.decryptDirect(senderId: 'alice', envelope: after),
+          'yeni-2',
+        );
+      },
+    );
 
     test('desteklenmeyen zarf reddedilir', () {
       expect(

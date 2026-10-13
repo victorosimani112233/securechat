@@ -82,6 +82,51 @@ void main() {
     );
   });
 
+  // QA 2026-10-13 T16: kalici olarak cozulemeyen mesaj sunucuya
+  // onaylanmiyordu; her yeniden baglantida tekrar teslim ediliyor ve alici
+  // her seferinde saglam oturumunu siliyordu.
+  test('kalici cozulemeyen mesaj onaylanir ve yerel oturum silinmez', () async {
+    final failing = _UnusableSessionCrypto();
+    final receiving = IncomingMessageHandler(
+      signaling: signaling,
+      crypto: failing,
+      database: database,
+      session: SessionStore(userId: 'me', accessToken: 'token'),
+      onUndecryptableMessage: (conversationId) async {
+        notified.add(conversationId);
+      },
+      onAsyncFailure: (_, _, _) {},
+    )..start();
+    addTearDown(receiving.close);
+    await handler.close();
+    final token = List.filled(43, 'U').join();
+
+    for (var delivery = 0; delivery < 2; delivery++) {
+      signaling.addIncoming(
+        EncryptedSignalMessage(
+          senderId: 'peer',
+          recipientId: 'me',
+          timestamp: DateTime.now(),
+          envelope: 'E2EE:v1:OLM:1:eski-oturum',
+          deliveryToken: token,
+        ),
+      );
+      await receiving.waitForIdle();
+    }
+
+    final acks = signaling.sentMessages
+        .whereType<DeliveryTransportAckSignal>()
+        .where((ack) => ack.deliveryToken == token);
+    expect(acks, isNotEmpty, reason: 'sunucu mesaji tekrar teslim etmemeli');
+    expect(failing.decryptCalls, 1, reason: 'ayni teslim ikinci kez denenmez');
+    expect(failing.resets, 0, reason: 'yerel oturumlar korunur');
+    expect(
+      signaling.sentMessages.whereType<SessionResetRequestSignal>(),
+      hasLength(1),
+      reason: 'karsi taraftan yeni oturum istenir',
+    );
+  });
+
   test('sistem mesaji sohbette gorunur ve gun basina bir kez yazilir', () async {
     final notices = SecurityNoticeService(database: database);
     final day = DateTime(2026, 9, 14, 10);
@@ -131,4 +176,34 @@ void main() {
       reason: 'grup anahtari kurulamadi, teshis izi kalmali: $failures',
     );
   });
+}
+
+/// Her direkt mesajda "oturum kullanilamaz" atar; sifirlama cagrilarini sayar.
+class _UnusableSessionCrypto extends LocalAeadCryptoService
+    implements PeerSessionRecovery {
+  _UnusableSessionCrypto() : super(SecretKey(List.filled(32, 11)));
+
+  int decryptCalls = 0;
+  int resets = 0;
+
+  @override
+  Future<String> decryptDirect({
+    required String senderId,
+    required String envelope,
+  }) async {
+    decryptCalls++;
+    throw SignalSessionUnusableException(
+      peerId: senderId,
+      cause: StateError('eski oturum'),
+    );
+  }
+
+  @override
+  Future<void> resetPeerSession(String peerId) async => resets++;
+
+  @override
+  Future<bool> rebuildPeerSession(String peerId) async {
+    resets++;
+    return true;
+  }
 }

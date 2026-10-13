@@ -366,9 +366,12 @@ class VodozemacCryptoService
       );
     }
     if (!indicatesUnusableSession(error)) throw error;
-    // Oturum olu: bir daha kullanilmasin diye silinir, boylece sonraki
-    // gonderim taze bir bundle ile bastan kurar.
-    await _store.deleteSessionsForPeer(senderId);
+    // Bu mesaj hicbir oturumla cozulemedi, fakat oturumlar SILINMEZ: cerceve
+    // sunucudan gelir ve bozuk ya da silinmis eski bir oturuma ait olabilir
+    // (gec teslim, yeniden baglantida tekrar teslim). Silmek, tek bir eski
+    // cerceveyle saglam konusmayi koparirdi (QA 2026-10-13 T16). Karsi taraf
+    // gercekten bozuk bir oturumla gonderiyorsa cagiran ona yeni oturum
+    // kurmasini soyler; yeni PreKey oturumu var olanlarin yanina eklenir.
     throw SignalSessionUnusableException(peerId: senderId, cause: error);
   });
 

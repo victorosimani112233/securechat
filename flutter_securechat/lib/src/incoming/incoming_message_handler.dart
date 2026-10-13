@@ -440,11 +440,10 @@ class IncomingMessageHandler {
     }
     if (error is! SignalSessionUnusableException) return;
     final peerId = error.peerId;
-    if (_crypto case final PeerSessionRecovery recovery) {
-      // Oturum atilir, fakat TOFU ile sabitlenen kimlik korunur. Sonraki
-      // gonderim taze bundle ceker; kimlik degismisse otomatik kabul edilmez.
-      await recovery.resetPeerSession(peerId);
-    }
+    // Yerel oturumlar SILINMEZ: cozulemeyen zarf bozuk ya da silinmis eski bir
+    // oturuma ait olabilir ve saglam konusmayi koparirdi (QA 2026-10-13 T16).
+    // Karsi taraftan yeni bir oturum kurmasi istenir; yeni PreKey oturumu var
+    // olanlarin yanina eklenir.
     final localUserId = _session.userId;
     if (localUserId == null) return;
     // Karsi tarafin da bizimle olan oturumunu atmasini iste; boylece bir
@@ -550,6 +549,14 @@ class IncomingMessageHandler {
         stackTrace,
         conversationId: conversationId,
       );
+      // Hicbir oturumla cozulemeyen zarf bir daha da cozulemez: islenmis
+      // sayilir ve sunucuya onaylanir. Onaylanmazsa her yeniden baglantida
+      // tekrar teslim ediliyor, her seferinde yeni bir "cozulemedi" ve oturum
+      // sifirlama tetikliyordu (QA 2026-10-13 T16). Kimlik degisikligi gibi
+      // onaydan sonra cozulebilecek hatalar onaylanmaz.
+      if (error is SignalSessionUnusableException) {
+        return const _EncryptedProcessingResult(processed: true);
+      }
       return const _EncryptedProcessingResult.rejected();
     }
     // Cagri medya anahtari mesaj degildir: sohbete yazilmaz, dogrudan cagri
