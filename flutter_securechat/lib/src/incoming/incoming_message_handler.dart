@@ -856,14 +856,22 @@ class IncomingMessageHandler {
   }
 
   Future<void> _timer(DisappearingTimerSignal signal) async {
-    final conversationId = signal.conversationId.isEmpty
-        ? signal.senderId
-        : signal.conversationId;
-    final conversation = await _database.conversations.getById(conversationId);
-    if (!_allowedTimerDurations.contains(signal.durationMs) ||
+    // Gonderen birebir sohbette KENDI sohbet kimligini (yani bizim userId'mizi)
+    // yollar; bizdeki sohbet gonderenin kimligiyle bulunur. Eskiden alinan
+    // kimlikle aranip hic bulunamiyor ve ayar sessizce dusuyordu (QA
+    // 2026-10-13 T18). Grup kimligi her iki tarafta aynidir.
+    final named = signal.conversationId.isEmpty
+        ? null
+        : await _database.conversations.getById(signal.conversationId);
+    final conversation = named != null && named.isGroup
+        ? named
+        : await _database.conversations.getByPeerId(signal.senderId);
+    if (conversation == null ||
+        !_allowedTimerDurations.contains(signal.durationMs) ||
         !_senderAllowed(conversation, signal.senderId)) {
       return;
     }
+    final conversationId = conversation.id;
     await _database.conversations.updateDisappearingDuration(
       conversationId,
       signal.durationMs,
@@ -872,7 +880,7 @@ class IncomingMessageHandler {
     final l10n = await _strings.load();
     final content = remoteDisappearingTimerNotice(
       l10n,
-      sender: conversation?.isGroup == true
+      sender: conversation.isGroup
           ? await _groupMemberName(signal.senderId)
           : await _memberName(signal.senderId),
       durationMs: signal.durationMs,

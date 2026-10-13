@@ -628,6 +628,48 @@ void main() {
     expect(conversation.lastMessage, messages.single.content);
   });
 
+  // QA 2026-10-13 T18: gonderen birebir sohbette kendi sohbet kimligini, yani
+  // ALICININ userId'sini yollar. Alici bunu kendi sohbet kimligi sanip hic
+  // bulamiyordu.
+  test('a direct timer uses the sender, not the sender\'s chat id', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    for (final peer in ['alice', 'bob']) {
+      await fixture.database.conversations.insert(
+        ConversationEntity(
+          id: peer,
+          peerId: peer,
+          peerName: peer,
+          peerPhone: '',
+        ),
+      );
+    }
+    for (final conversationId in ['me', 'bob']) {
+      fixture.signaling.addIncoming(
+        await encryptTestPrivateChatControl(
+          crypto: fixture.crypto,
+          control: DisappearingTimerSignal(
+            senderId: 'alice',
+            recipientId: 'me',
+            timestamp: DateTime.now(),
+            durationMs: const Duration(days: 7).inMilliseconds,
+            conversationId: conversationId,
+          ),
+        ),
+      );
+    }
+    await fixture.handler.waitForIdle();
+
+    final alice = (await fixture.database.conversations.getById('alice'))!;
+    expect(alice.disappearingDuration, const Duration(days: 7).inMilliseconds);
+    final bob = (await fixture.database.conversations.getById('bob'))!;
+    expect(bob.disappearingDuration, 0, reason: 'baska sohbet degismez');
+    expect(
+      await fixture.database.messages.getMessagesImmediate('bob'),
+      isEmpty,
+    );
+  });
+
   test('authenticated author may edit only their own message', () async {
     final fixture = await _Fixture.open();
     addTearDown(fixture.close);
