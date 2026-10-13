@@ -246,9 +246,19 @@ void main() {
       contains('SELECT credential_epoch, refresh_generation'),
     );
     expect(credentialState, contains('INVALIDATE_CHANNEL'));
-    // Redis kullanimi yalniz publish/subscribe olmali; epoch'u Redis'ten
-    // okuyan bir yol (get/set anahtar) eklenmemeli.
-    expect(credentialState, isNot(contains('RedisManager.use { it.get')));
+    // Epoch ve kusak Redis'ten okunmamali. Tek istisna kaybolan yenileme
+    // yanitinin telafi kaydi (QA 2026-10-12 R1): tek kullanimlik okunur ve
+    // karar yine DB'deki guncel kusakla karsilastirilarak verilir; Redis
+    // kaybi yalniz telafiyi kapatir.
+    final redisReads = RegExp(
+      r'RedisManager\.use \{ it\.get',
+    ).allMatches(credentialState);
+    expect(redisReads, hasLength(1));
+    expect(credentialState, contains('it.getDel(lostRotationKey('));
+    expect(
+      credentialState,
+      contains('current.takeIf { it.refreshGeneration == successor }'),
+    );
 
     final auth = source(
       'server_hardened/signaling-server/src/main/kotlin/'

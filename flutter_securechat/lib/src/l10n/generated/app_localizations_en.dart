@@ -109,6 +109,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recovery_login_title => 'Log in to an existing account';
 
   @override
+  String get session_expired_title => 'Your session has ended';
+
+  @override
+  String get session_expired_body =>
+      'Your messages are still on this device. Log in to the same account again to continue.';
+
+  @override
   String get recovery_email_title => 'Recovery email';
 
   @override

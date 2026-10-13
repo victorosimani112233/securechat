@@ -50,6 +50,13 @@ class SessionStore {
   bool fullscreenMode;
   bool scheduledMessagesEnabled;
 
+  /// Sunucu refresh token'i kalici olarak reddetti (QA 2026-10-12 R1).
+  ///
+  /// Hesap ve profil cihazda kalir; yalniz tokenlar silinir. Giris ekrani
+  /// bunu gorup "oturumun sona erdi" der; ayni hesapla yeniden giriste
+  /// yerel veri korunur.
+  bool credentialsExpired = false;
+
   bool get isLoggedIn =>
       userId != null && accessToken != null && accessToken!.isNotEmpty;
 
@@ -66,7 +73,17 @@ class SessionStore {
     this.phoneNumber = phoneNumber;
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
+    credentialsExpired = false;
   }
+
+  /// Tokenlari siler, hesabi ve ayarlari birakir.
+  void expireCredentials() {
+    accessToken = null;
+    refreshToken = null;
+    credentialsExpired = true;
+  }
+
+  Future<void> expireCredentialsAndPersist() async => expireCredentials();
 
   void clear() {
     userId = null;
@@ -88,6 +105,7 @@ class SessionStore {
     useDoodleBackground = true;
     fullscreenMode = false;
     scheduledMessagesEnabled = true;
+    credentialsExpired = false;
   }
 
   Future<void> loginAndPersist({
@@ -171,6 +189,7 @@ class SessionStore {
     'useDoodleBackground': useDoodleBackground,
     'fullscreenMode': fullscreenMode,
     'scheduledMessagesEnabled': scheduledMessagesEnabled,
+    'credentialsExpired': credentialsExpired,
   };
 
   void loadJson(Map<String, Object?> json) {
@@ -207,6 +226,7 @@ class SessionStore {
     fullscreenMode = json['fullscreenMode'] as bool? ?? false;
     scheduledMessagesEnabled =
         json['scheduledMessagesEnabled'] as bool? ?? true;
+    credentialsExpired = json['credentialsExpired'] as bool? ?? false;
   }
 }
 
@@ -407,6 +427,12 @@ class PersistentSessionStore extends SessionStore {
   @override
   Future<void> clearAndPersist() async {
     super.clear();
+    await persist();
+  }
+
+  @override
+  Future<void> expireCredentialsAndPersist() async {
+    expireCredentials();
     await persist();
   }
 

@@ -111,6 +111,13 @@ class AppLocalizationsDe extends AppLocalizations {
   String get recovery_login_title => 'Bei bestehendem Konto anmelden';
 
   @override
+  String get session_expired_title => 'Deine Sitzung ist abgelaufen';
+
+  @override
+  String get session_expired_body =>
+      'Deine Nachrichten sind weiterhin auf diesem Gerät. Melde dich erneut beim selben Konto an, um fortzufahren.';
+
+  @override
   String get recovery_email_title => 'Wiederherstellungs-E-Mail';
 
   @override

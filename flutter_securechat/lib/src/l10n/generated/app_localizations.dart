@@ -276,6 +276,18 @@ abstract class AppLocalizations {
   /// **'Log in to an existing account'**
   String get recovery_login_title;
 
+  /// No description provided for @session_expired_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Your session has ended'**
+  String get session_expired_title;
+
+  /// No description provided for @session_expired_body.
+  ///
+  /// In en, this message translates to:
+  /// **'Your messages are still on this device. Log in to the same account again to continue.'**
+  String get session_expired_body;
+
   /// No description provided for @recovery_email_title.
   ///
   /// In en, this message translates to:

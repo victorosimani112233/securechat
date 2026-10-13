@@ -29,6 +29,8 @@
   "recovery_restart": "Yeni doğrulama başlat",
   "recovery_restart_warning": "Önceki giriş şifreleme kimliğinizi değiştirmiş ve eski oturumları iptal etmiş olabilir. Yalnızca yeniden deneme tamamlanamıyorsa baştan başlayın. Yeni e-posta kodu ve açık kimlik onayı gerekecektir. Önceki giriş doğrulanmışsa o girişin kimliği korunur.",
   "recovery_login_title": "Mevcut hesaba giriş yap",
+  "session_expired_title": "Oturumun sona erdi",
+  "session_expired_body": "Mesajların bu cihazda duruyor. Devam etmek için aynı hesapla yeniden giriş yap.",
   "recovery_email_title": "Kurtarma e-postası",
   "recovery_email_settings": "Bu oturum açık cihazda hesap kurtarmayı yönetin.",
   "recovery_login_description": "Oturumunuz açıkken doğruladığınız kurtarma e-postasını girin.",

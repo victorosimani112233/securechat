@@ -29,6 +29,8 @@
   "recovery_restart": "Start a new verification",
   "recovery_restart_warning": "The previous login may already have changed your encryption identity and revoked old sessions. Restart only if retry cannot finish. A new email code and explicit identity approval will be required. If the prior login was confirmed, its identity will be retained.",
   "recovery_login_title": "Log in to an existing account",
+  "session_expired_title": "Your session has ended",
+  "session_expired_body": "Your messages are still on this device. Log in to the same account again to continue.",
   "recovery_email_title": "Recovery email",
   "recovery_email_settings": "Manage account recovery on this signed-in device.",
   "recovery_login_description": "Enter the recovery email previously verified on your signed-in device.",

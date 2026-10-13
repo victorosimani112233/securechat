@@ -82,6 +82,9 @@ class _AuthScreenState extends State<AuthScreen> {
                   onPhoneChanged: (_) => setState(() => _phoneError = null),
                   onContinue: _continueToEmail,
                   onLogin: _openRecovery,
+                  sessionExpired: AppContainerScope.of(
+                    context,
+                  ).session.credentialsExpired,
                 )
               : _EmailStep(
                   key: ValueKey('auth-${_step.name}'),
@@ -273,6 +276,45 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
+class _SessionExpiredNotice extends StatelessWidget {
+  const _SessionExpiredNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AzureGlassPanel(
+      key: const ValueKey('auth-session-expired'),
+      strong: true,
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.lock_clock, color: scheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.l10n.session_expired_title,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  context.l10n.session_expired_body,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DetailsStep extends StatelessWidget {
   const _DetailsStep({
     super.key,
@@ -287,6 +329,7 @@ class _DetailsStep extends StatelessWidget {
     required this.onPhoneChanged,
     required this.onContinue,
     required this.onLogin,
+    this.sessionExpired = false,
   });
 
   final TextEditingController name;
@@ -300,6 +343,10 @@ class _DetailsStep extends StatelessWidget {
   final ValueChanged<String> onPhoneChanged;
   final VoidCallback onContinue;
   final VoidCallback onLogin;
+
+  /// Sunucu oturumu kapatti (QA 2026-10-12 R1); kullanici neden burada
+  /// oldugunu ve verisinin durdugunu gormeli.
+  final bool sessionExpired;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -358,6 +405,10 @@ class _DetailsStep extends StatelessWidget {
                 ),
               ],
             ),
+            if (sessionExpired) ...[
+              const SizedBox(height: 16),
+              const _SessionExpiredNotice(),
+            ],
             TextButton.icon(
               key: const ValueKey('auth-existing-account'),
               onPressed: onLogin,

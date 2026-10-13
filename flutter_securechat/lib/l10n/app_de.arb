@@ -29,6 +29,8 @@
   "recovery_restart": "Neue Verifizierung starten",
   "recovery_restart_warning": "Die vorherige Anmeldung hat möglicherweise bereits deine Verschlüsselungsidentität geändert und alte Sitzungen widerrufen. Starte nur neu, wenn ein erneuter Versuch nicht abgeschlossen werden kann. Ein neuer E-Mail-Code und eine ausdrückliche Identitätsbestätigung sind erforderlich. Wenn die vorherige Anmeldung bestätigt wurde, bleibt ihre Identität erhalten.",
   "recovery_login_title": "Bei bestehendem Konto anmelden",
+  "session_expired_title": "Deine Sitzung ist abgelaufen",
+  "session_expired_body": "Deine Nachrichten sind weiterhin auf diesem Gerät. Melde dich erneut beim selben Konto an, um fortzufahren.",
   "recovery_email_title": "Wiederherstellungs-E-Mail",
   "recovery_email_settings": "Kontowiederherstellung auf diesem angemeldeten Gerät verwalten.",
   "recovery_login_description": "Gib die zuvor auf deinem angemeldeten Gerät bestätigte Wiederherstellungs-E-Mail ein.",

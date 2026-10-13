@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import '../contacts/contact_discovery_api.dart';
@@ -8,6 +9,7 @@ import 'account_recovery_coordinator.dart';
 import 'secure_account_recovery_coordinator.dart';
 import '../crypto/vodozemac/olm_pre_key_publisher.dart';
 import 'phone_privacy.dart';
+import 'session_token_refresher.dart';
 
 /// Giris oncesi yerel verinin yeni hesaba ait olmasini saglar
 /// (bkz `LocalDataOwnerGuard.claim`).
@@ -47,6 +49,7 @@ class AuthCoordinator {
 
   final AuthApi _api;
   final SessionStore _session;
+
   /// Olm acik anahtarlarini yayinlar; hesap kurtarma kimligi de budur.
   ///
   /// Mesajlasmanin kullandigi tek kimlik. libsignal bundle yuklemesi
@@ -121,33 +124,22 @@ class AuthCoordinator {
     );
   }
 
-  /// Access token'i yeniler.
+  final _credentialsExpired = StreamController<void>.broadcast();
+
+  /// Sunucu oturumu kalici olarak reddettiginde yayinlar (QA 2026-10-12
+  /// R1). Uygulama kullaniciyi giris ekranina goturur; yerel veri durur.
+  Stream<void> get credentialsExpired => _credentialsExpired.stream;
+
+  /// Access token'i yeniler; bkz. [refreshSessionTokens].
   ///
-  /// Yenileme isolate'ler ARASI sirali kosar. Refresh token tek
-  /// kullanimlik: sunucu her yenilemede generation'i donduruyor, yani iki
-  /// isolate ayni anda yenilerse birinin token'i KALICI olarak oluyor ve
-  /// kullanicinin yapabilecegi tek sey yeniden giris kaliyor. Kilidi alan
-  /// taraf once diske bakar; token zaten degismisse hic yenilemez,
-  /// digerinin sonucunu kullanir.
-  Future<String?> refreshAccessToken() {
-    final failed = _session.accessToken;
-    return _session.withRefreshLock(() async {
-      await _session.reloadFromDisk();
-      final current = _session.accessToken;
-      // Kilidi beklerken baskasi yeniledi: onun sonucunu kullan, token'i
-      // bir kez daha dondurme.
-      if (current != null && current.isNotEmpty && current != failed) {
-        return current;
-      }
-      final refresh = _session.refreshToken;
-      if (refresh == null || refresh.isEmpty) return null;
-      final pair = await _api.refresh(refresh);
-      await _session.updateTokensAndPersist(
-        accessToken: pair.accessToken,
-        refreshToken: pair.refreshToken,
-      );
-      return pair.accessToken;
-    });
+  /// Oturum burada ya da arka plan isolate'inde sona erdiyse `null` doner
+  /// ve [credentialsExpired] yayinlanir.
+  Future<String?> refreshAccessToken() async {
+    final token = await refreshSessionTokens(session: _session, api: _api);
+    if (token == null && _session.credentialsExpired) {
+      _credentialsExpired.add(null);
+    }
+    return token;
   }
 
   Future<void> logout() async {

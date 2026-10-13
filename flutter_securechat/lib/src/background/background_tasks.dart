@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../auth/auth_api.dart';
+import '../auth/session_token_refresher.dart';
 import '../chat/private_chat_control.dart';
 import '../config/app_config.dart';
 import '../contacts/contact_service.dart';
@@ -161,24 +162,10 @@ class SecureChatBackgroundRuntime {
       // `SessionStore.withRefreshLock`. Kilitsiz halinde on plan ve arka
       // plan ayni anda yenileyip birbirinin token'ini kalici olarak
       // oldurebiliyordu.
-      Future<String?> refreshAccessToken() {
-        final failed = session.accessToken;
-        return session.withRefreshLock(() async {
-          await session.reloadFromDisk();
-          final current = session.accessToken;
-          if (current != null && current.isNotEmpty && current != failed) {
-            return current;
-          }
-          final refresh = session.refreshToken;
-          if (refresh == null || refresh.isEmpty) return null;
-          final pair = await authApi.refresh(refresh);
-          await session.updateTokensAndPersist(
-            accessToken: pair.accessToken,
-            refreshToken: pair.refreshToken,
-          );
-          return pair.accessToken;
-        });
-      }
+      // 401'de oturum kalici olarak "suresi doldu" isaretlenir; on plan
+      // acildiginda giris ekrani gosterilir (QA 2026-10-12 R1).
+      Future<String?> refreshAccessToken() =>
+          refreshSessionTokens(session: session, api: authApi);
 
       // Gecis ON PLANDA da kosuyor; burada da yoklanmasi gerekiyor cunku
       // arka plan gorevi uygulama hic acilmadan tetiklenebilir. Isaret
@@ -411,9 +398,10 @@ class SecureChatBackgroundRuntime {
     try {
       await refreshAccessToken();
     } catch (error, stackTrace) {
-      // Yenileme basarisizsa eldeki token ile devam edilir; refresh token
-      // gercekten gecersizse zaten oturum kapatilmasi gerekir ve bunu
-      // background isolate tek basina karar vermemeli.
+      // Gecici hata (ag, 503): eldeki token ile devam edilir. Sunucunun
+      // kalici reddi (401) hata degil; `refreshSessionTokens` oturumu
+      // "suresi doldu" isaretler ve sonraki adimlar giris yapilmamis gibi
+      // atlanir.
       _logBackgroundFailure('BG-AUTH', 'refreshAccessToken', error, stackTrace);
     }
   }

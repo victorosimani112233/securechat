@@ -110,6 +110,13 @@ class AppLocalizationsTr extends AppLocalizations {
   String get recovery_login_title => 'Mevcut hesaba giriş yap';
 
   @override
+  String get session_expired_title => 'Oturumun sona erdi';
+
+  @override
+  String get session_expired_body =>
+      'Mesajların bu cihazda duruyor. Devam etmek için aynı hesapla yeniden giriş yap.';
+
+  @override
   String get recovery_email_title => 'Kurtarma e-postası';
 
   @override

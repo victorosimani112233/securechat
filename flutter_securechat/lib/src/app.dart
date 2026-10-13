@@ -43,6 +43,7 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
   StreamSubscription<String>? _notificationTapSubscription;
   StreamSubscription<void>? _callOpenSubscription;
   StreamSubscription<CallSession?>? _callSessionSubscription;
+  StreamSubscription<void>? _credentialsExpiredSubscription;
   late ThemeMode _themeMode;
   Locale? _locale;
   final _navigatorKey = GlobalKey<NavigatorState>();
@@ -85,6 +86,8 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
         lifecycleState == null || lifecycleState == AppLifecycleState.resumed;
     _callSessionSubscription = widget.container.mediaRuntime?.calls.sessions
         .listen(_onCallSessionChanged);
+    _credentialsExpiredSubscription = widget.container.auth?.credentialsExpired
+        .listen((_) => _showSessionExpired());
     WidgetsBinding.instance.addObserver(this);
     final lifecycle = widget.container.lifecycleRuntime;
     if (lifecycle != null) {
@@ -103,6 +106,7 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
     _notificationTapSubscription?.cancel();
     _callOpenSubscription?.cancel();
     _callSessionSubscription?.cancel();
+    _credentialsExpiredSubscription?.cancel();
     _navigatorObserver.dispose();
     _runLifecycle(widget.container.dispose());
     WidgetsBinding.instance.removeObserver(this);
@@ -259,6 +263,13 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
       _openCallScreen();
     });
     WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Sunucu oturumu kalici olarak reddetti (QA 2026-10-12 R1): giris
+  /// ekranina don. Yerel veri silinmez; ayni hesapla giris onu korur.
+  void _showSessionExpired() {
+    if (!mounted || const {'/auth', '/launch'}.contains(_activeRoute)) return;
+    _navigatorKey.currentState?.pushNamedAndRemoveUntil('/auth', (_) => false);
   }
 
   bool get _blocksIncomingCallRoute => const <String?>{

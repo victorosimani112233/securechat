@@ -103,6 +103,130 @@ void main() {
     });
   });
 
+  // QA 2026-10-12 R1: refresh 401 alinca uygulama ayni olu token'la
+  // tekrar tekrar deniyor, kullaniciya da bir sey soylemiyordu.
+  group('kalici olarak reddedilen oturum', () {
+    late Directory directory;
+    late File file;
+    late LocalAeadCryptoService crypto;
+
+    setUp(() async {
+      directory = await Directory.systemTemp.createTemp('session-expired');
+      file = File('${directory.path}/session.securejson');
+      crypto = LocalAeadCryptoService(
+        SecretKey(List<int>.generate(32, (index) => index + 21)),
+      );
+    });
+    tearDown(() => directory.delete(recursive: true));
+
+    Future<PersistentSessionStore> openLoggedIn() async {
+      final session = await PersistentSessionStore.open(
+        file: file,
+        crypto: crypto,
+      );
+      await session.loginAndPersist(
+        userId: 'kullanici',
+        displayName: 'Ad',
+        phoneNumber: '+900000000000',
+        accessToken: 'eski',
+        refreshToken: 'eski-refresh',
+      );
+      return session;
+    }
+
+    AuthCoordinator coordinatorFor(SessionStore session, AuthApi api) =>
+        AuthCoordinator(
+          api: api,
+          session: session,
+          olmPreKeys: _RecordingOlmKeyPublisher(),
+          signaling: InMemorySignalingService(),
+          signalingUrl: 'wss://example.invalid',
+        );
+
+    test('401 tokenlari siler, hesabi birakir ve bir kez bildirir', () async {
+      final session = await openLoggedIn();
+      addTearDown(session.close);
+      final api = _StatusRefreshApi(401);
+      final coordinator = coordinatorFor(session, api);
+      final expired = <void>[];
+      coordinator.credentialsExpired.listen(expired.add);
+
+      expect(await coordinator.refreshAccessToken(), isNull);
+      expect(session.isLoggedIn, isFalse);
+      expect(session.credentialsExpired, isTrue);
+      expect(session.refreshToken, isNull);
+      expect(session.userId, 'kullanici');
+      expect(session.displayName, 'Ad');
+
+      // Olu token'la sunucu bir daha yorulmaz.
+      expect(await coordinator.refreshAccessToken(), isNull);
+      expect(api.refreshCalls, 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(expired, hasLength(2));
+
+      // Yeniden acilista (ya da diger isolate'te) ayni durum gorulur.
+      final reopened = await PersistentSessionStore.open(
+        file: file,
+        crypto: crypto,
+      );
+      addTearDown(reopened.close);
+      expect(reopened.credentialsExpired, isTrue);
+      expect(reopened.isLoggedIn, isFalse);
+      expect(reopened.userId, 'kullanici');
+    });
+
+    for (final failure in [
+      const AuthApiException('unavailable', statusCode: 503),
+      const AuthApiException.network(),
+    ]) {
+      test(
+        'gecici hata (${failure.statusCode ?? 'ag'}) oturumu korur',
+        () async {
+          final session = await openLoggedIn();
+          addTearDown(session.close);
+          final coordinator = coordinatorFor(
+            session,
+            _StatusRefreshApi.failing(failure),
+          );
+
+          await expectLater(
+            coordinator.refreshAccessToken(),
+            throwsA(isA<AuthApiException>()),
+          );
+          expect(session.isLoggedIn, isTrue);
+          expect(session.credentialsExpired, isFalse);
+          expect(session.refreshToken, 'eski-refresh');
+        },
+      );
+    }
+
+    test('yeniden giris isareti kaldirir', () async {
+      final session = await openLoggedIn();
+      addTearDown(session.close);
+      await session.expireCredentialsAndPersist();
+
+      await session.loginAndPersist(
+        userId: 'kullanici',
+        displayName: 'Ad',
+        phoneNumber: '+900000000000',
+        accessToken: 'yeni',
+        refreshToken: 'yeni-refresh',
+      );
+
+      expect(session.credentialsExpired, isFalse);
+      expect(session.isLoggedIn, isTrue);
+    });
+
+    test('cikis isareti de temizler', () async {
+      final session = await openLoggedIn();
+      addTearDown(session.close);
+      await session.expireCredentialsAndPersist();
+      await session.clearAndPersist();
+      expect(session.credentialsExpired, isFalse);
+      expect(session.userId, isNull);
+    });
+  });
+
   test('oturum diskten tazelenince digerinin yazdigi token gorulur', () async {
     // Refresh token TEK KULLANIMLIK: sunucu her yenilemede
     // `rotateRefreshGeneration` cagiriyor. On plan ve arka plan AYRI
@@ -543,7 +667,6 @@ class _RecordingOlmKeyPublisher implements RecoveryIdentity {
   Future<void> clearPendingRecovery() async => _pending = null;
 }
 
-
 /// Yenilemesi her zaman basarisiz olan API.
 class _FailingRefreshApi extends AuthApi {
   _FailingRefreshApi() : super(baseUrl: 'http://unused.invalid');
@@ -554,6 +677,25 @@ class _FailingRefreshApi extends AuthApi {
   Future<TokenPair> refresh(String refreshToken) async {
     refreshCalls++;
     throw StateError('refresh reddedildi');
+  }
+}
+
+/// Yenilemeyi verilen hatayla reddeder.
+class _StatusRefreshApi extends AuthApi {
+  _StatusRefreshApi(int statusCode)
+    : failure = AuthApiException('rejected', statusCode: statusCode),
+      super(baseUrl: 'http://unused.invalid');
+
+  _StatusRefreshApi.failing(this.failure)
+    : super(baseUrl: 'http://unused.invalid');
+
+  final AuthApiException failure;
+  int refreshCalls = 0;
+
+  @override
+  Future<TokenPair> refresh(String refreshToken) async {
+    refreshCalls++;
+    throw failure;
   }
 }
 
@@ -575,7 +717,11 @@ class _CountingRefreshApi extends AuthApi {
 
 /// Diskten tazelemenin baska bir token getirip getirmedigini taklit eder.
 class _FakeSession extends SessionStore {
-  _FakeSession({required String access, required String refresh, this.onReload}) {
+  _FakeSession({
+    required String access,
+    required String refresh,
+    this.onReload,
+  }) {
     accessToken = access;
     refreshToken = refresh;
   }
