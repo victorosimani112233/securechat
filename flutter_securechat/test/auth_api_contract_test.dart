@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_securechat/src/auth/auth_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -69,6 +70,54 @@ void main() {
       bindRecoveryEmail: true,
     );
     expect(result.recoveryEmailBound, isFalse);
+  });
+
+  test('device reauth signs the server challenge bound to the token', () {
+    final preimage = AuthApi.deviceReauthPreimage(
+      challengeId: 'soru-id',
+      nonce: 'tek-sefer',
+      userId: userId,
+      refreshToken: 'refresh',
+    );
+    // Sunucu ile ayni bicim: DeviceReauth.preimage (sha256(refresh) hex).
+    expect(
+      preimage,
+      'securechat/device-reauth/v1\nsoru-id\ntek-sefer\n$userId\n'
+      '${sha256.convert(utf8.encode('refresh'))}',
+    );
+  });
+
+  test('device reauth asks a challenge, then sends the signed proof', () async {
+    final fixture = await _serve({
+      'challengeId': 'soru-id',
+      'nonce': 'tek-sefer',
+      'expiresIn': 120,
+      'accessToken': 'yeni-access',
+      'refreshToken': 'yeni-refresh',
+    });
+    final signed = <String>[];
+
+    final pair = await fixture.api.reauthenticateWithDevice(
+      userId: userId,
+      refreshToken: 'olu-refresh',
+      sign: (message) async {
+        signed.add(message);
+        return 'imza';
+      },
+    );
+
+    expect(pair.accessToken, 'yeni-access');
+    expect(pair.refreshToken, 'yeni-refresh');
+    expect(fixture.paths, [
+      '/api/v1/auth/device/challenge',
+      '/api/v1/auth/device/verify',
+    ]);
+    expect(signed.single, contains('\nsoru-id\ntek-sefer\n$userId\n'));
+    expect(fixture.requests.last, {
+      'challengeId': 'soru-id',
+      'refreshToken': 'olu-refresh',
+      'signature': 'imza',
+    });
   });
 
   for (final response in [

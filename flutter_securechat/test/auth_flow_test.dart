@@ -175,6 +175,84 @@ void main() {
       expect(reopened.userId, 'kullanici');
     });
 
+    // QA 2026-10-13 R3 madde 3: olu refresh token + cihazin Olm anahtari.
+    AuthCoordinator coordinatorWithDeviceKey(
+      SessionStore session,
+      AuthApi api,
+      _DeviceKeyPublisher keys,
+    ) => AuthCoordinator(
+      api: api,
+      session: session,
+      olmPreKeys: keys,
+      signaling: InMemorySignalingService(),
+      signalingUrl: 'wss://example.invalid',
+    );
+
+    test('401 sonrasi cihaz anahtari oturumu geri getirir', () async {
+      final session = await openLoggedIn();
+      addTearDown(session.close);
+      final api = _DeviceReauthApi.success();
+      final keys = _DeviceKeyPublisher();
+      final coordinator = coordinatorWithDeviceKey(session, api, keys);
+
+      expect(await coordinator.refreshAccessToken(), 'cihaz-access');
+
+      expect(session.isLoggedIn, isTrue);
+      expect(session.credentialsExpired, isFalse);
+      expect(session.refreshToken, 'cihaz-refresh');
+      expect(api.deviceCalls, 1);
+      expect(api.lastUserId, 'kullanici');
+      expect(api.lastRefreshToken, 'eski-refresh');
+      expect(keys.signed, hasLength(1));
+    });
+
+    test('cihaz anahtari da reddedilirse oturum suresi doldu olur', () async {
+      final session = await openLoggedIn();
+      addTearDown(session.close);
+      final api = _DeviceReauthApi.failing(
+        const AuthApiException('rejected', statusCode: 401),
+      );
+      final coordinator = coordinatorWithDeviceKey(
+        session,
+        api,
+        _DeviceKeyPublisher(),
+      );
+
+      expect(await coordinator.refreshAccessToken(), isNull);
+      expect(session.credentialsExpired, isTrue);
+      expect(session.refreshToken, isNull);
+      expect(api.deviceCalls, 1);
+    });
+
+    test('cihaz yolunda gecici hata oturumu korur', () async {
+      final session = await openLoggedIn();
+      addTearDown(session.close);
+      final api = _DeviceReauthApi.failing(const AuthApiException.network());
+      final coordinator = coordinatorWithDeviceKey(
+        session,
+        api,
+        _DeviceKeyPublisher(),
+      );
+
+      await expectLater(
+        coordinator.refreshAccessToken(),
+        throwsA(isA<AuthApiException>()),
+      );
+      expect(session.credentialsExpired, isFalse);
+      expect(session.refreshToken, 'eski-refresh');
+    });
+
+    test('cihazda kimlik yoksa sunucuya cihaz istegi gitmez', () async {
+      final session = await openLoggedIn();
+      addTearDown(session.close);
+      final api = _DeviceReauthApi.success();
+      final coordinator = coordinatorFor(session, api);
+
+      expect(await coordinator.refreshAccessToken(), isNull);
+      expect(api.deviceCalls, 0);
+      expect(session.credentialsExpired, isTrue);
+    });
+
     for (final failure in [
       const AuthApiException('unavailable', statusCode: 503),
       const AuthApiException.network(),
@@ -700,6 +778,56 @@ class _StatusRefreshApi extends AuthApi {
   Future<TokenPair> refresh(String refreshToken) async {
     refreshCalls++;
     throw failure;
+  }
+}
+
+/// Refresh her zaman 401; cihaz yolu ayarlanabilir.
+class _DeviceReauthApi extends AuthApi {
+  _DeviceReauthApi.success()
+    : failure = null,
+      super(baseUrl: 'http://unused.invalid');
+
+  _DeviceReauthApi.failing(AuthApiException this.failure)
+    : super(baseUrl: 'http://unused.invalid');
+
+  final AuthApiException? failure;
+  int deviceCalls = 0;
+  String? lastUserId;
+  String? lastRefreshToken;
+
+  @override
+  Future<TokenPair> refresh(String refreshToken) async =>
+      throw const AuthApiException('rejected', statusCode: 401);
+
+  @override
+  Future<TokenPair> reauthenticateWithDevice({
+    required String userId,
+    required String refreshToken,
+    required Future<String> Function(String message) sign,
+  }) async {
+    deviceCalls++;
+    lastUserId = userId;
+    lastRefreshToken = refreshToken;
+    await sign('soru');
+    final error = failure;
+    if (error != null) throw error;
+    return const TokenPair(
+      accessToken: 'cihaz-access',
+      refreshToken: 'cihaz-refresh',
+    );
+  }
+}
+
+class _DeviceKeyPublisher extends _RecordingOlmKeyPublisher {
+  final signed = <String>[];
+
+  @override
+  Future<String?> recoverySigningPublicKey() async => 'cihaz-acik-anahtar';
+
+  @override
+  Future<String> signRecoveryProof(String message) async {
+    signed.add(message);
+    return 'imza';
   }
 }
 

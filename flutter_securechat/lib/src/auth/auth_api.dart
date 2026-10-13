@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 enum OtpRequestStatus { sent, smtpDisabled, rateLimited }
@@ -169,6 +170,68 @@ class AuthApi {
       refreshToken: response.json['refreshToken'] as String? ?? '',
     );
   }
+
+  /// Cihaz anahtariyla yeniden oturum (QA 2026-10-13 R3 madde 3).
+  ///
+  /// Refresh token sunucuda olmusse (kaybolan rotasyon) cihaz, reddedilen
+  /// token'i ve sunucu sorusunun Olm Ed25519 imzasini sunar. Logout veya
+  /// kurtarma sonrasi sunucu 401 doner.
+  Future<TokenPair> reauthenticateWithDevice({
+    required String userId,
+    required String refreshToken,
+    required Future<String> Function(String message) sign,
+  }) async {
+    final challenge = await _post(
+      '/api/v1/auth/device/challenge',
+      const <String, Object?>{},
+    );
+    if (challenge.statusCode != 200) throw challenge.error();
+    final challengeId = challenge.json['challengeId'];
+    final nonce = challenge.json['nonce'];
+    if (challengeId is! String ||
+        challengeId.isEmpty ||
+        nonce is! String ||
+        nonce.isEmpty) {
+      throw const AuthApiException.invalidResponse();
+    }
+    final signature = await sign(
+      deviceReauthPreimage(
+        challengeId: challengeId,
+        nonce: nonce,
+        userId: userId,
+        refreshToken: refreshToken,
+      ),
+    );
+    final response = await _post('/api/v1/auth/device/verify', {
+      'challengeId': challengeId,
+      'refreshToken': refreshToken,
+      'signature': signature,
+    });
+    if (response.statusCode != 200) throw response.error();
+    final access = response.json['accessToken'];
+    final refresh = response.json['refreshToken'];
+    if (access is! String ||
+        access.trim().isEmpty ||
+        refresh is! String ||
+        refresh.trim().isEmpty) {
+      throw const AuthApiException.invalidResponse();
+    }
+    return TokenPair(accessToken: access, refreshToken: refresh);
+  }
+
+  /// Sunucudaki `DeviceReauth.preimage` ile ayni bicim.
+  static String deviceReauthPreimage({
+    required String challengeId,
+    required String nonce,
+    required String userId,
+    required String refreshToken,
+  }) => [
+    'securechat/device-reauth/v1',
+    challengeId,
+    nonce,
+    userId,
+    sha256.convert(utf8.encode(refreshToken)).toString(),
+  ].join('\n');
 
   Future<void> logout({
     required String accessToken,

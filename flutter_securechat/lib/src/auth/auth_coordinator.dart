@@ -137,7 +137,11 @@ class AuthCoordinator {
   /// Oturum burada ya da arka plan isolate'inde sona erdiyse `null` doner
   /// ve [credentialsExpired] yayinlanir.
   Future<String?> refreshAccessToken() async {
-    final token = await refreshSessionTokens(session: _session, api: _api);
+    final token = await refreshSessionTokens(
+      session: _session,
+      api: _api,
+      deviceKey: _olmPreKeys,
+    );
     if (token == null && _session.credentialsExpired) {
       _credentialsExpired.add(null);
     }

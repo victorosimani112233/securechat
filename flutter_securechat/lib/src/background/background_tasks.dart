@@ -164,8 +164,13 @@ class SecureChatBackgroundRuntime {
       // oldurebiliyordu.
       // 401'de oturum kalici olarak "suresi doldu" isaretlenir; on plan
       // acildiginda giris ekrani gosterilir (QA 2026-10-12 R1).
-      Future<String?> refreshAccessToken() =>
-          refreshSessionTokens(session: session, api: authApi);
+      // Cihaz anahtari yolu icin Olm kimligi; asagida kurulur (QA R3).
+      late final OlmPreKeyPublisher preKeyPublisher;
+      Future<String?> refreshAccessToken() => refreshSessionTokens(
+        session: session,
+        api: authApi,
+        deviceKey: preKeyPublisher,
+      );
 
       // Gecis ON PLANDA da kosuyor; burada da yoklanmasi gerekiyor cunku
       // arka plan gorevi uygulama hic acilmadan tetiklenebilir. Isaret
@@ -176,7 +181,7 @@ class SecureChatBackgroundRuntime {
         crypto: SecureChatCrypto.open(),
         pickleKey: await VodozemacProtocolStore.derivePickleKey(keyBytes),
       );
-      final preKeyPublisher = OlmPreKeyPublisher(
+      preKeyPublisher = OlmPreKeyPublisher(
         database: database,
         store: vodozemacStore,
         apiBaseUrl: Uri.parse(config.apiBaseUrl),

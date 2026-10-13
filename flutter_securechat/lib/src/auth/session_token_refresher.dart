@@ -1,3 +1,4 @@
+import '../crypto/vodozemac/olm_pre_key_publisher.dart';
 import '../services/session_store.dart';
 import 'auth_api.dart';
 
@@ -14,9 +15,16 @@ import 'auth_api.dart';
 /// (QA 2026-10-12 R1): tokenlar silinir, oturum "suresi doldu" olarak
 /// isaretlenir ve `null` doner. Ayni olu token'la tekrar tekrar denenmez.
 /// Ag hatasi ve 503 gibi gecici hatalar oturumu korur ve hatayi iletir.
+///
+/// 401'den once [deviceKey] ile cihaz anahtari yolu denenir (QA 2026-10-13
+/// R3 madde 3): yenileme yaniti kaybolup token sunucuda olduyse cihazdaki
+/// Olm kimligi oturumu geri getirir. Bu yol da 401 alirsa (logout,
+/// kurtarma, baska anahtar) oturum biter; gecici hatada oturum korunur ve
+/// sonraki denemede yol yeniden denenir.
 Future<String?> refreshSessionTokens({
   required SessionStore session,
   required AuthApi api,
+  RecoveryIdentity? deviceKey,
 }) {
   final failed = session.accessToken;
   return session.withRefreshLock(() async {
@@ -29,13 +37,22 @@ Future<String?> refreshSessionTokens({
     }
     final refresh = session.refreshToken;
     if (refresh == null || refresh.isEmpty) return null;
-    final TokenPair pair;
+    TokenPair pair;
     try {
       pair = await api.refresh(refresh);
     } on AuthApiException catch (error) {
       if (error.statusCode != 401) rethrow;
-      await session.expireCredentialsAndPersist();
-      return null;
+      final restored = await _reauthenticateWithDevice(
+        session: session,
+        api: api,
+        deviceKey: deviceKey,
+        refreshToken: refresh,
+      );
+      if (restored == null) {
+        await session.expireCredentialsAndPersist();
+        return null;
+      }
+      pair = restored;
     }
     await session.updateTokensAndPersist(
       accessToken: pair.accessToken,
@@ -43,4 +60,27 @@ Future<String?> refreshSessionTokens({
     );
     return pair.accessToken;
   });
+}
+
+/// @return yeni cift; cihaz yolu yoksa ya da sunucu reddettiyse null.
+/// Gecici hatalar (ag, 503, 429) iletilir.
+Future<TokenPair?> _reauthenticateWithDevice({
+  required SessionStore session,
+  required AuthApi api,
+  required RecoveryIdentity? deviceKey,
+  required String refreshToken,
+}) async {
+  final userId = session.userId;
+  if (deviceKey == null || userId == null) return null;
+  try {
+    if (await deviceKey.recoverySigningPublicKey() == null) return null;
+    return await api.reauthenticateWithDevice(
+      userId: userId,
+      refreshToken: refreshToken,
+      sign: deviceKey.signRecoveryProof,
+    );
+  } on AuthApiException catch (error) {
+    if (error.statusCode == 401) return null;
+    rethrow;
+  }
 }

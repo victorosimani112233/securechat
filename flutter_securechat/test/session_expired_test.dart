@@ -105,6 +105,10 @@ class _RejectingRefreshApi extends AuthApi {
 }
 
 class _NoRecoveryIdentity implements RecoveryIdentity {
+  // Cihazda kimlik yok: cihaz anahtari yolu (QA R3 madde 3) denenmez.
+  @override
+  Future<String?> recoverySigningPublicKey() async => null;
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
