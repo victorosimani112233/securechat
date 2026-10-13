@@ -77,17 +77,50 @@ internal class RecoveryAuthService(
             context.identity != b64(account.key) || !RecoveryRecordCipher.verify(
                 account.key, enrollmentPreimage(request.challengeId, context), request.signature,
             )) return@transaction false
+        insertBinding(connection, userId, context.email)
+    }
+
+    /**
+     * Kayit OTP'siyle dogrulanmis e-postayi registration grant'e muhurler
+     * (QA 2026-10-13 R3).
+     *
+     * Kurtarma e-postasi eskiden yalniz Ayarlar'dan ayrica baglaniyordu; hic
+     * kimse baglamadigi icin oturumu dusen her hesap kalici olarak kayboldu.
+     * Kayit zaten e-posta sahipligini kanitliyor, bag ayni anda kurulabilir.
+     * Grant istemcide durdugu icin e-posta duz yazilmaz: yalniz sunucu
+     * anahtariyla acilir ve grant kimligine baglidir (baska grant'e
+     * tasinamaz).
+     */
+    fun sealRegistrationEmail(grantId: String, rawEmail: String): String =
+        Base64.getUrlEncoder().withoutPadding().encodeToString(
+            cipher.seal(registrationEmailAad(grantId), RecoveryRecordCipher.normalizeEmail(rawEmail)),
+        )
+
+    fun openRegistrationEmail(grantId: String, sealed: String): String? = runCatching {
+        cipher.open(registrationEmailAad(grantId), Base64.getUrlDecoder().decode(sealed))
+    }.getOrNull()
+
+    /**
+     * Kayitla ayni transaction'da kurtarma bagini kurar.
+     *
+     * @return e-posta baska bir hesaba zaten bagliysa false; kayit yine de
+     *   surer, kullanici bagi sonra Ayarlar'dan kurar.
+     */
+    fun bindAtRegistration(connection: Connection, userId: String, email: String): Boolean =
+        insertBinding(connection, userId, email)
+
+    private fun insertBinding(connection: Connection, userId: String, email: String): Boolean {
         val ai = cipher.index("account", userId)
-        val ei = cipher.index("email", context.email)
+        val ei = cipher.index("email", email)
         val version = RecoveryRecordCipher.opaque()
-        connection.prepareStatement(
+        return connection.prepareStatement(
             """INSERT INTO account_recovery_bindings(account_index, email_index, binding_version, sealed_context)
                VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING""",
         ).use { statement ->
             statement.setString(1, ai)
             statement.setString(2, ei)
             statement.setString(3, version)
-            statement.setBytes(4, cipher.seal(bindingAad(ai, ei, version), Json.encodeToString(Context(userId = userId, email = context.email, version = version))))
+            statement.setBytes(4, cipher.seal(bindingAad(ai, ei, version), Json.encodeToString(Context(userId = userId, email = email, version = version))))
             statement.executeUpdate() == 1
         }
     }
@@ -379,6 +412,7 @@ internal class RecoveryAuthService(
             request.recoveryToken, request.completionId, userId, request.mode, request.identityProtocol, request.identityPublicKey,
             request.registrationId.toString()).joinToString("\n")
         private fun b64(bytes: ByteArray) = Base64.getEncoder().encodeToString(bytes)
+        private fun registrationEmailAad(grantId: String) = "registration-email/v1\u0000$grantId"
         private fun bindingAad(ai: String, ei: String, version: String) = "recovery-binding/v1\u0000$ai\u0000$ei\u0000$version"
         private fun challengeAad(ci: String, purpose: String, ai: String?, ei: String) = "recovery-challenge/v1\u0000$ci\u0000$purpose\u0000${ai.orEmpty()}\u0000$ei"
     }

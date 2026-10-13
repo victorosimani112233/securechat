@@ -102,7 +102,12 @@ data class OwnDirectoryUpdateRequest(val directoryToken: String)
 data class RegisterRequest(
     val userId: String,
     /** OTP dogrulama sonrasi alinan kisa omurlu registration token. */
-    val registrationToken: String? = null
+    val registrationToken: String? = null,
+    /**
+     * Kayit OTP'siyle dogrulanan e-posta kurtarma e-postasi olarak da
+     * baglansin mi (QA 2026-10-13 R3). Kullanici kayit ekraninda secer.
+     */
+    val bindRecoveryEmail: Boolean = false,
 )
 
 @Serializable
@@ -110,7 +115,9 @@ data class RegisterResponse(
     val userId: String,
     val isNew: Boolean,
     val accessToken: String,
-    val refreshToken: String
+    val refreshToken: String,
+    /** Kurtarma e-postasi kayitla birlikte baglandi mi. */
+    val recoveryEmailBound: Boolean = false,
 )
 
 @Serializable
@@ -647,7 +654,7 @@ fun Application.configureRoutes(
                 call.respond(HttpStatusCode.Unauthorized, OtpVerifyResponse(false))
                 return@post
             }
-            val regToken = AuthService.issueRegistrationToken()
+            val regToken = AuthService.issueRegistrationToken(verifiedEmail = email)
             AuditLog.log(eventType = "OTP_VERIFIED", ipAddress = ip)
             call.respond(OtpVerifyResponse(true, regToken))
         }
@@ -684,12 +691,17 @@ fun Application.configureRoutes(
                 return@post
             }
 
+            var recoveryEmailBound = false
             val user = try {
                 // Grant tuketimi ile hesap kaydi tek transaction'dadir: kayit
                 // geri alinirsa grant yanmaz, kayit basarili olursa grant
                 // kalici olarak tukenmis sayilir.
                 val candidate = userRegistry.prepareRegistration(request.userId)
-                RegistrationGrants.claimAccount(grant, candidate, userRegistry)
+                RegistrationGrants.claimAccount(grant, candidate, userRegistry) { connection ->
+                    if (request.bindRecoveryEmail) {
+                        recoveryEmailBound = bindRegistrationRecoveryEmail(connection, grant, candidate.userId)
+                    }
+                }
                     ?: run {
                         AuditLog.log(eventType = "REGISTER_GRANT_REPLAY", ipAddress = ip)
                         call.respond(
@@ -713,7 +725,7 @@ fun Application.configureRoutes(
             AuditLog.log(userId = user.userId, eventType = "USER_REGISTERED", ipAddress = ip)
             val accessToken = AuthService.issueToken(user.userId)
             val refreshToken = AuthService.issueRefreshToken(user.userId)
-            call.respond(RegisterResponse(user.userId, true, accessToken, refreshToken))
+            call.respond(RegisterResponse(user.userId, true, accessToken, refreshToken, recoveryEmailBound))
         }
 
         // Logout — access token blacklist'e alinir (revocation)
@@ -1262,4 +1274,29 @@ private suspend fun requirePrincipal(
 private suspend fun ApplicationCall.respondCredentialStateUnavailable() {
     response.header("Retry-After", "30")
     respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "credential_state_unavailable"))
+}
+
+/**
+ * Kayit transaction'i icinde kurtarma bagini kurar (QA 2026-10-13 R3).
+ *
+ * Bag kaydin onkosulu degildir: e-posta baska hesaba bagliysa, kurtarma
+ * servisi yapilandirilmamissa ya da grant e-posta tasimiyorsa kayit yine
+ * basarili olur ve istemci `recoveryEmailBound=false` gorur. Savepoint, bag
+ * adimindaki beklenmedik bir SQL hatasinin kaydi geri almasini engeller.
+ */
+internal fun bindRegistrationRecoveryEmail(
+    connection: java.sql.Connection,
+    grant: AuthService.RegistrationGrant,
+    userId: String,
+): Boolean {
+    val sealed = grant.sealedEmail ?: return false
+    val service = AccountRecovery.service ?: return false
+    val email = service.openRegistrationEmail(grant.grantId, sealed) ?: return false
+    val savepoint = connection.setSavepoint()
+    return try {
+        service.bindAtRegistration(connection, userId, email).also { connection.releaseSavepoint(savepoint) }
+    } catch (error: java.sql.SQLException) {
+        connection.rollback(savepoint)
+        false
+    }
 }

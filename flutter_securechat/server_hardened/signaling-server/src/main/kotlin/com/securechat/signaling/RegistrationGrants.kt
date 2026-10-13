@@ -51,6 +51,7 @@ object RegistrationGrants {
         claim: AuthService.RegistrationGrant,
         candidate: RegisteredUser,
         userRegistry: UserRegistry,
+        afterInsert: (Connection) -> Unit = {},
     ): RegisteredUser? {
         val committed = Database.getConnection().use { connection ->
             connection.autoCommit = false
@@ -65,6 +66,7 @@ object RegistrationGrants {
                     connection.rollback()
                     throw DirectoryIdentityAlreadyRegisteredException()
                 }
+                afterInsert(connection)
                 connection.commit()
                 true
             } catch (e: Exception) {

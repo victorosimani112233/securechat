@@ -1276,6 +1276,31 @@ class EndToEndServerTest {
     }
 
     @Test
+    fun `registration binds the verified email only when the user asks`() = e2e {
+        clearRateLimits()
+        val email = "e2e-${UUID.randomUUID()}@example.com"
+
+        val declined = client.post("/api/v1/users/register") {
+            header("Content-Type", "application/json")
+            setBody(
+                """{"userId":"${UUID.randomUUID()}","registrationToken":"${AuthService.issueRegistrationToken(email)}"}""",
+            )
+        }
+        assertEquals(HttpStatusCode.OK, declined.status)
+        // Varsayilan degerler yazilmaz; eksik alan "bagli degil" demektir.
+        assertFalse(declined.bodyAsText().contains("\"recoveryEmailBound\":true"))
+
+        val accepted = client.post("/api/v1/users/register") {
+            header("Content-Type", "application/json")
+            setBody(
+                """{"userId":"${UUID.randomUUID()}","registrationToken":"${AuthService.issueRegistrationToken(email)}","bindRecoveryEmail":true}""",
+            )
+        }
+        assertEquals(HttpStatusCode.OK, accepted.status)
+        assertTrue(accepted.bodyAsText().contains("\"recoveryEmailBound\":true"))
+    }
+
+    @Test
     fun `the registration endpoint refuses deterministic phone hashes`() = e2e {
         clearRateLimits()
         val grant = AuthService.issueRegistrationToken()

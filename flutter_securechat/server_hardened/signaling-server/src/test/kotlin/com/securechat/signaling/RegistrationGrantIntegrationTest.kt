@@ -183,6 +183,78 @@ class RegistrationGrantIntegrationTest {
         assertEquals(0, grantUseCount())
     }
 
+    private fun boundRecoveryEmails(userId: String): Int {
+        val cipher = RecoveryRecordCipher.configured()!!
+        return Database.getConnection().use { connection ->
+            connection.prepareStatement(
+                "SELECT COUNT(*) FROM account_recovery_bindings WHERE account_index = ?",
+            ).use { statement ->
+                statement.setString(1, cipher.index("account", userId))
+                statement.executeQuery().use { rows ->
+                    rows.next()
+                    rows.getInt(1)
+                }
+            }
+        }
+    }
+
+    private fun registerBinding(email: String?): Pair<RegisteredUser, Boolean> {
+        val claim = AuthService.registrationGrantClaim(AuthService.issueRegistrationToken(email))!!
+        val candidate = registry.prepareRegistration(UUID.randomUUID().toString())
+        var bound = false
+        val user = RegistrationGrants.claimAccount(claim, candidate, registry) { connection ->
+            bound = bindRegistrationRecoveryEmail(connection, claim, candidate.userId)
+        }
+        return user!! to bound
+    }
+
+    @Test
+    fun `registration binds the OTP verified email for account recovery`() {
+        val email = "kayit-${UUID.randomUUID()}@example.com"
+
+        val (user, bound) = registerBinding(email)
+
+        assertTrue(bound)
+        assertEquals(1, boundRecoveryEmails(user.userId))
+    }
+
+    @Test
+    fun `an email already bound elsewhere does not block registration`() {
+        val email = "ortak-${UUID.randomUUID()}@example.com"
+        val (first, firstBound) = registerBinding(email)
+        assertTrue(firstBound)
+
+        val (second, secondBound) = registerBinding(email)
+
+        assertFalse(secondBound)
+        assertEquals(1, boundRecoveryEmails(first.userId))
+        assertEquals(0, boundRecoveryEmails(second.userId))
+    }
+
+    @Test
+    fun `a grant without a verified email registers without a binding`() {
+        val (user, bound) = registerBinding(null)
+
+        assertFalse(bound)
+        assertEquals(0, boundRecoveryEmails(user.userId))
+    }
+
+    @Test
+    fun `the sealed email cannot be moved to another grant`() {
+        val service = AccountRecovery.service!!
+        val sealed = service.sealRegistrationEmail("grant-a", "tasima@example.com")
+
+        assertEquals("tasima@example.com", service.openRegistrationEmail("grant-a", sealed))
+        assertNull(service.openRegistrationEmail("grant-b", sealed))
+        val forged = AuthService.RegistrationGrant("grant-b", Long.MAX_VALUE, sealed)
+        val candidate = registry.prepareRegistration(UUID.randomUUID().toString())
+        var bound = true
+        Database.getConnection().use { connection ->
+            bound = bindRegistrationRecoveryEmail(connection, forged, candidate.userId)
+        }
+        assertFalse(bound)
+    }
+
     private companion object {
         val LAST_MIGRATION: Int = java.io.File(System.getProperty("serverMigrationDir"))
             .listFiles { file -> file.name.startsWith("V") && file.name.endsWith(".sql") }

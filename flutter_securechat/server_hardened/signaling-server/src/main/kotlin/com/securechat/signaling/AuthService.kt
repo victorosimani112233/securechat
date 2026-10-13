@@ -39,6 +39,9 @@ object AuthService {
     /** Registration token (OTP sonrasi) — 15 dk */
     private val REGISTRATION_TOKEN_TTL_MS = TimeUnit.MINUTES.toMillis(15)
 
+    /** Registration grant'teki muhurlu dogrulanmis e-posta claim'i. */
+    private const val REGISTRATION_EMAIL_CLAIM = "rem"
+
     private val secret: String by lazy {
         SecretPolicy.requireStrong("JWT_SECRET", SecretSource.required("JWT_SECRET"))
     }
@@ -113,15 +116,26 @@ object AuthService {
     /**
      * Registration token — OTP dogrulama sonrasi 15 dk gecerli, sadece /users/register icin.
      */
-    fun issueRegistrationToken(): String {
+    /**
+     * @param verifiedEmail kayit OTP'siyle dogrulanmis e-posta. Kurtarma
+     *   servisi yapilandirilmissa grant'e muhurlu olarak gomulur; kayit
+     *   istenirse bu adres kurtarma e-postasi olarak baglanir (QA
+     *   2026-10-13 R3).
+     */
+    fun issueRegistrationToken(verifiedEmail: String? = null): String {
         val now = System.currentTimeMillis()
+        val grantId = java.util.UUID.randomUUID().toString()
+        val sealedEmail = verifiedEmail?.let { email ->
+            runCatching { AccountRecovery.service?.sealRegistrationEmail(grantId, email) }.getOrNull()
+        }
         return JWT.create()
             .withIssuer("securechat")
             .withSubject("registration-grant")
             .withClaim("typ", "registration")
+            .apply { if (sealedEmail != null) withClaim(REGISTRATION_EMAIL_CLAIM, sealedEmail) }
             .withIssuedAt(Date(now))
             .withExpiresAt(Date(now + REGISTRATION_TOKEN_TTL_MS))
-            .withJWTId(java.util.UUID.randomUUID().toString())
+            .withJWTId(grantId)
             .sign(algorithm)
     }
 
@@ -130,7 +144,12 @@ object AuthService {
      * parallel replay; a storage outage fails closed instead of allowing an
      * untracked registration.
      */
-    class RegistrationGrant(val grantId: String, val expiresAtMs: Long)
+    class RegistrationGrant(
+        val grantId: String,
+        val expiresAtMs: Long,
+        /** Muhurlu dogrulanmis e-posta; yalniz `AccountRecovery` acabilir. */
+        val sealedEmail: String? = null,
+    )
 
     /**
      * Grant'in imza, tip ve suresini dogrular; **tuketmez**.
@@ -149,7 +168,7 @@ object AuthService {
             val jti = decoded.id ?: return null
             val expiryMs = decoded.expiresAt?.time ?: return null
             if (expiryMs <= System.currentTimeMillis()) return null
-            RegistrationGrant(jti, expiryMs)
+            RegistrationGrant(jti, expiryMs, decoded.getClaim(REGISTRATION_EMAIL_CLAIM).asString())
         } catch (_: JWTVerificationException) {
             null
         }
