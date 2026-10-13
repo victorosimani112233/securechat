@@ -4337,6 +4337,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Add a recovery email so you never lose your account'**
   String get recovery_reminder_banner;
+
+  /// Chat list banner shown when the server rejects this device's Olm identity
+  ///
+  /// In en, this message translates to:
+  /// **'The identity of this device no longer matches your account, so new messages cannot reach you. Sign in again with your recovery email.'**
+  String get identity_recovery_banner;
 }
 
 class _AppLocalizationsDelegate

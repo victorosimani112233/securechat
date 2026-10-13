@@ -242,5 +242,6 @@
   "@storage_cleanup_result": {"placeholders":{"arg1":{"type":"int"},"arg2":{"type":"String"}}},
   "storage_cleanup_failed": "تعذّر حذف {arg1} سجل. تم تحديث الملفات الأخرى؛ يمكنك المحاولة مجددًا.",
   "@storage_cleanup_failed": {"placeholders":{"arg1":{"type":"int"}}},
-  "recovery_reminder_banner": "أضف بريدًا للاسترداد حتى لا تفقد حسابك"
+  "recovery_reminder_banner": "أضف بريدًا للاسترداد حتى لا تفقد حسابك",
+  "identity_recovery_banner": "لم تعد هوية هذا الجهاز تطابق حسابك، لذا لن تصلك رسائل جديدة. سجّل الدخول مجددًا ببريد الاسترداد."
 }

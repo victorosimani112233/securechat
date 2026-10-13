@@ -1076,5 +1076,6 @@
   "view_once_video": "Tek gösterimlik video",
   "view_once_file": "Tek gösterimlik dosya",
   "poll_view_once_unsupported": "Anketler tek gösterimlik gönderilemez.",
-  "recovery_reminder_banner": "Hesabını kaybetmemek için kurtarma e-postası ekle"
+  "recovery_reminder_banner": "Hesabını kaybetmemek için kurtarma e-postası ekle",
+  "identity_recovery_banner": "Bu cihazın kimliği hesabınla uyuşmuyor; yeni mesaj alamazsın. Kurtarma e-postanla yeniden giriş yap."
 }

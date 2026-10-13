@@ -29,6 +29,7 @@ void main() {
   late SecureChatCrypto crypto;
   late VodozemacProtocolStore store;
   late HttpServer server;
+  late String responseBody;
   late Uri baseUrl;
 
   // Sunucu davranisini test icinde yonlendirmek icin.
@@ -54,6 +55,7 @@ void main() {
     uploads = [];
     seenTokens = [];
     statusFor = () => HttpStatus.ok;
+    responseBody = '{"status":"ok"}';
     fakeNow = DateTime.utc(2026, 10, 7, 12);
 
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -63,7 +65,7 @@ void main() {
       final body = await utf8.decoder.bind(request).join();
       uploads.add((jsonDecode(body) as Map).cast<String, Object?>());
       request.response.statusCode = statusFor();
-      request.response.write('{"status":"ok"}');
+      request.response.write(responseBody);
       await request.response.close();
     });
 
@@ -386,6 +388,41 @@ void main() {
         ),
       );
     });
+  });
+
+  // QA 2026-10-13 T5 madde 3: kimlik sapmasi sessiz bir teshis satirinda
+  // kaliyordu; kullanici mesaj alamadigini hic ogrenmiyordu.
+  test('rejected identity raises the recovery flag until a publish succeeds', () async {
+    statusFor = () => HttpStatus.conflict;
+    responseBody = '{"error":"identity_recovery_required"}';
+    await expectLater(
+      build().publishIfNeeded(),
+      throwsA(
+        isA<OlmPreKeyPublishException>().having(
+          (error) => error.identityRecoveryRequired,
+          'identityRecoveryRequired',
+          isTrue,
+        ),
+      ),
+    );
+    expect(OlmPreKeyPublisher.identityRecoveryNeeded.value, isTrue);
+    expect(
+      await database.cryptoState.get(
+        OlmPreKeyPublisher.identityRecoveryRequiredKey,
+      ),
+      isNotNull,
+    );
+
+    statusFor = () => HttpStatus.ok;
+    responseBody = '{"status":"ok"}';
+    await build().publishIfNeeded();
+    expect(OlmPreKeyPublisher.identityRecoveryNeeded.value, isFalse);
+    expect(
+      await database.cryptoState.get(
+        OlmPreKeyPublisher.identityRecoveryRequiredKey,
+      ),
+      isNull,
+    );
   });
 
   group('kimlik dogrulama', () {

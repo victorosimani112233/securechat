@@ -4,6 +4,7 @@ import 'package:flutter_securechat/src/auth/account_recovery_coordinator.dart';
 import 'package:flutter_securechat/src/auth/auth_api.dart';
 import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/calls/call_readiness_service.dart';
+import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 import 'package:flutter_securechat/src/features/conversations/conversations_screen.dart';
 import 'package:flutter_securechat/src/l10n/generated/app_localizations.dart';
 import 'package:flutter_securechat/src/security/chat_access_service.dart';
@@ -64,6 +65,19 @@ void main() {
       find.text(
         lookupAppLocalizations(const Locale('tr')).recovery_reminder_banner,
       ),
+      findsOneWidget,
+    );
+  });
+
+  // QA 2026-10-13 T5 madde 3.
+  testWidgets('a rejected device identity shows the recovery banner', (
+    tester,
+  ) async {
+    OlmPreKeyPublisher.identityRecoveryNeeded.value = true;
+    addTearDown(() => OlmPreKeyPublisher.identityRecoveryNeeded.value = false);
+    await pump(tester, true);
+    expect(
+      find.byKey(const ValueKey('conversation-identity-recovery')),
       findsOneWidget,
     );
   });

@@ -122,6 +122,14 @@ class OlmPreKeyPublisher implements OlmKeyPublisher, RecoveryIdentity {
   final SecureChatDatabase _database;
   final VodozemacProtocolStore _store;
   final Uri _apiBaseUrl;
+  String _lastBody = '';
+
+  /// Sunucu cihaz kimligini reddettiginde yazilan isaret; basarili yayinda
+  /// silinir. Sohbet listesi buna bakarak kurtarma seridini gosterir.
+  static const identityRecoveryRequiredKey = 'olm_identity_recovery_required';
+
+  /// Ayni bilginin on plan sureci icin canli hali; sohbet listesi dinler.
+  static final identityRecoveryNeeded = ValueNotifier<bool>(false);
   final HttpClient _httpClient;
   final Future<String?> Function() _accessTokenProvider;
   final Future<String?> Function()? _refreshAccessToken;
@@ -342,13 +350,33 @@ class OlmPreKeyPublisher implements OlmKeyPublisher, RecoveryIdentity {
       }
     }
 
-    if (status == HttpStatus.ok) return true;
+    if (status == HttpStatus.ok) {
+      await _database.cryptoState.delete(identityRecoveryRequiredKey);
+      identityRecoveryNeeded.value = false;
+      return true;
+    }
     if (status == HttpStatus.tooManyRequests) {
       // 429 bir hata degil: sunucu "cok sik" diyor. Anahtarlar zaten
       // yerinde olabilir ve bir sonraki yayin denemesi basarili olur.
       // Istisna firlatmak bunu gercek bir ariza gibi gosterirdi.
       debugPrint('SC-PREKEY rate limited; sonraki yayinda denenecek');
       return false;
+    }
+    if (status == HttpStatus.conflict &&
+        _lastBody.contains('identity_recovery_required')) {
+      // Bu cihazin kimligi hesaptakinden farkli. Sessiz kalirsa hesap mesaj
+      // alamaz hale gelir ve kullanici nedenini hic ogrenemez; isaret sohbet
+      // listesinde kurtarma seridini acar (QA 2026-10-13 T5 madde 3).
+      await _database.cryptoState.put(
+        identityRecoveryRequiredKey,
+        '${DateTime.now().millisecondsSinceEpoch}',
+      );
+      identityRecoveryNeeded.value = true;
+      throw OlmPreKeyPublishException(
+        'Cihaz kimligi hesaptakinden farkli; kurtarma gerekli (409)',
+        statusCode: status,
+        identityRecoveryRequired: true,
+      );
     }
     if (status == HttpStatus.conflict) {
       // Sunucu ayni keyId'yi farkli materyalle gormus ya da havuz dolu.
@@ -376,17 +404,28 @@ class OlmPreKeyPublisher implements OlmKeyPublisher, RecoveryIdentity {
     }
     request.write(body);
     final response = await request.close().timeout(const Duration(seconds: 20));
-    await response.drain<void>();
+    // Hata govdesi kucuk; yalniz hata kodunu ayirt etmek icin okunur.
+    _lastBody = response.statusCode == HttpStatus.conflict
+        ? await utf8.decodeStream(response).timeout(const Duration(seconds: 10))
+        : '';
+    if (_lastBody.isEmpty) await response.drain<void>();
     return response.statusCode;
   }
 }
 
 /// Prekey yuklemesi sunucu tarafindan kabul edilmedi.
 class OlmPreKeyPublishException implements Exception {
-  const OlmPreKeyPublishException(this.message, {required this.statusCode});
+  const OlmPreKeyPublishException(
+    this.message, {
+    required this.statusCode,
+    this.identityRecoveryRequired = false,
+  });
 
   final String message;
   final int statusCode;
+
+  /// Sunucu bu cihazin kimligini hesaba ait saymiyor; kurtarma gerekli.
+  final bool identityRecoveryRequired;
 
   @override
   String toString() => 'OlmPreKeyPublishException($statusCode): $message';

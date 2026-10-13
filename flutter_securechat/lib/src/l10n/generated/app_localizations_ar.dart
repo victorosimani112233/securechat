@@ -2366,4 +2366,8 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get recovery_reminder_banner =>
       'أضف بريدًا للاسترداد حتى لا تفقد حسابك';
+
+  @override
+  String get identity_recovery_banner =>
+      'لم تعد هوية هذا الجهاز تطابق حسابك، لذا لن تصلك رسائل جديدة. سجّل الدخول مجددًا ببريد الاسترداد.';
 }

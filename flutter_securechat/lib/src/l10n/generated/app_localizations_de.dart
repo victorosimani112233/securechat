@@ -2399,4 +2399,8 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get recovery_reminder_banner =>
       'Füge eine Wiederherstellungs-E-Mail hinzu, damit du dein Konto nicht verlierst';
+
+  @override
+  String get identity_recovery_banner =>
+      'Die Identität dieses Geräts passt nicht mehr zu deinem Konto, daher erreichen dich keine neuen Nachrichten. Melde dich mit deiner Wiederherstellungs-E-Mail erneut an.';
 }

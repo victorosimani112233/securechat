@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../calls/call_readiness_service.dart';
 import '../../chat/conversation_preview.dart';
 import '../../core/models.dart';
+import '../../crypto/vodozemac/olm_pre_key_publisher.dart';
 import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../services/app_connection_status.dart';
@@ -14,6 +15,7 @@ import '../../widgets/azure_backdrop.dart';
 import '../../widgets/haptics.dart';
 import '../../widgets/azure_empty_state.dart';
 import '../auth/recovery_enrollment_screen.dart';
+import '../auth/recovery_login_screen.dart';
 import '../contacts/contacts_screen.dart';
 import '../contacts/create_group_flow.dart';
 import '../chat/starred_messages_screen.dart';
@@ -255,6 +257,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   // liste sonunda olu bosluk biraktiriyordu.
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
                   children: [
+                    if (!_showArchived) _identityRecoveryBanner(),
                     if (!_showArchived) _recoveryBanner(),
                     if (!_showArchived) _readinessBanner(),
                     if (!_showArchived &&
@@ -296,6 +299,34 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       ],
     );
   }
+
+  /// Sunucu bu cihazin kimligini hesaba ait saymiyor: mesajlar gelmez.
+  /// Sessiz kalmak yerine kullaniciyi e-postayla kurtarmaya yonlendirir (QA
+  /// 2026-10-13 T5 madde 3).
+  Widget _identityRecoveryBanner() => ValueListenableBuilder<bool>(
+    valueListenable: OlmPreKeyPublisher.identityRecoveryNeeded,
+    builder: (context, needed, _) {
+      if (!needed) return const SizedBox.shrink();
+      final scheme = Theme.of(context).colorScheme;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: AzureGlassPanel(
+          padding: EdgeInsets.zero,
+          child: ListTile(
+            key: const ValueKey('conversation-identity-recovery'),
+            leading: Icon(Icons.gpp_maybe_outlined, color: scheme.error),
+            title: Text(context.l10n.identity_recovery_banner),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const RecoveryLoginScreen(),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
 
   /// Kurtarma e-postasi olmayan hesap cikista ya da oturum kaybinda kalici
   /// olarak kaybolur; kullanici bunu hesap kaybolmadan once gormeli (QA

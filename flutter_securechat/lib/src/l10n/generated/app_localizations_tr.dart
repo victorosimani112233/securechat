@@ -2351,4 +2351,8 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get recovery_reminder_banner =>
       'Hesabını kaybetmemek için kurtarma e-postası ekle';
+
+  @override
+  String get identity_recovery_banner =>
+      'Bu cihazın kimliği hesabınla uyuşmuyor; yeni mesaj alamazsın. Kurtarma e-postanla yeniden giriş yap.';
 }
