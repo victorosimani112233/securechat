@@ -79,7 +79,7 @@ class AuthCoordinator {
     // A generic registration grant must not replace it with a new UUID.
     if (_session.userId != null ||
         await _olmPreKeys.readPendingRecovery() != null) {
-      throw const ExistingAccountLoginRequired();
+      throw const ExistingAccountLoginRequired.deviceHasAccount();
     }
     final normalized = normalizePhoneDigits(phoneNumber);
     final userId = _uuidV4();

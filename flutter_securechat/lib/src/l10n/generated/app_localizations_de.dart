@@ -118,6 +118,24 @@ class AppLocalizationsDe extends AppLocalizations {
       'Deine Nachrichten sind weiterhin auf diesem Gerät. Melde dich erneut beim selben Konto an, um fortzufahren.';
 
   @override
+  String get session_expired_start_over => 'Mit einem anderen Konto beginnen';
+
+  @override
+  String get session_expired_start_over_title =>
+      'Altes Konto von diesem Gerät entfernen?';
+
+  @override
+  String get session_expired_start_over_body =>
+      'Um ein neues Konto zu erstellen, werden Nachrichten, Medien und Schlüssel des alten Kontos auf diesem Gerät gelöscht. Wenn du dich mit der Wiederherstellungs-E-Mail beim alten Konto anmelden kannst, versuche das zuerst; sonst lassen sich diese Daten nicht wiederherstellen.';
+
+  @override
+  String get session_expired_start_over_confirm => 'Löschen und fortfahren';
+
+  @override
+  String get registration_device_has_account =>
+      'Auf diesem Gerät ist noch ein älteres Konto gespeichert, daher konnte kein neues Konto erstellt werden. Melde dich erneut bei diesem Konto an oder entferne es mit \"Mit einem anderen Konto beginnen\" von diesem Gerät.';
+
+  @override
   String get recovery_email_title => 'Wiederherstellungs-E-Mail';
 
   @override
@@ -134,7 +152,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get recovery_request_sent =>
-      'Wenn diese Anfrage berechtigt ist, wird ein sechsstelliger Code gesendet. Prüfe deine E-Mails.';
+      'Wenn diese E-Mail die Wiederherstellungsadresse eines Kontos ist, wurde ein sechsstelliger Code gesendet. Kommt er nicht innerhalb weniger Minuten an, prüfe deinen Spam-Ordner. Fehlt er weiterhin, ist diese E-Mail vermutlich keinem Konto als Wiederherstellungsadresse zugeordnet; sie wird bei der Registrierung oder in den Einstellungen hinzugefügt.';
 
   @override
   String get recovery_send_code => 'Code senden';
@@ -204,7 +222,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get recovery_registration_existing =>
-      'Dieses Konto besteht bereits. Melde dich mit deiner bestätigten Wiederherstellungs-E-Mail beim bestehenden Konto an. Behalte dein angemeldetes Gerät.';
+      'Mit dieser Telefonnummer gibt es bereits ein Konto. Melde dich über \"Bei bestehendem Konto anmelden\" mit dessen Wiederherstellungs-E-Mail an, oder verwende für ein neues Konto eine andere Nummer.';
 
   @override
   String get auth_login_unavailable =>

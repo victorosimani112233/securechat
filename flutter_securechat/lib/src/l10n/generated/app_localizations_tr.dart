@@ -117,6 +117,24 @@ class AppLocalizationsTr extends AppLocalizations {
       'Mesajların bu cihazda duruyor. Devam etmek için aynı hesapla yeniden giriş yap.';
 
   @override
+  String get session_expired_start_over => 'Farklı hesapla başla';
+
+  @override
+  String get session_expired_start_over_title =>
+      'Eski hesap bu cihazdan silinsin mi?';
+
+  @override
+  String get session_expired_start_over_body =>
+      'Yeni hesap açmak için bu cihazdaki eski hesabın mesajları, medyası ve anahtarları silinir. Eski hesaba kurtarma e-postasıyla girebiliyorsan önce onu dene; giremiyorsan bu veriler geri gelmez.';
+
+  @override
+  String get session_expired_start_over_confirm => 'Sil ve devam et';
+
+  @override
+  String get registration_device_has_account =>
+      'Bu cihazda hâlâ eski bir hesap kayıtlı, bu yüzden yeni hesap açılamadı. O hesaba yeniden giriş yap ya da \"Farklı hesapla başla\" ile eski hesabı bu cihazdan kaldır.';
+
+  @override
   String get recovery_email_title => 'Kurtarma e-postası';
 
   @override
@@ -133,7 +151,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get recovery_request_sent =>
-      'İstek uygunsa altı haneli bir kod gönderilecektir. E-postanızı kontrol edin.';
+      'Bu e-posta bir hesaba kurtarma adresi olarak bağlıysa altı haneli bir kod gönderildi. Birkaç dakikada gelmezse spam klasörüne bak. Yine yoksa bu e-posta büyük ihtimalle hiçbir hesaba kurtarma adresi olarak bağlı değil; kurtarma e-postası hesap açarken ya da Ayarlar bölümünden eklenir.';
 
   @override
   String get recovery_send_code => 'Kod gönder';
@@ -202,7 +220,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get recovery_registration_existing =>
-      'Bu hesap zaten mevcut. Doğrulanmış kurtarma e-postanızla mevcut hesaba giriş yapın. Oturumunuz açık cihazı koruyun.';
+      'Bu telefon numarasıyla zaten bir hesap var. O hesaba \"Mevcut hesaba giriş yap\" bölümünden, hesabın kurtarma e-postasıyla girebilirsin. Yeni hesap için farklı bir numara kullan.';
 
   @override
   String get auth_login_unavailable =>

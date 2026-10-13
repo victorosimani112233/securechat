@@ -8,6 +8,9 @@ enum AuthErrorPresentation {
   requestRejected,
   verificationRejected,
   loginRequired,
+
+  /// Cihazda eski hesap duruyor; once o kaldirilmali.
+  deviceHasAccount,
 }
 
 /// Converts transport details into a small UI-safe error vocabulary. Native
@@ -18,7 +21,12 @@ AuthErrorPresentation classifyAuthError(
   required bool duringVerification,
 }) {
   if (error is ExistingAccountLoginRequired) {
-    return AuthErrorPresentation.loginRequired;
+    return switch (error.reason) {
+      ExistingAccountReason.phoneRegistered =>
+        AuthErrorPresentation.loginRequired,
+      ExistingAccountReason.deviceHasAccount =>
+        AuthErrorPresentation.deviceHasAccount,
+    };
   }
   if (error is TimeoutException || error is IOException) {
     return AuthErrorPresentation.connection;

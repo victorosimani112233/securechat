@@ -89,6 +89,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   sessionExpired: AppContainerScope.of(
                     context,
                   ).session.credentialsExpired,
+                  onStartOver: _canStartOver ? _startOver : null,
                 )
               : _EmailStep(
                   key: ValueKey('auth-${_step.name}'),
@@ -163,7 +164,74 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
     FocusManager.instance.primaryFocus?.unfocus();
+    // Cihaz eski hesaba bagliyken kayit, e-posta kodundan SONRA "hesap
+    // mevcut" diye reddediliyordu (QA 2026-10-13, B telefonu). Once sor.
+    final session = AppContainerScope.of(context).session;
+    // Tokeni olmayan ama hesap kimligi duran cihaz (sona ermis oturum,
+    // yedekten geri yuklenmis profil): kayit sunucuya gitmeden reddedilir.
+    if (session.userId != null && !session.isLoggedIn) {
+      if (_canStartOver) {
+        _startOver(thenContinue: true);
+      } else {
+        // Kod harcanmadan once dogru sebebi soyle.
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(context.l10n.registration_device_has_account)),
+        );
+      }
+      return;
+    }
     setState(() => _step = _AuthStep.email);
+  }
+
+  bool get _canStartOver {
+    final container = AppContainerScope.of(context);
+    return container.session.credentialsExpired &&
+        container.accountDataRuntime != null;
+  }
+
+  /// Oturumu sona ermis eski hesabi cihazdan siler (yalniz yerel; token
+  /// olmadigi icin sunucuya istek gitmez). Ayni hesaba donulemiyorsa yeni
+  /// kayit ancak bundan sonra mumkun: kayit, cihazda hesap kimligi varken
+  /// reddedilir.
+  Future<void> _startOver({bool thenContinue = false}) async {
+    if (_busy) return;
+    final accountData = AppContainerScope.of(
+      context,
+    ).accountDataRuntime?.service;
+    if (accountData == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(
+          Icons.delete_forever,
+          color: Theme.of(dialogContext).colorScheme.error,
+        ),
+        title: Text(dialogContext.l10n.session_expired_start_over_title),
+        content: Text(dialogContext.l10n.session_expired_start_over_body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(dialogContext.l10n.cancel),
+          ),
+          FilledButton(
+            key: const ValueKey('auth-session-start-over-confirm'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(dialogContext.l10n.session_expired_start_over_confirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await accountData.deleteLocalData();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    setState(() {
+      if (thenContinue) _step = _AuthStep.email;
+    });
   }
 
   Future<void> _requestOtp() async {
@@ -276,6 +344,8 @@ class _AuthScreenState extends State<AuthScreen> {
     return switch (classifyAuthError(error, duringVerification: verifying)) {
       AuthErrorPresentation.loginRequired =>
         context.l10n.recovery_registration_existing,
+      AuthErrorPresentation.deviceHasAccount =>
+        context.l10n.registration_device_has_account,
       AuthErrorPresentation.connection => context.l10n.connection_failed,
       AuthErrorPresentation.verificationRejected =>
         context.l10n.email_otp_verify_failed,
@@ -286,7 +356,9 @@ class _AuthScreenState extends State<AuthScreen> {
 }
 
 class _SessionExpiredNotice extends StatelessWidget {
-  const _SessionExpiredNotice();
+  const _SessionExpiredNotice({this.onStartOver});
+
+  final VoidCallback? onStartOver;
 
   @override
   Widget build(BuildContext context) {
@@ -315,6 +387,15 @@ class _SessionExpiredNotice extends StatelessWidget {
                     color: scheme.onSurfaceVariant,
                   ),
                 ),
+                if (onStartOver != null)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton(
+                      key: const ValueKey('auth-session-start-over'),
+                      onPressed: onStartOver,
+                      child: Text(context.l10n.session_expired_start_over),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -339,6 +420,7 @@ class _DetailsStep extends StatelessWidget {
     required this.onContinue,
     required this.onLogin,
     this.sessionExpired = false,
+    this.onStartOver,
   });
 
   final TextEditingController name;
@@ -356,6 +438,9 @@ class _DetailsStep extends StatelessWidget {
   /// Sunucu oturumu kapatti (QA 2026-10-12 R1); kullanici neden burada
   /// oldugunu ve verisinin durdugunu gormeli.
   final bool sessionExpired;
+
+  /// Eski hesabi cihazdan silip yeni kayda izin verir.
+  final VoidCallback? onStartOver;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -416,7 +501,7 @@ class _DetailsStep extends StatelessWidget {
             ),
             if (sessionExpired) ...[
               const SizedBox(height: 16),
-              const _SessionExpiredNotice(),
+              _SessionExpiredNotice(onStartOver: onStartOver),
             ],
             TextButton.icon(
               key: const ValueKey('auth-existing-account'),

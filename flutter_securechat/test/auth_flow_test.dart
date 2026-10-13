@@ -641,7 +641,13 @@ void main() {
           phoneNumber: '+905551234567',
           registrationToken: 'another-grant',
         ),
-        throwsA(isA<ExistingAccountLoginRequired>()),
+        throwsA(
+          isA<ExistingAccountLoginRequired>().having(
+            (error) => error.reason,
+            'reason',
+            ExistingAccountReason.deviceHasAccount,
+          ),
+        ),
       );
       expect(api.registerCalls, 1);
       expect(keys.clears, 0);

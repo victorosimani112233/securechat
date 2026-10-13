@@ -15,6 +15,17 @@ void main() {
       AuthErrorPresentation.loginRequired,
     );
   });
+  // QA 2026-10-13: cihazda eski hesap varken kayit "bu hesap zaten mevcut"
+  // diyordu; kullanici sorunu e-postada ya da numarada sandi.
+  test('a device that still holds an account gets its own message', () {
+    expect(
+      classifyAuthError(
+        const ExistingAccountLoginRequired.deviceHasAccount(),
+        duringVerification: true,
+      ),
+      AuthErrorPresentation.deviceHasAccount,
+    );
+  });
   test('native transport details are classified as connection errors', () {
     final failures = <Object>[
       const SocketException('Connection failed: private endpoint'),

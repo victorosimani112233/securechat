@@ -157,7 +157,13 @@ void main() {
     }, status: 409);
     await expectLater(
       fixture.api.register(userId: userId, registrationToken: 'grant'),
-      throwsA(isA<ExistingAccountLoginRequired>()),
+      throwsA(
+        isA<ExistingAccountLoginRequired>().having(
+          (error) => error.reason,
+          'reason',
+          ExistingAccountReason.phoneRegistered,
+        ),
+      ),
     );
     expect(fixture.paths, ['/api/v1/users/register']);
   });

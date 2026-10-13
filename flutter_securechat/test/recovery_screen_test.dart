@@ -76,7 +76,7 @@ void main() {
     expect(recovery.requests, 0);
     await request(tester);
     expect(recovery.requests, 1);
-    expect(find.textContaining('If this request is eligible'), findsOneWidget);
+    expect(find.textContaining('If this email is the recovery address'), findsOneWidget);
     expect(find.text('person@example.com'), findsNothing);
     await tester.enterText(find.byType(TextField), '12345');
     await tapKey(tester, 'recovery-submit');

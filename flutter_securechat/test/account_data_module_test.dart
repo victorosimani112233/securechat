@@ -55,6 +55,22 @@ void main() {
     expect(await next!.readAsString(), contains('"userHash":null'));
   });
 
+  // QA 2026-10-13: sona ermis oturumu olan cihaz "Farklı hesapla başla" ile
+  // temizlenir; token olmadigi icin sunucuya cikis istegi gitmez.
+  test('an expired session is wiped locally without a server call', () async {
+    final fixture = await _AccountFixture.open();
+    addTearDown(fixture.close);
+    await fixture.session.expireCredentialsAndPersist();
+
+    await fixture.service.deleteLocalData();
+
+    expect(fixture.session.userId, isNull);
+    expect(fixture.session.credentialsExpired, isFalse);
+    expect(await fixture.database.conversations.getById('alice'), isNull);
+    expect(await fixture.managedDirectory.exists(), isFalse);
+    expect(fixture.server.paths, isNot(contains('/api/v1/auth/logout')));
+  });
+
   test('server rejection preserves local account and device data', () async {
     final fixture = await _AccountFixture.open(accountDeleteStatus: 500);
     addTearDown(fixture.close);

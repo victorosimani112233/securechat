@@ -116,6 +116,24 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your messages are still on this device. Log in to the same account again to continue.';
 
   @override
+  String get session_expired_start_over => 'Start with another account';
+
+  @override
+  String get session_expired_start_over_title =>
+      'Remove the old account from this device?';
+
+  @override
+  String get session_expired_start_over_body =>
+      'To create a new account, the messages, media and keys of the old account on this device are deleted. If you can log in to the old account with its recovery email, try that first; otherwise this data cannot be brought back.';
+
+  @override
+  String get session_expired_start_over_confirm => 'Delete and continue';
+
+  @override
+  String get registration_device_has_account =>
+      'This device still holds an older account, so a new account could not be created. Log in to that account again, or remove it from this device with \"Start with another account\".';
+
+  @override
   String get recovery_email_title => 'Recovery email';
 
   @override
@@ -132,7 +150,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recovery_request_sent =>
-      'If this request is eligible, a six-digit code will be sent. Check your email.';
+      'If this email is the recovery address of an account, a six-digit code has been sent. If it does not arrive within a few minutes, check your spam folder. If it is still missing, this email is most likely not the recovery address of any account; a recovery email is added during sign-up or in Settings.';
 
   @override
   String get recovery_send_code => 'Send code';
@@ -201,7 +219,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recovery_registration_existing =>
-      'This account already exists. Use existing-account login with your verified recovery email. Keep your signed-in device.';
+      'An account with this phone number already exists. Log in to it from \"Log in to an existing account\" with its recovery email, or use a different number for a new account.';
 
   @override
   String get auth_login_unavailable =>

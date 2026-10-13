@@ -42,8 +42,26 @@ class TokenPair {
 enum AuthApiFailureKind { http, network, invalidResponse }
 
 /// A generic OTP registration grant cannot recover an existing account.
+/// Kayit neden yapilamadi (QA 2026-10-13): iki durum kullaniciya ayni
+/// "hesap mevcut" mesajiyla gosteriliyordu, biri yaniltiyordu.
+enum ExistingAccountReason {
+  /// Telefon numarasi sunucuda baska bir hesaba ait.
+  phoneRegistered,
+
+  /// Bu cihaz hala eski bir hesabin kimligini tasiyor; kayit sunucuya
+  /// gitmeden reddedilir.
+  deviceHasAccount,
+}
+
 class ExistingAccountLoginRequired implements Exception {
-  const ExistingAccountLoginRequired();
+  const ExistingAccountLoginRequired([
+    this.reason = ExistingAccountReason.phoneRegistered,
+  ]);
+
+  const ExistingAccountLoginRequired.deviceHasAccount()
+    : reason = ExistingAccountReason.deviceHasAccount;
+
+  final ExistingAccountReason reason;
 }
 
 class AuthApiException implements Exception {
