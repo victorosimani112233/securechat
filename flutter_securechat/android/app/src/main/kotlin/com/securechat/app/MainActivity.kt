@@ -409,8 +409,28 @@ class MainActivity : FlutterFragmentActivity() {
         } else {
             NativeCallRegistry.end(callId)
             callNotifications.cancel()
+            showOverLockScreen(false)
         }
         result.success(null)
+    }
+
+    /**
+     * Gelen arama tam ekran bildirimiyle acildiginda etkinlik kilit ekraninin
+     * USTUNDE gorunur ve ekrani acar. Bayrak yokken sistem etkinligi kilidin
+     * arkasinda baslatiyor, kullanici yalniz kucuk "Elcim aramasi" etiketini
+     * goruyordu (QA 2026-10-13 T19). Yalniz arama suresince acik kalir; arama
+     * bitince kilit ekrani yeniden uygulamayi gizler.
+     */
+    private fun showOverLockScreen(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(enabled)
+            setTurnScreenOn(enabled)
+        } else {
+            @Suppress("DEPRECATION")
+            val flags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            if (enabled) window.addFlags(flags) else window.clearFlags(flags)
+        }
     }
 
     private fun setCallSpeaker(arguments: Any?, result: MethodChannel.Result) {
@@ -440,13 +460,15 @@ class MainActivity : FlutterFragmentActivity() {
         val info = NativeCallRegistry.findByCallId(callId)
         when (action) {
             SecureChatCallNotificationManager.ACTION_ANSWER -> {
+                showOverLockScreen(true)
                 if (info != null) callNotifications.showConnecting(info)
             }
             SecureChatCallNotificationManager.ACTION_END -> {
+                showOverLockScreen(false)
                 NativeCallRegistry.end(callId)
                 callNotifications.cancel()
             }
-            SecureChatCallNotificationManager.ACTION_OPEN -> Unit
+            SecureChatCallNotificationManager.ACTION_OPEN -> showOverLockScreen(true)
             else -> return
         }
         NativeCallRegistry.emit(action, callId)
