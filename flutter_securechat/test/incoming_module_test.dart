@@ -623,7 +623,7 @@ void main() {
     );
     expect(messages, hasLength(1));
     expect(messages.single.contentType, StorageMessageContentType.system);
-    expect(messages.single.content, contains('alice'));
+    expect(messages.single.content, contains('Alice'));
     expect(messages.single.content, contains('1 saat'));
     expect(conversation.lastMessage, messages.single.content);
   });
@@ -668,6 +668,40 @@ void main() {
       await fixture.database.messages.getMessagesImmediate('bob'),
       isEmpty,
     );
+  });
+
+  // Cihaz testi 2026-10-13: adi bilinmeyen gonderenin sure satirinda ham
+  // UUID gorunuyordu.
+  test('a timer notice never shows the raw sender id', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    const peer = '18e747ce-5b72-4ca8-9b46-955dbf7b949a';
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: peer,
+        peerId: peer,
+        peerName: peer,
+        peerPhone: '',
+      ),
+    );
+    fixture.signaling.addIncoming(
+      await encryptTestPrivateChatControl(
+        crypto: fixture.crypto,
+        control: DisappearingTimerSignal(
+          senderId: peer,
+          recipientId: 'me',
+          timestamp: DateTime.now(),
+          durationMs: const Duration(hours: 1).inMilliseconds,
+          conversationId: 'me',
+        ),
+      ),
+    );
+    await fixture.handler.waitForIdle();
+    final notice = (await fixture.database.messages.getMessagesImmediate(
+      peer,
+    )).single.content;
+    expect(notice, isNot(contains(peer)));
+    expect(notice, contains('1 saat'));
   });
 
   test('authenticated author may edit only their own message', () async {

@@ -1261,10 +1261,22 @@ class IncomingMessageHandler {
     );
   }
 
+  /// Birebir sistem satirlarinda gonderenin adi. Ham kullanici kimligi
+  /// asla yazilmaz: rehber adi, sohbet basligi, paylasilan "~Ad", yoksa
+  /// "Bilinmeyen kisi" (cihaz testi 2026-10-13: B'de sure satirinda UUID
+  /// gorundu).
   Future<String> _memberName(String userId) async {
     final local = await _database.contacts.getById(userId);
     if (local?.displayName.isNotEmpty == true) return local!.displayName;
-    return _identityResolver?.resolveDisplayName(userId) ?? userId;
+    final resolved = await _identityResolver?.resolveDisplayName(userId);
+    if (resolved != null && !isOpaquePeerName(resolved, peerId: userId)) {
+      return resolved;
+    }
+    final conversation = await _database.conversations.getByPeerId(userId);
+    final title = conversation?.peerName ?? '';
+    if (!isOpaquePeerName(title, peerId: userId)) return title;
+    return await ProfileNameSharingService.storedLabel(_database, userId) ??
+        (await _strings.load()).unknown_contact;
   }
 
   Future<String> _groupMemberName(String userId) async {
