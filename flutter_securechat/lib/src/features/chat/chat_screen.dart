@@ -15,6 +15,7 @@ import '../../core/models.dart';
 import '../../contacts/contact_service.dart';
 import '../../l10n/l10n.dart';
 import '../../widgets/text_controller_scope.dart';
+import '../../chat/disappearing_timer_notice.dart';
 import '../../chat/poll_service.dart';
 import '../../chat/message_forwarding_service.dart';
 import '../../chat/message_interaction_service.dart';
@@ -2170,11 +2171,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 icon: duration == Duration.zero
                     ? Icons.timer_off_outlined
                     : Icons.timer_outlined,
-                title: duration == Duration.zero
-                    ? context.l10n.off
-                    : duration.inHours == 24
-                    ? context.l10n.hours(24)
-                    : context.l10n.days(duration.inDays),
+                // Sistem satiriyla ayni etiket; 1 saat "0 gun" yaziliyordu
+                // (QA 2026-10-13 T17).
+                title: disappearingTimerDurationLabel(
+                  context.l10n,
+                  duration.inMilliseconds,
+                ),
                 onTap: () => Navigator.pop(sheetContext, duration),
               ),
             const SizedBox(height: 10),

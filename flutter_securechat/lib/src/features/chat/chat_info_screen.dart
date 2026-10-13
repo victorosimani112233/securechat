@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../chat/chat_info_service.dart';
+import '../../chat/disappearing_timer_notice.dart';
 import '../../core/models.dart';
 import '../../services/peer_identity_review_service.dart';
 import '../../l10n/l10n.dart';
@@ -399,12 +400,5 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
   }
 
   static String _duration(BuildContext context, int milliseconds) =>
-      switch (Duration(milliseconds: milliseconds)) {
-        Duration(inMilliseconds: 0) => context.l10n.off,
-        Duration(inHours: 1) => context.l10n.hours(1),
-        Duration(inDays: 1) => context.l10n.days(1),
-        Duration(inDays: 7) => context.l10n.days(7),
-        Duration(inDays: 30) => context.l10n.days(30),
-        final value => context.l10n.hours(value.inHours),
-      };
+      disappearingTimerDurationLabel(context.l10n, milliseconds);
 }
