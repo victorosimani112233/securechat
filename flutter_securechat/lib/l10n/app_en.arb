@@ -1082,5 +1082,9 @@
   "message_no_longer_available": "This message can no longer be opened",
   "view_once_video": "View once video",
   "view_once_file": "View once file",
-  "poll_view_once_unsupported": "Polls cannot be sent as view once."
+  "poll_view_once_unsupported": "Polls cannot be sent as view once.",
+  "recovery_reminder_banner": "Add a recovery email so you never lose your account",
+  "@recovery_reminder_banner": {
+    "description": "Chat list banner shown while no recovery email is bound"
+  }
 }

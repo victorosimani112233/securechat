@@ -2395,4 +2395,8 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get poll_view_once_unsupported =>
       'Umfragen können nicht als Einmalansicht gesendet werden.';
+
+  @override
+  String get recovery_reminder_banner =>
+      'Füge eine Wiederherstellungs-E-Mail hinzu, damit du dein Konto nicht verlierst';
 }

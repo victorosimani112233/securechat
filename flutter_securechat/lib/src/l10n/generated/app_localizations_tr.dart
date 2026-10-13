@@ -2347,4 +2347,8 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get poll_view_once_unsupported =>
       'Anketler tek gösterimlik gönderilemez.';
+
+  @override
+  String get recovery_reminder_banner =>
+      'Hesabını kaybetmemek için kurtarma e-postası ekle';
 }

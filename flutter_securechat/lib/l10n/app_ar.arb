@@ -241,5 +241,6 @@
   "storage_cleanup_result": "حُذف {arg1} سجل · تم توفير {arg2}",
   "@storage_cleanup_result": {"placeholders":{"arg1":{"type":"int"},"arg2":{"type":"String"}}},
   "storage_cleanup_failed": "تعذّر حذف {arg1} سجل. تم تحديث الملفات الأخرى؛ يمكنك المحاولة مجددًا.",
-  "@storage_cleanup_failed": {"placeholders":{"arg1":{"type":"int"}}}
+  "@storage_cleanup_failed": {"placeholders":{"arg1":{"type":"int"}}},
+  "recovery_reminder_banner": "أضف بريدًا للاسترداد حتى لا تفقد حسابك"
 }

@@ -2357,4 +2357,8 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get poll_view_once_unsupported => 'Polls cannot be sent as view once.';
+
+  @override
+  String get recovery_reminder_banner =>
+      'Add a recovery email so you never lose your account';
 }

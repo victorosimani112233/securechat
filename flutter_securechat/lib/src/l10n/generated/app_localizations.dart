@@ -4331,6 +4331,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Polls cannot be sent as view once.'**
   String get poll_view_once_unsupported;
+
+  /// Chat list banner shown while no recovery email is bound
+  ///
+  /// In en, this message translates to:
+  /// **'Add a recovery email so you never lose your account'**
+  String get recovery_reminder_banner;
 }
 
 class _AppLocalizationsDelegate

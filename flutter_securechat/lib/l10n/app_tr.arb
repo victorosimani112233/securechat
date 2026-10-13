@@ -1075,5 +1075,6 @@
   "message_no_longer_available": "Bu mesaj artık açılamaz",
   "view_once_video": "Tek gösterimlik video",
   "view_once_file": "Tek gösterimlik dosya",
-  "poll_view_once_unsupported": "Anketler tek gösterimlik gönderilemez."
+  "poll_view_once_unsupported": "Anketler tek gösterimlik gönderilemez.",
+  "recovery_reminder_banner": "Hesabını kaybetmemek için kurtarma e-postası ekle"
 }

@@ -704,5 +704,6 @@
   "message_no_longer_available": "Diese Nachricht kann nicht mehr geöffnet werden",
   "view_once_video": "Einmal-Video",
   "view_once_file": "Einmal-Datei",
-  "poll_view_once_unsupported": "Umfragen können nicht als Einmalansicht gesendet werden."
+  "poll_view_once_unsupported": "Umfragen können nicht als Einmalansicht gesendet werden.",
+  "recovery_reminder_banner": "Füge eine Wiederherstellungs-E-Mail hinzu, damit du dein Konto nicht verlierst"
 }

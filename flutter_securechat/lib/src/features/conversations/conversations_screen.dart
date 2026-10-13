@@ -13,6 +13,7 @@ import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/haptics.dart';
 import '../../widgets/azure_empty_state.dart';
+import '../auth/recovery_enrollment_screen.dart';
 import '../contacts/contacts_screen.dart';
 import '../contacts/create_group_flow.dart';
 import '../chat/starred_messages_screen.dart';
@@ -42,6 +43,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   final _swipeThresholds = <String>{};
   List<LocalMessage> _globalResults = const [];
   Future<CallReadinessState>? _readiness;
+  Future<bool?>? _recoveryBound;
 
   @override
   void didChangeDependencies() {
@@ -49,6 +51,20 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     _readiness ??= AppContainerScope.of(
       context,
     ).callReadinessRuntime.service.refresh();
+    _recoveryBound ??= _loadRecoveryBound();
+  }
+
+  /// Kurtarma e-postasi bagli mi; sorgulanamazsa null (serit gosterilmez).
+  Future<bool?> _loadRecoveryBound() async {
+    final recovery = AppContainerScope.of(context).auth?.recovery;
+    if (recovery == null) return null;
+    try {
+      return await recovery.getEnrollmentStatus().timeout(
+        const Duration(seconds: 8),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
@@ -239,6 +255,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   // liste sonunda olu bosluk biraktiriyordu.
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
                   children: [
+                    if (!_showArchived) _recoveryBanner(),
                     if (!_showArchived) _readinessBanner(),
                     if (!_showArchived &&
                         archived.isNotEmpty &&
@@ -277,6 +294,40 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                 ),
         ),
       ],
+    );
+  }
+
+  /// Kurtarma e-postasi olmayan hesap cikista ya da oturum kaybinda kalici
+  /// olarak kaybolur; kullanici bunu hesap kaybolmadan once gormeli (QA
+  /// 2026-10-13 R3 madde 5). Serit kapatilamaz, bag kurulunca kaybolur.
+  Widget _recoveryBanner() {
+    return FutureBuilder<bool?>(
+      future: _recoveryBound,
+      builder: (context, snapshot) {
+        if (snapshot.data != false) return const SizedBox.shrink();
+        final scheme = Theme.of(context).colorScheme;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: AzureGlassPanel(
+            padding: EdgeInsets.zero,
+            child: ListTile(
+              key: const ValueKey('conversation-recovery-reminder'),
+              leading: Icon(Icons.alternate_email, color: scheme.error),
+              title: Text(context.l10n.recovery_reminder_banner),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const RecoveryEnrollmentScreen(),
+                  ),
+                );
+                if (!mounted) return;
+                setState(() => _recoveryBound = _loadRecoveryBound());
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 
