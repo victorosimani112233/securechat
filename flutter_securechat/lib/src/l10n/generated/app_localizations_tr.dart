@@ -213,6 +213,14 @@ class AppLocalizationsTr extends AppLocalizations {
       'Hesap kurulumu tamamlanamadı. Tekrar kayıt olmadan önce yöneticinizle iletişime geçin. Yeni deneme için yeni bir e-posta kodu gerekir.';
 
   @override
+  String get auth_bind_recovery_email =>
+      'Bu e-postayı hesap kurtarma için de kullan';
+
+  @override
+  String get auth_bind_recovery_email_hint =>
+      'Bu telefonda oturumun düşerse bu adrese gelen kodla hesabına geri girebilirsin.';
+
+  @override
   String notification_private_summary(int messageCount, int chatCount) {
     return '$chatCount sohbetten $messageCount yeni mesaj';
   }

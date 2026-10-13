@@ -26,6 +26,10 @@ class _AuthScreenState extends State<AuthScreen> {
   final _email = TextEditingController();
   final _otp = TextEditingController();
   _AuthStep _step = _AuthStep.details;
+
+  /// Kayit e-postasi kurtarma e-postasi olarak da baglansin (QA R3).
+  /// Varsayilan acik: bagi olmayan hesap oturum duserse kalici kaybolur.
+  bool _bindRecoveryEmail = true;
   bool _busy = false;
   String? _nameError;
   String? _countryCodeError;
@@ -94,6 +98,10 @@ class _AuthScreenState extends State<AuthScreen> {
                   busy: _busy,
                   error: _error,
                   onChanged: () => setState(() => _error = null),
+                  bindRecoveryEmail: _bindRecoveryEmail,
+                  onBindRecoveryEmailChanged: _busy
+                      ? null
+                      : (value) => setState(() => _bindRecoveryEmail = value),
                   onLogin: _busy ? null : _openRecovery,
                   onSubmit: _step == _AuthStep.email
                       ? _requestOtp
@@ -229,6 +237,7 @@ class _AuthScreenState extends State<AuthScreen> {
         displayName: _name.text,
         phoneNumber: '${_countryCode.text}${_phone.text}',
         registrationToken: token,
+        bindRecoveryEmail: _bindRecoveryEmail,
       );
       if (mounted) Navigator.of(context).pushReplacementNamed('/');
     } catch (error, stackTrace) {
@@ -530,6 +539,8 @@ class _EmailStep extends StatelessWidget {
     required this.onSubmit,
     required this.onChangeEmail,
     required this.onLogin,
+    required this.bindRecoveryEmail,
+    required this.onBindRecoveryEmailChanged,
   });
 
   final _AuthStep step;
@@ -541,6 +552,8 @@ class _EmailStep extends StatelessWidget {
   final VoidCallback onSubmit;
   final VoidCallback? onChangeEmail;
   final VoidCallback? onLogin;
+  final bool bindRecoveryEmail;
+  final ValueChanged<bool>? onBindRecoveryEmailChanged;
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
@@ -626,6 +639,20 @@ class _EmailStep extends StatelessWidget {
                     errorText: error,
                   ),
                 ),
+              if (step == _AuthStep.email) ...[
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  key: const ValueKey('auth-bind-recovery-email'),
+                  value: bindRecoveryEmail,
+                  onChanged: onBindRecoveryEmailChanged == null
+                      ? null
+                      : (value) => onBindRecoveryEmailChanged!(value ?? false),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(context.l10n.auth_bind_recovery_email),
+                  subtitle: Text(context.l10n.auth_bind_recovery_email_hint),
+                ),
+              ],
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: busy ? null : onSubmit,

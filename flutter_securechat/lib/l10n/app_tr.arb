@@ -57,6 +57,8 @@
   "recovery_registration_existing": "Bu hesap zaten mevcut. Doğrulanmış kurtarma e-postanızla mevcut hesaba giriş yapın. Oturumunuz açık cihazı koruyun.",
   "auth_login_unavailable": "Mevcut hesaba kayıt yoluyla erişilemez. Mevcut hesaba giriş henüz kullanılamıyor. Oturumunuzun açık olduğu cihazı koruyun ve yöneticinizle iletişime geçin.",
   "auth_setup_failed": "Hesap kurulumu tamamlanamadı. Tekrar kayıt olmadan önce yöneticinizle iletişime geçin. Yeni deneme için yeni bir e-posta kodu gerekir.",
+  "auth_bind_recovery_email": "Bu e-postayı hesap kurtarma için de kullan",
+  "auth_bind_recovery_email_hint": "Bu telefonda oturumun düşerse bu adrese gelen kodla hesabına geri girebilirsin.",
   "notification_private_summary": "{chatCount} sohbetten {messageCount} yeni mesaj",
   "app_name": "ELÇİM",
   "group_info": "Grup Bilgileri",

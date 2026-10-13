@@ -8,7 +8,81 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_app_container.dart';
 
+Future<_ExistingAccountAuth> _pumpToEmailStep(WidgetTester tester) async {
+  tester.view.physicalSize = const Size(400, 900);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  final base = createWidgetTestContainer();
+  final auth = _ExistingAccountAuth();
+  final container = AppContainer.testing(
+    session: base.session,
+    conversations: base.conversations,
+    crypto: base.crypto,
+    signaling: base.signaling,
+    chatAccessRuntime: base.chatAccessRuntime,
+    callReadinessRuntime: base.callReadinessRuntime,
+    auth: auth,
+  );
+  await tester.pumpWidget(
+    MaterialApp(
+      locale: const Locale('tr'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: AppContainerScope(container: container, child: const AuthScreen()),
+    ),
+  );
+  await tester.pumpAndSettle();
+  final fields = find.byType(TextField);
+  await tester.enterText(fields.at(0), 'Yeni Kullanici');
+  await tester.enterText(fields.at(2), '5551234567');
+  final next = find.byKey(const ValueKey('auth-details-continue'));
+  await tester.ensureVisible(next);
+  await tester.tap(next);
+  await tester.pumpAndSettle();
+  return auth;
+}
+
+Future<void> _submitEmailAndCode(WidgetTester tester) async {
+  await tester.enterText(find.byType(TextField), 'user@example.com');
+  await tester.ensureVisible(find.byType(FilledButton));
+  await tester.tap(find.byType(FilledButton));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byType(TextField), '123456');
+  await tester.ensureVisible(find.byType(FilledButton));
+  await tester.tap(find.byType(FilledButton));
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  testWidgets('registration binds the email for recovery by default', (
+    tester,
+  ) async {
+    final auth = await _pumpToEmailStep(tester);
+    final toggle = find.byKey(const ValueKey('auth-bind-recovery-email'));
+    expect(toggle, findsOneWidget);
+    expect(tester.widget<CheckboxListTile>(toggle).value, isTrue);
+
+    await _submitEmailAndCode(tester);
+
+    expect(auth.bindRecoveryEmail, isTrue);
+  });
+
+  testWidgets('the user can opt out of binding the recovery email', (
+    tester,
+  ) async {
+    final auth = await _pumpToEmailStep(tester);
+    final toggle = find.byKey(const ValueKey('auth-bind-recovery-email'));
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(toggle).value, isFalse);
+
+    await _submitEmailAndCode(tester);
+
+    expect(auth.bindRecoveryEmail, isFalse);
+  });
+
   for (final locale in ['en', 'tr', 'de', 'ar']) {
     testWidgets('existing-account rejection stays inline in $locale', (
       tester,
@@ -103,12 +177,16 @@ class _ExistingAccountAuth implements AuthCoordinator {
     return 'verified-grant';
   }
 
+  bool? bindRecoveryEmail;
+
   @override
   Future<void> registerAndLogin({
     required String displayName,
     required String phoneNumber,
     required String registrationToken,
+    bool bindRecoveryEmail = false,
   }) async {
+    this.bindRecoveryEmail = bindRecoveryEmail;
     events.add('register');
     expect(registrationToken, 'verified-grant');
     throw const ExistingAccountLoginRequired();

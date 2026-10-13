@@ -363,9 +363,12 @@ void main() {
         displayName: 'Alice Example',
         phoneNumber: '0555 123 45 67',
         registrationToken: registrationToken,
+        bindRecoveryEmail: true,
       );
 
       final registeredId = requests['/api/v1/users/register']!['userId'];
+      // Kayit e-postasi kurtarma e-postasi olarak da baglanir (QA R3).
+      expect(requests['/api/v1/users/register']?['bindRecoveryEmail'], isTrue);
       expect(session.userId, registeredId);
       expect(session.accessToken, 'access-1');
       expect(signaling.currentStatus.isConnected, isTrue);
@@ -562,6 +565,7 @@ class _RegistrationApi extends AuthApi {
   Future<RegisterResult> register({
     required String userId,
     required String registrationToken,
+    bool bindRecoveryEmail = false,
   }) async {
     registerCalls++;
     return RegisterResult(

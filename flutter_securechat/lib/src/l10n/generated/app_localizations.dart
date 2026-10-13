@@ -444,6 +444,18 @@ abstract class AppLocalizations {
   /// **'Account setup did not complete. Contact your administrator before registering again. A new attempt requires a new email code.'**
   String get auth_setup_failed;
 
+  /// No description provided for @auth_bind_recovery_email.
+  ///
+  /// In en, this message translates to:
+  /// **'Also use this email for account recovery'**
+  String get auth_bind_recovery_email;
+
+  /// No description provided for @auth_bind_recovery_email_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'If you lose access on this phone, you can sign back in with a code sent to this address.'**
+  String get auth_bind_recovery_email_hint;
+
   /// Private notification summary containing only total message and distinct conversation counts.
   ///
   /// In en, this message translates to:

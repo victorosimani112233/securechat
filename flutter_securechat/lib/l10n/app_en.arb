@@ -57,6 +57,8 @@
   "recovery_registration_existing": "This account already exists. Use existing-account login with your verified recovery email. Keep your signed-in device.",
   "auth_login_unavailable": "An existing account cannot be accessed through registration. Existing-account login is not available yet. Keep your signed-in device and contact your administrator.",
   "auth_setup_failed": "Account setup did not complete. Contact your administrator before registering again. A new attempt requires a new email code.",
+  "auth_bind_recovery_email": "Also use this email for account recovery",
+  "auth_bind_recovery_email_hint": "If you lose access on this phone, you can sign back in with a code sent to this address.",
   "notification_private_summary": "{messageCount, plural, one{1 message} other{{messageCount} messages}} from {chatCount, plural, one{1 chat} other{{chatCount} chats}}",
   "@notification_private_summary": {
     "description": "Private notification summary containing only total message and distinct conversation counts.",

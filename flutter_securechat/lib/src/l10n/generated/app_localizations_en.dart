@@ -212,6 +212,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Account setup did not complete. Contact your administrator before registering again. A new attempt requires a new email code.';
 
   @override
+  String get auth_bind_recovery_email =>
+      'Also use this email for account recovery';
+
+  @override
+  String get auth_bind_recovery_email_hint =>
+      'If you lose access on this phone, you can sign back in with a code sent to this address.';
+
+  @override
   String notification_private_summary(int messageCount, int chatCount) {
     String _temp0 = intl.Intl.pluralLogic(
       messageCount,

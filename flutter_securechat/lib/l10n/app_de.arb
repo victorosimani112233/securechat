@@ -57,6 +57,8 @@
   "recovery_registration_existing": "Dieses Konto besteht bereits. Melde dich mit deiner bestätigten Wiederherstellungs-E-Mail beim bestehenden Konto an. Behalte dein angemeldetes Gerät.",
   "auth_login_unavailable": "Eine Registrierung ermöglicht keinen Zugriff auf ein bestehendes Konto. Die Anmeldung bei bestehenden Konten ist noch nicht verfügbar. Behalten Sie Ihr angemeldetes Gerät und wenden Sie sich an Ihren Administrator.",
   "auth_setup_failed": "Die Kontoeinrichtung wurde nicht abgeschlossen. Wenden Sie sich vor einer erneuten Registrierung an Ihren Administrator. Ein neuer Versuch erfordert einen neuen E-Mail-Code.",
+  "auth_bind_recovery_email": "Diese E-Mail auch zur Kontowiederherstellung verwenden",
+  "auth_bind_recovery_email_hint": "Wenn du auf diesem Telefon abgemeldet wirst, kannst du dich mit einem Code an diese Adresse wieder anmelden.",
   "notification_private_summary": "{messageCount, plural, one{1 Nachricht} other{{messageCount} Nachrichten}} aus {chatCount, plural, one{1 Chat} other{{chatCount} Chats}}",
   "app_name": "ELÇİM",
   "group_info": "Gruppeninfo",

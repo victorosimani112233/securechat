@@ -43,6 +43,34 @@ void main() {
     },
   );
 
+  test(
+    'recovery email binding is requested only when the user opts in',
+    () async {
+      final fixture = await _serve({...success, 'recoveryEmailBound': true});
+      final result = await fixture.api.register(
+        userId: userId,
+        registrationToken: 'verified-grant',
+        bindRecoveryEmail: true,
+      );
+      expect(result.recoveryEmailBound, isTrue);
+      expect(fixture.requests.single, {
+        'userId': userId,
+        'registrationToken': 'verified-grant',
+        'bindRecoveryEmail': true,
+      });
+    },
+  );
+
+  test('a missing binding flag means the email is not bound', () async {
+    final fixture = await _serve(success);
+    final result = await fixture.api.register(
+      userId: userId,
+      registrationToken: 'verified-grant',
+      bindRecoveryEmail: true,
+    );
+    expect(result.recoveryEmailBound, isFalse);
+  });
+
   for (final response in [
     {...success, 'userId': 'another-user'},
     {...success}..remove('userId'),

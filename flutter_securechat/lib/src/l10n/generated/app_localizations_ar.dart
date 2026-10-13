@@ -209,6 +209,14 @@ class AppLocalizationsAr extends AppLocalizations {
       'لم يكتمل إعداد الحساب. اتصل بالمسؤول قبل التسجيل مرة أخرى. تتطلب المحاولة الجديدة رمز بريد إلكتروني جديداً.';
 
   @override
+  String get auth_bind_recovery_email =>
+      'استخدم هذا البريد الإلكتروني أيضاً لاستعادة الحساب';
+
+  @override
+  String get auth_bind_recovery_email_hint =>
+      'إذا فقدت الوصول على هذا الهاتف، يمكنك تسجيل الدخول مجدداً برمز يُرسل إلى هذا العنوان.';
+
+  @override
   String notification_private_summary(int messageCount, int chatCount) {
     String _temp0 = intl.Intl.pluralLogic(
       messageCount,

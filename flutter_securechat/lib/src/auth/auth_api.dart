@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-
 enum OtpRequestStatus { sent, smtpDisabled, rateLimited }
 
 class OtpRequestResult {
@@ -20,12 +19,16 @@ class RegisterResult {
     required this.isNew,
     required this.accessToken,
     required this.refreshToken,
+    this.recoveryEmailBound = false,
   });
 
   final String userId;
   final bool isNew;
   final String accessToken;
   final String refreshToken;
+
+  /// Kayit e-postasi kurtarma e-postasi olarak da baglandi mi.
+  final bool recoveryEmailBound;
 }
 
 class TokenPair {
@@ -113,9 +116,13 @@ class AuthApi {
     return token;
   }
 
+  /// [bindRecoveryEmail]: OTP ile dogrulanan e-posta kurtarma e-postasi
+  /// olarak da baglansin (QA 2026-10-13 R3). Alan yalniz istenince
+  /// gonderilir; eski sunucu bilinmeyen alani reddeder.
   Future<RegisterResult> register({
     required String userId,
     required String registrationToken,
+    bool bindRecoveryEmail = false,
   }) async {
     if (registrationToken.trim().isEmpty) {
       throw const AuthApiException('OTP verification required');
@@ -123,6 +130,7 @@ class AuthApi {
     final response = await _post('/api/v1/users/register', {
       'userId': userId,
       'registrationToken': registrationToken,
+      if (bindRecoveryEmail) 'bindRecoveryEmail': true,
     });
     if (response.statusCode == 409 &&
         response.json['error'] == 'directory_identity_already_registered') {
@@ -147,6 +155,7 @@ class AuthApi {
       isNew: true,
       accessToken: access,
       refreshToken: refresh,
+      recoveryEmailBound: response.json['recoveryEmailBound'] == true,
     );
   }
 

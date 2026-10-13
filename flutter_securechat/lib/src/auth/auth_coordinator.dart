@@ -73,6 +73,7 @@ class AuthCoordinator {
     required String displayName,
     required String phoneNumber,
     required String registrationToken,
+    bool bindRecoveryEmail = false,
   }) async {
     // A restored profile is still an existing identity even without tokens.
     // A generic registration grant must not replace it with a new UUID.
@@ -85,6 +86,7 @@ class AuthCoordinator {
     final result = await _api.register(
       userId: userId,
       registrationToken: registrationToken,
+      bindRecoveryEmail: bindRecoveryEmail,
     );
     if (!result.isNew) throw const ExistingAccountLoginRequired();
     if (result.userId != userId) {

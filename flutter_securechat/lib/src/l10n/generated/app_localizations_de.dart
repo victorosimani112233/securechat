@@ -215,6 +215,14 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die Kontoeinrichtung wurde nicht abgeschlossen. Wenden Sie sich vor einer erneuten Registrierung an Ihren Administrator. Ein neuer Versuch erfordert einen neuen E-Mail-Code.';
 
   @override
+  String get auth_bind_recovery_email =>
+      'Diese E-Mail auch zur Kontowiederherstellung verwenden';
+
+  @override
+  String get auth_bind_recovery_email_hint =>
+      'Wenn du auf diesem Telefon abgemeldet wirst, kannst du dich mit einem Code an diese Adresse wieder anmelden.';
+
+  @override
   String notification_private_summary(int messageCount, int chatCount) {
     String _temp0 = intl.Intl.pluralLogic(
       messageCount,

@@ -67,6 +67,8 @@
   "clear_group_history_body": "ستُحذف رسائل هذه المجموعة من هذا الجهاز فقط. ستبقى المجموعة وعضويتك فيها، ولن تتأثر رسائل الأعضاء الآخرين.",
   "auth_login_unavailable": "لا يمكن الوصول إلى حساب موجود عن طريق التسجيل. تسجيل الدخول إلى حساب موجود غير متاح بعد. احتفظ بجهازك الذي تم تسجيل الدخول عليه واتصل بالمسؤول.",
   "auth_setup_failed": "لم يكتمل إعداد الحساب. اتصل بالمسؤول قبل التسجيل مرة أخرى. تتطلب المحاولة الجديدة رمز بريد إلكتروني جديداً.",
+  "auth_bind_recovery_email": "استخدم هذا البريد الإلكتروني أيضاً لاستعادة الحساب",
+  "auth_bind_recovery_email_hint": "إذا فقدت الوصول على هذا الهاتف، يمكنك تسجيل الدخول مجدداً برمز يُرسل إلى هذا العنوان.",
   "notification_private_summary": "{messageCount, plural, zero{لا رسائل} one{رسالة واحدة} two{رسالتان} few{{messageCount} رسائل} many{{messageCount} رسالة} other{{messageCount} رسالة}} من {chatCount, plural, zero{لا محادثات} one{محادثة واحدة} two{محادثتين} few{{chatCount} محادثات} many{{chatCount} محادثة} other{{chatCount} محادثة}}",
   "app_name": "ELÇİM",
   "group_info": "معلومات المجموعة",
