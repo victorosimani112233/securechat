@@ -13,6 +13,7 @@ import '../../widgets/azure_options.dart';
 import '../../widgets/notification_sound_picker.dart';
 import '../../widgets/azure_surface.dart';
 import '../auth/recovery_enrollment_screen.dart';
+import '../../auth/account_recovery_coordinator.dart';
 import '../safety/safety_ui.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -530,27 +531,39 @@ class SettingsScreen extends StatelessWidget {
     BuildContext context,
     AccountDataService accountData,
   ) async {
-    final confirmed = await showDialog<bool>(
+    final recovery = AppContainerScope.of(context).auth?.recovery;
+    final choice = await showDialog<_LogoutChoice>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.logout),
-        title: Text(dialogContext.l10n.logout_confirm_title),
-        content: Text(dialogContext.l10n.logout_confirm_body),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(dialogContext.l10n.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(dialogContext.l10n.settings_logout),
-          ),
-        ],
-      ),
+      builder: (_) => _LogoutDialog(recoveryBound: _recoveryBound(recovery)),
     );
-    if (confirmed != true || !context.mounted) return;
-    // Push kaydini da deleteLocalData siler.
-    await _runAndLeave(context, accountData.deleteLocalData);
+    if (!context.mounted) return;
+    switch (choice) {
+      case _LogoutChoice.logout:
+        // Push kaydini da deleteLocalData siler.
+        await _runAndLeave(context, accountData.deleteLocalData);
+      case _LogoutChoice.addRecovery:
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const RecoveryEnrollmentScreen(),
+          ),
+        );
+      case null:
+        return;
+    }
+  }
+
+  /// Kurtarma e-postasi bagli mi; null = sorgulanamadi (QA 2026-10-13 R3).
+  static Future<bool?> _recoveryBound(
+    AccountRecoveryCoordinator? recovery,
+  ) async {
+    if (recovery == null) return null;
+    try {
+      return await recovery.getEnrollmentStatus().timeout(
+        const Duration(seconds: 8),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<void> _confirmLocalDelete(
@@ -745,5 +758,119 @@ class _SheetHeading extends StatelessWidget {
       alignment: AlignmentDirectional.centerStart,
       child: Text(text, style: Theme.of(context).textTheme.titleMedium),
     ),
+  );
+}
+
+enum _LogoutChoice { logout, addRecovery }
+
+/// Cikis onayi.
+///
+/// Kurtarma e-postasi bagli degilse (ya da durum sorgulanamazsa) cikis
+/// hesabi kalici olarak kaybettirir: ayni numarayla yeniden kayit sunucuda
+/// reddedilir. Bu durumda birincil eylem kurtarma e-postasi eklemektir;
+/// "Yine de cik" yalniz kullanici riski acikca onaylayinca acilir
+/// (QA 2026-10-13 R3).
+class _LogoutDialog extends StatefulWidget {
+  const _LogoutDialog({required this.recoveryBound});
+
+  final Future<bool?> recoveryBound;
+
+  @override
+  State<_LogoutDialog> createState() => _LogoutDialogState();
+}
+
+class _LogoutDialogState extends State<_LogoutDialog> {
+  var _acknowledged = false;
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<bool?>(
+    future: widget.recoveryBound,
+    builder: (context, snapshot) {
+      final l10n = context.l10n;
+      if (snapshot.connectionState != ConnectionState.done) {
+        return AlertDialog(
+          key: const ValueKey('logout-dialog'),
+          icon: const Icon(Icons.logout),
+          title: Text(l10n.logout_confirm_title),
+          content: const SizedBox(
+            height: 48,
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l10n.cancel),
+            ),
+          ],
+        );
+      }
+      if (snapshot.data == true) {
+        return AlertDialog(
+          key: const ValueKey('logout-dialog'),
+          icon: const Icon(Icons.logout),
+          title: Text(l10n.logout_confirm_title),
+          content: Text(l10n.logout_confirm_body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l10n.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, _LogoutChoice.logout),
+              child: Text(l10n.settings_logout),
+            ),
+          ],
+        );
+      }
+      final error = Theme.of(context).colorScheme.error;
+      return AlertDialog(
+        key: const ValueKey('logout-dialog'),
+        icon: Icon(Icons.warning_amber_rounded, color: error),
+        title: Text(l10n.logout_no_recovery_title),
+        scrollable: true,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              snapshot.data == false
+                  ? l10n.logout_no_recovery_body
+                  : l10n.logout_recovery_unknown_body,
+            ),
+            const SizedBox(height: 12),
+            Text(l10n.logout_confirm_body),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              key: const ValueKey('logout-ack'),
+              value: _acknowledged,
+              onChanged: (value) =>
+                  setState(() => _acknowledged = value ?? false),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(l10n.logout_no_recovery_ack),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.cancel),
+          ),
+          TextButton(
+            key: const ValueKey('logout-anyway'),
+            onPressed: _acknowledged
+                ? () => Navigator.pop(context, _LogoutChoice.logout)
+                : null,
+            style: TextButton.styleFrom(foregroundColor: error),
+            child: Text(l10n.logout_anyway),
+          ),
+          FilledButton(
+            key: const ValueKey('logout-add-recovery'),
+            onPressed: () => Navigator.pop(context, _LogoutChoice.addRecovery),
+            child: Text(l10n.logout_add_recovery),
+          ),
+        ],
+      );
+    },
   );
 }

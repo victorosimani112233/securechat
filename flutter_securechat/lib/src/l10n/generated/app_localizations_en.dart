@@ -2253,6 +2253,27 @@ class AppLocalizationsEn extends AppLocalizations {
       'Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again.';
 
   @override
+  String get logout_no_recovery_title =>
+      'You may never get back into this account';
+
+  @override
+  String get logout_no_recovery_body =>
+      'This account has no recovery email. If you log out, you will not be able to sign in to this account or with this phone number again. Add a recovery email first.';
+
+  @override
+  String get logout_recovery_unknown_body =>
+      'We could not check your recovery email right now. If no recovery email is linked, you will not be able to sign in to this account again after logging out.';
+
+  @override
+  String get logout_no_recovery_ack => 'I understand I may lose this account';
+
+  @override
+  String get logout_add_recovery => 'Add recovery email';
+
+  @override
+  String get logout_anyway => 'Log out anyway';
+
+  @override
   String get call_no_answer => 'No answer';
 
   @override

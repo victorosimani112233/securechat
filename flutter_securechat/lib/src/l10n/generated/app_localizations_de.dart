@@ -2288,6 +2288,28 @@ class AppLocalizationsDe extends AppLocalizations {
       'Beim Abmelden werden alle Nachrichten, Medien, der Anrufverlauf und lokale Backups auf diesem Gerät gelöscht. Dein Konto bleibt auf dem Server, aber der Verlauf kommt bei der nächsten Anmeldung nicht zurück.';
 
   @override
+  String get logout_no_recovery_title =>
+      'Du kommst eventuell nie wieder in dieses Konto';
+
+  @override
+  String get logout_no_recovery_body =>
+      'Für dieses Konto ist keine Wiederherstellungs-E-Mail hinterlegt. Wenn du dich abmeldest, kannst du dich weder bei diesem Konto noch mit dieser Telefonnummer wieder anmelden. Füge zuerst eine Wiederherstellungs-E-Mail hinzu.';
+
+  @override
+  String get logout_recovery_unknown_body =>
+      'Deine Wiederherstellungs-E-Mail konnte gerade nicht geprüft werden. Ist keine hinterlegt, kannst du dich nach dem Abmelden nicht wieder bei diesem Konto anmelden.';
+
+  @override
+  String get logout_no_recovery_ack =>
+      'Mir ist klar, dass ich dieses Konto verlieren kann';
+
+  @override
+  String get logout_add_recovery => 'Wiederherstellungs-E-Mail hinzufügen';
+
+  @override
+  String get logout_anyway => 'Trotzdem abmelden';
+
+  @override
   String get call_no_answer => 'Keine Antwort';
 
   @override

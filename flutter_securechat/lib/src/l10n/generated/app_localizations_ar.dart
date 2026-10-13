@@ -2258,6 +2258,27 @@ class AppLocalizationsAr extends AppLocalizations {
       'Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again.';
 
   @override
+  String get logout_no_recovery_title =>
+      'قد لا تتمكن من العودة إلى هذا الحساب أبداً';
+
+  @override
+  String get logout_no_recovery_body =>
+      'لا يوجد بريد إلكتروني للاسترداد مرتبط بهذا الحساب. إذا سجلت الخروج فلن تتمكن من تسجيل الدخول إلى هذا الحساب أو بهذا الرقم مرة أخرى. أضف بريداً إلكترونياً للاسترداد أولاً.';
+
+  @override
+  String get logout_recovery_unknown_body =>
+      'تعذر التحقق من بريد الاسترداد الآن. إذا لم يكن هناك بريد استرداد مرتبط فلن تتمكن من تسجيل الدخول إلى هذا الحساب بعد الخروج.';
+
+  @override
+  String get logout_no_recovery_ack => 'أفهم أنني قد أفقد هذا الحساب';
+
+  @override
+  String get logout_add_recovery => 'إضافة بريد الاسترداد';
+
+  @override
+  String get logout_anyway => 'تسجيل الخروج على أي حال';
+
+  @override
   String get call_no_answer => 'No answer';
 
   @override

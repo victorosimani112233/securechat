@@ -7,6 +7,10 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_securechat/src/features/scheduled/scheduled_messages_screen.dart';
 import 'package:flutter_securechat/src/features/settings/settings_screen.dart';
+import 'package:flutter_securechat/src/features/auth/recovery_enrollment_screen.dart';
+import 'package:flutter_securechat/src/auth/account_recovery_coordinator.dart';
+import 'package:flutter_securechat/src/auth/auth_api.dart';
+import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/l10n/generated/app_localizations.dart';
 import 'package:flutter_securechat/src/security/chat_access_service.dart';
 import 'package:flutter_securechat/src/services/app_container.dart';
@@ -532,69 +536,19 @@ void main() {
   testWidgets(
     'logout asks first, cancel keeps data, confirm wipes local data',
     (tester) async {
-      final fixture = (await tester.runAsync(_SettingsFixture.open))!;
-      addTearDown(fixture.close);
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final accountData = _RecordingAccountData();
-      final container = AppContainer.testing(
-        session: fixture.session,
-        conversations: InMemoryConversationRepository(
-          conversations: [],
-          messages: {},
-        ),
-        crypto: fixture.crypto,
-        signaling: fixture.signaling,
-        settingsRuntime: AppSettingsRuntime(service: fixture.settings),
-        accountDataRuntime: AppAccountDataRuntime(service: accountData),
-        callReadinessRuntime: const AppCallReadinessRuntime(
-          service: CallReadinessService(
-            platform: NotApplicableCallReadinessPlatform(),
-          ),
-        ),
-        chatAccessRuntime: const AppChatAccessRuntime(
-          service: ChatAccessService(
-            authenticator: AlwaysAllowDeviceOwnerAuthenticator(),
-          ),
-        ),
-      );
-      await tester.pumpWidget(
-        AppContainerScope(
-          container: container,
-          child: MaterialApp(
-            locale: const Locale('tr'),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: const SettingsScreen(),
-            routes: {'/auth': (_) => const Text('auth-route')},
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(SettingsScreen)),
-      );
-      final logout = find.widgetWithText(ListTile, l10n.settings_logout);
-      await tester.scrollUntilVisible(
-        logout,
-        200,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('settings-list')),
-          matching: find.byType(Scrollable),
-        ),
-      );
+      final pumped = await _pumpSettingsForLogout(tester, bound: true);
+      final l10n = pumped.l10n;
 
-      await tester.tap(logout);
+      await tester.tap(pumped.logout);
       await tester.pumpAndSettle();
       expect(find.text(l10n.logout_confirm_body), findsOneWidget);
+      expect(find.text(l10n.logout_no_recovery_title), findsNothing);
       await tester.tap(find.text(l10n.cancel));
       await tester.pumpAndSettle();
-      expect(accountData.localDeletes, 0);
+      expect(pumped.accountData.localDeletes, 0);
       expect(find.byType(SettingsScreen), findsOneWidget);
 
-      await tester.tap(logout);
+      await tester.tap(pumped.logout);
       await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
@@ -604,10 +558,164 @@ void main() {
       );
       await tester.pumpAndSettle();
       // Cikis "Yerel verileri sil" ile ayni tam silme yolunu kullanir.
-      expect(accountData.localDeletes, 1);
+      expect(pumped.accountData.localDeletes, 1);
       expect(find.text('auth-route'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'logout without a recovery email warns and needs an explicit acknowledgement',
+    (tester) async {
+      final pumped = await _pumpSettingsForLogout(tester, bound: false);
+      final l10n = pumped.l10n;
+
+      await tester.tap(pumped.logout);
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.logout_no_recovery_title), findsOneWidget);
+      expect(find.text(l10n.logout_no_recovery_body), findsOneWidget);
+      final anyway = find.byKey(const ValueKey('logout-anyway'));
+      expect(tester.widget<TextButton>(anyway).onPressed, isNull);
+
+      final ack = find.byKey(const ValueKey('logout-ack'));
+      await tester.ensureVisible(ack);
+      await tester.pumpAndSettle();
+      await tester.tap(ack);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextButton>(anyway).onPressed, isNotNull);
+      await tester.tap(anyway);
+      await tester.pumpAndSettle();
+
+      expect(pumped.accountData.localDeletes, 1);
+      expect(find.text('auth-route'), findsOneWidget);
+    },
+  );
+
+  testWidgets('logout without a recovery email offers to add one instead', (
+    tester,
+  ) async {
+    final pumped = await _pumpSettingsForLogout(tester, bound: false);
+
+    await tester.tap(pumped.logout);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('logout-add-recovery')));
+    await tester.pumpAndSettle();
+
+    expect(pumped.accountData.localDeletes, 0);
+    expect(find.byType(RecoveryEnrollmentScreen), findsOneWidget);
+  });
+
+  testWidgets('logout treats an unknown recovery status as unsafe', (
+    tester,
+  ) async {
+    final pumped = await _pumpSettingsForLogout(tester, bound: null);
+    final l10n = pumped.l10n;
+
+    await tester.tap(pumped.logout);
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.logout_no_recovery_title), findsOneWidget);
+    expect(find.text(l10n.logout_recovery_unknown_body), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('logout-anyway')))
+          .onPressed,
+      isNull,
+    );
+  });
+}
+
+class _LogoutSettings {
+  _LogoutSettings(this.accountData, this.l10n, this.logout);
+
+  final _RecordingAccountData accountData;
+  final AppLocalizations l10n;
+  final Finder logout;
+}
+
+/// [bound] null: kurtarma durumu sorgusu hata verir.
+Future<_LogoutSettings> _pumpSettingsForLogout(
+  WidgetTester tester, {
+  required bool? bound,
+}) async {
+  final fixture = (await tester.runAsync(_SettingsFixture.open))!;
+  addTearDown(fixture.close);
+  tester.view.physicalSize = const Size(390, 844);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  final accountData = _RecordingAccountData();
+  final container = AppContainer.testing(
+    session: fixture.session,
+    conversations: InMemoryConversationRepository(
+      conversations: [],
+      messages: {},
+    ),
+    crypto: fixture.crypto,
+    signaling: fixture.signaling,
+    settingsRuntime: AppSettingsRuntime(service: fixture.settings),
+    accountDataRuntime: AppAccountDataRuntime(service: accountData),
+    auth: _RecoveryStatusAuth(_FixedRecoveryStatus(bound)),
+    callReadinessRuntime: const AppCallReadinessRuntime(
+      service: CallReadinessService(
+        platform: NotApplicableCallReadinessPlatform(),
+      ),
+    ),
+    chatAccessRuntime: const AppChatAccessRuntime(
+      service: ChatAccessService(
+        authenticator: AlwaysAllowDeviceOwnerAuthenticator(),
+      ),
+    ),
+  );
+  await tester.pumpWidget(
+    AppContainerScope(
+      container: container,
+      child: MaterialApp(
+        locale: const Locale('tr'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const SettingsScreen(),
+        routes: {'/auth': (_) => const Text('auth-route')},
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  final l10n = AppLocalizations.of(tester.element(find.byType(SettingsScreen)));
+  final logout = find.widgetWithText(ListTile, l10n.settings_logout);
+  await tester.scrollUntilVisible(
+    logout,
+    200,
+    scrollable: find.descendant(
+      of: find.byKey(const ValueKey('settings-list')),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  return _LogoutSettings(accountData, l10n, logout);
+}
+
+class _RecoveryStatusAuth implements AuthCoordinator {
+  _RecoveryStatusAuth(this.recovery);
+
+  @override
+  final AccountRecoveryCoordinator recovery;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FixedRecoveryStatus implements AccountRecoveryCoordinator {
+  _FixedRecoveryStatus(this.bound);
+
+  final bool? bound;
+
+  @override
+  Future<bool> getEnrollmentStatus() async {
+    final value = bound;
+    if (value == null) throw const AuthApiException('network');
+    return value;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _RecordingAccountData implements AccountDataService {

@@ -4140,6 +4140,42 @@ abstract class AppLocalizations {
   /// **'Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again.'**
   String get logout_confirm_body;
 
+  /// No description provided for @logout_no_recovery_title.
+  ///
+  /// In en, this message translates to:
+  /// **'You may never get back into this account'**
+  String get logout_no_recovery_title;
+
+  /// No description provided for @logout_no_recovery_body.
+  ///
+  /// In en, this message translates to:
+  /// **'This account has no recovery email. If you log out, you will not be able to sign in to this account or with this phone number again. Add a recovery email first.'**
+  String get logout_no_recovery_body;
+
+  /// No description provided for @logout_recovery_unknown_body.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not check your recovery email right now. If no recovery email is linked, you will not be able to sign in to this account again after logging out.'**
+  String get logout_recovery_unknown_body;
+
+  /// No description provided for @logout_no_recovery_ack.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand I may lose this account'**
+  String get logout_no_recovery_ack;
+
+  /// No description provided for @logout_add_recovery.
+  ///
+  /// In en, this message translates to:
+  /// **'Add recovery email'**
+  String get logout_add_recovery;
+
+  /// No description provided for @logout_anyway.
+  ///
+  /// In en, this message translates to:
+  /// **'Log out anyway'**
+  String get logout_anyway;
+
   /// No description provided for @call_no_answer.
   ///
   /// In en, this message translates to:

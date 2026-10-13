@@ -2244,6 +2244,26 @@ class AppLocalizationsTr extends AppLocalizations {
       'Çıkış yapınca bu cihazdaki tüm mesajlar, medya, arama geçmişi ve yerel yedekler silinir. Hesabınız sunucuda kalır; tekrar girişte geçmiş geri gelmez.';
 
   @override
+  String get logout_no_recovery_title => 'Bu hesaba bir daha giremeyebilirsin';
+
+  @override
+  String get logout_no_recovery_body =>
+      'Bu hesaba bağlı bir kurtarma e-postası yok. Çıkış yaparsan bu hesaba ve bu telefon numarasıyla bir daha giriş yapamazsın. Önce kurtarma e-postası ekle.';
+
+  @override
+  String get logout_recovery_unknown_body =>
+      'Kurtarma e-postan şu an kontrol edilemedi. Bağlı bir kurtarma e-postan yoksa çıkış yaptıktan sonra bu hesaba bir daha giriş yapamazsın.';
+
+  @override
+  String get logout_no_recovery_ack => 'Bu hesabı kaybedebileceğimi anlıyorum';
+
+  @override
+  String get logout_add_recovery => 'Kurtarma e-postası ekle';
+
+  @override
+  String get logout_anyway => 'Yine de çık';
+
+  @override
   String get call_no_answer => 'Cevap yok';
 
   @override
