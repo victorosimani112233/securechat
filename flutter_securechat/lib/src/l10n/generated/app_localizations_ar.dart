@@ -107,29 +107,29 @@ class AppLocalizationsAr extends AppLocalizations {
   String get recovery_login_title => 'تسجيل الدخول إلى حساب موجود';
 
   @override
-  String get session_expired_title => 'Your session has ended';
+  String get session_expired_title => 'انتهت جلستك';
 
   @override
   String get session_expired_body =>
-      'Your messages are still on this device. Log in to the same account again to continue.';
+      'رسائلك ما زالت على هذا الجهاز. سجّل الدخول إلى الحساب نفسه مرة أخرى للمتابعة.';
 
   @override
-  String get session_expired_start_over => 'Start with another account';
+  String get session_expired_start_over => 'البدء بحساب آخر';
 
   @override
   String get session_expired_start_over_title =>
-      'Remove the old account from this device?';
+      'إزالة الحساب القديم من هذا الجهاز؟';
 
   @override
   String get session_expired_start_over_body =>
-      'To create a new account, the messages, media and keys of the old account on this device are deleted. If you can log in to the old account with its recovery email, try that first; otherwise this data cannot be brought back.';
+      'لإنشاء حساب جديد تُحذف رسائل الحساب القديم ووسائطه ومفاتيحه من هذا الجهاز. إذا كان بإمكانك تسجيل الدخول إلى الحساب القديم ببريد الاسترداد فجرّب ذلك أولًا، وإلا فلا يمكن استعادة هذه البيانات.';
 
   @override
-  String get session_expired_start_over_confirm => 'Delete and continue';
+  String get session_expired_start_over_confirm => 'حذف ومتابعة';
 
   @override
   String get registration_device_has_account =>
-      'This device still holds an older account, so a new account could not be created. Log in to that account again, or remove it from this device with \"Start with another account\".';
+      'لا يزال هذا الجهاز يحتفظ بحساب أقدم، لذلك تعذّر إنشاء حساب جديد. سجّل الدخول إلى ذلك الحساب مرة أخرى، أو أزِله من هذا الجهاز عبر «البدء بحساب آخر».';
 
   @override
   String get recovery_email_title => 'بريد استرداد الحساب';
@@ -148,7 +148,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get recovery_request_sent =>
-      'If this email is the recovery address of an account, a six-digit code has been sent. If it does not arrive within a few minutes, check your spam folder. If it is still missing, this email is most likely not the recovery address of any account; a recovery email is added during sign-up or in Settings.';
+      'إذا كان هذا البريد عنوان استرداد لحساب ما، فقد أُرسل رمز من ست خانات. إذا لم يصل خلال بضع دقائق فتحقق من مجلد الرسائل غير المرغوب فيها. إذا ظل مفقودًا فالأرجح أن هذا البريد ليس عنوان استرداد لأي حساب؛ يُضاف بريد الاسترداد عند التسجيل أو من الإعدادات.';
 
   @override
   String get recovery_send_code => 'إرسال الرمز';
@@ -216,7 +216,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get recovery_registration_existing =>
-      'An account with this phone number already exists. Log in to it from \"Log in to an existing account\" with its recovery email, or use a different number for a new account.';
+      'يوجد حساب بهذا الرقم بالفعل. سجّل الدخول إليه من «تسجيل الدخول إلى حساب موجود» باستخدام بريد الاسترداد، أو استخدم رقمًا آخر لحساب جديد.';
 
   @override
   String get auth_login_unavailable =>
@@ -327,285 +327,285 @@ class AppLocalizationsAr extends AppLocalizations {
   String get view_info => 'عرض المعلومات';
 
   @override
-  String get onboarding_subtitle => 'Secure messaging';
+  String get onboarding_subtitle => 'مراسلة آمنة';
 
   @override
   String get onboarding_e2ee_notice =>
-      'Your messages are end-to-end encrypted. No one can read them.';
+      'رسائلك مشفّرة من طرف إلى طرف. لا يستطيع أحد قراءتها.';
 
   @override
-  String get register_title => 'Sign Up';
+  String get register_title => 'إنشاء حساب';
 
   @override
-  String get register_subtitle => 'Enter your details to get started.';
+  String get register_subtitle => 'أدخل بياناتك للبدء.';
 
   @override
-  String get register_name_label => 'Your name';
+  String get register_name_label => 'اسمك';
 
   @override
-  String get register_name_placeholder => 'e.g. John Smith';
+  String get register_name_placeholder => 'مثال: أحمد علي';
 
   @override
-  String get register_country_code_label => 'Code';
+  String get register_country_code_label => 'الرمز';
 
   @override
-  String get register_phone_label => 'Phone number';
+  String get register_phone_label => 'رقم الهاتف';
 
   @override
   String get register_phone_placeholder => '5XX XXX XX XX';
 
   @override
-  String get register_start => 'Start';
+  String get register_start => 'ابدأ';
 
   @override
-  String get contacts_permission_title => 'Contacts Access Required';
+  String get contacts_permission_title => 'يلزم الوصول إلى جهات الاتصال';
 
   @override
   String get contacts_permission_body =>
-      'Contacts access is required for the app to work. Please grant the contacts permission so we can find your contacts and enable secure messaging.';
+      'يحتاج التطبيق إلى الوصول إلى جهات الاتصال ليعمل. يرجى منح الإذن حتى نجد جهات اتصالك ونتيح المراسلة الآمنة.';
 
   @override
-  String get action_retry => 'Try Again';
+  String get action_retry => 'حاول مجددًا';
 
   @override
-  String get validation_name_empty => 'Enter your name';
+  String get validation_name_empty => 'أدخل اسمك';
 
   @override
   String validation_name_too_short(num arg1) {
-    return 'At least $arg1 characters';
+    return '$arg1 أحرف على الأقل';
   }
 
   @override
   String validation_name_too_long(num arg1) {
-    return 'At most $arg1 characters';
+    return '$arg1 حرفًا على الأكثر';
   }
 
   @override
   String get validation_name_invalid_chars =>
-      'Letters, spaces, hyphens and apostrophes only';
+      'أحرف ومسافات وشرطات وفواصل عليا فقط';
 
   @override
-  String get validation_country_code_empty => 'Country code empty';
+  String get validation_country_code_empty => 'رمز الدولة فارغ';
 
   @override
-  String get validation_country_code_missing_plus => 'Must start with +';
+  String get validation_country_code_missing_plus => 'يجب أن يبدأ بـ +';
 
   @override
-  String get validation_country_code_non_digit => 'Digits only';
+  String get validation_country_code_non_digit => 'أرقام فقط';
 
   @override
-  String get validation_country_code_too_short => 'At least 1 digit';
+  String get validation_country_code_too_short => 'رقم واحد على الأقل';
 
   @override
-  String get validation_country_code_too_long => 'At most 4 digits';
+  String get validation_country_code_too_long => '4 أرقام على الأكثر';
 
   @override
-  String get validation_phone_empty => 'Enter your phone number';
+  String get validation_phone_empty => 'أدخل رقم هاتفك';
 
   @override
-  String get validation_phone_too_short => '10 digits required';
+  String get validation_phone_too_short => 'يلزم 10 أرقام';
 
   @override
-  String get validation_phone_too_long => '10 digits only';
+  String get validation_phone_too_long => '10 أرقام فقط';
 
   @override
-  String get validation_phone_non_digit => 'Digits only';
+  String get validation_phone_non_digit => 'أرقام فقط';
 
   @override
-  String get otp_title => 'Verification';
+  String get otp_title => 'التحقق';
 
   @override
-  String get otp_section_title => 'Verification Code';
+  String get otp_section_title => 'رمز التحقق';
 
   @override
   String otp_description(String arg1) {
-    return 'Enter the 6-digit code sent\\nto $arg1';
+    return 'أدخل الرمز المكوّن من 6 أرقام المرسل\\nإلى $arg1';
   }
 
   @override
-  String get otp_incomplete_error => 'Please enter all 6 digits';
+  String get otp_incomplete_error => 'يرجى إدخال الأرقام الستة كلها';
 
   @override
-  String get otp_resend => 'Resend Code';
+  String get otp_resend => 'إعادة إرسال الرمز';
 
   @override
   String otp_resend_countdown(num arg1) {
-    return 'Resend code: ${arg1}s';
+    return 'إعادة إرسال الرمز: $arg1 ث';
   }
 
   @override
-  String get otp_verify => 'Verify';
+  String get otp_verify => 'تحقق';
 
   @override
-  String get backup_prompt_title => 'Do you have an existing backup?';
+  String get backup_prompt_title => 'هل لديك نسخة احتياطية؟';
 
   @override
   String get backup_prompt_body =>
-      'If you previously created an encrypted backup, you can restore your chats.';
+      'إذا أنشأت نسخة احتياطية مشفّرة من قبل فيمكنك استعادة محادثاتك.';
 
   @override
-  String get backup_prompt_yes => 'Yes, restore backup';
+  String get backup_prompt_yes => 'نعم، استعادة النسخة';
 
   @override
-  String get backup_prompt_no => 'No, start fresh';
+  String get backup_prompt_no => 'لا، البدء من جديد';
 
   @override
-  String get nav_back => 'Back';
+  String get nav_back => 'رجوع';
 
   @override
-  String get email_otp_title => 'Email Verification';
+  String get email_otp_title => 'التحقق بالبريد الإلكتروني';
 
   @override
-  String get email_otp_step_email => 'Your email address';
+  String get email_otp_step_email => 'عنوان بريدك الإلكتروني';
 
   @override
-  String get email_otp_step_code => 'Verification code';
+  String get email_otp_step_code => 'رمز التحقق';
 
   @override
   String get email_otp_description_email =>
-      'Enter your email address to verify your account. We will send the code to your email.';
+      'أدخل بريدك الإلكتروني للتحقق من حسابك. سنرسل الرمز إلى بريدك.';
 
   @override
   String email_otp_description_code(String arg1) {
-    return 'Enter the 6-digit code sent to $arg1.';
+    return 'أدخل الرمز المكوّن من 6 أرقام المرسل إلى $arg1.';
   }
 
   @override
-  String get email_otp_email_label => 'Email';
+  String get email_otp_email_label => 'البريد الإلكتروني';
 
   @override
-  String get email_otp_code_label => '6-digit code';
+  String get email_otp_code_label => 'رمز من 6 أرقام';
 
   @override
-  String get email_otp_send => 'Send Code';
+  String get email_otp_send => 'إرسال الرمز';
 
   @override
-  String get email_otp_change_email => 'Use a different email';
+  String get email_otp_change_email => 'استخدام بريد آخر';
 
   @override
-  String get email_otp_dev_skip => 'Development Mode — Skip';
+  String get email_otp_dev_skip => 'وضع التطوير — تخطٍّ';
 
   @override
-  String get email_otp_invalid_email => 'Enter a valid email';
+  String get email_otp_invalid_email => 'أدخل بريدًا إلكترونيًا صالحًا';
 
   @override
-  String get email_otp_sent => 'Code sent to your email';
+  String get email_otp_sent => 'أُرسل الرمز إلى بريدك';
 
   @override
   String get email_otp_smtp_disabled =>
-      'Email service is not configured on the server. Please contact your administrator or use Skip in development mode.';
+      'خدمة البريد غير مهيأة على الخادم. يرجى التواصل مع المسؤول أو استخدام «تخطٍّ» في وضع التطوير.';
 
   @override
   String get email_otp_rate_limited =>
-      'Too many attempts. Please wait a few minutes.';
+      'محاولات كثيرة جدًا. يرجى الانتظار بضع دقائق.';
 
   @override
   String email_otp_send_error(String arg1) {
-    return 'Failed to send code: $arg1';
+    return 'تعذّر إرسال الرمز: $arg1';
   }
 
   @override
-  String get email_otp_verify_failed => 'Code invalid or expired';
+  String get email_otp_verify_failed => 'الرمز غير صالح أو منتهي الصلاحية';
 
   @override
-  String get email_otp_incomplete => 'Enter all 6 digits';
+  String get email_otp_incomplete => 'أدخل الأرقام الستة كلها';
 
   @override
-  String get create_group_title => 'New Group';
+  String get create_group_title => 'مجموعة جديدة';
 
   @override
-  String get create_group_action => 'Create';
+  String get create_group_action => 'إنشاء';
 
   @override
   String create_group_selected_members(num arg1) {
-    return 'Selected Members ($arg1)';
+    return 'الأعضاء المحددون ($arg1)';
   }
 
   @override
-  String get create_group_add_by_phone => 'Add by Number';
+  String get create_group_add_by_phone => 'إضافة برقم';
 
   @override
-  String get create_group_user_not_found => 'User Not Found';
+  String get create_group_user_not_found => 'المستخدم غير موجود';
 
   @override
-  String get create_group_send_invite => 'Send Invite';
+  String get create_group_send_invite => 'إرسال دعوة';
 
   @override
-  String get create_group_close => 'Close';
+  String get create_group_close => 'إغلاق';
 
   @override
-  String get create_group_registered_contacts => 'Registered Contacts';
+  String get create_group_registered_contacts => 'جهات الاتصال المسجلة';
 
   @override
-  String get create_group_search_placeholder => 'Search contacts…';
+  String get create_group_search_placeholder => 'ابحث في جهات الاتصال…';
 
   @override
-  String get invite_chooser_title => 'Send invitation';
+  String get invite_chooser_title => 'إرسال دعوة';
 
   @override
-  String get cd_remove => 'Remove';
+  String get cd_remove => 'إزالة';
 
   @override
-  String get cd_search => 'Search';
+  String get cd_search => 'بحث';
 
   @override
-  String get cd_clear => 'Clear';
+  String get cd_clear => 'مسح';
 
   @override
-  String get cd_add => 'Add';
+  String get cd_add => 'إضافة';
 
   @override
-  String get cd_more => 'More';
+  String get cd_more => 'المزيد';
 
   @override
-  String get cd_connection_status => 'Connection status';
+  String get cd_connection_status => 'حالة الاتصال';
 
   @override
-  String get cd_new_chat_action => 'Start chat';
+  String get cd_new_chat_action => 'بدء محادثة';
 
   @override
-  String get cd_member_actions => 'Member actions';
+  String get cd_member_actions => 'إجراءات العضو';
 
   @override
-  String get network_error_title => 'Connection Error';
+  String get network_error_title => 'خطأ في الاتصال';
 
   @override
-  String get contacts_grant_permission => 'Grant Contacts Access';
+  String get contacts_grant_permission => 'منح الوصول إلى جهات الاتصال';
 
   @override
-  String get contacts_invite_short => 'Invite';
+  String get contacts_invite_short => 'دعوة';
 
   @override
-  String get settings_title => 'Settings';
+  String get settings_title => 'الإعدادات';
 
   @override
-  String get settings_nuke_dialog_title => 'Delete All Chats';
+  String get settings_nuke_dialog_title => 'حذف كل المحادثات';
 
   @override
   String get settings_nuke_dialog_body =>
-      'All chats and messages will be permanently deleted. This cannot be undone.';
+      'ستُحذف كل المحادثات والرسائل نهائيًا. لا يمكن التراجع عن ذلك.';
 
   @override
-  String get settings_nuke_confirm => 'Delete';
+  String get settings_nuke_confirm => 'حذف';
 
   @override
-  String get settings_nuke_backup_first => 'Back Up First';
+  String get settings_nuke_backup_first => 'النسخ الاحتياطي أولًا';
 
   @override
   String get settings_nuke_all_data_warning =>
-      'All your messages, contacts and settings will be deleted.';
+      'ستُحذف كل رسائلك وجهات اتصالك وإعداداتك.';
 
   @override
-  String get settings_nuke_type_to_confirm => 'Type \\\"DELETE\\\" to confirm:';
+  String get settings_nuke_type_to_confirm => 'اكتب \\\"DELETE\\\" للتأكيد:';
 
   @override
   String get settings_nuke_type_placeholder => 'DELETE';
 
   @override
-  String get settings_chat_theme => 'Chat Theme';
+  String get settings_chat_theme => 'سمة المحادثة';
 
   @override
-  String get settings_language => 'Language';
+  String get settings_language => 'اللغة';
 
   @override
   String get settings_backdrop => 'الخلفية';
@@ -632,54 +632,55 @@ class AppLocalizationsAr extends AppLocalizations {
   String get backdrop_gray => 'سادة – رمادي';
 
   @override
-  String get settings_fullscreen => 'Fullscreen Mode';
+  String get settings_fullscreen => 'وضع ملء الشاشة';
 
   @override
-  String get settings_show_message_preview => 'Show message content';
+  String get settings_show_message_preview => 'إظهار محتوى الرسالة';
 
   @override
-  String get settings_notification_sound => 'Notification Sound';
+  String get settings_notification_sound => 'صوت الإشعار';
 
   @override
-  String get settings_incoming_call_screen => 'Incoming call screen';
+  String get settings_incoming_call_screen => 'شاشة المكالمة الواردة';
 
   @override
-  String get settings_missed_call => 'Missed call alerts';
+  String get settings_missed_call => 'تنبيهات المكالمات الفائتة';
 
   @override
-  String get settings_battery_optimization => 'Battery optimization';
+  String get settings_battery_optimization => 'تحسين البطارية';
 
   @override
-  String get settings_scheduled_messages => 'Scheduled Messages';
+  String get settings_scheduled_messages => 'الرسائل المجدولة';
 
   @override
-  String get settings_manage_scheduled => 'Manage Scheduled Messages';
+  String get settings_manage_scheduled => 'إدارة الرسائل المجدولة';
 
   @override
   String get settings_manage_scheduled_desc =>
-      'View and edit existing scheduled messages';
+      'عرض الرسائل المجدولة الحالية وتعديلها';
 
   @override
-  String get settings_e2ee => 'End-to-end encryption';
+  String get settings_e2ee => 'التشفير من طرف إلى طرف';
 
   @override
-  String get settings_e2ee_desc => 'Your messages are end-to-end encrypted';
+  String get settings_e2ee_desc => 'رسائلك مشفّرة من طرف إلى طرف';
 
   @override
-  String get settings_last_seen => 'Last seen time';
+  String get settings_last_seen => 'آخر ظهور';
 
   @override
-  String get settings_message_storage => 'Message Storage Policy';
+  String get settings_message_storage => 'سياسة تخزين الرسائل';
 
   @override
   String get settings_message_storage_desc =>
-      'Messages are stored on this device only';
+      'تُخزَّن الرسائل على هذا الجهاز فقط';
 
   @override
-  String get settings_backup => 'Backup';
+  String get settings_backup => 'النسخ الاحتياطي';
 
   @override
-  String get settings_backup_desc => 'Back up chats encrypted or restore';
+  String get settings_backup_desc =>
+      'نسخ المحادثات احتياطيًا بشكل مشفّر أو استعادتها';
 
   @override
   String get settings_storage_usage => 'التخزين';
@@ -708,49 +709,49 @@ class AppLocalizationsAr extends AppLocalizations {
   String get message_show_less => 'عرض أقل';
 
   @override
-  String get chat_info_note_label => 'Note';
+  String get chat_info_note_label => 'ملاحظة';
 
   @override
-  String get chat_info_search_placeholder => 'Search messages…';
+  String get chat_info_search_placeholder => 'ابحث في الرسائل…';
 
   @override
-  String get conv_new_chat => 'New Chat';
+  String get conv_new_chat => 'محادثة جديدة';
 
   @override
-  String get conv_new_group => 'New Group';
+  String get conv_new_group => 'مجموعة جديدة';
 
   @override
-  String get conv_bulk_message => 'Bulk Message';
+  String get conv_bulk_message => 'رسالة جماعية';
 
   @override
-  String get conv_scheduled_messages => 'Scheduled Messages';
+  String get conv_scheduled_messages => 'الرسائل المجدولة';
 
   @override
-  String get conv_filter_all => 'All';
+  String get conv_filter_all => 'الكل';
 
   @override
-  String get conv_filter_unread => 'Unread';
+  String get conv_filter_unread => 'غير المقروءة';
 
   @override
-  String get conv_filter_groups => 'Groups';
+  String get conv_filter_groups => 'المجموعات';
 
   @override
-  String get conv_filter_favorites => 'Favorites';
+  String get conv_filter_favorites => 'المفضلة';
 
   @override
-  String get conv_archive => 'Archive';
+  String get conv_archive => 'أرشفة';
 
   @override
-  String get conv_delete => 'Delete';
+  String get conv_delete => 'حذف';
 
   @override
-  String get conv_info => 'Info';
+  String get conv_info => 'معلومات';
 
   @override
-  String get conv_delete_chat => 'Delete Chat';
+  String get conv_delete_chat => 'حذف المحادثة';
 
   @override
-  String get group_view_profile => 'View Profile';
+  String get group_view_profile => 'عرض الملف الشخصي';
 
   @override
   String get group_leave => 'مغادرة المجموعة';
@@ -763,86 +764,85 @@ class AppLocalizationsAr extends AppLocalizations {
       'تعذر إرسال إشعار المغادرة. تحقق من اتصالك وحاول مجدداً.';
 
   @override
-  String get chat_search_in_chat => 'Search in Chat';
+  String get chat_search_in_chat => 'البحث في المحادثة';
 
   @override
-  String get chat_export => 'Export Chat';
+  String get chat_export => 'تصدير المحادثة';
 
   @override
-  String get action_close => 'Close';
+  String get action_close => 'إغلاق';
 
   @override
-  String get chat_custom_duration => 'Custom Duration';
+  String get chat_custom_duration => 'مدة مخصصة';
 
   @override
-  String get msg_action_reply => 'Reply';
+  String get msg_action_reply => 'رد';
 
   @override
-  String get msg_action_copy => 'Copy';
+  String get msg_action_copy => 'نسخ';
 
   @override
-  String get message_copied => 'Message copied.';
+  String get message_copied => 'تم نسخ الرسالة.';
 
   @override
-  String get msg_action_edit => 'Edit';
+  String get msg_action_edit => 'تعديل';
 
   @override
-  String get msg_action_edit_history => 'Edit History';
+  String get msg_action_edit_history => 'سجل التعديلات';
 
   @override
-  String get msg_action_info => 'Info';
+  String get msg_action_info => 'معلومات';
 
   @override
-  String get msg_action_forward => 'Forward';
+  String get msg_action_forward => 'إعادة توجيه';
 
   @override
-  String get msg_action_delete_for_me => 'Delete for me';
+  String get msg_action_delete_for_me => 'حذف لدي';
 
   @override
-  String get msg_delete_title => 'Delete message';
+  String get msg_delete_title => 'حذف الرسالة';
 
   @override
-  String get msg_delete_cancel => 'Discard';
+  String get msg_delete_cancel => 'تجاهل';
 
   @override
-  String get msg_edit_title => 'Edit Message';
+  String get msg_edit_title => 'تعديل الرسالة';
 
   @override
-  String get sched_title => 'Scheduled Messages';
+  String get sched_title => 'الرسائل المجدولة';
 
   @override
-  String get sched_delete_title => 'Delete Scheduled Message';
+  String get sched_delete_title => 'حذف الرسالة المجدولة';
 
   @override
-  String get sched_delete_body =>
-      'This scheduled message will be permanently deleted.';
+  String get sched_delete_body => 'ستُحذف هذه الرسالة المجدولة نهائيًا.';
 
   @override
-  String get sched_tab_create => 'Create';
+  String get sched_tab_create => 'إنشاء';
 
   @override
-  String get sched_tab_existing => 'Existing';
+  String get sched_tab_existing => 'الموجودة';
 
   @override
-  String get sched_message_placeholder => 'Type your message…';
+  String get sched_message_placeholder => 'اكتب رسالتك…';
 
   @override
-  String get sched_action_edit => 'Edit';
+  String get sched_action_edit => 'تعديل';
 
   @override
-  String get sched_action_delete => 'Delete';
+  String get sched_action_delete => 'حذف';
 
   @override
-  String get sched_pick_time => 'Pick Time';
+  String get sched_pick_time => 'اختر الوقت';
 
   @override
-  String get sched_pick_day => 'Pick Day';
+  String get sched_pick_day => 'اختر اليوم';
 
   @override
-  String get sched_pick_recipient => 'Pick Recipient';
+  String get sched_pick_recipient => 'اختر المستلم';
 
   @override
-  String get action_ok => 'OK';
+  String get action_ok => 'حسنًا';
 
   @override
   String get conversations_title => 'الدردشات';
@@ -896,49 +896,49 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settings_silent => 'صامت';
 
   @override
-  String get sound_system => 'Device default';
+  String get sound_system => 'الافتراضي للجهاز';
 
   @override
-  String get sound_chime => 'Chime';
+  String get sound_chime => 'رنين';
 
   @override
-  String get sound_bell => 'Bell';
+  String get sound_bell => 'جرس';
 
   @override
-  String get sound_tap => 'Tap';
+  String get sound_tap => 'نقرة';
 
   @override
-  String get sound_warm => 'Warm';
+  String get sound_warm => 'دافئ';
 
   @override
-  String get sound_soft => 'Soft';
+  String get sound_soft => 'ناعم';
 
   @override
-  String get sound_melody => 'Melody';
+  String get sound_melody => 'لحن';
 
   @override
-  String get sound_flow => 'Flow';
+  String get sound_flow => 'انسياب';
 
   @override
-  String get sound_sparkle => 'Sparkle';
+  String get sound_sparkle => 'بريق';
 
   @override
-  String get sound_beep => 'Beep';
+  String get sound_beep => 'صفير';
 
   @override
-  String get sound_ding => 'Ding';
+  String get sound_ding => 'دينغ';
 
   @override
-  String get sound_preview => 'Play sound';
+  String get sound_preview => 'تشغيل الصوت';
 
   @override
-  String get sound_inherit => 'Use app setting';
+  String get sound_inherit => 'استخدام إعداد التطبيق';
 
   @override
-  String get sound_system_picker => 'More sounds on this device';
+  String get sound_system_picker => 'مزيد من الأصوات على هذا الجهاز';
 
   @override
-  String get sound_system_picker_desc => 'Pick any sound from system settings';
+  String get sound_system_picker_desc => 'اختر أي صوت من إعدادات النظام';
 
   @override
   String get settings_share_last_seen => 'مشاركة آخر ظهور';
@@ -1035,894 +1035,888 @@ class AppLocalizationsAr extends AppLocalizations {
       'يمنع Android التقاط الشاشة، ويغطي iOS المحتوى في مبدّل التطبيقات.';
 
   @override
-  String get group_not_found => 'Group not found.';
+  String get group_not_found => 'المجموعة غير موجودة.';
 
   @override
-  String get group_admin_only => 'Only admins can send messages';
+  String get group_admin_only => 'يمكن للمشرفين فقط إرسال الرسائل';
 
   @override
-  String get group_announcement_desc =>
-      'Use the group as an announcement channel';
+  String get group_announcement_desc => 'استخدام المجموعة كقناة إعلانات';
 
   @override
-  String get mute => 'Mute';
+  String get mute => 'كتم';
 
   @override
-  String get chat_lock => 'Chat lock';
+  String get chat_lock => 'قفل المحادثة';
 
   @override
-  String get chat_lock_desc => 'Access with a chat password';
+  String get chat_lock_desc => 'الوصول بكلمة مرور للمحادثة';
 
   @override
-  String get chat_lock_create_title => 'Set chat password';
+  String get chat_lock_create_title => 'تعيين كلمة مرور للمحادثة';
 
   @override
   String get chat_lock_create_body =>
-      'This password will be required whenever this chat is opened on this device.';
+      'ستُطلب كلمة المرور هذه كلما فُتحت هذه المحادثة على هذا الجهاز.';
 
   @override
-  String get chat_lock_unlock_title => 'Unlock chat';
+  String get chat_lock_unlock_title => 'فتح قفل المحادثة';
 
   @override
   String chat_lock_unlock_body(String chatName) {
-    return 'Enter the password for $chatName.';
+    return 'أدخل كلمة مرور $chatName.';
   }
 
   @override
-  String get chat_lock_unlock_action => 'Unlock';
+  String get chat_lock_unlock_action => 'فتح القفل';
 
   @override
-  String get chat_lock_wrong_password => 'Incorrect password.';
+  String get chat_lock_wrong_password => 'كلمة المرور غير صحيحة.';
 
   @override
-  String get chat_lock_update_failed => 'Chat lock could not be updated.';
+  String get chat_lock_update_failed => 'تعذّر تحديث قفل المحادثة.';
 
   @override
-  String get export_history => 'Export history';
+  String get export_history => 'سجل التصدير';
 
   @override
-  String get make_admin => 'Make admin';
+  String get make_admin => 'تعيين مشرفًا';
 
   @override
-  String get no_contacts_to_add => 'No saved contacts can be added.';
+  String get no_contacts_to_add => 'لا توجد جهات اتصال محفوظة يمكن إضافتها.';
 
   @override
-  String get confirmation => 'Confirmation';
+  String get confirmation => 'تأكيد';
 
   @override
-  String get confirm => 'Confirm';
+  String get confirm => 'تأكيد';
 
   @override
-  String get background_unavailable => 'Background service is unavailable.';
+  String get background_unavailable => 'خدمة الخلفية غير متاحة.';
 
   @override
-  String get storage_service_unavailable => 'Storage service is unavailable.';
+  String get storage_service_unavailable => 'خدمة التخزين غير متاحة.';
 
   @override
-  String get edit_mode => 'Edit mode';
+  String get edit_mode => 'وضع التعديل';
 
   @override
-  String get repeat_once => 'Once';
+  String get repeat_once => 'مرة واحدة';
 
   @override
-  String get repeat_daily => 'Daily';
+  String get repeat_daily => 'يوميًا';
 
   @override
-  String get repeat_custom => 'Custom';
+  String get repeat_custom => 'مخصص';
 
   @override
-  String get weekdays_short => 'Mon,Tue,Wed,Thu,Fri,Sat,Sun';
+  String get weekdays_short => 'إثن,ثلا,أرب,خمي,جمع,سبت,أحد';
 
   @override
-  String get schedule_days_label => 'Days';
+  String get schedule_days_label => 'الأيام';
 
   @override
-  String get schedule_days_empty => 'Select days';
+  String get schedule_days_empty => 'اختر الأيام';
 
   @override
-  String get delivery_time => 'Delivery time';
+  String get delivery_time => 'وقت التسليم';
 
   @override
-  String get message_content => 'Message content';
+  String get message_content => 'محتوى الرسالة';
 
   @override
-  String get recipients => 'Recipients';
+  String get recipients => 'المستلمون';
 
   @override
-  String get recipient_required => 'Select at least one person or group';
+  String get recipient_required => 'اختر شخصًا أو مجموعة واحدة على الأقل';
 
   @override
-  String get schedule => 'Schedule';
+  String get schedule => 'جدولة';
 
   @override
-  String get update => 'Update';
+  String get update => 'تحديث';
 
   @override
-  String get no_scheduled_messages => 'No scheduled messages yet.';
+  String get no_scheduled_messages => 'لا توجد رسائل مجدولة بعد.';
 
   @override
-  String get schedule_saved => 'Scheduled message saved.';
+  String get schedule_saved => 'تم حفظ الرسالة المجدولة.';
 
   @override
-  String get form_incomplete => 'The form is incomplete.';
+  String get form_incomplete => 'النموذج غير مكتمل.';
 
   @override
-  String get over_wifi => 'Over Wi-Fi';
+  String get over_wifi => 'عبر Wi-Fi';
 
   @override
-  String get over_cellular => 'Over cellular data';
+  String get over_cellular => 'عبر بيانات الجوال';
 
   @override
-  String get photos => 'Photos';
+  String get photos => 'الصور';
 
   @override
-  String get videos => 'Videos';
+  String get videos => 'مقاطع الفيديو';
 
   @override
-  String get documents => 'Documents';
+  String get documents => 'المستندات';
 
   @override
   String cellular_limit(num arg1) {
-    return 'Cellular limit: $arg1 MB';
+    return 'حد بيانات الجوال: $arg1 ميغابايت';
   }
 
   @override
-  String get no_chats_yet => 'No chats yet';
+  String get no_chats_yet => 'لا توجد محادثات بعد';
 
   @override
   String storage_summary(num arg1, num arg2, String arg3) {
-    return '$arg1 messages · $arg2 files · $arg3';
+    return '$arg1 رسالة · $arg2 ملف · $arg3';
   }
 
   @override
-  String get clear_media => 'Clear media';
+  String get clear_media => 'مسح الوسائط';
 
   @override
   String clear_media_body(String arg1) {
-    return 'Media and file messages in “$arg1” will be deleted. Text messages are retained.';
+    return 'ستُحذف رسائل الوسائط والملفات في «$arg1». تُحفظ الرسائل النصية.';
   }
 
   @override
-  String get no_exports_yet => 'No exports yet';
+  String get no_exports_yet => 'لا توجد عمليات تصدير بعد';
 
   @override
   String message_count(num arg1) {
-    return '$arg1 messages';
+    return '$arg1 رسالة';
   }
 
   @override
-  String get entire_chat => 'Entire chat';
+  String get entire_chat => 'المحادثة كاملة';
 
   @override
-  String get admin_only_screen =>
-      'This screen is available only to group admins';
+  String get admin_only_screen => 'هذه الشاشة متاحة لمشرفي المجموعة فقط';
 
   @override
-  String get bulk_unavailable => 'Bulk sending is unavailable.';
+  String get bulk_unavailable => 'الإرسال الجماعي غير متاح.';
 
   @override
-  String get bulk_explainer_title => 'Sent separately to each';
+  String get bulk_explainer_title => 'يُرسل إلى كل واحد على حدة';
 
   @override
   String get bulk_explainer_body =>
-      'The same message is sent to each selected chat as a separate message. Recipients cannot see each other and no group is created.';
+      'تُرسل الرسالة نفسها إلى كل محادثة محددة كرسالة منفصلة. لا يرى المستلمون بعضهم ولا تُنشأ مجموعة.';
 
   @override
-  String get bulk_search_hint => 'Search people or groups';
+  String get bulk_search_hint => 'ابحث عن أشخاص أو مجموعات';
 
   @override
   String bulk_selected_count(Object arg1, Object arg2) {
-    return '$arg1 of $arg2 selected';
+    return 'تم تحديد $arg1 من $arg2';
   }
 
   @override
-  String get bulk_no_recipients => 'No chats to send to';
+  String get bulk_no_recipients => 'لا توجد محادثات للإرسال إليها';
 
   @override
-  String get bulk_no_results => 'No matching chats';
+  String get bulk_no_results => 'لا توجد محادثات مطابقة';
 
   @override
-  String get bulk_message_required => 'Write your message first';
+  String get bulk_message_required => 'اكتب رسالتك أولًا';
 
   @override
-  String get select_all => 'Select all';
+  String get select_all => 'تحديد الكل';
 
   @override
-  String get group => 'Group';
+  String get group => 'مجموعة';
 
   @override
   String send_to_recipients(num arg1) {
-    return 'Send to $arg1 recipients';
+    return 'إرسال إلى $arg1 مستلمين';
   }
 
   @override
   String bulk_result(num arg1, num arg2) {
-    return '$arg1 sent, $arg2 failed.';
+    return 'أُرسلت $arg1، وفشلت $arg2.';
   }
 
   @override
-  String get encrypted_backup => 'Encrypted Backup';
+  String get encrypted_backup => 'نسخة احتياطية مشفّرة';
 
   @override
   String get backup_explanation =>
-      'Chats, contacts, call logs, scheduled messages and end-to-end encryption state are stored in a password-protected .elbk file. Session access keys are excluded.';
+      'تُحفظ المحادثات وجهات الاتصال وسجلات المكالمات والرسائل المجدولة وحالة التشفير من طرف إلى طرف في ملف .elbk محمي بكلمة مرور. لا تُضمَّن مفاتيح الوصول إلى الجلسة.';
 
   @override
-  String get create_backup => 'Create a new backup';
+  String get create_backup => 'إنشاء نسخة احتياطية جديدة';
 
   @override
-  String get restore_backup_file => 'Restore a backup file';
+  String get restore_backup_file => 'استعادة ملف نسخة احتياطية';
 
   @override
-  String get backups_on_device => 'Backups on this device';
+  String get backups_on_device => 'النسخ الاحتياطية على هذا الجهاز';
 
   @override
-  String get no_local_backups => 'No local backups yet';
+  String get no_local_backups => 'لا توجد نسخ احتياطية محلية بعد';
 
   @override
-  String get backup_password => 'Backup password';
+  String get backup_password => 'كلمة مرور النسخة الاحتياطية';
 
   @override
-  String get backup_unavailable => 'Backup service is unavailable.';
+  String get backup_unavailable => 'خدمة النسخ الاحتياطي غير متاحة.';
 
   @override
-  String get save_encrypted_backup => 'Save encrypted backup';
+  String get save_encrypted_backup => 'حفظ نسخة احتياطية مشفّرة';
 
   @override
-  String get backup_created => 'Encrypted backup created.';
+  String get backup_created => 'تم إنشاء النسخة الاحتياطية المشفّرة.';
 
   @override
   String backup_create_failed(String arg1) {
-    return 'Could not create backup: $arg1';
+    return 'تعذّر إنشاء النسخة الاحتياطية: $arg1';
   }
 
   @override
-  String get backup_restored => 'Backup restored.';
+  String get backup_restored => 'تمت استعادة النسخة الاحتياطية.';
 
   @override
   String wrong_password_attempts(num arg1) {
-    return 'Wrong password. $arg1 attempts remaining.';
+    return 'كلمة مرور خاطئة. المحاولات المتبقية: $arg1.';
   }
 
   @override
   String get backup_deleted_after_attempts =>
-      'The backup file was deleted after five incorrect attempts.';
+      'حُذف ملف النسخة الاحتياطية بعد خمس محاولات خاطئة.';
 
   @override
   String get backup_delete_failed_after_attempts =>
-      'Attempt limit reached; the platform could not delete the file.';
+      'بلغت حد المحاولات؛ تعذّر على النظام حذف الملف.';
 
   @override
-  String get password => 'Password';
+  String get password => 'كلمة المرور';
 
   @override
-  String get password_min_length => 'At least 8 characters';
+  String get password_min_length => '8 أحرف على الأقل';
 
   @override
-  String get password_repeat => 'Repeat password';
+  String get password_repeat => 'أعد كتابة كلمة المرور';
 
   @override
-  String get password_too_short => 'Password must be at least 8 characters.';
+  String get password_too_short => 'يجب ألا تقل كلمة المرور عن 8 أحرف.';
 
   @override
-  String get password_mismatch => 'Passwords do not match.';
+  String get password_mismatch => 'كلمتا المرور غير متطابقتين.';
 
   @override
-  String get restore => 'Restore';
+  String get restore => 'استعادة';
 
   @override
-  String get no_call_history => 'No call history yet.';
+  String get no_call_history => 'لا يوجد سجل مكالمات بعد.';
 
   @override
-  String get video_call => 'Video call';
+  String get video_call => 'مكالمة فيديو';
 
   @override
-  String get voice_call => 'Voice call';
+  String get voice_call => 'مكالمة صوتية';
 
   @override
-  String get outgoing => 'Outgoing';
+  String get outgoing => 'صادرة';
 
   @override
-  String get incoming => 'Incoming';
+  String get incoming => 'واردة';
 
   @override
-  String get video => 'video';
+  String get video => 'فيديو';
 
   @override
-  String get voice => 'voice';
+  String get voice => 'صوتية';
 
   @override
-  String get missed => 'Missed';
+  String get missed => 'فائتة';
 
   @override
-  String get rejected => 'Rejected';
+  String get rejected => 'مرفوضة';
 
   @override
-  String get busy => 'Busy';
+  String get busy => 'مشغول';
 
   @override
-  String get failed => 'Failed';
+  String get failed => 'فشلت';
 
   @override
   String call_description(String arg1, String arg2, String arg3) {
-    return '$arg1 $arg2 call$arg3';
+    return '$arg1 $arg2 مكالمة$arg3';
   }
 
   @override
-  String get recheck_status => 'Check status again';
+  String get recheck_status => 'التحقق من الحالة مجددًا';
 
   @override
-  String get calls_ready => 'You are ready for calls';
+  String get calls_ready => 'أنت جاهز لإجراء المكالمات';
 
   @override
   String get calls_readiness_missing =>
-      'Complete missing items to prevent call delays';
+      'أكمل العناصر الناقصة لتجنب تأخر المكالمات';
 
   @override
   String get battery_optimization_desc =>
-      'Reduces Doze delays for data-only push and background work';
+      'يقلل تأخيرات وضع Doze للإشعارات التي تحمل بيانات فقط والعمل في الخلفية';
 
   @override
-  String get fullscreen_call_notification => 'Full-screen call notification';
+  String get fullscreen_call_notification => 'إشعار مكالمة بملء الشاشة';
 
   @override
   String get fullscreen_call_notification_desc =>
-      'Android 14+ lock-screen call view';
+      'عرض المكالمة على شاشة القفل في Android 14 وما بعده';
 
   @override
-  String get notification_permission => 'Notification permission';
+  String get notification_permission => 'إذن الإشعارات';
 
   @override
   String get notification_permission_desc =>
-      'Message and incoming call notifications';
+      'إشعارات الرسائل والمكالمات الواردة';
 
   @override
   String get ios_call_readiness_note =>
-      'On iOS, battery optimization and full-screen intent cannot be changed by the app. Incoming-call wake-up depends on APNs/CallKit and system policies.';
+      'في iOS لا يستطيع التطبيق تغيير تحسين البطارية ولا الإشعار بملء الشاشة. يعتمد التنبيه بالمكالمة الواردة على APNs وCallKit وسياسات النظام.';
 
   @override
-  String get secure_communication => 'Secure Communication';
+  String get secure_communication => 'اتصال آمن';
 
   @override
-  String get onboarding_private_subtitle => 'Your messages stay between you';
+  String get onboarding_private_subtitle => 'رسائلك تبقى بينكم';
 
   @override
   String get onboarding_private_body =>
-      'Every message is encrypted on your device; the server cannot read its content.';
+      'تُشفَّر كل رسالة على جهازك؛ ولا يستطيع الخادم قراءة محتواها.';
 
   @override
-  String get onboarding_direct_call => 'Direct calls';
+  String get onboarding_direct_call => 'مكالمات مباشرة';
 
   @override
-  String get onboarding_webrtc_subtitle => 'Voice and video over WebRTC';
+  String get onboarding_webrtc_subtitle => 'صوت وفيديو عبر WebRTC';
 
   @override
   String get onboarding_webrtc_body =>
-      'One-to-one calls connect directly; large group calls use the Janus SFU.';
+      'تتصل المكالمات الفردية مباشرة؛ وتستخدم المكالمات الجماعية الكبيرة خادم Janus SFU.';
 
   @override
-  String get onboarding_privacy_control => 'Complete privacy control';
+  String get onboarding_privacy_control => 'تحكم كامل في الخصوصية';
 
   @override
-  String get onboarding_you_decide => 'You decide';
+  String get onboarding_you_decide => 'القرار لك';
 
   @override
   String get onboarding_privacy_body =>
-      'View once, disappearing messages, screen protection and group export policy.';
+      'العرض لمرة واحدة، والرسائل المؤقتة، وحماية الشاشة، وسياسة تصدير المجموعات.';
 
   @override
-  String get skip => 'Skip';
+  String get skip => 'تخطٍّ';
 
   @override
-  String get lets_start => 'Get started';
+  String get lets_start => 'لنبدأ';
 
   @override
-  String get continue_action => 'Continue';
+  String get continue_action => 'متابعة';
 
   @override
-  String get notifications => 'Notifications';
+  String get notifications => 'الإشعارات';
 
   @override
-  String get notifications_permission_reason => 'For new messages and calls.';
+  String get notifications_permission_reason => 'للرسائل والمكالمات الجديدة.';
 
   @override
   String get contacts_permission_reason =>
-      'To discover people using hashes only.';
+      'لاكتشاف الأشخاص باستخدام قيم التجزئة فقط.';
 
   @override
-  String get microphone => 'Microphone';
+  String get microphone => 'الميكروفون';
 
   @override
-  String get microphone_permission_reason => 'For voice and video calls.';
+  String get microphone_permission_reason =>
+      'للمكالمات الصوتية ومكالمات الفيديو.';
 
   @override
-  String get camera_permission_reason => 'For video calls.';
+  String get camera_permission_reason => 'لمكالمات الفيديو.';
 
   @override
-  String get permissions_required => 'A few permissions are required';
+  String get permissions_required => 'بعض الأذونات مطلوبة';
 
   @override
   String get permissions_intro =>
-      'Grant the permissions you want now; you can enable the rest later in settings.';
+      'امنح الأذونات التي تريدها الآن؛ ويمكنك تفعيل الباقي لاحقًا من الإعدادات.';
 
   @override
-  String get grant_permission => 'Grant permission';
+  String get grant_permission => 'منح الإذن';
 
   @override
-  String get chat_not_found => 'Chat not found.';
+  String get chat_not_found => 'المحادثة غير موجودة.';
 
   @override
-  String get contact_info => 'Contact Info';
+  String get contact_info => 'معلومات جهة الاتصال';
 
   @override
-  String get starred_messages => 'Starred Messages';
+  String get starred_messages => 'الرسائل المميزة بنجمة';
 
   @override
-  String get media => 'Media';
+  String get media => 'الوسائط';
 
   @override
-  String get disappearing_messages => 'Disappearing messages';
+  String get disappearing_messages => 'الرسائل المؤقتة';
 
   @override
   String disappearing_timer_enabled_by_you(String duration) {
-    return 'You set disappearing messages to $duration.';
+    return 'ضبطت الرسائل المؤقتة على $duration.';
   }
 
   @override
-  String get disappearing_timer_disabled_by_you =>
-      'You turned off disappearing messages.';
+  String get disappearing_timer_disabled_by_you => 'أوقفت الرسائل المؤقتة.';
 
   @override
   String disappearing_timer_enabled_by_peer(String sender, String duration) {
-    return '$sender set disappearing messages to $duration.';
+    return 'ضبط $sender الرسائل المؤقتة على $duration.';
   }
 
   @override
   String disappearing_timer_disabled_by_peer(String sender) {
-    return '$sender turned off disappearing messages.';
+    return 'أوقف $sender الرسائل المؤقتة.';
   }
 
   @override
-  String get contact_note => 'Contact note';
+  String get contact_note => 'ملاحظة جهة الاتصال';
 
   @override
-  String get tap_to_add_note => 'Tap to add a note';
+  String get tap_to_add_note => 'انقر لإضافة ملاحظة';
 
   @override
-  String get no_records => 'No records found';
+  String get no_records => 'لا توجد سجلات';
 
   @override
-  String get add_contact_note => 'Add contact note';
+  String get add_contact_note => 'إضافة ملاحظة لجهة الاتصال';
 
   @override
-  String get off => 'Off';
+  String get off => 'إيقاف';
 
   @override
   String hours(num arg1) {
-    return '$arg1 hours';
+    return '$arg1 ساعة';
   }
 
   @override
   String days(num arg1) {
-    return '$arg1 days';
+    return '$arg1 يوم';
   }
 
   @override
   String files_selected(num arg1) {
-    return '$arg1 files selected';
+    return 'تم تحديد $arg1 ملف';
   }
 
   @override
-  String get add_caption => 'Add a caption...';
+  String get add_caption => 'أضف تعليقًا...';
 
   @override
-  String get view_once => 'View once';
+  String get view_once => 'عرض لمرة واحدة';
 
   @override
-  String get view_once_protected => 'View once · screen protected';
+  String get view_once_protected => 'عرض لمرة واحدة · الشاشة محمية';
 
   @override
-  String get share => 'Share';
+  String get share => 'مشاركة';
 
   @override
-  String get tap_to_close_view_once => 'Tap to close · cannot be opened again';
+  String get tap_to_close_view_once => 'انقر للإغلاق · لا يمكن فتحها مجددًا';
 
   @override
   String file_open_failed(String arg1) {
-    return 'Could not open file: $arg1';
+    return 'تعذّر فتح الملف: $arg1';
   }
 
   @override
   String file_share_failed(String arg1) {
-    return 'Could not share file: $arg1';
+    return 'تعذّر مشاركة الملف: $arg1';
   }
 
   @override
-  String get file => 'File';
+  String get file => 'ملف';
 
   @override
-  String get open_with_app => 'Open with app';
+  String get open_with_app => 'فتح بتطبيق';
 
   @override
-  String get media_not_found => 'Media file not found';
+  String get media_not_found => 'ملف الوسائط غير موجود';
 
   @override
-  String get call_service_unavailable => 'Call service could not be started.';
+  String get call_service_unavailable => 'تعذّر تشغيل خدمة المكالمات.';
 
   @override
-  String get locked_chat => 'Locked Chat';
+  String get locked_chat => 'محادثة مقفلة';
 
   @override
-  String get disable_export => 'Disable export';
+  String get disable_export => 'تعطيل التصدير';
 
   @override
-  String get enable_export => 'Enable export';
+  String get enable_export => 'تفعيل التصدير';
 
   @override
-  String get clear_chat => 'Clear chat';
+  String get clear_chat => 'مسح المحادثة';
 
   @override
   String get read_only_announcement =>
-      'This group is an announcement channel where only admins can post.';
+      'هذه المجموعة قناة إعلانات لا ينشر فيها إلا المشرفون.';
 
   @override
-  String get no_matching_messages => 'No matching messages found';
+  String get no_matching_messages => 'لا توجد رسائل مطابقة';
 
   @override
-  String get cancel_selection => 'Cancel selection';
+  String get cancel_selection => 'إلغاء التحديد';
 
   @override
   String messages_selected(num arg1) {
-    return '$arg1 messages selected';
+    return 'تم تحديد $arg1 رسالة';
   }
 
   @override
-  String get forward_selected => 'Forward selected';
+  String get forward_selected => 'إعادة توجيه المحدد';
 
   @override
-  String get record_voice_message => 'Record voice message';
+  String get record_voice_message => 'تسجيل رسالة صوتية';
 
   @override
-  String get poll => 'Poll';
+  String get poll => 'استطلاع';
 
   @override
-  String get add_reaction => 'Add reaction';
+  String get add_reaction => 'إضافة تفاعل';
 
   @override
-  String get remove_star => 'Remove star';
+  String get remove_star => 'إزالة النجمة';
 
   @override
-  String get add_star => 'Star';
+  String get add_star => 'تمييز بنجمة';
 
   @override
-  String get unpin => 'Unpin';
+  String get unpin => 'إلغاء التثبيت';
 
   @override
-  String get pin => 'Pin';
+  String get pin => 'تثبيت';
 
   @override
-  String get choose_reaction => 'Choose reaction';
+  String get choose_reaction => 'اختر تفاعلًا';
 
   @override
-  String get delete_for_everyone => 'Delete for everyone';
+  String get delete_for_everyone => 'حذف لدى الجميع';
 
   @override
-  String get clear_chat_confirm => 'Clear this chat?';
+  String get clear_chat_confirm => 'مسح هذه المحادثة؟';
 
   @override
-  String get clear_chat_body =>
-      'All messages on this device will be permanently deleted.';
+  String get clear_chat_body => 'ستُحذف كل الرسائل على هذا الجهاز نهائيًا.';
 
   @override
   String get clear_group_history_body =>
       'ستُحذف رسائل هذه المجموعة من هذا الجهاز فقط. ستبقى المجموعة وعضويتك فيها، ولن تتأثر رسائل الأعضاء الآخرين.';
 
   @override
-  String get voice_message => 'Voice message';
+  String get voice_message => 'رسالة صوتية';
 
   @override
-  String get recording_start_failed => 'Could not start recording';
+  String get recording_start_failed => 'تعذّر بدء التسجيل';
 
   @override
-  String get recording_paused => 'Recording paused';
+  String get recording_paused => 'التسجيل متوقف مؤقتًا';
 
   @override
-  String get recording_active => 'Recording';
+  String get recording_active => 'جارٍ التسجيل';
 
   @override
-  String get send => 'Send';
+  String get send => 'إرسال';
 
   @override
-  String get poll_load_failed => 'Could not load poll';
+  String get poll_load_failed => 'تعذّر تحميل الاستطلاع';
 
   @override
-  String get single_choice => 'Single choice';
+  String get single_choice => 'اختيار واحد';
 
   @override
-  String get multiple_choice => 'Multiple choice';
+  String get multiple_choice => 'اختيارات متعددة';
 
   @override
   String total_votes(num arg1) {
-    return '$arg1 total votes';
+    return 'إجمالي الأصوات: $arg1';
   }
 
   @override
-  String get message_info => 'Message Info';
+  String get message_info => 'معلومات الرسالة';
 
   @override
-  String get sent => 'Sent';
+  String get sent => 'أُرسلت';
 
   @override
-  String get read => 'Read';
+  String get read => 'قُرئت';
 
   @override
-  String get delivered => 'Delivered';
+  String get delivered => 'سُلّمت';
 
   @override
   String get send_failed_no_plaintext =>
-      'Sending failed. Plaintext fallback was not used.';
+      'فشل الإرسال. لم يُستخدم إرسال نص غير مشفّر.';
 
   @override
-  String get forward_to_chat => 'Forward to chat';
+  String get forward_to_chat => 'إعادة التوجيه إلى محادثة';
 
   @override
-  String get read_only_chat => 'Read-only chat';
+  String get read_only_chat => 'محادثة للقراءة فقط';
 
   @override
   String participant_count(num arg1) {
-    return '$arg1 participants';
+    return '$arg1 مشارك';
   }
 
   @override
-  String get create_poll => 'Create Poll';
+  String get create_poll => 'إنشاء استطلاع';
 
   @override
-  String get question => 'Question';
+  String get question => 'السؤال';
 
   @override
   String option_number(num arg1) {
-    return 'Option $arg1';
+    return 'الخيار $arg1';
   }
 
   @override
-  String get add_option => 'Add option';
+  String get add_option => 'إضافة خيار';
 
   @override
-  String get member_export_permission => 'Members may copy and export';
+  String get member_export_permission => 'يمكن للأعضاء النسخ والتصدير';
 
   @override
-  String get admin_change_only => 'Only an admin can change this';
+  String get admin_change_only => 'يمكن للمشرف فقط تغيير هذا';
 
   @override
   String remove_member_named(String arg1) {
-    return 'Remove $arg1 from the group?';
+    return 'إزالة $arg1 من المجموعة؟';
   }
 
   @override
-  String get leave_group_confirm => 'Do you want to leave this group?';
+  String get leave_group_confirm => 'هل تريد مغادرة هذه المجموعة؟';
 
   @override
-  String get archive => 'Archive';
+  String get archive => 'الأرشيف';
 
   @override
-  String get remove_favorite => 'Remove from favorites';
+  String get remove_favorite => 'إزالة من المفضلة';
 
   @override
-  String get add_favorite => 'Add to favorites';
+  String get add_favorite => 'إضافة إلى المفضلة';
 
   @override
-  String get mark_read => 'Mark as read';
+  String get mark_read => 'تحديد كمقروءة';
 
   @override
-  String get mark_unread => 'Mark as unread';
+  String get mark_unread => 'تحديد كغير مقروءة';
 
   @override
   String delete_chat_body(String arg1) {
-    return 'Permanently delete the $arg1 chat and its messages from this device?';
+    return 'حذف محادثة $arg1 ورسائلها نهائيًا من هذا الجهاز؟';
   }
 
   @override
-  String get reject => 'Reject';
+  String get reject => 'رفض';
 
   @override
-  String get answer => 'Answer';
+  String get answer => 'رد';
 
   @override
-  String get unmute => 'Unmute';
+  String get unmute => 'إلغاء الكتم';
 
   @override
-  String get speaker => 'Speaker';
+  String get speaker => 'مكبر الصوت';
 
   @override
-  String get flip_camera => 'Flip';
+  String get flip_camera => 'قلب';
 
   @override
-  String get end_call => 'End';
+  String get end_call => 'إنهاء';
 
   @override
-  String get call_preparing => 'Preparing call…';
+  String get call_preparing => 'جارٍ تجهيز المكالمة…';
 
   @override
-  String get incoming_call => 'Incoming call';
+  String get incoming_call => 'مكالمة واردة';
 
   @override
-  String get ringing => 'Ringing…';
+  String get ringing => 'يرن…';
 
   @override
-  String get connecting => 'Connecting…';
+  String get connecting => 'جارٍ الاتصال…';
 
   @override
-  String get reconnecting => 'Reconnecting…';
+  String get reconnecting => 'جارٍ إعادة الاتصال…';
 
   @override
   String get weak_connection_disable_video =>
-      'Weak connection — turn off video and continue with audio';
+      'الاتصال ضعيف — أوقف الفيديو وتابع بالصوت';
 
   @override
-  String get call_ended => 'Call ended';
+  String get call_ended => 'انتهت المكالمة';
 
   @override
-  String get call_rejected => 'Call rejected';
+  String get call_rejected => 'رُفضت المكالمة';
 
   @override
-  String get connection_failed => 'Could not connect';
+  String get connection_failed => 'تعذّر الاتصال';
 
   @override
-  String get voice_service_unavailable =>
-      'Voice message service could not be started.';
+  String get voice_service_unavailable => 'تعذّر تشغيل خدمة الرسائل الصوتية.';
 
   @override
-  String get voice_encrypting => 'Encrypting and sending voice message…';
+  String get voice_encrypting => 'جارٍ تشفير الرسالة الصوتية وإرسالها…';
 
   @override
-  String get voice_sent => 'Voice message sent.';
+  String get voice_sent => 'أُرسلت الرسالة الصوتية.';
 
   @override
   String voice_send_failed(String arg1) {
-    return 'Could not send voice message: $arg1';
+    return 'تعذّر إرسال الرسالة الصوتية: $arg1';
   }
 
   @override
-  String get file_transfer_unavailable =>
-      'File transfer service could not be started.';
+  String get file_transfer_unavailable => 'تعذّر تشغيل خدمة نقل الملفات.';
 
   @override
   String media_pick_failed(String arg1) {
-    return 'Could not select media: $arg1';
+    return 'تعذّر اختيار الوسائط: $arg1';
   }
 
   @override
-  String get media_encrypting => 'Encrypting and sending media…';
+  String get media_encrypting => 'جارٍ تشفير الوسائط وإرسالها…';
 
   @override
   String media_send_failed(String arg1) {
-    return 'Could not send media: $arg1';
+    return 'تعذّر إرسال الوسائط: $arg1';
   }
 
   @override
   String media_sent(num arg1) {
-    return '$arg1 media items sent encrypted.';
+    return 'أُرسل $arg1 عنصر وسائط مشفّرًا.';
   }
 
   @override
   String media_failed(num arg1, String arg2) {
-    return '$arg1 media items failed: $arg2';
+    return 'فشل $arg1 عنصر وسائط: $arg2';
   }
 
   @override
-  String get poll_unavailable => 'Poll service is unavailable.';
+  String get poll_unavailable => 'خدمة الاستطلاعات غير متاحة.';
 
   @override
-  String get poll_sent => 'Poll sent.';
+  String get poll_sent => 'أُرسل الاستطلاع.';
 
   @override
-  String get poll_send_failed => 'Could not send poll.';
+  String get poll_send_failed => 'تعذّر إرسال الاستطلاع.';
 
   @override
-  String get vote_send_failed => 'Vote could not be sent securely.';
+  String get vote_send_failed => 'تعذّر إرسال التصويت بأمان.';
 
   @override
-  String get pin_failed => 'No pin permission or signaling failed.';
+  String get pin_failed => 'لا يوجد إذن بالتثبيت أو فشل الإرسال.';
 
   @override
   String get forward_service_unavailable =>
-      'Message forwarding service could not start.';
+      'تعذّر تشغيل خدمة إعادة توجيه الرسائل.';
 
   @override
   String forward_encrypting(num arg1, String arg2) {
-    return 'Re-encrypting $arg1 messages for $arg2…';
+    return 'جارٍ إعادة تشفير $arg1 رسالة لـ $arg2…';
   }
 
   @override
   String forward_encryption_result(num arg1, num arg2) {
-    return '$arg1 messages forwarded; $arg2 could not be encrypted and were not sent.';
+    return 'أُعيد توجيه $arg1 رسالة؛ وتعذّر تشفير $arg2 فلم تُرسل.';
   }
 
   @override
   String forward_sent(num arg1) {
-    return '$arg1 messages forwarded.';
+    return 'أُعيد توجيه $arg1 رسالة.';
   }
 
   @override
   String forward_partial(num arg1, num arg2) {
-    return '$arg1 messages forwarded; $arg2 failed.';
+    return 'أُعيد توجيه $arg1 رسالة؛ وفشلت $arg2.';
   }
 
   @override
-  String get reaction_failed => 'Could not send reaction.';
+  String get reaction_failed => 'تعذّر إرسال التفاعل.';
 
   @override
-  String get edit_failed => 'Could not edit message.';
+  String get edit_failed => 'تعذّر تعديل الرسالة.';
 
   @override
-  String get delete_signal_failed => 'Could not send deletion signal.';
+  String get delete_signal_failed => 'تعذّر إرسال إشارة الحذف.';
 
   @override
-  String get export_unavailable => 'Export is unavailable.';
+  String get export_unavailable => 'التصدير غير متاح.';
 
   @override
-  String get chat_exported => 'Chat exported.';
+  String get chat_exported => 'تم تصدير المحادثة.';
 
   @override
-  String get group_policy_unavailable => 'Group policy is unavailable.';
+  String get group_policy_unavailable => 'سياسة المجموعة غير متاحة.';
 
   @override
-  String get export_disabled => 'Export disabled.';
+  String get export_disabled => 'تم تعطيل التصدير.';
 
   @override
-  String get export_enabled => 'Export enabled.';
+  String get export_enabled => 'تم تفعيل التصدير.';
 
   @override
-  String get chat_unmuted => 'Chat unmuted.';
+  String get chat_unmuted => 'أُلغي كتم المحادثة.';
 
   @override
-  String get chat_muted => 'Chat muted.';
+  String get chat_muted => 'كُتمت المحادثة.';
 
   @override
-  String get invalid_voice_recording =>
-      'A valid voice recording could not be created.';
+  String get invalid_voice_recording => 'تعذّر إنشاء تسجيل صوتي صالح.';
 
   @override
-  String get audio_not_found => 'Audio file not found';
+  String get audio_not_found => 'الملف الصوتي غير موجود';
 
   @override
-  String get audio_play_failed => 'Could not play voice recording';
+  String get audio_play_failed => 'تعذّر تشغيل التسجيل الصوتي';
 
   @override
-  String get opened => 'Opened';
+  String get opened => 'فُتحت';
 
   @override
-  String get view_once_photo => 'View-once photo';
+  String get view_once_photo => 'صورة لعرض واحد';
 
   @override
-  String get media_no_longer_available => 'This media can no longer be opened';
+  String get media_no_longer_available => 'لم يعد بالإمكان فتح هذه الوسائط';
 
   @override
-  String get tap_to_open => 'Tap to open';
+  String get tap_to_open => 'انقر للفتح';
 
   @override
-  String get attachment => 'Add attachment';
+  String get attachment => 'إضافة مرفق';
 
   @override
-  String get dialpad => 'Open dial pad';
+  String get dialpad => 'فتح لوحة الأرقام';
 
   @override
-  String get remove_option => 'Remove option';
+  String get remove_option => 'إزالة الخيار';
 
   @override
-  String get auth_unavailable => 'Authentication service is not configured.';
+  String get auth_unavailable => 'خدمة المصادقة غير مهيأة.';
 
   @override
   String rate_limit_seconds(num arg1) {
-    return 'Too many requests. Wait $arg1 seconds.';
+    return 'طلبات كثيرة جدًا. انتظر $arg1 ثانية.';
   }
 
   @override
-  String get chat_cleared => 'Chat cleared.';
+  String get chat_cleared => 'تم مسح المحادثة.';
 
   @override
   String get no_registered_contacts =>
-      'No registered contacts found. Grant contacts permission and refresh.';
+      'لم يُعثر على جهات اتصال مسجلة. امنح إذن جهات الاتصال ثم حدّث.';
 
   @override
   String get contacts_secure_directory_unavailable_title =>
@@ -2034,27 +2028,27 @@ class AppLocalizationsAr extends AppLocalizations {
   String get return_to_call => 'العودة إلى المكالمة';
 
   @override
-  String get settings_open_source_licenses => 'Open-source licenses';
+  String get settings_open_source_licenses => 'تراخيص البرمجيات مفتوحة المصدر';
 
   @override
   String get settings_open_source_licenses_desc =>
-      'Review the software licenses included in this build.';
+      'راجع تراخيص البرمجيات المضمنة في هذا الإصدار.';
 
   @override
-  String get settings_about => 'About';
+  String get settings_about => 'حول';
 
   @override
-  String get settings_about_desc => 'Version, security notes and licenses';
+  String get settings_about_desc => 'الإصدار وملاحظات الأمان والتراخيص';
 
   @override
-  String get about_security_title => 'Security';
+  String get about_security_title => 'الأمان';
 
   @override
   String get about_security_body =>
-      'Messages are end-to-end encrypted before leaving the device, and the ratchet derives a new message key for every message. The server stores neither plaintext nor conversation history; an undelivered encrypted envelope may remain only in a short-lived RAM queue until acknowledgement or expiry. The local database is encrypted with SQLCipher.';
+      'تُشفَّر الرسائل من طرف إلى طرف قبل مغادرة الجهاز، وتشتق آلية التدوير مفتاحًا جديدًا لكل رسالة. لا يخزّن الخادم النص الصريح ولا سجل المحادثات؛ وقد يبقى غلاف مشفّر لم يُسلَّم بعد في طابور مؤقت في الذاكرة فقط حتى الإقرار بالاستلام أو انتهاء صلاحيته. قاعدة البيانات المحلية مشفّرة بـ SQLCipher.';
 
   @override
-  String get about_version => 'Version';
+  String get about_version => 'الإصدار';
 
   @override
   String get missed_call => 'مكالمة فائتة';
@@ -2198,103 +2192,103 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
-  String get safety_block => 'Block';
+  String get safety_block => 'حظر';
 
   @override
-  String get safety_unblock => 'Unblock';
+  String get safety_unblock => 'إلغاء الحظر';
 
   @override
-  String get safety_block_confirm_title => 'Block this contact?';
+  String get safety_block_confirm_title => 'حظر جهة الاتصال هذه؟';
 
   @override
   String get safety_block_confirm_body =>
-      'Blocked contacts can no longer call you or send you messages. They are not notified.';
+      'لن تتمكن جهات الاتصال المحظورة من الاتصال بك أو مراسلتك. ولا يتم إعلامها.';
 
   @override
-  String get safety_blocked_notice => 'Contact blocked';
+  String get safety_blocked_notice => 'تم حظر جهة الاتصال';
 
   @override
-  String get safety_unblocked_notice => 'Contact unblocked';
+  String get safety_unblocked_notice => 'تم إلغاء حظر جهة الاتصال';
 
   @override
   String get safety_blocked_banner =>
-      'You blocked this contact. You can no longer send or receive messages or calls.';
+      'لقد حظرت جهة الاتصال هذه. لم يعد بإمكانك إرسال الرسائل أو المكالمات أو تلقيها.';
 
   @override
-  String get safety_report => 'Report';
+  String get safety_report => 'إبلاغ';
 
   @override
-  String get safety_report_group => 'Report group';
+  String get safety_report_group => 'الإبلاغ عن المجموعة';
 
   @override
-  String get safety_report_title => 'Why are you reporting?';
+  String get safety_report_title => 'لماذا تُبلغ؟';
 
   @override
   String get safety_report_e2ee_note =>
-      'Messages are end-to-end encrypted. Your report includes the account and the reason you choose, but no message content.';
+      'الرسائل مشفّرة من طرف إلى طرف. يتضمن بلاغك الحساب والسبب الذي تختاره، دون أي محتوى للرسائل.';
 
   @override
-  String get safety_reason_spam => 'Spam';
+  String get safety_reason_spam => 'رسائل مزعجة';
 
   @override
-  String get safety_reason_harassment => 'Harassment or bullying';
+  String get safety_reason_harassment => 'تحرش أو تنمر';
 
   @override
-  String get safety_reason_inappropriate => 'Inappropriate content';
+  String get safety_reason_inappropriate => 'محتوى غير لائق';
 
   @override
-  String get safety_reason_child_safety => 'Child safety';
+  String get safety_reason_child_safety => 'سلامة الأطفال';
 
   @override
-  String get safety_reason_impersonation => 'Impersonation';
+  String get safety_reason_impersonation => 'انتحال شخصية';
 
   @override
-  String get safety_reason_other => 'Other';
+  String get safety_reason_other => 'أخرى';
 
   @override
-  String get safety_report_note_hint => 'Add details (optional)';
+  String get safety_report_note_hint => 'أضف تفاصيل (اختياري)';
 
   @override
-  String get safety_report_also_block => 'Also block this contact';
+  String get safety_report_also_block => 'حظر جهة الاتصال هذه أيضًا';
 
   @override
-  String get safety_report_submit => 'Send report';
+  String get safety_report_submit => 'إرسال البلاغ';
 
   @override
   String get safety_report_sent =>
-      'Report sent. Reports are reviewed within 24 hours.';
+      'أُرسل البلاغ. تُراجع البلاغات خلال 24 ساعة.';
 
   @override
-  String get safety_report_failed => 'The report could not be sent. Try again.';
+  String get safety_report_failed => 'تعذّر إرسال البلاغ. حاول مجددًا.';
 
   @override
-  String get safety_blocked_contacts => 'Blocked contacts';
+  String get safety_blocked_contacts => 'جهات الاتصال المحظورة';
 
   @override
-  String get safety_blocked_contacts_empty => 'No blocked contacts';
+  String get safety_blocked_contacts_empty => 'لا توجد جهات اتصال محظورة';
 
   @override
   String get legal_consent_notice =>
-      'By continuing you accept the Terms of Use and the Privacy Policy.';
+      'بالمتابعة فإنك توافق على شروط الاستخدام وسياسة الخصوصية.';
 
   @override
-  String get legal_terms => 'Terms of Use';
+  String get legal_terms => 'شروط الاستخدام';
 
   @override
-  String get legal_privacy => 'Privacy Policy';
+  String get legal_privacy => 'سياسة الخصوصية';
 
   @override
-  String get legal_child_safety => 'Child safety standards';
+  String get legal_child_safety => 'معايير سلامة الأطفال';
 
   @override
-  String get legal_open_failed => 'The page could not be opened.';
+  String get legal_open_failed => 'تعذّر فتح الصفحة.';
 
   @override
-  String get logout_confirm_title => 'Log out?';
+  String get logout_confirm_title => 'تسجيل الخروج؟';
 
   @override
   String get logout_confirm_body =>
-      'Logging out deletes all messages, media, call history and local backups on this device. Your account stays on the server, but your history will not come back when you log in again.';
+      'يحذف تسجيل الخروج كل الرسائل والوسائط وسجل المكالمات والنسخ الاحتياطية المحلية على هذا الجهاز. يبقى حسابك على الخادم، لكن سجلك لن يعود عند تسجيل الدخول مجددًا.';
 
   @override
   String get logout_no_recovery_title =>
@@ -2318,50 +2312,50 @@ class AppLocalizationsAr extends AppLocalizations {
   String get logout_anyway => 'تسجيل الخروج على أي حال';
 
   @override
-  String get call_no_answer => 'No answer';
+  String get call_no_answer => 'لا رد';
 
   @override
   String get view_once_unsupported_type =>
-      'This file type cannot be opened as view once.';
+      'لا يمكن فتح هذا النوع من الملفات للعرض لمرة واحدة.';
 
   @override
   String get view_once_only_photo_or_text =>
-      'Only photos and text files can be sent as view once.';
+      'يمكن إرسال الصور والملفات النصية فقط للعرض لمرة واحدة.';
 
   @override
-  String get recipient_no_results => 'No matching contacts';
+  String get recipient_no_results => 'لا توجد جهات اتصال مطابقة';
 
   @override
-  String get contacts_sync => 'Sync contacts';
+  String get contacts_sync => 'مزامنة جهات الاتصال';
 
   @override
-  String get unknown_contact => 'Unknown contact';
+  String get unknown_contact => 'جهة اتصال غير معروفة';
 
   @override
-  String get not_in_contacts_banner => 'This person is not in your contacts.';
+  String get not_in_contacts_banner => 'هذا الشخص ليس ضمن جهات اتصالك.';
 
   @override
-  String get settings_share_profile_name => 'Share my profile name';
+  String get settings_share_profile_name => 'مشاركة اسم ملفي الشخصي';
 
   @override
   String get settings_share_profile_name_desc =>
-      'Only with people you message one-to-one, end-to-end encrypted. People who do not have you in their contacts see it as ~Name.';
+      'فقط مع من تراسلهم مباشرة، ومشفّرًا من طرف إلى طرف. يراه من لا يحفظك في جهات اتصاله بصيغة ~الاسم.';
 
   @override
-  String get view_once_message => 'View once message';
+  String get view_once_message => 'رسالة لعرض واحد';
 
   @override
-  String get message_no_longer_available =>
-      'This message can no longer be opened';
+  String get message_no_longer_available => 'لم يعد بالإمكان فتح هذه الرسالة';
 
   @override
-  String get view_once_video => 'View once video';
+  String get view_once_video => 'فيديو لعرض واحد';
 
   @override
-  String get view_once_file => 'View once file';
+  String get view_once_file => 'ملف لعرض واحد';
 
   @override
-  String get poll_view_once_unsupported => 'Polls cannot be sent as view once.';
+  String get poll_view_once_unsupported =>
+      'لا يمكن إرسال الاستطلاعات للعرض لمرة واحدة.';
 
   @override
   String get recovery_reminder_banner =>

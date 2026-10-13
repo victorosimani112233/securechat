@@ -76,13 +76,24 @@ void main() {
     expect(strings.settings_title, 'Einstellungen');
   });
 
-  testWidgets('partial Arabic catalog falls back to English', (tester) async {
+  testWidgets('Arabic catalog is complete', (tester) async {
     final strings = await pumpLocale(tester, const Locale('ar'));
 
-    // Arapca 208/640; cevrilmis anahtar Arapca, cevrilmemis olan sablona
-    // duser. Arapca tamamlandiginda bu testin ikinci beklentisi guncellenir.
+    // Arapca 2026-10-13'te tamamlandi; eskiden cevrilmemis anahtarlar
+    // Ingilizceye dusuyordu.
     expect(strings.group_info, 'معلومات المجموعة');
-    expect(strings.settings_title, 'Settings');
+    expect(strings.settings_title, 'الإعدادات');
+  });
+
+  test('every locale translates every template key', () {
+    final template = _arbKeys('en');
+    for (final locale in ['tr', 'de', 'ar']) {
+      expect(
+        template.difference(_arbKeys(locale)),
+        isEmpty,
+        reason: '$locale eksik anahtar',
+      );
+    }
   });
 
   testWidgets(
@@ -222,4 +233,11 @@ class _NoopScheduler implements BackgroundScheduler {
 class _NoopFullscreen implements FullscreenController {
   @override
   Future<void> setEnabled(bool enabled) async {}
+}
+
+Set<String> _arbKeys(String locale) {
+  final decoded =
+      jsonDecode(File('lib/l10n/app_$locale.arb').readAsStringSync())
+          as Map<String, Object?>;
+  return decoded.keys.where((key) => !key.startsWith('@')).toSet();
 }

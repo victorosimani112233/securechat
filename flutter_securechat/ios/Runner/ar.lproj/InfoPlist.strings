@@ -1,0 +1,6 @@
+/* Izin aciklamalari; anahtarlar Info.plist ile ayni. */
+"NSFaceIDUsageDescription" = "يُستخدم Face ID حتى لا يفتح المحادثات المقفلة إلا مالك الجهاز.";
+"NSCameraUsageDescription" = "يلزم الوصول إلى الكاميرا لمكالمات الفيديو ولإرسال الصور ومقاطع الفيديو.";
+"NSContactsUsageDescription" = "يلزم الوصول إلى جهات الاتصال للعثور على من يستخدمون Elçim. لا تُرسل أرقام الهواتف إلى الخادم بصيغة مقروءة.";
+"NSMicrophoneUsageDescription" = "يلزم الوصول إلى الميكروفون لتسجيل الرسائل الصوتية وإجراء المكالمات الصوتية ومكالمات الفيديو.";
+"NSPhotoLibraryUsageDescription" = "يلزم الوصول إلى مكتبة الصور لإرسال الصور ومقاطع الفيديو.";

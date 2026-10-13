@@ -79,6 +79,7 @@
 		A11CE010A11CE010A11CE010 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		A11CE011A11CE011A11CE011 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		A11CE012A11CE012A11CE012 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		A11CE015A11CE015A11CE015 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		A11CE003A11CE003A11CE003 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		5C5000000000000000000001 /* elcim_beep.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_beep.wav"; path = "Runner/Sounds/elcim_beep.wav"; sourceTree = "<group>"; };
 		5C5000000000000000000003 /* elcim_bell.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "elcim_bell.wav"; path = "Runner/Sounds/elcim_bell.wav"; sourceTree = "<group>"; };
@@ -252,6 +253,7 @@
 				Base,
 				tr,
 				de,
+				ar,
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
 			packageReferences = (
@@ -390,6 +392,7 @@
 				A11CE010A11CE010A11CE010 /* tr */,
 				A11CE011A11CE011A11CE011 /* en */,
 				A11CE012A11CE012A11CE012 /* de */,
+				A11CE015A11CE015A11CE015 /* ar */,
 			);
 			name = InfoPlist.strings;
 			sourceTree = "<group>";
