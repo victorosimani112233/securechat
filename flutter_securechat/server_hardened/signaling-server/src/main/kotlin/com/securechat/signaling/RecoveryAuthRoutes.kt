@@ -20,9 +20,13 @@ internal object AccountRecovery {
         RecoveryRecordCipher.configured()?.let { cipher ->
             RecoveryAuthService(cipher) { email, otp, purpose ->
                 mail.execute {
-                    val label = if (purpose == "enroll") "recovery email enrollment" else "account recovery"
-                    EmailService.sendMail(email, "SecureChat $label", "<p>Your $label code: <b>$otp</b></p><p>Expires in 10 minutes.</p>",
-                        "Your $label code: $otp. Expires in 10 minutes.")
+                    val template = if (purpose == "enroll") {
+                        EmailTemplates.Purpose.RECOVERY_ENROLLMENT
+                    } else {
+                        EmailTemplates.Purpose.ACCOUNT_RECOVERY
+                    }
+                    val content = EmailTemplates.code(template, otp)
+                    EmailService.sendMail(email, content.subject, content.html, content.text)
                 }
             }
         }

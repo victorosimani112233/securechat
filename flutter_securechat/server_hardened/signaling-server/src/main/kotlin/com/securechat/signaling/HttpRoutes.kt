@@ -615,18 +615,12 @@ fun Application.configureRoutes(
 
             // E-postayi async gonder (response'u bekletme)
             val sent = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val content = EmailTemplates.code(EmailTemplates.Purpose.REGISTRATION, otp)
                 EmailService.sendMail(
                     to = email,
-                    subject = "SecureChat — Doğrulama Kodu",
-                    htmlBody = """
-                        <html><body style="font-family:Arial,sans-serif">
-                          <h2 style="color:#1a73e8">SecureChat Doğrulama</h2>
-                          <p>Hesabınızı doğrulamak için aşağıdaki kodu kullanın:</p>
-                          <h1 style="font-size:32px;letter-spacing:4px;color:#1a73e8">$otp</h1>
-                          <p style="color:#666;font-size:13px">Bu kod 10 dakika içinde sona erer. Bu isteği siz yapmadıysanız bu e-postayı görmezden gelin.</p>
-                        </body></html>
-                    """.trimIndent(),
-                    textBody = "SecureChat doğrulama kodunuz: $otp\n\nBu kod 10 dakika içinde sona erer."
+                    subject = content.subject,
+                    htmlBody = content.html,
+                    textBody = content.text,
                 )
             }
             AuditLog.log(eventType = "OTP_REQUESTED", ipAddress = ip)
