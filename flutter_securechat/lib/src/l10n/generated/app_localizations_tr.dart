@@ -143,7 +143,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get recovery_login_description =>
-      'Oturumunuz açıkken doğruladığınız kurtarma e-postasını girin.';
+      'Hesabına kurtarma adresi olarak eklediğin e-postayı gir. Hesap açarken \"hesap kurtarma için de kullan\" kutusu işaretliyse bu, kayıt e-postandır. Kod yalnız bu adrese gelir.';
 
   @override
   String get recovery_enrollment_description =>

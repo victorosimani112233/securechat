@@ -142,7 +142,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recovery_login_description =>
-      'Enter the recovery email previously verified on your signed-in device.';
+      'Enter the email you added to your account as its recovery address. If \"also use this email for account recovery\" was ticked when you signed up, it is your sign-up email. The code is only sent to that address.';
 
   @override
   String get recovery_enrollment_description =>

@@ -38,7 +38,7 @@
   "registration_device_has_account": "Auf diesem Gerät ist noch ein älteres Konto gespeichert, daher konnte kein neues Konto erstellt werden. Melde dich erneut bei diesem Konto an oder entferne es mit \"Mit einem anderen Konto beginnen\" von diesem Gerät.",
   "recovery_email_title": "Wiederherstellungs-E-Mail",
   "recovery_email_settings": "Kontowiederherstellung auf diesem angemeldeten Gerät verwalten.",
-  "recovery_login_description": "Gib die zuvor auf deinem angemeldeten Gerät bestätigte Wiederherstellungs-E-Mail ein.",
+  "recovery_login_description": "Gib die E-Mail ein, die du deinem Konto als Wiederherstellungsadresse hinzugefügt hast. War bei der Registrierung \"auch zur Kontowiederherstellung verwenden\" aktiviert, ist es deine Registrierungs-E-Mail. Der Code wird nur an diese Adresse gesendet.",
   "recovery_enrollment_description": "Bestätige eine Wiederherstellungs-E-Mail auf diesem vertrauenswürdigen, angemeldeten Gerät. Nur die erste Adresse kann verknüpft werden; sie kann hier weder angezeigt noch ersetzt werden.",
   "recovery_request_sent": "Wenn diese E-Mail die Wiederherstellungsadresse eines Kontos ist, wurde ein sechsstelliger Code gesendet. Kommt er nicht innerhalb weniger Minuten an, prüfe deinen Spam-Ordner. Fehlt er weiterhin, ist diese E-Mail vermutlich keinem Konto als Wiederherstellungsadresse zugeordnet; sie wird bei der Registrierung oder in den Einstellungen hinzugefügt.",
   "recovery_send_code": "Code senden",

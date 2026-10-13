@@ -38,7 +38,7 @@
   "registration_device_has_account": "This device still holds an older account, so a new account could not be created. Log in to that account again, or remove it from this device with \"Start with another account\".",
   "recovery_email_title": "Recovery email",
   "recovery_email_settings": "Manage account recovery on this signed-in device.",
-  "recovery_login_description": "Enter the recovery email previously verified on your signed-in device.",
+  "recovery_login_description": "Enter the email you added to your account as its recovery address. If \"also use this email for account recovery\" was ticked when you signed up, it is your sign-up email. The code is only sent to that address.",
   "recovery_enrollment_description": "Verify a recovery email from this trusted, signed-in device. Only the first email can be bound; it cannot be viewed or replaced here.",
   "recovery_request_sent": "If this email is the recovery address of an account, a six-digit code has been sent. If it does not arrive within a few minutes, check your spam folder. If it is still missing, this email is most likely not the recovery address of any account; a recovery email is added during sign-up or in Settings.",
   "recovery_send_code": "Send code",

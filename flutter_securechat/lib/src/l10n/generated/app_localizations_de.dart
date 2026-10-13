@@ -144,7 +144,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get recovery_login_description =>
-      'Gib die zuvor auf deinem angemeldeten Gerät bestätigte Wiederherstellungs-E-Mail ein.';
+      'Gib die E-Mail ein, die du deinem Konto als Wiederherstellungsadresse hinzugefügt hast. War bei der Registrierung \"auch zur Kontowiederherstellung verwenden\" aktiviert, ist es deine Registrierungs-E-Mail. Der Code wird nur an diese Adresse gesendet.';
 
   @override
   String get recovery_enrollment_description =>

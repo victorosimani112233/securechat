@@ -38,7 +38,7 @@
   "registration_device_has_account": "Bu cihazda hâlâ eski bir hesap kayıtlı, bu yüzden yeni hesap açılamadı. O hesaba yeniden giriş yap ya da \"Farklı hesapla başla\" ile eski hesabı bu cihazdan kaldır.",
   "recovery_email_title": "Kurtarma e-postası",
   "recovery_email_settings": "Bu oturum açık cihazda hesap kurtarmayı yönetin.",
-  "recovery_login_description": "Oturumunuz açıkken doğruladığınız kurtarma e-postasını girin.",
+  "recovery_login_description": "Hesabına kurtarma adresi olarak eklediğin e-postayı gir. Hesap açarken \"hesap kurtarma için de kullan\" kutusu işaretliyse bu, kayıt e-postandır. Kod yalnız bu adrese gelir.",
   "recovery_enrollment_description": "Bu güvenilir, oturum açık cihazdan kurtarma e-postanızı doğrulayın. Yalnızca ilk adres bağlanabilir; adres burada görüntülenemez veya değiştirilemez.",
   "recovery_request_sent": "Bu e-posta bir hesaba kurtarma adresi olarak bağlıysa altı haneli bir kod gönderildi. Birkaç dakikada gelmezse spam klasörüne bak. Yine yoksa bu e-posta büyük ihtimalle hiçbir hesaba kurtarma adresi olarak bağlı değil; kurtarma e-postası hesap açarken ya da Ayarlar bölümünden eklenir.",
   "recovery_send_code": "Kod gönder",

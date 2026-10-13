@@ -140,7 +140,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get recovery_login_description =>
-      'أدخل بريد الاسترداد الذي سبق تأكيده على جهازك المسجل دخوله.';
+      'أدخل البريد الإلكتروني الذي أضفته إلى حسابك كعنوان استرداد. إذا كان خيار \"استخدم هذا البريد الإلكتروني أيضاً لاستعادة الحساب\" محددًا عند التسجيل فهو بريد التسجيل. يُرسل الرمز إلى هذا العنوان فقط.';
 
   @override
   String get recovery_enrollment_description =>
