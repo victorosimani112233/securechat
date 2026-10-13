@@ -387,6 +387,10 @@ class _UnusedOlmKeyPublisher implements RecoveryIdentity {
   Future<String?> recoverySigningPublicKey() async => null;
 
   @override
+  Future<String> ensureRecoverySigningKey() async =>
+      throw StateError('kurtarma bu testte kullanilmiyor');
+
+  @override
   Future<String> signRecoveryProof(String message) async =>
       throw StateError('kurtarma bu testte kullanilmiyor');
 

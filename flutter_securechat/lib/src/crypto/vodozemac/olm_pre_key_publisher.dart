@@ -27,6 +27,11 @@ abstract interface class RecoveryIdentity implements OlmKeyPublisher {
   /// base64 Ed25519 imzalama acik anahtari, ya da hesap yoksa null.
   Future<String?> recoverySigningPublicKey();
 
+  /// Cihazda Olm hesabi yoksa olusturur ve Ed25519 imzalama anahtarini
+  /// doner. Cikis hesabi siler; uygulama yeniden baslamadan yapilan e-posta
+  /// kurtarmasi yeni cihaz gibi kimlik uretmeli (QA 2026-10-13 T10).
+  Future<String> ensureRecoverySigningKey();
+
   /// Kurtarma kanitini hesabin Ed25519 anahtariyla imzalar (base64).
   Future<String> signRecoveryProof(String message);
 
@@ -144,6 +149,15 @@ class OlmPreKeyPublisher implements OlmKeyPublisher, RecoveryIdentity {
       _store.recoverySigningPublicKey();
 
   @override
+  Future<String> ensureRecoverySigningKey() async {
+    // Ilk withAccount cagrisi hesabi olusturup saklar.
+    await _store.withAccount((_) async {});
+    final key = await _store.recoverySigningPublicKey();
+    if (key == null) throw StateError('Olm hesabi olusturulamadi');
+    return key;
+  }
+
+  @override
   Future<String> signRecoveryProof(String message) =>
       _store.signRecoveryProof(message);
 
@@ -158,8 +172,7 @@ class OlmPreKeyPublisher implements OlmKeyPublisher, RecoveryIdentity {
   Future<void> clearPendingRecovery() => _store.clearPendingRecovery();
 
   @override
-  Future<void> clearLocalCryptoState() =>
-      _database.clearCryptoProtocolState();
+  Future<void> clearLocalCryptoState() => _database.clearCryptoProtocolState();
 
   @override
   Future<void> republishAfterIdentityReset() async {

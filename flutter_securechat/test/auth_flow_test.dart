@@ -758,6 +758,10 @@ class _RecordingOlmKeyPublisher implements RecoveryIdentity {
   Future<String?> recoverySigningPublicKey() async => null;
 
   @override
+  Future<String> ensureRecoverySigningKey() async =>
+      throw StateError('kurtarma kimligi bu testte yok');
+
+  @override
   Future<String> signRecoveryProof(String message) async =>
       throw StateError('kurtarma kimligi bu testte yok');
 

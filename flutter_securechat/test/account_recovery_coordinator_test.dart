@@ -146,6 +146,24 @@ void main() {
     );
   });
 
+  // QA 2026-10-13 T10: cikis Olm hesabini siler; uygulama yeniden
+  // baslamadan kurtarma "recovery_trusted_device_required" ile dusuyordu.
+  test('recovery right after logout creates the device identity', () async {
+    await database.clearCryptoProtocolState();
+    expect(await store.hasAccount(), isFalse);
+
+    final grant = await approval();
+    expect(grant.requiresIdentityReplacement, isTrue);
+    await recovery.completeLogin(grant, acceptIdentityReplacement: true);
+
+    expect(session.isLoggedIn, isTrue);
+    expect(await store.hasAccount(), isTrue);
+    final sent = api.completions.single;
+    expect(sent['mode'], 'replace');
+    expect(sent['identityPublicKey'], await store.recoverySigningPublicKey());
+    expect(keys.republishes, 1);
+  });
+
   test(
     'fresh device requires explicit identity approval and preserves UUID',
     () async {
@@ -400,6 +418,12 @@ class _RecoveryKeys implements RecoveryIdentity {
   @override
   Future<String?> recoverySigningPublicKey() =>
       store.recoverySigningPublicKey();
+
+  @override
+  Future<String> ensureRecoverySigningKey() async {
+    await store.withAccount((_) async {});
+    return (await store.recoverySigningPublicKey())!;
+  }
 
   @override
   Future<String> signRecoveryProof(String message) =>

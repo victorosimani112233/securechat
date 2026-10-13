@@ -128,6 +128,29 @@ void main() {
     expect(find.text('signed-in-home'), findsOneWidget);
   });
 
+  // QA 2026-10-13 T10: hata bekleyen kayit yazilmadan geldiginde ekran
+  // olmayan bir bekleyen girisi gosterip "Yeniden dene" dongusune giriyordu.
+  testWidgets(
+    'a completion failure before anything is saved stays on approval',
+    (tester) async {
+      final recovery = _Recovery()
+        ..failBeforePending = true
+        ..completionError = const AuthApiException(
+          'recovery_trusted_device_required',
+        );
+      await pumpScreen(tester, RecoveryLoginScreen(coordinator: recovery));
+      await request(tester);
+      await verify(tester);
+      await tapKey(tester, 'recovery-accept');
+      await tapKey(tester, 'recovery-complete');
+
+      expect(recovery.completions, 1);
+      expect(find.byKey(const ValueKey('recovery-resume')), findsNothing);
+      expect(find.byKey(const ValueKey('recovery-complete')), findsOneWidget);
+      expect(find.text('signed-in-home'), findsNothing);
+    },
+  );
+
   testWidgets('restart resumes persisted approval without requesting a code', (
     tester,
   ) async {
@@ -489,6 +512,7 @@ class _Recovery implements AccountRecoveryCoordinator {
   bool bound = false;
   bool pending = false;
   bool resumeResult = true;
+  bool failBeforePending = false;
   bool replaceIdentity = true;
   bool? acceptedReplacement;
   int requests = 0;
@@ -567,6 +591,7 @@ class _Recovery implements AccountRecoveryCoordinator {
   }) async {
     completions++;
     acceptedReplacement = acceptIdentityReplacement;
+    if (failBeforePending && completionError != null) throw completionError!;
     pending = true;
     if (completionError != null) throw completionError!;
   }

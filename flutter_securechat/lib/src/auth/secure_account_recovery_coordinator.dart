@@ -193,10 +193,9 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     // = farkli (yeni cihaz). Iki durumda da kanit bu anahtarla imzalanir ve
     // libsignal bundle/material yoktur. Replace sonrasi sunucu Olm kimligini
     // NULL'a ceker; `_resume` icindeki `publishIfNeeded` yeniden pinler.
-    final identity = await _recovery.recoverySigningPublicKey();
-    if (identity == null) {
-      throw const AuthApiException('recovery_trusted_device_required');
-    }
+    // Cikis Olm hesabini siler; uygulama yeniden baslamadan kurtarma
+    // yapilirsa hesap burada uretilir (yeni cihaz gibi, "replace").
+    final identity = await _recovery.ensureRecoverySigningKey();
     if (!approval.requiresIdentityReplacement &&
         identity != approval.identityPublicKey) {
       throw const AuthApiException('recovery_identity_changed');

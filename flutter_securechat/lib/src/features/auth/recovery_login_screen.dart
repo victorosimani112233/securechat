@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../auth/account_recovery_coordinator.dart';
@@ -62,7 +64,25 @@ class _RecoveryLoginScreenState extends State<RecoveryLoginScreen> {
     });
     try {
       await task(recovery);
-    } catch (error) {
+    } catch (error, stackTrace) {
+      // Kurtarma hatalari kullaniciya yalniz genel metinle gosterilir; ham
+      // sebep teshis kaydina gider (QA 2026-10-13 T10).
+      if (mounted) {
+        final reporter = context
+            .getInheritedWidgetOfExactType<AppContainerScope>()
+            ?.container
+            .diagnosticsRuntime
+            ?.reporter;
+        if (reporter != null) {
+          unawaited(
+            reporter.recordException(
+              error,
+              stackTrace,
+              context: 'recovery.login.${_step.name}',
+            ),
+          );
+        }
+      }
       if (mounted) {
         setState(() {
           if (error is AuthApiException &&
@@ -146,12 +166,21 @@ class _RecoveryLoginScreenState extends State<RecoveryLoginScreen> {
     if (_busy || _step != _LoginStep.approval || !_accepted) return;
     final approval = _approval!;
     await _run((recovery) async {
-      // Once dispatched, every retry goes through persisted pending state.
-      setState(() => _step = _LoginStep.pending);
-      await recovery.completeLogin(
-        approval,
-        acceptIdentityReplacement: approval.requiresIdentityReplacement,
-      );
+      try {
+        await recovery.completeLogin(
+          approval,
+          acceptIdentityReplacement: approval.requiresIdentityReplacement,
+        );
+      } catch (_) {
+        // Bekleyen kayit yazildiysa her yeniden deneme onun uzerinden gider.
+        // Yazilmadiysa onay adiminda kalinir; olmayan bir bekleyen giris
+        // gosterilmez (QA 2026-10-13 T10).
+        final pending = await recovery.hasPendingLogin().catchError(
+          (_) => true,
+        );
+        if (pending && mounted) setState(() => _step = _LoginStep.pending);
+        rethrow;
+      }
       if (mounted) _finish();
     });
   }
