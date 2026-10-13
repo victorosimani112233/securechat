@@ -4,7 +4,6 @@ import 'package:flutter_securechat/src/auth/account_recovery_coordinator.dart';
 import 'package:flutter_securechat/src/auth/auth_api.dart';
 import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/calls/call_readiness_service.dart';
-import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 import 'package:flutter_securechat/src/features/conversations/conversations_screen.dart';
 import 'package:flutter_securechat/src/l10n/generated/app_localizations.dart';
 import 'package:flutter_securechat/src/security/chat_access_service.dart';
@@ -12,6 +11,7 @@ import 'package:flutter_securechat/src/services/app_container.dart';
 import 'package:flutter_securechat/src/services/conversation_repository.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
+import 'package:flutter_securechat/src/services/identity_recovery_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_app_container.dart';
@@ -73,8 +73,8 @@ void main() {
   testWidgets('a rejected device identity shows the recovery banner', (
     tester,
   ) async {
-    OlmPreKeyPublisher.identityRecoveryNeeded.value = true;
-    addTearDown(() => OlmPreKeyPublisher.identityRecoveryNeeded.value = false);
+    identityRecoveryNeeded.value = true;
+    addTearDown(() => identityRecoveryNeeded.value = false);
     await pump(tester, true);
     expect(
       find.byKey(const ValueKey('conversation-identity-recovery')),

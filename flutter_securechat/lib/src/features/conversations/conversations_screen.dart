@@ -5,10 +5,10 @@ import 'package:flutter/material.dart';
 import '../../calls/call_readiness_service.dart';
 import '../../chat/conversation_preview.dart';
 import '../../core/models.dart';
-import '../../crypto/vodozemac/olm_pre_key_publisher.dart';
 import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../services/app_connection_status.dart';
+import '../../services/identity_recovery_status.dart';
 import '../../services/conversation_repository.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
@@ -304,7 +304,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   /// Sessiz kalmak yerine kullaniciyi e-postayla kurtarmaya yonlendirir (QA
   /// 2026-10-13 T5 madde 3).
   Widget _identityRecoveryBanner() => ValueListenableBuilder<bool>(
-    valueListenable: OlmPreKeyPublisher.identityRecoveryNeeded,
+    valueListenable: identityRecoveryNeeded,
     builder: (context, needed, _) {
       if (!needed) return const SizedBox.shrink();
       final scheme = Theme.of(context).colorScheme;

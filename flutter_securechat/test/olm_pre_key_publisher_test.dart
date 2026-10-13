@@ -7,6 +7,7 @@ import 'package:flutter_securechat/src/crypto/vodozemac/securechat_crypto_ffi.da
 import 'package:flutter_securechat/src/crypto/vodozemac/vodozemac_protocol_store.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/storage/secure_chat_database.dart';
+import 'package:flutter_securechat/src/services/identity_recovery_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Olm acik anahtarlarinin yayinlanmasi.
@@ -405,7 +406,7 @@ void main() {
         ),
       ),
     );
-    expect(OlmPreKeyPublisher.identityRecoveryNeeded.value, isTrue);
+    expect(identityRecoveryNeeded.value, isTrue);
     expect(
       await database.cryptoState.get(
         OlmPreKeyPublisher.identityRecoveryRequiredKey,
@@ -416,7 +417,7 @@ void main() {
     statusFor = () => HttpStatus.ok;
     responseBody = '{"status":"ok"}';
     await build().publishIfNeeded();
-    expect(OlmPreKeyPublisher.identityRecoveryNeeded.value, isFalse);
+    expect(identityRecoveryNeeded.value, isFalse);
     expect(
       await database.cryptoState.get(
         OlmPreKeyPublisher.identityRecoveryRequiredKey,

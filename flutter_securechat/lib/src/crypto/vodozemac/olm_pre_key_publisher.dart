@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../../services/identity_recovery_status.dart';
 import '../../storage/secure_chat_database.dart';
 import 'vodozemac_protocol_store.dart';
 
@@ -128,8 +129,6 @@ class OlmPreKeyPublisher implements OlmKeyPublisher, RecoveryIdentity {
   /// silinir. Sohbet listesi buna bakarak kurtarma seridini gosterir.
   static const identityRecoveryRequiredKey = 'olm_identity_recovery_required';
 
-  /// Ayni bilginin on plan sureci icin canli hali; sohbet listesi dinler.
-  static final identityRecoveryNeeded = ValueNotifier<bool>(false);
   final HttpClient _httpClient;
   final Future<String?> Function() _accessTokenProvider;
   final Future<String?> Function()? _refreshAccessToken;
