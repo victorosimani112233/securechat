@@ -91,6 +91,22 @@ void main() {
     expect(find.byType(SnackBar), findsOneWidget);
   });
 
+  // QA 2026-10-13 T1: gizli "En yeni mesaja git" ekran okuyucuda gorunuyordu.
+  testWidgets('hidden jump-to-latest button is not announced', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.625;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final semantics = tester.ensureSemantics();
+    final container = createWidgetTestContainer();
+    await tester.pumpWidget(SecureChatFlutterApp(container: container));
+    await tester.pumpAndSettle();
+    await _openFirstConversation(tester);
+
+    expect(find.bySemanticsLabel('En yeni mesaja git'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('view-once composer persists the privacy flag', (tester) async {
     final container = createWidgetTestContainer();
     final repository =

@@ -719,9 +719,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   scale: _nearBottom ? 0 : 1,
                   child: IgnorePointer(
                     ignoring: _nearBottom,
-                    child: _ScrollToBottomAction(
-                      unseenCount: _unseenCount,
-                      onPressed: _scrollToBottom,
+                    // Gizliyken ekran okuyucu da gormesin (QA 2026-10-13 T1).
+                    child: ExcludeSemantics(
+                      excluding: _nearBottom,
+                      child: _ScrollToBottomAction(
+                        unseenCount: _unseenCount,
+                        onPressed: _scrollToBottom,
+                      ),
                     ),
                   ),
                 ),
