@@ -14,6 +14,7 @@ void main() {
   late Directory media;
   late SecureChatDatabase database;
   late LocalDataOwnerGuard guard;
+  late int forgottenDiagnostics;
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('owner_guard_');
@@ -22,7 +23,12 @@ void main() {
       file: File('${root.path}/database'),
       crypto: LocalAeadCryptoService(SecretKey(List.filled(32, 41))),
     );
-    guard = LocalDataOwnerGuard(database: database, managedDirectories: [media]);
+    forgottenDiagnostics = 0;
+    guard = LocalDataOwnerGuard(
+      database: database,
+      managedDirectories: [media],
+      forgetDiagnostics: () async => forgottenDiagnostics++,
+    );
   });
 
   tearDown(() async {
@@ -75,6 +81,8 @@ void main() {
     expect(await database.conversations.getById('old-peer'), isNull);
     expect(await database.contacts.getAllOnce(), isEmpty);
     expect(await media.exists(), isFalse);
+    // QA 2026-10-12 R2: onceki hesabin cokme kayitlari da gider.
+    expect(forgottenDiagnostics, 1);
     expect(
       await database.cryptoState.get('local_identity_marker'),
       'new-account',
@@ -106,6 +114,7 @@ void main() {
 
     expect(await database.conversations.getById('old-peer'), isNotNull);
     expect(await File('${media.path}/photo.jpg').exists(), isTrue);
+    expect(forgottenDiagnostics, 0);
   });
 
   test('fresh device only records the owner', () async {
@@ -120,6 +129,9 @@ void main() {
   test('full local wipe forgets the owner', () async {
     await guard.claim('me');
     await database.clearAll();
-    expect(await database.cryptoState.get(LocalDataOwnerGuard.ownerKey), isNull);
+    expect(
+      await database.cryptoState.get(LocalDataOwnerGuard.ownerKey),
+      isNull,
+    );
   });
 }

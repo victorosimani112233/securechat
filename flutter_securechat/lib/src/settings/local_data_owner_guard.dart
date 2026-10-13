@@ -12,8 +12,10 @@ class LocalDataOwnerGuard {
   LocalDataOwnerGuard({
     required SecureChatDatabase database,
     required List<Directory> managedDirectories,
+    Future<void> Function()? forgetDiagnostics,
   }) : _database = database,
-       _managedDirectories = List.unmodifiable(managedDirectories);
+       _managedDirectories = List.unmodifiable(managedDirectories),
+       _forgetDiagnostics = forgetDiagnostics;
 
   /// `cryptoState` icinde tutulur: `clearAll` ile birlikte silinir, yedekten
   /// geri yuklemede yerel deger korunur.
@@ -21,6 +23,9 @@ class LocalDataOwnerGuard {
 
   final SecureChatDatabase _database;
   final List<Directory> _managedDirectories;
+
+  /// Onceki hesabin cokme kayitlarini siler (QA 2026-10-12 R2).
+  final Future<void> Function()? _forgetDiagnostics;
 
   /// [userId] hesabi giris yapmadan once cagrilir.
   ///
@@ -37,6 +42,7 @@ class LocalDataOwnerGuard {
         if (!await directory.exists()) continue;
         await directory.delete(recursive: true);
       }
+      await _forgetDiagnostics?.call();
     }
     await markOwner(userId);
   }

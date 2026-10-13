@@ -799,6 +799,7 @@ class AppContainer {
       final localDataOwner = LocalDataOwnerGuard(
         database: database,
         managedDirectories: managedDirectories,
+        forgetDiagnostics: diagnostics.forgetAccount,
       );
       final authCoordinator = AuthCoordinator(
         api: AuthApi(baseUrl: config.apiBaseUrl, client: httpClients.create()),
@@ -807,7 +808,10 @@ class AppContainer {
         signaling: signaling,
         signalingUrl: config.signalingUrl,
         privateDirectory: privateDirectory,
-        claimLocalData: localDataOwner.claim,
+        claimLocalData: (userId) async {
+          await localDataOwner.claim(userId);
+          diagnostics.setUserId(userId);
+        },
       );
       final contacts = ContactService(
         deviceContacts: NativeDeviceContactsGateway(),
@@ -1010,6 +1014,7 @@ class AppContainer {
             scheduledMessages: scheduledMessages,
             managedDirectories: managedDirectories,
             unregisterPush: pushCoordinator?.unregister,
+            forgetDiagnostics: diagnostics.forgetAccount,
             afterLocalCleanup: () async {
               await messageNotifications.clear();
               await settingsService.reloadFromSession();

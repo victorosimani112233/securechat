@@ -6,6 +6,7 @@ import 'package:flutter_securechat/src/auth/auth_api.dart';
 import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/background/background_scheduler.dart';
 import 'package:flutter_securechat/src/background/scheduled_message_service.dart';
+import 'package:flutter_securechat/src/diagnostics/crash_reporter.dart';
 import 'package:flutter_securechat/src/domain/send_message_use_case.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
@@ -31,9 +32,36 @@ void main() {
     expect(fixture.afterCleanupCalls, 1);
   });
 
+  // QA 2026-10-12 R2: cikistan sonra 200 cokme kaydi onceki hesabin
+  // userHash degeriyle cihazda kaliyordu.
+  test('logout removes crash reports that carry the account hash', () async {
+    final fixture = await _AccountFixture.open();
+    addTearDown(fixture.close);
+    final report = await fixture.diagnostics.recordException(
+      StateError('x'),
+      StackTrace.current,
+    );
+    expect(await report!.readAsString(), contains('"userHash":"'));
+    final partial = File('${report.path}.tmp')..writeAsStringSync('{}');
+
+    await fixture.service.deleteLocalData();
+
+    expect(await fixture.diagnostics.listReports(), isEmpty);
+    expect(partial.existsSync(), isFalse);
+    final next = await fixture.diagnostics.recordException(
+      StateError('y'),
+      StackTrace.current,
+    );
+    expect(await next!.readAsString(), contains('"userHash":null'));
+  });
+
   test('server rejection preserves local account and device data', () async {
     final fixture = await _AccountFixture.open(accountDeleteStatus: 500);
     addTearDown(fixture.close);
+    await fixture.diagnostics.recordException(
+      StateError('x'),
+      StackTrace.current,
+    );
 
     await expectLater(
       fixture.service.deleteAccount(),
@@ -43,6 +71,7 @@ void main() {
     expect(fixture.session.isLoggedIn, isTrue);
     expect(await fixture.database.conversations.getById('alice'), isNotNull);
     expect(await fixture.managedDirectory.exists(), isTrue);
+    expect(await fixture.diagnostics.listReports(), hasLength(1));
     expect(fixture.afterCleanupCalls, 0);
   });
 
@@ -74,6 +103,7 @@ class _AccountFixture {
     required this.scheduler,
     required this.server,
     required this.service,
+    required this.diagnostics,
   });
 
   final Directory directory;
@@ -84,6 +114,7 @@ class _AccountFixture {
   final _FakeScheduler scheduler;
   final _TestAuthServer server;
   final AccountDataService service;
+  final PrivacyCrashReporter diagnostics;
   int afterCleanupCalls = 0;
 
   static Future<_AccountFixture> open({int accountDeleteStatus = 200}) async {
@@ -161,6 +192,12 @@ class _AccountFixture {
       session: session,
       scheduler: scheduler,
     );
+    final diagnostics =
+        await PrivacyCrashReporter.open(
+            directory: Directory('${directory.path}/crash_logs'),
+            platform: const _NoDiagnosticsPlatform(),
+          )
+          ..setUserId('me');
     late _AccountFixture fixture;
     final service = AccountDataService(
       auth: auth,
@@ -168,6 +205,7 @@ class _AccountFixture {
       scheduledMessages: scheduled,
       managedDirectories: [managedDirectory],
       unregisterPush: () async => true,
+      forgetDiagnostics: diagnostics.forgetAccount,
       afterLocalCleanup: () async => fixture.afterCleanupCalls++,
     );
     fixture = _AccountFixture(
@@ -179,6 +217,7 @@ class _AccountFixture {
       scheduler: scheduler,
       server: server,
       service: service,
+      diagnostics: diagnostics,
     );
     return fixture;
   }
@@ -278,4 +317,21 @@ class _RecordingOlmKeyPublisher implements RecoveryIdentity {
 
   @override
   Future<void> clearPendingRecovery() async => _pending = null;
+}
+
+class _NoDiagnosticsPlatform implements DiagnosticsPlatformGateway {
+  const _NoDiagnosticsPlatform();
+
+  @override
+  Future<CrashMetadata> metadata() async => const CrashMetadata(
+    versionName: 'test',
+    versionCode: '1',
+    operatingSystem: 'test',
+    osVersion: 'test',
+    deviceModel: 'test',
+    manufacturer: 'test',
+  );
+
+  @override
+  Future<bool> share(File file) async => false;
 }

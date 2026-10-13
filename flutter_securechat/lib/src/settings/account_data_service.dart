@@ -14,12 +14,14 @@ class AccountDataService {
     required ScheduledMessageService scheduledMessages,
     required List<Directory> managedDirectories,
     PushUnregister? unregisterPush,
+    Future<void> Function()? forgetDiagnostics,
     Future<void> Function()? afterLocalCleanup,
   }) : _auth = auth,
        _database = database,
        _scheduledMessages = scheduledMessages,
        _managedDirectories = List.unmodifiable(managedDirectories),
        _unregisterPush = unregisterPush,
+       _forgetDiagnostics = forgetDiagnostics,
        _afterLocalCleanup = afterLocalCleanup;
 
   final AuthCoordinator _auth;
@@ -27,6 +29,10 @@ class AccountDataService {
   final ScheduledMessageService _scheduledMessages;
   final List<Directory> _managedDirectories;
   final PushUnregister? _unregisterPush;
+
+  /// Cokme kayitlari hesap ozeti tasir; cikista onlar da silinir
+  /// (QA 2026-10-12 R2).
+  final Future<void> Function()? _forgetDiagnostics;
   final Future<void> Function()? _afterLocalCleanup;
   Future<void>? _activeOperation;
 
@@ -59,10 +65,14 @@ class AccountDataService {
   });
 
   Future<void> _clearDeviceData() async {
-    await _database.clearAll();
-    for (final directory in _managedDirectories) {
-      if (!await directory.exists()) continue;
-      await directory.delete(recursive: true);
+    try {
+      await _database.clearAll();
+      for (final directory in _managedDirectories) {
+        if (!await directory.exists()) continue;
+        await directory.delete(recursive: true);
+      }
+    } finally {
+      await _forgetDiagnostics?.call();
     }
   }
 

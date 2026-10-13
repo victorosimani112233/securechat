@@ -287,7 +287,29 @@ class PrivacyCrashReporter implements CrashReporter {
         removed++;
       } on FileSystemException {}
     }
+    // Yarim kalmis yazimlar da ayni hesap ozetini tasir.
+    if (await _directory.exists()) {
+      await for (final entry in _directory.list(followLinks: false)) {
+        if (entry is! File ||
+            !RegExp(r'/crash_\d+\.json\.tmp$').hasMatch(entry.path)) {
+          continue;
+        }
+        try {
+          await entry.delete();
+        } on FileSystemException {}
+      }
+    }
     return removed;
+  }
+
+  /// Hesap cihazdan ayrildiginda cagrilir (QA 2026-10-12 R2).
+  ///
+  /// Raporlar onceki hesabin `userHash` degerini ve olay zamanlarini
+  /// tasiyor; cikistan sonra cihazda kalmamali. Sonraki raporlar hesapsiz
+  /// yazilir.
+  Future<void> forgetAccount() async {
+    setUserId(null);
+    await clearAll();
   }
 
   Future<void> _trim() async {
