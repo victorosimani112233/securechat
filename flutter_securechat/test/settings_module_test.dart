@@ -623,6 +623,27 @@ void main() {
     },
   );
 
+  // QA 2026-10-13 T3: uc eylem dar ekranda uc satira dagiliyordu. Onerilen
+  // eylem icerige alinir; eylem satirinda yalniz iki kisa dugme kalir. (Test
+  // fontu gercek fonttan cok genis oldugu icin satir duzeni burada olculmez.)
+  testWidgets('logout warning keeps only two actions in its button bar', (
+    tester,
+  ) async {
+    final pumped = await _pumpSettingsForLogout(tester, bound: false);
+    await tester.tap(pumped.logout);
+    await tester.pumpAndSettle();
+    final dialog = tester.widget<AlertDialog>(find.byType(AlertDialog));
+    expect(dialog.actions, hasLength(2));
+    expect(
+      find.descendant(
+        of: find.byType(OverflowBar),
+        matching: find.byKey(const ValueKey('logout-add-recovery')),
+      ),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('logout-add-recovery')), findsOneWidget);
+  });
+
   testWidgets(
     'logout without a recovery email warns and needs an explicit acknowledgement',
     (tester) async {

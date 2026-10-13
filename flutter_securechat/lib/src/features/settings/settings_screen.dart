@@ -911,7 +911,20 @@ class _LogoutDialogState extends State<_LogoutDialog> {
                   ? l10n.logout_no_recovery_body
                   : l10n.logout_recovery_unknown_body,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
+            // Onerilen eylem icerikte tam genislikte durur; uc eylem dar
+            // ekranda alt alta dagiliyordu (QA 2026-10-13 T3).
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                key: const ValueKey('logout-add-recovery'),
+                onPressed: () =>
+                    Navigator.pop(context, _LogoutChoice.addRecovery),
+                icon: const Icon(Icons.alternate_email),
+                label: Text(l10n.logout_add_recovery),
+              ),
+            ),
+            const SizedBox(height: 16),
             Text(l10n.logout_confirm_body),
             const SizedBox(height: 8),
             CheckboxListTile(
@@ -937,11 +950,6 @@ class _LogoutDialogState extends State<_LogoutDialog> {
                 : null,
             style: TextButton.styleFrom(foregroundColor: error),
             child: Text(l10n.logout_anyway),
-          ),
-          FilledButton(
-            key: const ValueKey('logout-add-recovery'),
-            onPressed: () => Navigator.pop(context, _LogoutChoice.addRecovery),
-            child: Text(l10n.logout_add_recovery),
           ),
         ],
       );
