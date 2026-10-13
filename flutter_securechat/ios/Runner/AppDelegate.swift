@@ -160,6 +160,8 @@ enum SecureChatContactsAccess {
         UIApplication.shared.open(url) { opened in result(opened) }
       case "openCallReadinessSetting":
         self?.openCallReadinessSetting(call.arguments, result: result)
+      case "getPermissionStatus":
+        self?.permissionStatus(result: result)
       case "requestContactsPermission":
         self?.requestContactsPermission(result: result)
       case "readContacts":
@@ -298,6 +300,26 @@ enum SecureChatContactsAccess {
         } else {
           result(nil)
         }
+      }
+    }
+  }
+
+  /// Izin ekrani verilmis izinleri "Izin ver" diye gostermesin diye mevcut
+  /// durumu SORMADAN okur (QA 2026-10-13 T8).
+  private func permissionStatus(result: @escaping FlutterResult) {
+    let contacts = CNContactStore.authorizationStatus(for: .contacts) == .authorized
+    let microphone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    let camera = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
+    UNUserNotificationCenter.current().getNotificationSettings { settings in
+      let notifications = settings.authorizationStatus == .authorized ||
+        settings.authorizationStatus == .provisional
+      DispatchQueue.main.async {
+        result([
+          "notifications": notifications,
+          "contacts": contacts,
+          "microphone": microphone,
+          "camera": camera,
+        ])
       }
     }
   }
