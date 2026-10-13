@@ -1497,6 +1497,53 @@ class EndToEndServerTest {
     }
 
     @Test
+    fun `abuse report route accepts a valid report and guards admin access`() = e2e {
+        // Store-readiness devri: servis ve DB testleri vardi, route seviyesi
+        // (kimlik, govde siniri, ret kodlari, admin gizliligi) sinanmiyordu.
+        clearRateLimits()
+        val (reporter, token) = newAccount()
+        val (target, _) = newAccount()
+        fun body(targets: String) =
+            """{"kind":"user","targetUserIds":[$targets],"reason":"spam"}"""
+
+        val anonymous = client.post("/api/v1/reports") {
+            header("Content-Type", "application/json")
+            setBody(body("\"$target\""))
+        }
+        assertEquals(HttpStatusCode.Unauthorized, anonymous.status)
+
+        val accepted = client.post("/api/v1/reports") {
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody(body("\"$target\""))
+        }
+        assertEquals(HttpStatusCode.Accepted, accepted.status)
+
+        val self = client.post("/api/v1/reports") {
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody(body("\"$reporter\""))
+        }
+        assertEquals(HttpStatusCode.BadRequest, self.status)
+
+        val unknownField = client.post("/api/v1/reports") {
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody(
+                """{"kind":"user","targetUserIds":["$target"],"reason":"spam",""" +
+                    """"content":"mesaj metni"}""",
+            )
+        }
+        assertEquals(HttpStatusCode.BadRequest, unknownField.status)
+
+        // Admin ucu kullanici token'iyla varligini bile acik etmez.
+        val admin = client.get("/api/v1/admin/reports") {
+            header("Authorization", "Bearer $token")
+        }
+        assertEquals(HttpStatusCode.NotFound, admin.status)
+    }
+
+    @Test
     fun `prekey fetch is rate limited per caller`() = e2e {
         clearRateLimits()
         val (owner, ownerToken) = newAccount()
