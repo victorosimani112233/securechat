@@ -37,6 +37,12 @@ abstract interface class PeerSessionRecovery {
   /// yeniden kurma fail-closed olur; yeni kimlik kullanici onayi veya
   /// key-transparency kaniti olmadan kabul edilmez.
   Future<bool> rebuildPeerSession(String peerId);
+
+  /// Var olan oturumlari SILMEDEN yeni bir giden oturum kurar; sonraki
+  /// gonderim bu oturumla PreKey mesaji olarak gider. Karsi taraf bu mesaji
+  /// cozunce ayni oturumu en yeni sayar ve cevaplarini onunla sifreler.
+  /// Cozulemeyen mesaj alan taraf baglantiyi boyle kendisi onarir.
+  Future<bool> openFreshSession(String peerId);
 }
 
 /// Karsi tarafin Signal kimlik anahtari degistiginde cagrilir.

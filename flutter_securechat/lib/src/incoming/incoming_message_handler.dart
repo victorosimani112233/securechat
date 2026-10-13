@@ -261,7 +261,7 @@ class IncomingMessageHandler {
         await _adminEncryptedLog(signal);
       case GroupNotificationSignal():
         await _groupNotification(signal);
-      case SessionResetRequestSignal():
+      case SessionResetRequestSignal() when privateChatControl:
         await _sessionResetRequest(signal);
       default:
         break;
@@ -419,10 +419,12 @@ class IncomingMessageHandler {
   /// Cozulemeyen bir zarfin ardindan calisir.
   ///
   /// Iki is yapar: (1) hatayi sahipli async sinirina vererek teshis kaydina
-  /// dusurur, (2) oturum kullanilamaz durumdaysa yerel oturumu atar ve karsi
-  /// tarafa `session_reset_request` gonderir. Ikinci adim olmadan karsi taraf
-  /// bizim olu oturumumuzla sifrelemeye devam eder ve sohbet kalici olarak
-  /// olur.
+  /// dusurur, (2) oturum kullanilamaz durumdaysa karsi tarafla YENI bir
+  /// oturum acar ve bu oturumla sifreli `session_reset_request` gonderir.
+  /// Karsi taraf PreKey mesajini cozunce yeni oturumu en yeni sayar ve
+  /// cevaplarini onunla sifreler; baglanti onun bir sey yapmasina gerek
+  /// kalmadan onarilir. Ikinci adim olmadan karsi taraf bizim cozemedigimiz
+  /// oturumla sifrelemeye devam eder ve sohbet kalici olarak olur.
   Future<void> _recoverFromDecryptFailure(
     EncryptedSignalMessage signal,
     Object error,
@@ -440,35 +442,46 @@ class IncomingMessageHandler {
     }
     if (error is! SignalSessionUnusableException) return;
     final peerId = error.peerId;
+    final localUserId = _session.userId;
+    if (localUserId == null || peerId == localUserId) return;
+    // Ayni anda gelen bir yigin eski cerceve her biri icin yeni oturum
+    // acip karsinin tek kullanimlik anahtarlarini tuketmesin.
+    final now = DateTime.now();
+    final last = _sessionResetSentAt[peerId];
+    if (last != null && now.difference(last) < sessionResetInterval) return;
+    _sessionResetSentAt[peerId] = now;
     // Yerel oturumlar SILINMEZ: cozulemeyen zarf bozuk ya da silinmis eski bir
     // oturuma ait olabilir ve saglam konusmayi koparirdi (QA 2026-10-13 T16).
-    // Karsi taraftan yeni bir oturum kurmasi istenir; yeni PreKey oturumu var
-    // olanlarin yanina eklenir.
-    final localUserId = _session.userId;
-    if (localUserId == null) return;
-    // Karsi tarafin da bizimle olan oturumunu atmasini iste; boylece bir
-    // sonraki gonderiminde taze bir X3DH kurulur.
-    await _signaling.send(
-      SessionResetRequestSignal(
+    // Yeni oturum var olanlarin yanina eklenir.
+    if (_crypto case final PeerSessionRecovery recovery) {
+      if (!await recovery.openFreshSession(peerId)) return;
+    }
+    // Duz `session_reset_request` sunucuda reddedilir (gizlilik: kontrol
+    // cerceveleri yalniz CHATCTRL:v2 icinde tasinir); istek hic ulasmiyordu
+    // (QA 2026-10-13 T14).
+    await sendPrivateChatControl(
+      crypto: _crypto,
+      signaling: _signaling,
+      control: SessionResetRequestSignal(
         senderId: localUserId,
         recipientId: peerId,
-        timestamp: DateTime.now(),
+        timestamp: now,
         reason: 'undecryptable-envelope',
       ),
     );
   }
 
-  /// Karsi taraf oturumun bozuldugunu bildirdi: yerel oturumu atiyoruz ki
-  /// bir sonraki gonderim yeni prekey bundle ile bastan kurulsun.
+  /// Ayni peer icin iki oturum onarimi arasindaki en kisa sure.
+  static const sessionResetInterval = Duration(minutes: 1);
+  final _sessionResetSentAt = <String, DateTime>{};
+
+  /// Karsi taraf bizden gelen bir mesaji cozemedi ve yeni bir oturumla bu
+  /// istegi gonderdi. Istek o yeni oturumla geldigi icin oturum zaten en yeni
+  /// olarak saklandi ve sonraki gonderimler onu kullanir; yerel oturum
+  /// SILINMEZ (silmek az once kurulan saglam oturumu da atardi).
   Future<void> _sessionResetRequest(SessionResetRequestSignal signal) async {
     final localUserId = _session.userId;
     if (localUserId == null || localUserId != signal.recipientId) return;
-    if (_crypto case final PeerSessionRecovery recovery) {
-      // Bu kontrol signaling katmanindadir ve kotucul sunucu tarafindan
-      // uretilebilir. Yalniz oturumu sifirlayabilir; pinli kimligi silemez veya
-      // yeni bundle'i guvenilir ilan edemez.
-      await recovery.resetPeerSession(signal.senderId);
-    }
   }
 
   /// Karsi tarafin gonderdigi zaman damgasini makul bir pencereye kirpar.

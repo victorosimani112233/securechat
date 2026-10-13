@@ -200,6 +200,12 @@ class VodozemacCryptoService
     } else if ((await _store.sessionIdsForPeer(recipientId)).isNotEmpty) {
       return true;
     }
+    return _createOutboundSession(recipientId);
+  }
+
+  /// Taze bir prekey bundle ile yeni giden oturum kurar ve saklar. Yeni oturum
+  /// en son kullanilan sayildigi icin sonraki gonderim onunla yapilir.
+  Future<bool> _createOutboundSession(String recipientId) async {
     final bundle = await _preKeyBundles.fetch(recipientId);
     if (bundle == null) return false;
 
@@ -243,6 +249,12 @@ class VodozemacCryptoService
   );
 
   @override
+  Future<bool> openFreshSession(String peerId) => _operations.protect(
+    'direct:$peerId',
+    () => _createOutboundSession(peerId),
+  );
+
+  @override
   Future<bool> rebuildPeerSession(String peerId) =>
       _operations.protect('direct:$peerId', () async {
         await _store.deleteSessionsForPeer(peerId);
@@ -256,8 +268,7 @@ class VodozemacCryptoService
   /// saglikli bir oturumda da olagandir ve oturumu sifirlamak, tekrar
   /// oynatilan tek bir cerceveyle oturumu yok etme imkani verirdi.
   static bool indicatesUnusableSession(Object error) =>
-      error is SecureChatCryptoException &&
-      error.kind.indicatesUnusableSession;
+      error is SecureChatCryptoException && error.kind.indicatesUnusableSession;
 
   // -------------------------------------------------------------------------
   // Direct mesajlar

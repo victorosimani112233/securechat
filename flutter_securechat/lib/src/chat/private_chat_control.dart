@@ -20,6 +20,7 @@ const _privateControlTypes = <String>{
   'shared_phone',
   'shared_profile_name',
   'view_once_opened',
+  'session_reset_request',
 };
 
 bool isPrivateChatControl(String plaintext) =>

@@ -208,6 +208,59 @@ void main() {
       },
     );
 
+    // QA 2026-10-13 T14: oturumu kaybeden taraf, karsi tarafin bir sey
+    // yapmasina gerek kalmadan baglantiyi yeni oturumla kendisi onarir.
+    test('cozemeyen taraf yeni oturum acinca karsi taraf ona gecer', () async {
+      final hello = await alice.service.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'merhaba',
+      );
+      await bob.service.decryptDirect(senderId: 'alice', envelope: hello);
+      final reply = await bob.service.encryptDirect(
+        recipientId: 'alice',
+        plaintext: 'cevap',
+      );
+      await alice.service.decryptDirect(senderId: 'bob', envelope: reply);
+      // Bob oturumu kaybeder (yeniden kurulum, bozuk durum...).
+      await bob.store.deleteSessionsForPeer('alice');
+      final lost = await alice.service.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'kayip',
+      );
+      await expectLater(
+        bob.service.decryptDirect(senderId: 'alice', envelope: lost),
+        throwsA(isA<SignalSessionUnusableException>()),
+      );
+
+      expect(await bob.service.openFreshSession('alice'), isTrue);
+      final reset = await bob.service.encryptDirect(
+        recipientId: 'alice',
+        plaintext: 'sifirla',
+      );
+      expect(
+        await alice.service.decryptDirect(senderId: 'bob', envelope: reset),
+        'sifirla',
+      );
+
+      final after = await alice.service.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'onarildi',
+      );
+      expect(
+        await bob.service.decryptDirect(senderId: 'alice', envelope: after),
+        'onarildi',
+      );
+    });
+
+    test('yeni oturum acmak var olan oturumlari silmez', () async {
+      await alice.service.ensureSession('bob');
+      final before = await alice.store.sessionIdsForPeer('bob');
+      expect(await alice.service.openFreshSession('bob'), isTrue);
+      final after = await alice.store.sessionIdsForPeer('bob');
+      expect(after, hasLength(before.length + 1));
+      expect(after.skip(1), containsAll(before));
+    });
+
     test('desteklenmeyen zarf reddedilir', () {
       expect(
         () => bob.service.decryptDirect(

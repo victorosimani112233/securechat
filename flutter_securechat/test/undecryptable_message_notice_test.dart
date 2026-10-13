@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter_securechat/src/chat/private_chat_control.dart';
 import 'package:flutter_securechat/src/chat/security_notice_service.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
 import 'package:flutter_securechat/src/incoming/incoming_message_handler.dart';
@@ -120,10 +121,32 @@ void main() {
     expect(acks, isNotEmpty, reason: 'sunucu mesaji tekrar teslim etmemeli');
     expect(failing.decryptCalls, 1, reason: 'ayni teslim ikinci kez denenmez');
     expect(failing.resets, 0, reason: 'yerel oturumlar korunur');
+    expect(failing.freshSessions, 1, reason: 'yeni oturum bir kez acilir');
     expect(
       signaling.sentMessages.whereType<SessionResetRequestSignal>(),
+      isEmpty,
+      reason: 'duz istek sunucuda reddedilir (T14)',
+    );
+    final controls = <SignalMessage>[];
+    for (final sent
+        in signaling.sentMessages.whereType<EncryptedSignalMessage>()) {
+      final plaintext = await failing.decryptOwn(
+        sent.recipientId,
+        sent.envelope,
+      );
+      if (!isPrivateChatControl(plaintext)) continue;
+      controls.add(
+        decodePrivateChatControl(
+          plaintext: plaintext,
+          authenticatedSenderId: 'me',
+          localRecipientId: sent.recipientId,
+        ),
+      );
+    }
+    expect(
+      controls.whereType<SessionResetRequestSignal>(),
       hasLength(1),
-      reason: 'karsi taraftan yeni oturum istenir',
+      reason: 'karsi taraftan yeni oturum sifreli kanalla istenir',
     );
   });
 
@@ -198,8 +221,20 @@ class _UnusableSessionCrypto extends LocalAeadCryptoService
     );
   }
 
+  int freshSessions = 0;
+
+  /// Bu servisin kendi gonderdigi zarfi acar (yerel AEAD simetrik).
+  Future<String> decryptOwn(String recipientId, String envelope) =>
+      super.decryptDirect(senderId: recipientId, envelope: envelope);
+
   @override
   Future<void> resetPeerSession(String peerId) async => resets++;
+
+  @override
+  Future<bool> openFreshSession(String peerId) async {
+    freshSessions++;
+    return true;
+  }
 
   @override
   Future<bool> rebuildPeerSession(String peerId) async {
