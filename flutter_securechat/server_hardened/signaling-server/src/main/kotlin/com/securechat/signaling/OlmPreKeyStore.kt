@@ -98,6 +98,15 @@ object OlmPreKeyStore {
     )
 
     /**
+     * Hesapta farkli bir Olm kimligi kayitli. Cihazin yerel kimligi
+     * sunucudakinden sapmis demektir; yeni kimlik yalniz acik kurtarma ile
+     * kabul edilir. Istemci bunu ayirt edip kullaniciyi kurtarmaya
+     * yonlendirebilsin diye ayri tip (QA 2026-10-13 T5 madde 3).
+     */
+    class IdentityRecoveryRequiredException :
+        IllegalStateException("Explicit identity recovery required")
+
+    /**
      * Kimligi ve imza anahtarini kurar ya da korur.
      *
      * [PreKeyStore.setIdentityKey] ile ayni kural: ilk yazma kimligi kurar,
@@ -125,14 +134,14 @@ object OlmPreKeyStore {
             }
             PreKeyIdentityGuard.check(conn, userId, expectedEpoch = expectedEpoch)
             val (oldIdentity, oldSigning) = existing
-            check(oldIdentity == null || oldIdentity.contentEquals(identityKey)) {
-                "Explicit identity recovery required"
+            if (oldIdentity != null && !oldIdentity.contentEquals(identityKey)) {
+                throw IdentityRecoveryRequiredException()
             }
             // Imza anahtari da kimligin parcasi. Kimlik ayni kalirken imza
             // anahtarinin degismesine izin vermek, TOFU pinlemesini
             // (`identityBytes` ikisini birlikte pinler) anlamsiz kilardi.
-            check(oldSigning == null || oldSigning.contentEquals(signingKey)) {
-                "Explicit identity recovery required"
+            if (oldSigning != null && !oldSigning.contentEquals(signingKey)) {
+                throw IdentityRecoveryRequiredException()
             }
             conn.prepareStatement(
                 "UPDATE users SET olm_identity_key = ?, signing_public_key = ? " +

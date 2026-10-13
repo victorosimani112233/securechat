@@ -1475,6 +1475,28 @@ class EndToEndServerTest {
     }
 
     @Test
+    fun `a different Olm identity is answered with identity_recovery_required`() = e2e {
+        // QA 2026-10-13 T5 madde 3: istemci kimlik sapmasini genel 400'den
+        // ayirt edemiyor ve kullaniciya hicbir sey soyleyemiyordu.
+        clearRateLimits()
+        val (_, token) = newAccount()
+        uploadOlmBundle(token)
+        val encoder = java.util.Base64.getEncoder()
+        val other = encoder.encodeToString(ByteArray(32) { 9 })
+        val signing = encoder.encodeToString(ByteArray(32) { 6 })
+        val response = client.post("/api/v1/prekeys/upload") {
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody(
+                """{"olmIdentityKey":"$other","olmSigningKey":"$signing",""" +
+                    """"olmOneTimeKeys":[]}""",
+            )
+        }
+        assertEquals(HttpStatusCode.Conflict, response.status)
+        assertTrue(response.bodyAsText().contains("identity_recovery_required"))
+    }
+
+    @Test
     fun `prekey fetch is rate limited per caller`() = e2e {
         clearRateLimits()
         val (owner, ownerToken) = newAccount()

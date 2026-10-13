@@ -1009,6 +1009,15 @@ fun Application.configureRoutes(
                     HttpStatusCode.Conflict,
                     mapOf("error" to "prekey_conflict", "keyId" to conflict.keyId.toString()),
                 )
+            } catch (_: OlmPreKeyStore.IdentityRecoveryRequiredException) {
+                // Cihazin kimligi hesaptakinden farkli: istemci kullaniciyi
+                // e-postayla kurtarmaya yonlendirir. Eskiden genel 400 donuyor
+                // ve istemci yalniz teshis satiri yaziyordu.
+                logger.warn("[PreKey] Olm kimligi hesaptakiyle uyusmuyor")
+                call.respond(
+                    HttpStatusCode.Conflict,
+                    mapOf("error" to "identity_recovery_required"),
+                )
             } catch (conflict: OlmPreKeyStore.KeyConflictException) {
                 // Ayni keyId farkli materyalle geldi. 409 donmek sart:
                 // sessizce eskisini tutup 200 donmek, istemcinin yuklendigini
