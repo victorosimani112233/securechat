@@ -226,6 +226,35 @@ void main() {
         'Alfa (rehber)',
       );
     });
+
+    // QA 2026-10-13 T2: tus takimindan numarayla acilan kisinin adi numara
+    // oluyor ve paylasilan ad hic gorunmuyordu.
+    test('a contact added only by number shows the shared name', () async {
+      final f = await _Fixture.open();
+      addTearDown(f.close);
+      await f.db.contacts.insert(
+        const ContactEntity(
+          id: 'stranger',
+          phoneNumber: '+905321000412',
+          phoneHash: 'h',
+          displayName: '+905321000412',
+          isRegistered: true,
+          addedManually: true,
+        ),
+      );
+      await f.db.conversations.insert(
+        const ConversationEntity(
+          id: 'stranger',
+          peerId: 'stranger',
+          peerName: '+905321000412',
+          peerPhone: '+905321000412',
+        ),
+      );
+
+      await f.names.accept(_signal('Beta'));
+
+      expect((await f.db.conversations.getById('stranger'))?.peerName, '~Beta');
+    });
   });
 }
 

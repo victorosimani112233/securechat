@@ -8,6 +8,7 @@ import '../services/crypto_service.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import '../storage/secure_chat_database.dart';
+import '../storage/storage_entities.dart';
 
 typedef EncryptedProfileNameSender =
     Future<bool> Function(EncryptedSignalMessage);
@@ -181,8 +182,11 @@ class ProfileNameSharingService {
       await _database.cryptoState.put('$_receivedPrefix$peerId', name);
       final conversation = await _database.conversations.getByPeerId(peerId);
       if (conversation == null || conversation.isGroup) return true;
-      // Rehber (ya da elle eklenmis) kayit varsa onun adi gecerli kalir.
-      if (await _database.contacts.getById(peerId) != null) return true;
+      // Rehber (ya da elle adlandirilmis) kayit varsa onun adi gecerli kalir.
+      // Yalniz numarayla acilan kayitta ad numaranin kendisidir; kullanici ad
+      // yazmamistir ve paylasilan ad gosterilir (QA 2026-10-13 T2).
+      final contact = await _database.contacts.getById(peerId);
+      if (contact != null && !isUnnamedContact(contact)) return true;
       final current = conversation.peerName;
       final label = '~$name';
       final replaceable =
@@ -202,6 +206,12 @@ class ProfileNameSharingService {
       return false;
     }
   }
+
+  /// Kullanicinin ad vermedigi, yalniz numarayla eklenmis kisi kaydi.
+  static bool isUnnamedContact(ContactEntity contact) =>
+      contact.addedManually &&
+      (contact.displayName.trim().isEmpty ||
+          contact.displayName.trim() == contact.phoneNumber.trim());
 
   /// Kisi kaydi olmayan karsi taraf icin "~Ad" etiketi; yoksa null.
   ///

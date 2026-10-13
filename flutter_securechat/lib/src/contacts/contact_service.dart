@@ -7,6 +7,7 @@ import '../network/network_resilience.dart';
 import '../platform/native_bridge.dart';
 import '../services/session_store.dart';
 import '../storage/secure_chat_database.dart';
+import 'profile_name_sharing_service.dart';
 import '../storage/storage_entities.dart';
 import 'contact_discovery_api.dart';
 
@@ -228,8 +229,7 @@ class ContactService {
     // (tus takimindan numara) rehberde olmadigi icin siliniyordu.
     final deviceHashes = byHash.keys.toSet();
     for (final existing in await _database.contacts.getAllOnce()) {
-      if (existing.addedManually ||
-          deviceHashes.contains(existing.phoneHash)) {
+      if (existing.addedManually || deviceHashes.contains(existing.phoneHash)) {
         continue;
       }
       final conversation = await _database.conversations.getByPeerId(
@@ -274,11 +274,17 @@ class ContactService {
 
   Future<ConversationEntity> ensureConversation(ContactEntity contact) async {
     final existing = await _database.conversations.getByPeerId(contact.id);
+    // Yalniz numarayla eklenen kiside karsi tarafin paylastigi "~Ad"
+    // numaradan once gelir (QA 2026-10-13 T2).
+    final title = ProfileNameSharingService.isUnnamedContact(contact)
+        ? await ProfileNameSharingService.storedLabel(_database, contact.id) ??
+              contact.displayName
+        : contact.displayName;
     if (existing != null) {
       if (!existing.isGroup) {
         await _database.conversations.updatePeerIdentity(
           existing.id,
-          contact.displayName,
+          title,
           contact.phoneNumber,
         );
         return (await _database.conversations.getById(existing.id))!;
@@ -288,7 +294,7 @@ class ContactService {
     final conversation = ConversationEntity(
       id: contact.id,
       peerId: contact.id,
-      peerName: contact.displayName,
+      peerName: title,
       peerPhone: contact.phoneNumber,
     );
     await _database.conversations.insert(conversation);
