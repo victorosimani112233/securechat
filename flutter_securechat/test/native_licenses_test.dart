@@ -58,5 +58,19 @@ void main() {
     });
 
     expect(packages, containsAll(['WebRTC', 'SQLCipher', 'vodozemac']));
+    // WebRTC ikilisine derlenen ucuncu taraf kutuphaneler de listelenmeli.
+    expect(
+      packages,
+      containsAll([
+        'BoringSSL (WebRTC)',
+        'libvpx (WebRTC)',
+        'libaom (WebRTC)',
+        'dav1d (WebRTC)',
+        'Opus (WebRTC)',
+        'libsrtp (WebRTC)',
+        'libyuv (WebRTC)',
+        'Abseil (WebRTC)',
+      ]),
+    );
   });
 }

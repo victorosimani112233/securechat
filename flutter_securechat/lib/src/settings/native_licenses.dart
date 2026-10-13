@@ -18,10 +18,20 @@ const _staticLicenses = <(List<String>, String)>[
       'Google Tink',
       'Apache Tika',
       'Kotlin',
+      'Abseil (WebRTC)',
     ],
     _apacheAsset,
   ),
   (['WebRTC'], 'assets/licenses/webrtc_BSD-3-Clause.txt'),
+  // WebRTC ikili dosyasinin icine derlenen ucuncu taraf kutuphaneler; metinler
+  // ust kaynak depolarindan alindi (2026-10-13).
+  (['BoringSSL (WebRTC)'], 'assets/licenses/boringssl_LICENSE.txt'),
+  (['libvpx (WebRTC)'], 'assets/licenses/libvpx_BSD-3-Clause.txt'),
+  (['libaom (WebRTC)'], 'assets/licenses/libaom_BSD-2-Clause.txt'),
+  (['dav1d (WebRTC)'], 'assets/licenses/dav1d_BSD-2-Clause.txt'),
+  (['Opus (WebRTC)'], 'assets/licenses/opus_BSD-3-Clause.txt'),
+  (['libsrtp (WebRTC)'], 'assets/licenses/libsrtp_BSD-3-Clause.txt'),
+  (['libyuv (WebRTC)'], 'assets/licenses/libyuv_BSD-3-Clause.txt'),
   (['SQLCipher'], 'assets/licenses/sqlcipher_BSD-3-Clause.txt'),
 ];
 

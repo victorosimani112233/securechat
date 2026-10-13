@@ -47,7 +47,14 @@ flutter:
     - assets/images/new_logo.png
     - assets/images/splash_logo.png
     - assets/licenses/audioswitch_APACHE-2.0.txt
+    - assets/licenses/boringssl_LICENSE.txt
+    - assets/licenses/dav1d_BSD-2-Clause.txt
+    - assets/licenses/libaom_BSD-2-Clause.txt
+    - assets/licenses/libsrtp_BSD-3-Clause.txt
+    - assets/licenses/libvpx_BSD-3-Clause.txt
+    - assets/licenses/libyuv_BSD-3-Clause.txt
     - assets/licenses/native_rust_crates.txt
+    - assets/licenses/opus_BSD-3-Clause.txt
     - assets/licenses/sqlcipher_BSD-3-Clause.txt
     - assets/licenses/webrtc_BSD-3-Clause.txt
     - assets/sounds/
