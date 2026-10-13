@@ -73,6 +73,27 @@ void main() {
     },
   );
 
+  // QA 2026-10-13 T11: dugme uc tuslu gezinme cubugunun altinda kaliyordu;
+  // dokunus Ana ekran tusuna gidiyordu.
+  testWidgets('approve button clears the system navigation bar', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 3;
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.padding = const FakeViewPadding(bottom: 210);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 210);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(_screen(_ReviewService()));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -3000));
+    await tester.pumpAndSettle();
+    final screenHeight = 2340 / 3;
+    expect(
+      tester.getRect(_approveButton).bottom,
+      lessThanOrEqualTo(screenHeight - 210 / 3),
+    );
+  });
+
   testWidgets('load failure and retry never grant approval', (tester) async {
     final service = _ReviewService()..loadError = StateError('offline');
     await tester.pumpWidget(_screen(service));

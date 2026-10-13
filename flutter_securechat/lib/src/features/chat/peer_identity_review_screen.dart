@@ -146,7 +146,15 @@ class _PeerIdentityReviewScreenState extends State<PeerIdentityReviewScreen> {
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
-                padding: const EdgeInsets.all(20),
+                // Uygulama kenardan kenara cizer; acik padding verilince
+                // ListView sistem gezinme cubugunu kendisi hesaba katmaz ve
+                // onay dugmesi cubugun altinda kaliyordu (QA 2026-10-13 T11).
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  20,
+                  20,
+                  20 + MediaQuery.paddingOf(context).bottom,
+                ),
                 children: [
                   Text(
                     widget.peerName,
