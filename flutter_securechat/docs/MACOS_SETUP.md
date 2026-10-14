@@ -38,6 +38,7 @@ Son ikisi Signal oturum durumu ve TLS özel anahtarı içerir ve zaten
 | Dart | 3.12.2 | Flutter ile gelir |
 | Xcode | 26.0 | App Store |
 | SQLCipher | herhangi bir 4.x | `brew install sqlcipher` |
+| Rust | stable (rustup) | `curl https://sh.rustup.rs -sSf \| sh`, sonra `rustup target add aarch64-apple-ios aarch64-apple-ios-sim` |
 | Java | 21 | `brew install --cask temurin@21` (yalnız Android için) |
 
 Flutter sürümü farklıysa çalışır ama doğrulanmamıştır; `pubspec.yaml`
@@ -71,6 +72,18 @@ Preflight betiği bunu ilk sırada denetler; bir kez doğru olması yetmiyor.
 
 Runtime'ı kurmuş olmak cihaz SDK'sını getirmez. `flutter build ios --release
 --no-codesign` cihaz SDK'sını ister.
+
+### Rust neden gerekiyor (2026-10-14)
+
+Şifreleme çekirdeği (`native/securechat_crypto`, vodozemac) Rust'ta ve Xcode
+onu derlemez. `tool/build_native_crypto.sh ios` cihaz ve simülatör için
+statik kütüphaneleri üretip `ios/SecureChatCrypto/Artifacts/` altına
+XCFramework olarak koyar; `Runner` hedefi bu yerel paketi bağlar ve
+`ios/Flutter/SecureChatCrypto.xcconfig` her C ABI simgesini ikiliye zorla
+alır. `tool/verify_ios_on_macos.sh` ve `tool/run_ios_device.sh` bu adımı
+kendisi koşturur ve derlenen `Runner` ikilisinde simgelerin hepsini denetler.
+Artefakt üretilmeden Xcode'da doğrudan derlerseniz paket çözümlenmez
+("Artifacts/SecureChatCrypto.xcframework bulunamadı"): önce betiği koşturun.
 
 ### SQLCipher neden ayrıca gerekiyor
 

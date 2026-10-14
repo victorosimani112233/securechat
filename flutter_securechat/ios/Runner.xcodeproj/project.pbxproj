@@ -14,6 +14,7 @@
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		5C1FE00000000000000003AA /* SQLCipher in Frameworks */ = {isa = PBXBuildFile; productRef = 5C1FE00000000000000002AA /* SQLCipher */; };
+		5C1FE00000000000000006AA /* SecureChatCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 5C1FE00000000000000005AA /* SecureChatCrypto */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
@@ -103,6 +104,7 @@
 			files = (
 				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				5C1FE00000000000000003AA /* SQLCipher in Frameworks */,
+				5C1FE00000000000000006AA /* SecureChatCrypto in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -219,6 +221,7 @@
 			packageProductDependencies = (
 				78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */,
 				5C1FE00000000000000002AA /* SQLCipher */,
+				5C1FE00000000000000005AA /* SecureChatCrypto */,
 			);
 			productName = Runner;
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
@@ -259,6 +262,7 @@
 			packageReferences = (
 				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */,
 				5C1FE00000000000000001AA /* XCLocalSwiftPackageReference "SQLCipher" */,
+				5C1FE00000000000000004AA /* XCLocalSwiftPackageReference "SecureChatCrypto" */,
 			);
 			productRefGroup = 97C146EF1CF9000F007C117D /* Products */;
 			projectDirPath = "";
@@ -733,6 +737,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = SQLCipher;
 		};
+		5C1FE00000000000000004AA /* XCLocalSwiftPackageReference "SecureChatCrypto" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = SecureChatCrypto;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -743,6 +751,10 @@
 		5C1FE00000000000000002AA /* SQLCipher */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SQLCipher;
+		};
+		5C1FE00000000000000005AA /* SecureChatCrypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SecureChatCrypto;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

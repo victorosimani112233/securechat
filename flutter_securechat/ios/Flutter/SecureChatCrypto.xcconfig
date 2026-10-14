@@ -1,0 +1,12 @@
+// Kripto cekirdegi (native/securechat_crypto) iOS'ta XCFramework icinde
+// STATIK kutuphane olarak baglanir. Dart onu DynamicLibrary.process() ve
+// dlsym ile arar; Swift/ObjC tarafinda bu simgelere hicbir basvuru olmadigi
+// icin baglayici arsivden nesne dosyasini cekmez ve uygulama ilk sifreleme
+// cagrisinda "symbol not found" ile coker. -u her C ABI simgesini tanimsiz
+// sayip arsivden zorla ceker; Runner hedefindeki -export_dynamic onlari
+// dlsym icin disa acik tutar.
+//
+// Liste securechat_crypto.h ile birebir ayni olmali;
+// test/ios_crypto_link_test.dart bunu denetler.
+SECURECHAT_CRYPTO_LDFLAGS = -Wl,-u,_sc_abi_version -Wl,-u,_sc_account_create_inbound_session -Wl,-u,_sc_account_create_outbound_session -Wl,-u,_sc_account_free -Wl,-u,_sc_account_from_pickle -Wl,-u,_sc_account_generate_fallback_key -Wl,-u,_sc_account_generate_one_time_keys -Wl,-u,_sc_account_identity_keys -Wl,-u,_sc_account_mark_keys_as_published -Wl,-u,_sc_account_new -Wl,-u,_sc_account_one_time_keys -Wl,-u,_sc_account_pickle -Wl,-u,_sc_account_sign -Wl,-u,_sc_account_stored_one_time_key_count -Wl,-u,_sc_group_session_encrypt -Wl,-u,_sc_group_session_free -Wl,-u,_sc_group_session_from_pickle -Wl,-u,_sc_group_session_id -Wl,-u,_sc_group_session_key -Wl,-u,_sc_group_session_new -Wl,-u,_sc_group_session_pickle -Wl,-u,_sc_inbound_group_session_decrypt -Wl,-u,_sc_inbound_group_session_free -Wl,-u,_sc_inbound_group_session_from_pickle -Wl,-u,_sc_inbound_group_session_id -Wl,-u,_sc_inbound_group_session_new -Wl,-u,_sc_inbound_group_session_pickle -Wl,-u,_sc_last_error -Wl,-u,_sc_last_error_code -Wl,-u,_sc_session_decrypt -Wl,-u,_sc_session_encrypt -Wl,-u,_sc_session_free -Wl,-u,_sc_session_from_pickle -Wl,-u,_sc_session_id -Wl,-u,_sc_session_pickle -Wl,-u,_sc_string_free
+OTHER_LDFLAGS = $(inherited) $(SECURECHAT_CRYPTO_LDFLAGS)

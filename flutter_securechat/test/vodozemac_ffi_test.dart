@@ -412,7 +412,9 @@ Uint8List _decodeKey(String value) =>
 String? _resolveHostLibrary() {
   final candidates = <String>[
     'native/securechat_crypto/target/release/libsecurechat_crypto.so',
+    'native/securechat_crypto/target/release/libsecurechat_crypto.dylib',
     'native/securechat_crypto/target/debug/libsecurechat_crypto.so',
+    'native/securechat_crypto/target/debug/libsecurechat_crypto.dylib',
   ];
   for (final candidate in candidates) {
     if (File(candidate).existsSync()) return File(candidate).absolute.path;

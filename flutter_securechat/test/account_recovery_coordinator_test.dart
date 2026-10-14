@@ -550,7 +550,9 @@ String _foreignKey() =>
 String? _resolveHostLibrary() {
   for (final candidate in const [
     'native/securechat_crypto/target/release/libsecurechat_crypto.so',
+    'native/securechat_crypto/target/release/libsecurechat_crypto.dylib',
     'native/securechat_crypto/target/debug/libsecurechat_crypto.so',
+    'native/securechat_crypto/target/debug/libsecurechat_crypto.dylib',
   ]) {
     if (File(candidate).existsSync()) return File(candidate).absolute.path;
   }

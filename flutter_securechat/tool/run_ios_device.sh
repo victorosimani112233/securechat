@@ -130,6 +130,13 @@ for d in devices:
 [[ -n "$device" ]] || die "Bagli iPhone bulunamadi. USB baglantisini ve cihazdaki guven onayini kontrol edin."
 ok "$device"
 
+# --- 6b. Kripto cekirdegi ---------------------------------------------------
+# Rust cekirdegi Xcode'da derlenmez; XCFramework yoksa paket cozumlenmez,
+# eskiyse Dart'in bekledigi ABI ile uyusmaz.
+step "Kripto cekirdegi (iOS)"
+tool/build_native_crypto.sh ios || die "Kripto cekirdegi derlenemedi (rustup/cargo kurulu mu?)."
+ok "SecureChatCrypto.xcframework hazir"
+
 # --- 7. Calistir ------------------------------------------------------------
 step "Uygulama kuruluyor ($mode)"
 note "OTP kodu: 123456  (sunucu her adresi kabul eder)"
