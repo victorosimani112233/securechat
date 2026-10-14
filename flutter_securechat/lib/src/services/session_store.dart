@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'async_operation_tracker.dart';
 import 'crypto_service.dart';
@@ -301,25 +302,80 @@ class PersistentSessionStore extends SessionStore {
 
   Future<T> _withFileLock<T>(Future<T> Function() action) async {
     final lockFile = File('${_file.path}.refresh.lock');
+    final owner = await _acquireIsolateLock();
     RandomAccessFile? handle;
     try {
-      handle = await lockFile.open(mode: FileMode.write);
-      await handle.lock(FileLock.exclusive);
+      try {
+        handle = await lockFile.open(mode: FileMode.write);
+        await handle.lock(FileLock.exclusive);
+      } on FileSystemException {
+        // Kilit alinamazsa yenilemeyi ENGELLEMEK yanlis olur: tek sonucu
+        // oturumun hic yenilenememesi olurdu. Sirasiz kosmak, hic
+        // kosmamaktan iyi. Yalniz kilit adimi yakalanir: eylemin kendi
+        // dosya hatasi (or. kalicilik) eylemi ikinci kez kosturmamali,
+        // yoksa az once harcanan refresh token yeniden gonderilirdi.
+        await handle?.close();
+        handle = null;
+      }
       return await action();
-    } on FileSystemException {
-      // Kilit alinamazsa yenilemeyi ENGELLEMEK yanlis olur: tek sonucu
-      // oturumun hic yenilenememesi olurdu. Sirasiz kosmak, hic
-      // kosmamaktan iyi.
-      return action();
     } finally {
-      if (handle != null) {
+      final locked = handle;
+      if (locked != null) {
         try {
-          await handle.unlock();
+          await locked.unlock();
         } catch (_) {
           // Kilit zaten birakilmis olabilir.
         }
-        await handle.close();
+        await locked.close();
       }
+      await _releaseIsolateLock(owner);
+    }
+  }
+
+  /// Ayni surecteki isolate'ler arasi kilit (QA 2026-10-14).
+  ///
+  /// `FileLock` POSIX kilidi oldugu icin ayni surecteki ikinci isolate'i
+  /// (FCM arka plan motoru) beklemeden gecirir; iki motor ayni tek
+  /// kullanimlik refresh token'i harciyordu. Ozel olusturma (`exclusive`)
+  /// isletim sisteminde atomiktir ve her isolate'i ayni sekilde siraya
+  /// sokar. Coken bir sahibin birakmadigi kilit [_isolateLockStale] sonra
+  /// bayat sayilir; [_isolateLockWait] asilirsa yenileme yine kosar, cunku
+  /// sirasiz kosmak hic kosmamaktan iyidir.
+  static const _isolateLockStale = Duration(seconds: 90);
+  static const _isolateLockWait = Duration(seconds: 45);
+
+  Future<File?> _acquireIsolateLock() async {
+    final owner = File('${_file.path}.refresh.owner');
+    final deadline = DateTime.now().add(_isolateLockWait);
+    var delay = const Duration(milliseconds: 20);
+    while (true) {
+      try {
+        await owner.create(exclusive: true);
+        return owner;
+      } on FileSystemException {
+        try {
+          final age = DateTime.now().difference(await owner.lastModified());
+          if (age > _isolateLockStale) {
+            await owner.delete();
+            continue;
+          }
+        } on FileSystemException {
+          // Sahibi tam bu anda birakti; yeniden dene.
+          continue;
+        }
+        if (DateTime.now().isAfter(deadline)) return null;
+        await Future<void>.delayed(delay);
+        if (delay < const Duration(milliseconds: 500)) delay *= 2;
+      }
+    }
+  }
+
+  Future<void> _releaseIsolateLock(File? owner) async {
+    if (owner == null) return;
+    try {
+      await owner.delete();
+    } on FileSystemException {
+      // Bayat sayilip baskasi tarafindan silinmis olabilir.
     }
   }
 
@@ -383,16 +439,35 @@ class PersistentSessionStore extends SessionStore {
     final operation = _writeTail.then<void>((_) async {
       await _file.parent.create(recursive: true);
       final envelope = await _crypto.encryptStorageJson(snapshot);
-      final tmp = File('${_file.path}.tmp');
-      await tmp.writeAsString(envelope, flush: true);
-      if (await _file.exists()) {
-        await _file.delete();
+      // Ayni surecteki baska bir isolate (FCM arka plan motoru) ayni anda
+      // yazabilir. Ortak bir `.tmp` adi ve "once sil, sonra adlandir"
+      // sirasi, biri digerinin dosyasini silince oturumu tamamen yok
+      // ediyordu (QA 2026-10-14). Her yazim kendi gecici dosyasini kullanir
+      // ve rename hedefi atomik olarak degistirir; dosya hicbir an eksik
+      // kalmaz.
+      final tmp = File('${_file.path}.${_tmpSuffix()}.tmp');
+      try {
+        await tmp.writeAsString(envelope, flush: true);
+        await tmp.rename(_file.path);
+      } catch (_) {
+        try {
+          if (await tmp.exists()) await tmp.delete();
+        } catch (_) {
+          // Artik dosya bir sonraki yazimi engellemez.
+        }
+        rethrow;
       }
-      await tmp.rename(_file.path);
     });
     _writeTail = operation.then<void>((_) {}, onError: (_, _) {});
     return operation;
   }
+
+  static final _tmpRandom = Random.secure();
+
+  /// Isolate'ler arasinda cakismayan gecici dosya eki.
+  static String _tmpSuffix() =>
+      '$pid-${DateTime.now().microsecondsSinceEpoch}-'
+      '${_tmpRandom.nextInt(1 << 32)}';
 
   Future<void> close() {
     final active = _closeTask;
