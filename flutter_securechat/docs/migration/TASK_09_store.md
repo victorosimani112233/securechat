@@ -45,14 +45,48 @@ ve `/etc/nginx/sites-available/elcim-site` içindeki 443 bloğunun yorumunu kald
 Ayrıca canlı `_dmarc` kaydı `rua=mailto:victorosim587@gmail.com` gösteriyor —
 o adres sizin değil, DMARC raporları oraya gidiyor. Düzelt.
 
+### Marka ve paket adı — KARAR (2026-10-14), kod değişimi Firebase'i bekliyor
+Uygulama adı **ELÇİM**, Android `applicationId` ve iOS bundle ID
+**`com.elcim.app`** (alan adı elcim.com kullanıcıya ait).
+
+**Engel:** kullanıcı Firebase konsolunda `com.elcim.app` için yeni Android
+ve iOS uygulaması kaydedip `google-services.json` ve
+`GoogleService-Info.plist` dosyalarını verecek; o gelmeden kod
+değiştirilmez.
+
+Değişecekler (`com.securechat.app` docs dışında 31 dosyada geçiyor):
+- `android/app/build.gradle.kts` → `applicationId` (Kotlin `namespace` ve
+  paket dizinleri kalabilir)
+- iOS `PRODUCT_BUNDLE_IDENTIFIER` (`ios/Runner.xcodeproj/project.pbxproj`,
+  üç yapılandırma)
+- `lib/src/push/push_service.dart` → `iosBundleId`
+- Firebase dosyaları ve `SecureChatFirebaseOptions` uygulama kimlikleri
+- `test/firebase_android_configuration_test.dart`,
+  `tool/audit_ios_readiness.dart` içindeki bundle denetimi
+- `tool/ios_personal_signing.sh`
+
+İç ad olarak kalabilir: `com.securechat.app.background.*` görev adları
+(`background_scheduler.dart`, `AppDelegate.swift`, `Info.plist`), Kotlin
+paket dizinleri. Sunucu paket adını kullanmıyor.
+
+Yeni `applicationId` ile `versionCode` sıfırdan başlayabilir; 2108 sınırı
+yalnız eski paket içindi.
+
+Değişimden sonra cihazda: mesaj bildirimi, arka planda ve kilit ekranında
+gelen arama, Telecom `ConnectionService`.
+
+**Hiçbir mağazaya `com.securechat.app` ile yükleme yapılmaz.** İlk yükleme
+şirket geliştirici hesabından `com.elcim.app` ile.
+
 ### Teknik kalemler
 - **Gerçek yedek sertifika pini.** Şu anda `app_config.dart`'taki iki pin
   aynı değer; sunucu anahtarı değişirse her kurulum tuğla. Henüz
   dağıtılmamış ikinci bir anahtar çifti üret, pinini ikinci sıraya koy.
   API'yi hostname'e pinlerken Let's Encrypt `--reuse-key` **zorunlu**, yoksa
   90 günlük yenileme pinlemeyi kırar.
-- **Sürüm numarası.** `pubspec.yaml` 1.0.76, eski build'ler 1.0.108'e kadar
-  çıkmış. Yukarı al.
+- **Sürüm numarası.** `pubspec.yaml` 1.0.76, eski `com.securechat.app`
+  build'leri 1.0.108'e kadar çıkmış. Paket `com.elcim.app` olunca bu sınır
+  kalkar (yukarıya bak); eski paketle yayın yapılmayacak.
 - **Production sunucu profili.** Trust root özel anahtarı sorunu
   **kapandı**: sealed sender kaldırıldı, o anahtarlar artık hiçbir amaca
   hizmet etmiyor ve `PurposeSeparatedSecrets` zorunlu listesinden çıktı.
