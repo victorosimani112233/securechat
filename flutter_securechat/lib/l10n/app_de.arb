@@ -434,6 +434,7 @@
   "permissions_required": "Einige Berechtigungen sind erforderlich",
   "permissions_intro": "Erteile jetzt die Berechtigungen, die du möchtest; die übrigen kannst du später in den Einstellungen aktivieren.",
   "grant_permission": "Berechtigung erteilen",
+  "permission_granted": "Berechtigung erteilt",
   "chat_not_found": "Chat nicht gefunden.",
   "contact_info": "Kontaktinfo",
   "starred_messages": "Markierte Nachrichten",

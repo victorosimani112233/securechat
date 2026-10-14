@@ -602,6 +602,7 @@
   "permissions_required": "Birkaç izin gerekiyor",
   "permissions_intro": "İstediklerinizi şimdi verebilir, kalanlarını daha sonra ayarlardan açabilirsiniz.",
   "grant_permission": "İzin ver",
+  "permission_granted": "İzin verildi",
   "chat_not_found": "Sohbet bulunamadı.",
   "contact_info": "Kişi Bilgileri",
   "starred_messages": "Yıldızlı Mesajlar",

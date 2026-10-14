@@ -51,6 +51,11 @@ void main() {
     final l10n = lookupAppLocalizations(const Locale('tr'));
     expect(find.text(l10n.grant_permission), findsNWidgets(2));
     expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
+    // Ekran okuyucu da verilmis izni duyurur.
+    expect(
+      find.bySemanticsLabel(RegExp(RegExp.escape(l10n.permission_granted))),
+      findsNWidgets(2),
+    );
     expect(onboarding.walkthroughSeen, isFalse);
   });
 

@@ -2706,6 +2706,12 @@ abstract class AppLocalizations {
   /// **'Grant permission'**
   String get grant_permission;
 
+  /// No description provided for @permission_granted.
+  ///
+  /// In en, this message translates to:
+  /// **'Permission granted'**
+  String get permission_granted;
+
   /// No description provided for @chat_not_found.
   ///
   /// In en, this message translates to:

@@ -387,7 +387,11 @@ class _PermissionWalkthroughScreenState
                     title: item.$3,
                     reason: item.$4,
                     action: _granted[item.$1] == true
-                        ? const Icon(Icons.check_circle, color: AzureTokens.ok)
+                        ? Icon(
+                            Icons.check_circle,
+                            color: AzureTokens.ok,
+                            semanticLabel: context.l10n.permission_granted,
+                          )
                         : _busy == item.$1
                         ? const SizedBox.square(
                             dimension: 22,

@@ -1445,6 +1445,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get grant_permission => 'Grant permission';
 
   @override
+  String get permission_granted => 'Permission granted';
+
+  @override
   String get chat_not_found => 'Chat not found.';
 
   @override

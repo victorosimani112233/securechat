@@ -1448,6 +1448,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get grant_permission => 'منح الإذن';
 
   @override
+  String get permission_granted => 'تم منح الإذن';
+
+  @override
   String get chat_not_found => 'المحادثة غير موجودة.';
 
   @override

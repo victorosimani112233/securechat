@@ -609,6 +609,7 @@
   "permissions_required": "A few permissions are required",
   "permissions_intro": "Grant the permissions you want now; you can enable the rest later in settings.",
   "grant_permission": "Grant permission",
+  "permission_granted": "Permission granted",
   "chat_not_found": "Chat not found.",
   "contact_info": "Contact Info",
   "starred_messages": "Starred Messages",

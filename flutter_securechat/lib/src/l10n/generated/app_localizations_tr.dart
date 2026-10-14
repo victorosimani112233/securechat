@@ -1436,6 +1436,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get grant_permission => 'İzin ver';
 
   @override
+  String get permission_granted => 'İzin verildi';
+
+  @override
   String get chat_not_found => 'Sohbet bulunamadı.';
 
   @override

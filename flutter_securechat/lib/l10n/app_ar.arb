@@ -537,6 +537,7 @@
   "permissions_required": "بعض الأذونات مطلوبة",
   "permissions_intro": "امنح الأذونات التي تريدها الآن؛ ويمكنك تفعيل الباقي لاحقًا من الإعدادات.",
   "grant_permission": "منح الإذن",
+  "permission_granted": "تم منح الإذن",
   "chat_not_found": "المحادثة غير موجودة.",
   "contact_info": "معلومات جهة الاتصال",
   "starred_messages": "الرسائل المميزة بنجمة",
