@@ -18,8 +18,6 @@ internal object PurposeSeparatedSecrets {
         "JWT_SECRET",
         "TURN_SECRET",
         "METRICS_BEARER_TOKEN",
-        "JANUS_API_SECRET",
-        "JANUS_ADMIN_SECRET",
     )
 
     private val encryptionKeyNames = setOf(
@@ -42,10 +40,6 @@ internal object PurposeSeparatedSecrets {
         val recoveryNames = listOf("RECOVERY_INDEX_KEY", "RECOVERY_ENCRYPTION_KEY")
         if (recoveryNames.any { !environment[it].isNullOrBlank() || !environment["${it}_FILE"].isNullOrBlank() }) {
             names += recoveryNames
-        }
-        if (!environment["JANUS_WS_URL"].isNullOrBlank()) {
-            names += "JANUS_API_SECRET"
-            names += "JANUS_ADMIN_SECRET"
         }
         val seen = mutableMapOf<String, String>()
         val loaded = linkedMapOf<String, String>()

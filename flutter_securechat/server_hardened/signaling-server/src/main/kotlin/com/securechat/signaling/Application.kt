@@ -57,8 +57,6 @@ fun main() {
     ProductionDeploymentPolicy.validate()
     // Artefaktin kaynagi kanitlanamiyorsa production baslamaz.
     BuildManifest.validate()
-    // SFU medya sinirini kabul beyani olmadan production'da acmaz.
-    SfuPolicy.validate()
     ServerPrivacy.initialize()
     PurposeSeparatedSecrets.validate()
     PrivateDirectory.initialize()
@@ -91,14 +89,6 @@ fun main() {
     RedisManager.requireMemoryOnly()
     // Yatay olceklemede credential iptalini butun instance'lara yay/dinle.
     CredentialState.startInvalidationSubscriber()
-
-    // Janus SFU baglantisi
-    if (SfuPolicy.isEnabled()) {
-        JanusOrchestrator.init()
-        log.info("[Janus] SFU baglantisi baslatiliyor")
-    } else {
-        log.info("[Janus] SFU kapali — grup aramalari mesh modda kalir")
-    }
 
     // Health check
     val dbOk = Database.isHealthy()
@@ -158,13 +148,10 @@ fun main() {
                 log.info("[SHUTDOWN] Mesaj drain bekleniyor ({}sn)...", SHUTDOWN_DRAIN_SECONDS)
                 delay(SHUTDOWN_DRAIN_SECONDS * 1000)
 
-                // 3. Janus room'lari kapat
-                JanusOrchestrator.destroyAllRooms()
-
-                // 4. Baglantilari kapat
+                // 3. Baglantilari kapat
                 connectionManager.closeAllConnections()
 
-                // 5. DB/Redis kapat
+                // 4. DB/Redis kapat
                 PrivacyRetentionWorker.stop()
                 Database.close()
                 RedisManager.close()

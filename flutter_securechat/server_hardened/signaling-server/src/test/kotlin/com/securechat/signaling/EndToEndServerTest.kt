@@ -608,7 +608,7 @@ class EndToEndServerTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
-    // ---------------- Prekey ve SFU yetkisi ----------------
+    // ---------------- Prekey yetkisi ----------------
 
     @Test
     fun `a prekey upload with too many one time keys is refused`() = e2e {
@@ -680,12 +680,12 @@ class EndToEndServerTest {
     }
 
     @Test
-    fun `sfu room details need an active call membership not just a credential`() = e2e {
+    fun `the retired sfu room endpoint no longer exists`() = e2e {
         val response = client.get("/api/v1/sfu/room/${UUID.randomUUID()}") {
             header("Authorization", "Bearer $aliceToken")
         }
 
-        // Kimlik dogrulamasi tek basina yetki degildir.
+        // Janus SFU 2026-10-14'te kaldirildi.
         assertEquals(HttpStatusCode.NotFound, response.status)
     }
 

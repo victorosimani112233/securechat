@@ -35,8 +35,8 @@ class GroupCallSessionStoreLincheckTest {
             callId = "c",
             coordinatorId = "coord",
             callType = "VOICE",
-            participants = emptyList(),
-            mode = "MESH",
+            // Tavana yakin baslanir ki kucuk senaryolar da tavani zorlasin.
+            participants = (1..PREFILLED).map { "pre$it" },
         )
     }
 
@@ -45,7 +45,6 @@ class GroupCallSessionStoreLincheckTest {
         GroupCallSessionStore.addParticipant(
             groupId = groupId,
             userId = "u$userId",
-            capacity = CAPACITY,
             mediaE2ee = false,
         )
 
@@ -96,7 +95,8 @@ class GroupCallSessionStoreLincheckTest {
     }
 
     companion object {
-        private const val CAPACITY = 3
+        /** Bos kalan yer: tavan (8) eksi onceden dolu katilimcilar. */
+        private const val PREFILLED = GroupCallSessionStore.MAX_PARTICIPANTS - 3
         private val counter = java.util.concurrent.atomic.AtomicInteger(0)
     }
 }

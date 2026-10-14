@@ -8,14 +8,11 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
 
 class GroupCallSignalingContractTest {
-    private val enabled = mapOf("SFU_ENABLED" to "true", "JANUS_WS_URL" to "ws://127.0.0.1:8188")
-
     private class Fixture(val type: String = "VIDEO", val encrypted: Boolean = true) {
         val group = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { java.security.SecureRandom().nextBytes(it) })
         val call = UUID.randomUUID().toString()
         val users = (0..8).map { UUID.randomUUID().toString() }
         val delivered = ConcurrentLinkedQueue<Pair<String, JsonObject>>()
-        val promotionRequests = ConcurrentLinkedQueue<String>()
         val send: suspend (String, String) -> Unit = { recipient, raw ->
             delivered.add(recipient to Json.parseToJsonElement(raw).jsonObject)
         }
@@ -29,7 +26,7 @@ class GroupCallSignalingContractTest {
                 put("mediaE2ee", capability)
                 putJsonArray("participants") { add("must-not-be-forwarded") }
             }.toString()
-            assertTrue(handleGroupCallSignal(sender, Json.parseToJsonElement(encoded).jsonObject, send, promotionRequests::add))
+            assertTrue(handleGroupCallSignal(sender, Json.parseToJsonElement(encoded).jsonObject, send))
         }
         fun frames(type: String) = delivered.filter { it.second["type"]?.jsonPrimitive?.content == type }
         fun state() = requireNotNull(GroupCallSessionStore.get(group))
@@ -45,7 +42,6 @@ class GroupCallSignalingContractTest {
                 assertEquals(setOf(f.users[0]), f.state().joinedParticipants)
                 assertEquals(setOf(f.users[0]), f.state().mediaE2eeParticipants)
                 assertEquals(7, f.frames("group_call_invite").size)
-                assertTrue(f.promotionRequests.isEmpty())
                 assertTrue(f.frames("group_call_invite").all { (_, frame) ->
                     frame["participants"] == null && frame["senderId"]?.jsonPrimitive?.content == f.users[0]
                 })
@@ -62,38 +58,28 @@ class GroupCallSignalingContractTest {
         }
     }
 
+    // Janus SFU 2026-10-14'te kaldirildi: 7. ve 8. katilimci da mesh'e
+    // katilir, sunucu hicbir zaman oda bildirimi uretmez.
     @Test
-    fun `capability join triggers one promotion and announcement uses latest joined membership`() = runBlocking {
+    fun `eight joined members stay in mesh and no room is ever announced`() = runBlocking {
         for (type in listOf("VOICE", "VIDEO")) {
             val f = Fixture(type)
-            var creations = 0
-            val started = CompletableDeferred<Unit>()
-            val release = CompletableDeferred<Unit>()
-            val promotion = GroupCallPromotion(enabled, createRoom = {
-                creations++; started.complete(Unit); release.await(); SfuRoomInfo(42, "wss://signal.invalid/janus")
-            }, destroyRoom = { _, _ -> fail("Committed room must not be destroyed") })
             try {
-                (1..7).forEach { f.invite(it) }
-                (1..5).forEach { f.join(it) }
-                promotion.promote(f.group, f.send)
-                assertEquals(0, creations)
-                f.join(6)
-                val first = launch { promotion.promote(f.group, f.send) }
-                withTimeout(2000) { started.await() }
+                (1..7).forEach { f.invite(it); f.join(it) }
+                assertEquals(f.users.take(8).toSet(), f.state().joinedParticipants)
+                assertTrue(f.state().mediaEndToEndEncrypted)
+                assertEquals(7, f.frames("group_call_join_request").size)
+                assertTrue(f.frames("sfu_room_created").isEmpty())
                 f.join(7)
-                val duplicates = (1..7).map { launch { promotion.promote(f.group, f.send) } }
-                release.complete(Unit)
-                first.join(); duplicates.joinAll()
-                assertEquals(1, creations)
-                assertEquals("SFU", f.state().mode)
-                assertEquals(8, f.frames("sfu_room_created").size)
-                assertTrue(f.frames("sfu_room_created").all { (_, frame) ->
-                    frame["roomId"]?.jsonPrimitive?.long == 42L && frame["callId"]?.jsonPrimitive?.content == f.call
-                })
-                f.join(7)
-                assertEquals(9, f.frames("sfu_room_created").size, "Rejoin gets current room without recreation")
+                assertTrue(f.frames("sfu_room_created").isEmpty())
             } finally { GroupCallSessionStore.end(f.group) }
         }
+    }
+
+    @Test
+    fun `a client cannot forge the retired room announcement`() {
+        // Eski istemciler bu cerceveyi isleyip icindeki adrese baglanir.
+        assertTrue(isServerOnlyFrameType("sfu_room_created"))
     }
 
     @Test
@@ -115,51 +101,11 @@ class GroupCallSignalingContractTest {
     }
 
     @Test
-    fun `eight unencrypted mesh participants never promote even with legacy override`() = runBlocking {
+    fun `eight unencrypted mesh participants are admitted`() = runBlocking {
         val f = Fixture(encrypted = false)
         try {
             (1..7).forEach { f.invite(it); f.join(it) }
-            val promotion = GroupCallPromotion(enabled + ("SFU_MEDIA_BOUNDARY_ACK" to SfuPolicy.REQUIRED_ACKNOWLEDGEMENT),
-                createRoom = { throw AssertionError("No plaintext SFU") })
-            promotion.promote(f.group, f.send)
-            assertEquals("MESH", f.state().mode)
             assertEquals(8, f.state().joinedParticipants.size)
-        } finally { GroupCallSessionStore.end(f.group) }
-    }
-
-    @Test
-    fun `room failure rolls back for retry without dropping encrypted mesh`() = runBlocking {
-        val f = Fixture()
-        try {
-            (1..6).forEach { f.invite(it); f.join(it) }
-            GroupCallPromotion(enabled, createRoom = { error("offline") }).promote(f.group, f.send)
-            assertEquals("MESH", f.state().mode)
-            assertTrue(f.frames("sfu_room_created").isEmpty())
-            GroupCallPromotion(enabled, createRoom = { SfuRoomInfo(42, "wss://signal.invalid/janus") })
-                .promote(f.group, f.send)
-            assertEquals("SFU", f.state().mode)
-        } finally { GroupCallSessionStore.end(f.group) }
-    }
-
-    @Test
-    fun `late creation cannot attach to replacement call or resurrect ended call`() = runBlocking {
-        val f = Fixture()
-        val started = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
-        val destroyed = mutableListOf<Long>()
-        try {
-            (1..6).forEach { f.invite(it); f.join(it) }
-            val promotion = GroupCallPromotion(enabled, createRoom = {
-                started.complete(Unit); release.await(); SfuRoomInfo(42, "wss://signal.invalid/janus")
-            }, destroyRoom = { _, room -> destroyed.add(room); Unit })
-            val job = launch { promotion.promote(f.group, f.send) }
-            started.await()
-            GroupCallSessionStore.end(f.group)
-            f.invite(1, callId = "replacement")
-            release.complete(Unit); job.join()
-            assertEquals(listOf(42L), destroyed)
-            assertEquals("replacement", f.state().callId)
-            assertEquals("MESH", f.state().mode)
             assertTrue(f.frames("sfu_room_created").isEmpty())
         } finally { GroupCallSessionStore.end(f.group) }
     }

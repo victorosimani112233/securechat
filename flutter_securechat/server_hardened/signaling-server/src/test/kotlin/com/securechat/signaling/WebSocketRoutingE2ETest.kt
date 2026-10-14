@@ -326,7 +326,6 @@ class WebSocketRoutingE2ETest {
         assertEquals(setOf(caller), active.mediaE2eeParticipants)
         assertEquals(setOf(caller), active.joinedParticipants)
         assertTrue(active.mediaEndToEndEncrypted)
-        assertEquals("MESH", active.mode)
         session.close()
         GroupCallSessionStore.end(group)
     }
@@ -349,7 +348,6 @@ class WebSocketRoutingE2ETest {
                 val active = requireNotNull(GroupCallSessionStore.get(group))
                 assertEquals(8, active.participants.size)
                 assertEquals(setOf(caller), active.joinedParticipants)
-                assertEquals("MESH", active.mode)
             } finally {
                 GroupCallSessionStore.end(group)
                 socket.close()
@@ -440,6 +438,10 @@ class WebSocketRoutingE2ETest {
         val body = json.parseToJsonElement(response!!) as JsonObject
         assertEquals("true", body["isActive"]?.jsonPrimitive?.content)
         assertEquals(callId, body["callId"]?.jsonPrimitive?.content)
+        // Eski istemciler alani okur; Janus kalktiktan sonra hep mesh.
+        assertEquals("MESH", body["mode"]?.jsonPrimitive?.content)
+        assertNull(body["sfuRoomId"])
+        assertNull(body["janusWsUrl"])
         session.close()
         GroupCallSessionStore.end(group)
     }
@@ -554,20 +556,13 @@ class WebSocketRoutingE2ETest {
     }
 
     /**
-     * QA 2026-10-12 Bulgu 8a: Janus katmani baslatilamasa bile (canlida SFU
-     * kapali, sir yok) kalan uye "arama bitti" yayinini almali; aksi halde
-     * gelen arama ekrani calmaya devam eder.
+     * QA 2026-10-12 Bulgu 8a: kalan uye "arama bitti" yayinini almali; aksi
+     * halde gelen arama ekrani calmaya devam eder. (O zaman hatayi baslatilamayan
+     * Janus katmani uretiyordu; katman 2026-10-14'te kaldirildi.)
      */
     @Test
-    fun `a hangup still ends the call for the remaining member when the SFU layer cannot start`() = e2e {
-        val originalCheck = groupSfuRoomCheck
-        val originalEnvironment = JanusOrchestrator.secretEnvironment
-        groupSfuRoomCheck = {
-            throw NoClassDefFoundError("Could not initialize class com.securechat.signaling.JanusOrchestrator")
-        }
-        JanusOrchestrator.secretEnvironment = { emptyMap() }
-        JanusOrchestrator.resetSecretsForTest()
-        try {
+    fun `a hangup ends the call for the remaining member`() = e2e {
+        run {
             val (caller, callerToken) = newAccount()
             val (callee, calleeToken) = newAccount()
             val group = opaqueGroupId()
@@ -596,10 +591,6 @@ class WebSocketRoutingE2ETest {
             assertTrue(connectionManager.isOnline(caller))
             callerSession.close()
             calleeSession.close()
-        } finally {
-            groupSfuRoomCheck = originalCheck
-            JanusOrchestrator.secretEnvironment = originalEnvironment
-            JanusOrchestrator.resetSecretsForTest()
         }
     }
 

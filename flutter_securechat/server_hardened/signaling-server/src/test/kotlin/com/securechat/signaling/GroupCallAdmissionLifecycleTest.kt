@@ -29,7 +29,6 @@ class GroupCallAdmissionLifecycleTest {
     @AfterEach
     fun clearFixtures() {
         GroupCallSessionStore.all().keys.forEach { GroupCallSessionStore.end(it) }
-        GroupCallSessionStore.roomsAwaitingCleanup().forEach { GroupCallSessionStore.roomCleanupCompleted(it.instanceId) }
     }
 
     @Test
@@ -52,9 +51,7 @@ class GroupCallAdmissionLifecycleTest {
         } }.awaitAll()
         assertEquals(limit, results.count { it == GroupCallSessionStore.JoinResult.ADDED })
         assertEquals(32, results.count { it == GroupCallSessionStore.JoinResult.SERVER_CAPACITY_REACHED })
-        cleanExpiredGroupCalls(System.currentTimeMillis() + GroupCallSessionStore.MAX_CALL_LIFETIME_MILLIS + 1) {
-            fail<Unit>("Mesh expiry must not touch Janus")
-        }
+        GroupCallSessionStore.purgeExpired(System.currentTimeMillis() + GroupCallSessionStore.MAX_CALL_LIFETIME_MILLIS + 1)
         assertTrue(GroupCallSessionStore.all().isEmpty())
         assertEquals(GroupCallSessionStore.JoinResult.ADDED,
             GroupCallSessionStore.invite("new", "call", "caller", "VIDEO", "peer", true))
@@ -69,41 +66,31 @@ class GroupCallAdmissionLifecycleTest {
             listOf(
                 async(Dispatchers.Default) { repeat(10) { GroupCallSessionStore.confirmJoin(group, "call", "caller", "VOICE", "peer", true) } },
                 async(Dispatchers.Default) { GroupCallSessionStore.purgeExpired(expiredAt) },
-                async(Dispatchers.Default) { repeat(10) { GroupCallSessionStore.addParticipant(group, "peer2", 8, true) } },
+                async(Dispatchers.Default) { repeat(10) { GroupCallSessionStore.addParticipant(group, "peer2", true) } },
             ).awaitAll()
             assertNull(GroupCallSessionStore.get(group))
         }
     }
 
     @Test
-    fun `expired SFU disposal retries with old instance and cannot end replacement`() = runBlocking {
-        GroupCallSessionStore.start("group", "A", "caller", "VIDEO", listOf("caller"), "SFU", 42)
+    fun `an ending with the expired instance cannot end the replacement call`() {
+        GroupCallSessionStore.start("group", "A", "caller", "VIDEO", listOf("caller"))
         val old = requireNotNull(GroupCallSessionStore.get("group"))
-        val expiredAt = old.startedAt + GroupCallSessionStore.MAX_CALL_LIFETIME_MILLIS + 1
-        cleanExpiredGroupCalls(expiredAt) { call ->
-            assertEquals(old.instanceId, call.instanceId)
-            error("Janus unavailable")
-        }
+        GroupCallSessionStore.purgeExpired(old.startedAt + GroupCallSessionStore.MAX_CALL_LIFETIME_MILLIS + 1)
         assertNull(GroupCallSessionStore.get("group"))
-        assertEquals(listOf(old), GroupCallSessionStore.roomsAwaitingCleanup())
         assertEquals(GroupCallSessionStore.JoinResult.ADDED,
             GroupCallSessionStore.invite("group", "B", "caller", "VIDEO", "peer", true))
         val replacement = requireNotNull(GroupCallSessionStore.get("group"))
         GroupCallSessionStore.end("group", old.instanceId)
-        cleanExpiredGroupCalls { call -> assertEquals(old.instanceId, call.instanceId) }
-        assertTrue(GroupCallSessionStore.roomsAwaitingCleanup().isEmpty())
         assertEquals(replacement, GroupCallSessionStore.get("group"))
     }
 
     @Test
-    fun `failed SFU disposal retains per user capacity until cleanup succeeds`() = runBlocking {
+    fun `ended calls release per user capacity immediately`() {
         repeat(GroupCallSessionStore.MAX_CALLS_PER_USER) { n ->
-            GroupCallSessionStore.start("sfu$n", "c$n", "caller", "VOICE", listOf("caller"), "SFU", n + 1L)
-            GroupCallSessionStore.end("sfu$n")
+            GroupCallSessionStore.start("mesh$n", "c$n", "caller", "VOICE", listOf("caller"))
+            GroupCallSessionStore.end("mesh$n")
         }
-        assertEquals(GroupCallSessionStore.JoinResult.USER_CAPACITY_REACHED,
-            GroupCallSessionStore.invite("new", "c", "caller", "VIDEO", "peer", true))
-        cleanExpiredGroupCalls { }
         assertEquals(GroupCallSessionStore.JoinResult.ADDED,
             GroupCallSessionStore.invite("new", "c", "caller", "VIDEO", "peer", true))
     }

@@ -8,10 +8,13 @@ import java.util.concurrent.ConcurrentHashMap
  * Bir grup icin tek aktif arama varsayilir (concurrent grup aramasi desteklenmez).
  * group_call_invite ile set edilir, koordinator HANGUP ile clear edilir.
  *
+ * Grup aramalari yalniz mesh calisir: medya cihazlar arasinda dogrudan
+ * akar, sunucu yalniz sinyal tasir. Janus SFU 2026-10-14'te kaldirildi.
+ *
  * Sonradan katilim (late-join):
  * - Yeni katilan kullanici GroupCallStatusQuery gonderir
- * - Sunucu bu store'dan callId + coordinatorId + mode + (SFU ise) roomInfo doner
- * - Istemci yanit ile koordinatore GroupCallJoinRequest gonderir veya SFU'ya bind olur
+ * - Sunucu bu store'dan callId + coordinatorId doner
+ * - Istemci yanit ile koordinatore GroupCallJoinRequest gonderir
  */
 object GroupCallSessionStore {
     internal const val MAX_CALL_LIFETIME_MILLIS = 4L * 60L * 60L * 1000L
@@ -19,11 +22,14 @@ object GroupCallSessionStore {
     internal const val MAX_CALLS_PER_USER = 4
 
     /**
-     * Aktif grup aramasi bilgisi.
-     * mode: "MESH" (6 katilimciya kadar) veya "SFU" (7. katilimcidan itibaren,
-     * bkz. SfuPolicy.sfuThreshold).
-     * SFU modunda sfuRoom alanlari doludur.
+     * Bir grup aramasinin katilimci tavani.
+     *
+     * Mesh'te her cihaz N-1 encode ve N-1 upload yapar; tavanin ustunde arama
+     * kullanilamaz hale gelir. Sessiz bozulma yerine ongorulebilir ret.
      */
+    const val MAX_PARTICIPANTS = 8
+
+    /** Aktif grup aramasi bilgisi. */
     data class ActiveCall(
         val groupId: String,
         val callId: String,
@@ -41,16 +47,8 @@ object GroupCallSessionStore {
         val joinedParticipants: Set<String> = participants,
         val requiresMediaE2ee: Boolean = false,
         val instanceId: String = java.util.UUID.randomUUID().toString(),
-        /**
-         * Medya frame sifrelemesi bildiren katilimcilar. SFU'ya ancak
-         * herkes bildirdiginde sessizce gecilebilir; aksi halde medya
-         * Janus'ta acik olur ve bu acik operator kabulu ister.
-         */
+        /** Medya frame sifrelemesi bildiren katilimcilar. */
         val mediaE2eeParticipants: Set<String> = emptySet(),
-        val mode: String,
-        val sfuRoomId: Long? = null,
-        val janusWsUrl: String? = null,
-        // GUVENLIK: apiSecret BURADAN KALDIRILDI (C2 fix) — client'a hicbir sekilde sizmaz.
         val startedAt: Long = System.currentTimeMillis()
     ) {
         /** Tum katilimcilar medya sifrelemesi bildiriyor mu. */
@@ -67,7 +65,6 @@ object GroupCallSessionStore {
 
     private val active = ConcurrentHashMap<String, ActiveCall>()
     private val admissionLock = Any()
-    private val expiredRooms = ConcurrentHashMap<String, ActiveCall>()
     // One short, non-suspending lock makes global admissions and retirement
     // accounting atomic with per-call updates. No network work holds this lock.
     private fun lockFor(@Suppress("UNUSED_PARAMETER") groupId: String) = admissionLock
@@ -80,9 +77,7 @@ object GroupCallSessionStore {
         synchronized(lockFor(groupId)) admission@{
         val current = get(groupId)
         if (current == null) {
-            // Undisposed SFU resources count against capacity as well, so an
-            // offline Janus cannot turn expiration into an unbounded queue.
-            if (active.size + expiredRooms.size >= MAX_ACTIVE_CALLS) return@admission JoinResult.SERVER_CAPACITY_REACHED
+            if (active.size >= MAX_ACTIVE_CALLS) return@admission JoinResult.SERVER_CAPACITY_REACHED
             if (callsFor(coordinatorId) >= MAX_CALLS_PER_USER || callsFor(recipientId) >= MAX_CALLS_PER_USER) {
                 return@admission JoinResult.USER_CAPACITY_REACHED
             }
@@ -92,7 +87,6 @@ object GroupCallSessionStore {
                 joinedParticipants = setOf(coordinatorId),
                 requiresMediaE2ee = mediaE2ee,
                 mediaE2eeParticipants = if (mediaE2ee) setOf(coordinatorId) else emptySet(),
-                mode = "MESH",
             )
             return@admission JoinResult.ADDED
         }
@@ -100,7 +94,7 @@ object GroupCallSessionStore {
             current.callType != callType || current.requiresMediaE2ee != mediaE2ee
         ) return@admission JoinResult.CONTEXT_MISMATCH
         if (recipientId in current.participants) return@admission JoinResult.ALREADY_PRESENT
-        if (current.participants.size >= SfuPolicy.MAX_PARTICIPANTS ||
+        if (current.participants.size >= MAX_PARTICIPANTS ||
             (recipientId !in current.invitedParticipants && current.invitedParticipants.size >= 256)
         ) return@admission JoinResult.CAPACITY_REACHED
         if (callsFor(recipientId) >= MAX_CALLS_PER_USER) return@admission JoinResult.USER_CAPACITY_REACHED
@@ -112,8 +106,7 @@ object GroupCallSessionStore {
         }
     }
 
-    private fun callsFor(userId: String): Int = active.values.count { userId in it.participants } +
-        expiredRooms.values.count { userId in it.participants }
+    private fun callsFor(userId: String): Int = active.values.count { userId in it.participants }
 
     fun confirmJoin(
         groupId: String, callId: String, coordinatorId: String, callType: String,
@@ -124,13 +117,13 @@ object GroupCallSessionStore {
             return@synchronized JoinResult.CONTEXT_MISMATCH
         }
         if (userId !in current.invitedParticipants) return@synchronized JoinResult.NOT_INVITED
-        if (userId !in current.participants && current.participants.size >= SfuPolicy.MAX_PARTICIPANTS) {
+        if (userId !in current.participants && current.participants.size >= MAX_PARTICIPANTS) {
             return@synchronized JoinResult.CAPACITY_REACHED
         }
         if (userId !in current.participants && callsFor(userId) >= MAX_CALLS_PER_USER) {
             return@synchronized JoinResult.USER_CAPACITY_REACHED
         }
-        if (!mediaE2ee && (current.requiresMediaE2ee || current.mode != "MESH")) {
+        if (!mediaE2ee && current.requiresMediaE2ee) {
             return@synchronized JoinResult.ENCRYPTION_REQUIRED
         }
         active[groupId] = current.copy(
@@ -149,12 +142,9 @@ object GroupCallSessionStore {
         coordinatorId: String,
         callType: String,
         participants: List<String>,
-        mode: String,
-        sfuRoomId: Long? = null,
-        janusWsUrl: String? = null,
         mediaE2eeParticipants: Set<String> = emptySet()
     ) {
-        require(participants.toSet().size <= SfuPolicy.MAX_PARTICIPANTS)
+        require(participants.toSet().size <= MAX_PARTICIPANTS)
         synchronized(lockFor(groupId)) { active[groupId] = ActiveCall(
             groupId = groupId,
             callId = callId,
@@ -162,9 +152,6 @@ object GroupCallSessionStore {
             callType = callType,
             participants = participants.toSet(),
             mediaE2eeParticipants = mediaE2eeParticipants.intersect(participants.toSet()),
-            mode = mode,
-            sfuRoomId = sfuRoomId,
-            janusWsUrl = janusWsUrl
         ) }
     }
 
@@ -178,52 +165,13 @@ object GroupCallSessionStore {
         return value
     }
 
-    /** SFU olusturma isini ayni grup icin atomik olarak tek kez baslatir. */
-    fun claimSfuPromotion(groupId: String, environment: Map<String, String> = System.getenv()): ActiveCall? {
-        synchronized(lockFor(groupId)) {
-            val current = get(groupId) ?: return null
-            if (current.mode != "MESH" ||
-                current.joinedParticipants.size <= SfuPolicy.sfuThreshold(current.callType) ||
-                !SfuPolicy.canPromote(current.mediaEndToEndEncrypted, environment)) return null
-            active[groupId] = current.copy(mode = "SFU_PENDING")
-            return active[groupId]
-        }
-    }
-
-    fun cancelSfuPromotion(expected: ActiveCall) {
-        synchronized(lockFor(expected.groupId)) {
-            val current = get(expected.groupId) ?: return
-            if (current.instanceId == expected.instanceId && current.mode == "SFU_PENDING") {
-                active[expected.groupId] = current.copy(mode = "MESH")
-            }
-        }
-    }
-
-    /** SFU bilgisi yoksa sonradan set et (Janus room asenkron olarak yaratiliyor). */
-    fun completeSfuPromotion(expected: ActiveCall, sfuRoomId: Long, janusWsUrl: String): ActiveCall? =
-        synchronized(lockFor(expected.groupId)) {
-        val current = get(expected.groupId) ?: return@synchronized null
-        if (current.instanceId != expected.instanceId || current.mode != "SFU_PENDING" ||
-            !current.mediaEndToEndEncrypted ||
-            current.joinedParticipants.size <= SfuPolicy.sfuThreshold(current.callType)) return@synchronized null
-        current.copy(
-            mode = "SFU",
-            sfuRoomId = sfuRoomId,
-            janusWsUrl = janusWsUrl
-        ).also { active[expected.groupId] = it }
-    }
-
     /**
-     * Yeni katilimci ekler.
-     *
-     * `capacity` cagirandan gelir: SFU kullanilamiyorken mesh tavani,
-     * kullanilabiliyorken protokol tavani gecerlidir. Kontrol lock altinda
-     * yapilir, yoksa iki es zamanli katilim tavani birlikte asabilirdi.
+     * Yeni katilimci ekler. Tavan kontrolu lock altinda yapilir, yoksa iki
+     * es zamanli katilim tavani birlikte asabilirdi.
      */
     fun addParticipant(
         groupId: String,
         userId: String,
-        capacity: Int,
         mediaE2ee: Boolean = false
     ): JoinResult {
         synchronized(lockFor(groupId)) {
@@ -236,7 +184,7 @@ object GroupCallSessionStore {
                 }
                 return JoinResult.ALREADY_PRESENT
             }
-            if (current.participants.size >= minOf(capacity, SfuPolicy.MAX_PARTICIPANTS)) return JoinResult.CAPACITY_REACHED
+            if (current.participants.size >= MAX_PARTICIPANTS) return JoinResult.CAPACITY_REACHED
             active[groupId] = current.copy(
                 participants = current.participants + userId,
                 invitedParticipants = current.invitedParticipants + userId,
@@ -334,17 +282,6 @@ object GroupCallSessionStore {
     private fun expireCall(call: ActiveCall) = synchronized(lockFor(call.groupId)) {
         val current = active[call.groupId] ?: return@synchronized
         if (current.instanceId != call.instanceId || current.startedAt != call.startedAt) return@synchronized
-        if (active.remove(call.groupId, current) && current.sfuRoomId != null) {
-            expiredRooms[current.instanceId] = current
-        }
-    }
-
-    internal fun roomsAwaitingCleanup(): List<ActiveCall> = expiredRooms.values.toList()
-    internal fun queueRoomCleanup(call: ActiveCall) = synchronized(admissionLock) {
-        expiredRooms[call.instanceId] = call
-    }
-    internal fun roomCleanupCompleted(instanceId: String) = synchronized(admissionLock) {
-        expiredRooms.remove(instanceId)
-        Unit
+        active.remove(call.groupId, current)
     }
 }

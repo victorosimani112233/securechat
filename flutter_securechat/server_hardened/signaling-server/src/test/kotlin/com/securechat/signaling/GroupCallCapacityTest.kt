@@ -11,11 +11,10 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * Grup aramasinin katilimci tavani ve SFU'ya gecis kosullari.
+ * Grup aramasinin katilimci tavani.
  *
  * Mesh'te her cihaz N-1 encode ve N-1 upload yapar; tavanin ustunde arama
- * sessizce kullanilamaz hale gelirdi. SFU'ya gecis ise medyanin Janus'ta
- * acik olup olmadigina baglidir.
+ * sessizce kullanilamaz hale gelirdi.
  */
 class GroupCallCapacityTest {
 
@@ -33,7 +32,6 @@ class GroupCallCapacityTest {
             coordinatorId = "coordinator",
             callType = callType,
             participants = listOf("coordinator"),
-            mode = "MESH",
             mediaE2eeParticipants = if (mediaE2ee) setOf("coordinator") else emptySet(),
         )
     }
@@ -41,40 +39,38 @@ class GroupCallCapacityTest {
     @Test
     fun `mesh video calls stop at the practical ceiling`() {
         startCall("VIDEO")
-        val capacity = SfuPolicy.meshCapacity("VIDEO")
+        val capacity = GroupCallSessionStore.MAX_PARTICIPANTS
 
         repeat(capacity - 1) { index ->
             assertEquals(
                 GroupCallSessionStore.JoinResult.ADDED,
-                GroupCallSessionStore.addParticipant(groupId, "member-$index", capacity),
+                GroupCallSessionStore.addParticipant(groupId, "member-$index"),
             )
         }
         // Tavan dolduktan sonraki katilim sessizce degil, acikca reddedilir.
         assertEquals(
             GroupCallSessionStore.JoinResult.CAPACITY_REACHED,
-            GroupCallSessionStore.addParticipant(groupId, "overflow", capacity),
+            GroupCallSessionStore.addParticipant(groupId, "overflow"),
         )
         assertEquals(capacity, GroupCallSessionStore.get(groupId)!!.participants.size)
     }
 
     @Test
-    fun `voice and video both admit eight independent of promotion threshold`() {
-        assertEquals(8, SfuPolicy.meshCapacity("VIDEO"))
-        assertEquals(8, SfuPolicy.meshCapacity("VOICE"))
-        assertEquals(8, SfuPolicy.MAX_PARTICIPANTS)
+    fun `voice and video both admit eight`() {
+        assertEquals(8, GroupCallSessionStore.MAX_PARTICIPANTS)
     }
 
     @Test
     fun `a rejoining participant does not consume a second slot`() {
         startCall("VOICE")
-        val capacity = SfuPolicy.meshCapacity("VOICE")
+        val capacity = GroupCallSessionStore.MAX_PARTICIPANTS
         assertEquals(
             GroupCallSessionStore.JoinResult.ADDED,
-            GroupCallSessionStore.addParticipant(groupId, "member", capacity),
+            GroupCallSessionStore.addParticipant(groupId, "member"),
         )
         assertEquals(
             GroupCallSessionStore.JoinResult.ALREADY_PRESENT,
-            GroupCallSessionStore.addParticipant(groupId, "member", capacity),
+            GroupCallSessionStore.addParticipant(groupId, "member"),
         )
         assertEquals(2, GroupCallSessionStore.get(groupId)!!.participants.size)
     }
@@ -82,14 +78,14 @@ class GroupCallCapacityTest {
     @Test
     fun `parallel joins never exceed the ceiling`() {
         startCall("VIDEO")
-        val capacity = SfuPolicy.meshCapacity("VIDEO")
+        val capacity = GroupCallSessionStore.MAX_PARTICIPANTS
         val attempts = capacity * 3
         val pool = Executors.newFixedThreadPool(8)
         try {
             val added = pool.invokeAll(
                 (0 until attempts).map { index ->
                     Callable {
-                        GroupCallSessionStore.addParticipant(groupId, "member-$index", capacity)
+                        GroupCallSessionStore.addParticipant(groupId, "member-$index")
                     }
                 },
             ).count { it.get() == GroupCallSessionStore.JoinResult.ADDED }
@@ -104,48 +100,17 @@ class GroupCallCapacityTest {
     @Test
     fun `media encryption is only claimed when every participant declares it`() {
         startCall("VIDEO", mediaE2ee = true)
-        val capacity = SfuPolicy.meshCapacity("VIDEO")
+        val capacity = GroupCallSessionStore.MAX_PARTICIPANTS
 
-        GroupCallSessionStore.addParticipant(groupId, "capable", capacity, mediaE2ee = true)
+        GroupCallSessionStore.addParticipant(groupId, "capable", mediaE2ee = true)
         assertTrue(GroupCallSessionStore.get(groupId)!!.mediaEndToEndEncrypted)
 
         // Tek bir eski istemci bile karari dusurur.
-        GroupCallSessionStore.addParticipant(groupId, "legacy", capacity, mediaE2ee = false)
+        GroupCallSessionStore.addParticipant(groupId, "legacy", mediaE2ee = false)
         assertFalse(GroupCallSessionStore.get(groupId)!!.mediaEndToEndEncrypted)
 
         // Ayrildiginda karar geri gelir.
         assertTrue(GroupCallSessionStore.removeParticipant(groupId, "legacy"))
         assertTrue(GroupCallSessionStore.get(groupId)!!.mediaEndToEndEncrypted)
-    }
-
-    @Test
-    fun `no operator acknowledgement permits promotion without media encryption`() {
-        val enabled = mapOf(
-            "JANUS_WS_URL" to "ws://janus:8188",
-            "SFU_ENABLED" to "true",
-            "PRIVACY_PRODUCTION_MODE" to "true",
-        )
-        // Medya Janus'ta acik: kabul beyani olmadan gecilemez.
-        assertFalse(SfuPolicy.canPromote(mediaEndToEndEncrypted = false, environment = enabled))
-        assertFalse(
-            SfuPolicy.canPromote(
-                mediaEndToEndEncrypted = false,
-                environment = enabled +
-                    ("SFU_MEDIA_BOUNDARY_ACK" to SfuPolicy.REQUIRED_ACKNOWLEDGEMENT),
-            ),
-        )
-        // Medya uctan uca sifreliyse Janus yalniz ciphertext yonlendirir;
-        // beyan gerekmez.
-        assertTrue(SfuPolicy.canPromote(mediaEndToEndEncrypted = true, environment = enabled))
-    }
-
-    @Test
-    fun `an operator who never enabled the sfu never promotes`() {
-        assertFalse(
-            SfuPolicy.canPromote(
-                mediaEndToEndEncrypted = true,
-                environment = mapOf("JANUS_WS_URL" to "ws://janus:8188"),
-            ),
-        )
     }
 }

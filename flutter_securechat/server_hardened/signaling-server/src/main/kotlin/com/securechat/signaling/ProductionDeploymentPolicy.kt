@@ -34,12 +34,6 @@ object ProductionDeploymentPolicy {
             "Production SMTP must use starttls or ssl"
         }
 
-        if (!environment["JANUS_WS_URL"].isNullOrBlank()) {
-            require(environment["JANUS_PUBLIC_WS_URL"]?.startsWith("wss://") == true) {
-                "The client-facing Janus URL must use wss"
-            }
-        }
-
         requireTlsRelay(environment)
         // Inceleme demo girisi production'da yalniz sureli acilabilir.
         ReviewDemo.requireBoundedForProduction(environment)

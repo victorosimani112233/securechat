@@ -11,8 +11,6 @@ class ProductionDeploymentPolicyTest {
         "DIRECTORY_OPRF_KEY_BACKEND" to "PKCS11",
         "ALLOW_LEGACY_PLAINTEXT_QUEUE" to "false",
         "SMTP_TLS" to "starttls",
-        "JANUS_WS_URL" to "ws://janus:8188",
-        "JANUS_PUBLIC_WS_URL" to "wss://janus.example.invalid",
         "FIREBASE_SERVICE_ACCOUNT_PATH" to "/run/secrets/firebase_service_account",
         "TURN_HOST" to "relay.example.invalid",
     )
@@ -43,7 +41,6 @@ class ProductionDeploymentPolicyTest {
             mapOf("DIRECTORY_OPRF_KEY_BACKEND" to "PKCS8"),
             mapOf("ALLOW_LEGACY_PLAINTEXT_QUEUE" to "true"),
             mapOf("SMTP_TLS" to "none"),
-            mapOf("JANUS_PUBLIC_WS_URL" to "ws://public.example.invalid"),
             mapOf("FIREBASE_SERVICE_ACCOUNT_PATH" to "relative.json"),
             // Duz TURN, relay adresini ve kimligi yol uzerindeki gozlemciye acar.
             mapOf("TURN_ALLOW_PLAINTEXT" to "true"),

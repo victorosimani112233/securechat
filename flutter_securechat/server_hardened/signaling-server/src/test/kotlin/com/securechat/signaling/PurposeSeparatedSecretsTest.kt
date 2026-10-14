@@ -35,18 +35,6 @@ class PurposeSeparatedSecretsTest {
     }
 
     @Test
-    fun `includes Janus secrets when SFU is enabled`() {
-        val environment = environment().apply {
-            this["JANUS_WS_URL"] = "wss://janus.invalid"
-            this["JANUS_API_SECRET"] = "janus-api-material-with-more-than-32-bytes"
-            this["JANUS_ADMIN_SECRET"] = getValue("JWT_SECRET")
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            PurposeSeparatedSecrets.validate(environment)
-        }
-    }
-
-    @Test
     fun `rejects equivalent padded and unpadded base64 key material`() {
         val material = ByteArray(32) { (it + 1).toByte() }
         val padded = Base64.getEncoder().encodeToString(material)
@@ -73,21 +61,12 @@ class PurposeSeparatedSecretsTest {
     }
 
     @Test
-    fun `rejects weak metrics and Janus authentication secrets`() {
+    fun `rejects a weak metrics authentication secret`() {
         val weakMetrics = environment().apply {
             this["METRICS_BEARER_TOKEN"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
         assertThrows(IllegalArgumentException::class.java) {
             PurposeSeparatedSecrets.validate(weakMetrics)
-        }
-
-        val weakJanus = environment().apply {
-            this["JANUS_WS_URL"] = "wss://janus.invalid"
-            this["JANUS_API_SECRET"] = "short"
-            this["JANUS_ADMIN_SECRET"] = "janus-admin-material-with-more-than-32-bytes"
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            PurposeSeparatedSecrets.validate(weakJanus)
         }
     }
 

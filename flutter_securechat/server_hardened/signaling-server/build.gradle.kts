@@ -226,12 +226,6 @@ tasks.test {
     environment("SECURECHAT_PROFILE", "development")
     environment("SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY", "FaT7FztZJFeV2XBCOua92iOGPCIj9Y4UxBwjAuB8eeY=")
     environment("SEALED_SENDER_SERVER_PRIVATE_KEY", "QVMkIVDGd2LvS1mMhd4sFGurRHkQClX1DgaCIvpIncc=")
-    environment("JANUS_API_SECRET", "test-only-janus-api-secret-material-32-bytes")
-    environment("JANUS_ADMIN_SECRET", "test-only-janus-admin-secret-material-32-bytes")
-    // Sahte Janus sunucusu bu adreste ayaga kalkar; SFU kontrol duzlemi
-    // gercek bir WebSocket uzerinden surulur.
-    environment("JANUS_WS_URL", "ws://127.0.0.1:18188/janus")
-    environment("JANUS_PUBLIC_WS_URL", "wss://janus.test.invalid/janus")
     environment("METRICS_BEARER_TOKEN", "test-only-metrics-bearer-token-32-characters")
     environment("TURN_SECRET", "test-only-turn-shared-secret-with-32-bytes")
     environment("TURN_HOST", "turn.test.invalid")

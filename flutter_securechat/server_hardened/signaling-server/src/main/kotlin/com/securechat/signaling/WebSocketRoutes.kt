@@ -5,17 +5,12 @@ import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.server.plugins.*
 import io.ktor.websocket.*
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 
 private val logger = LoggerFactory.getLogger("WebSocketRoutes")
-
-private val sfuScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-private val groupCallPromotion = GroupCallPromotion()
 
 /** Maksimum WebSocket mesaj uzunlugu (karakter cinsinden). 256KB frame'e paralel. */
 /**
@@ -49,25 +44,17 @@ internal const val RESERVED_SERVER_ACK_TYPE = "message_ack"
 internal const val DELIVERY_TRANSPORT_ACK_TYPE = "delivery_transport_ack"
 internal const val CALL_CAPABILITY_HEADER = "X-SecureChat-Call-Capable"
 
-internal fun isServerOnlyFrameType(type: String?): Boolean =
-    type in setOf(RESERVED_SERVER_ACK_TYPE, "sfu_room_created", "group_call_status_response",
-        "group_call_error", "group_call_coordinator_changed", "group_call_member_left")
-
 /**
- * Bir aramanin katilimci tavani.
- *
- * SFU'ya gecilemiyorsa mesh tavani gecerlidir: mesh'te her cihaz N-1 encode
- * ve N-1 upload yapar, tavanin ustunde arama kullanilamaz hale gelir.
- * Sessiz bozulma yerine ongorulebilir ret tercih edilir.
+ * Janus SFU kaldirildi ama `sfu_room_created` REZERVE kalir: eski istemciler
+ * bu cerceveyi hala isliyor ve icindeki Janus adresine baglaniyor. Bir
+ * istemci sahte bir oda bildirimi iletip medyayi kendi sunucusuna
+ * cekemesin.
  */
-internal fun groupCallCapacity(
-    call: GroupCallSessionStore.ActiveCall,
-    callType: String,
-): Int = if (SfuPolicy.canPromote(call.mediaEndToEndEncrypted)) {
-    SfuPolicy.MAX_PARTICIPANTS
-} else {
-    SfuPolicy.meshCapacity(callType)
-}
+internal const val RESERVED_SFU_ROOM_TYPE = "sfu_room_created"
+
+internal fun isServerOnlyFrameType(type: String?): Boolean =
+    type in setOf(RESERVED_SERVER_ACK_TYPE, RESERVED_SFU_ROOM_TYPE, "group_call_status_response",
+        "group_call_error", "group_call_coordinator_changed", "group_call_member_left")
 
 
 /**
@@ -101,7 +88,6 @@ fun Application.configureWebSocket(
     connectionManager: ConnectionManager,
     userRegistry: UserRegistry,
 ) {
-    configureGroupJanusGateway()
     configureGroupCallLifecycle()
     routing {
         webSocket("/ws") {
@@ -270,35 +256,6 @@ fun Application.configureWebSocket(
  * Grup aramasi sonlandi — yalnizca in-memory aktif arama katilimcilarina
  * isActive=false durum bildirimi gonder. Kalici bir grup sosyal grafigi yoktur.
  */
-/** SFU odasi var mi; testler Janus'un baslatilamadigi sunucuyu bununla taklit eder. */
-@Volatile
-internal var groupSfuRoomCheck: (String) -> Boolean = { JanusOrchestrator.hasActiveRoom(it) }
-
-/**
- * Biten grup aramasinin SFU odasini arka planda temizler.
- *
- * Bitis yayinindan SONRA cagrilir ve hicbir hatayi disari sizdirmaz: Janus
- * tarafi baslatilamazsa (`NoClassDefFoundError` bir `LinkageError`'dir,
- * `Exception` degil) bile kalan uyeler "arama bitti" yayinini almis olur.
- */
-private fun scheduleGroupSfuCleanup(groupId: String, force: Boolean = false) {
-    try {
-        if (force || groupSfuRoomCheck(groupId)) {
-            sfuScope.launch {
-                try {
-                    cleanExpiredGroupCalls()
-                } catch (error: LinkageError) {
-                    logger.error("[GroupCall] SFU temizligi basarisiz: ${error.javaClass.simpleName}")
-                }
-            }
-        }
-    } catch (error: Exception) {
-        logger.error("[GroupCall] SFU temizligi atlandi: ${error.javaClass.simpleName}")
-    } catch (error: LinkageError) {
-        logger.error("[GroupCall] SFU temizligi atlandi: ${error.javaClass.simpleName}")
-    }
-}
-
 private suspend fun broadcastGroupCallEnded(
     groupId: String,
     members: Collection<String>,
@@ -325,9 +282,9 @@ private suspend fun broadcastGroupCallEnded(
  * - Koordinator disconnect:
  *   * Kalan online uye varsa → koordinatorluk ona devredilir, herkese
  *     group_call_coordinator_changed + member_left bildirilir; arama DEVAM eder
- *   * Hic kimse kalmadiysa → arama sonlandirilir (store.end + Janus destroy)
+ *   * Hic kimse kalmadiysa → arama sonlandirilir (store.end)
  *
- * Koordinator sadece yeni katilim/SDP-route icin onemli; mevcut P2P/SFU media
+ * Koordinator sadece yeni katilim/SDP-route icin onemli; mevcut P2P media
  * akisi koordinator yokken de calismaya devam eder.
  */
 private suspend fun handleUserDisconnectFromGroupCalls(
@@ -365,7 +322,6 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                     // <=1 kisi kaldi → aramayi tamamen sonlandir
                     GroupCallSessionStore.end(active.groupId, active.instanceId)
                     broadcastGroupCallEnded(active.groupId, remaining, connectionManager)
-                    scheduleGroupSfuCleanup(active.groupId)
                     logger.info("[GroupCall] Koordinator disconnect + <=1 uye — arama sonlandirildi")
                 } else {
                     // GUVENLIK (H9 fix): Koordinator transfer ZORUNLU olarak online uyeye yapilir.
@@ -380,8 +336,7 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                         // Hicbir online uye yok → arama pratik olarak duzelmez, sonlandir.
                         GroupCallSessionStore.end(active.groupId, active.instanceId)
                         broadcastGroupCallEnded(active.groupId, remaining, connectionManager)
-                        scheduleGroupSfuCleanup(active.groupId)
-                        continue
+                            continue
                     }
                     val transferred = GroupCallSessionStore.transferCoordinator(
                         active.groupId,
@@ -412,7 +367,6 @@ private suspend fun handleUserDisconnectFromGroupCalls(
                 if (remaining.size <= 1) {
                     GroupCallSessionStore.end(active.groupId, active.instanceId)
                     broadcastGroupCallEnded(active.groupId, remaining, connectionManager)
-                    scheduleGroupSfuCleanup(active.groupId)
                     logger.info("[GroupCall] <=1 uye kaldi — arama temizlendi")
                 }
             }
@@ -541,16 +495,7 @@ private suspend fun handleMessage(
             return
         }
 
-        if (handleGroupCallSignal(
-                senderId, element, connectionManager::routeMessage,
-                promote = { groupId ->
-                    sfuScope.launch {
-                        groupCallPromotion.promote(groupId) { member, message ->
-                            connectionManager.connections()[member]?.send(Frame.Text(message))
-                        }
-                    }
-                },
-            )) return
+        if (handleGroupCallSignal(senderId, element, connectionManager::routeMessage)) return
 
         // --- Aktif grup aramasi durum sorgusu ---
         if (type == "group_call_status_query") {
@@ -575,14 +520,10 @@ private suspend fun handleMessage(
                         put("coordinatorId", active.coordinatorId)
                         put("callType", active.callType)
                         put("mediaE2ee", active.requiresMediaE2ee)
-                        put("mode", active.mode)
+                        // Eski istemciler alani okur; grup aramalari yalniz mesh.
+                        put("mode", "MESH")
                         putJsonArray("participants") {
                             active.joinedParticipants.forEach { add(it) }
-                        }
-                        // GUVENLIK: apiSecret artik gonderilmiyor (C2 fix).
-                        if (active.mode == "SFU" && active.sfuRoomId != null) {
-                            put("sfuRoomId", active.sfuRoomId)
-                            active.janusWsUrl?.let { put("janusWsUrl", it) }
                         }
                     } else {
                         putJsonArray("participants") {}
@@ -644,7 +585,6 @@ private suspend fun handleMessage(
                             // local session'i broadcast ile temizlenir
                             GroupCallSessionStore.end(hangupGroupId, active.instanceId)
                             broadcastGroupCallEnded(hangupGroupId, remaining, connectionManager)
-                            scheduleGroupSfuCleanup(hangupGroupId)
                             logger.info("[GroupCall] HANGUP sonrasi <=1 uye — arama sonlandirildi")
                         } else if (active.coordinatorId == senderId) {
                             // Koordinator ayrildi → online kalan biri devralir
@@ -654,7 +594,6 @@ private suspend fun handleMessage(
                             if (newCoordinator == null) {
                                 GroupCallSessionStore.end(hangupGroupId, active.instanceId)
                                 broadcastGroupCallEnded(hangupGroupId, remaining, connectionManager)
-                                scheduleGroupSfuCleanup(hangupGroupId, force = true)
                             }
                             val transferred = newCoordinator?.let { GroupCallSessionStore.transferCoordinator(hangupGroupId, it) }
                             if (transferred != null) {

@@ -217,7 +217,7 @@ class BackgroundCallDeliveryIntegrationTest {
         val group = UUID.randomUUID().toString()
         GroupCallSessionStore.start(
             group, UUID.randomUUID().toString(), recipient.first, "VOICE",
-            listOf(recipient.first, peer.first), "MESH",
+            listOf(recipient.first, peer.first),
         )
         try {
             val before = GroupCallSessionStore.get(group)

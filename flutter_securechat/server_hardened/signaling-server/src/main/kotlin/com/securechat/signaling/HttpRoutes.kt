@@ -83,13 +83,6 @@ data class LatestVersionResponse(
 )
 
 @Serializable
-data class SfuRoomResponse(
-    val roomId: Long,
-    val janusWsUrl: String,
-    val status: String,
-)
-
-@Serializable
 data class DirectorySnapshotResponse(
     val keyId: String,
     val entries: List<DirectorySnapshotEntryResponse>,
@@ -363,7 +356,6 @@ data class HealthResponse(
     val database: String,
     val redis: String,
     val privacy: String,
-    val janus: String = "disabled",
     val fcm: String = "disabled",
     val uptime_sec: Long = 0
 )
@@ -422,7 +414,6 @@ fun Application.configureRoutes(
             val redisOk = RedisManager.isHealthy()
             val privacyOk = PrivacyRetentionWorker.isHealthy()
             val criticalOk = dbOk && redisOk && privacyOk
-            val janusEnabled = !System.getenv("JANUS_WS_URL").isNullOrBlank()
             // Env path'inin varligi push'in calistigini kanitlamaz; gercek
             // baslatma sonucu raporlanir.
             val fcmEnabled = fcmPushSender?.isOperational == true
@@ -433,7 +424,6 @@ fun Application.configureRoutes(
                     database = if (dbOk) "ok" else "fail",
                     redis = if (redisOk) "ok" else "fail",
                     privacy = if (privacyOk) "ok" else "fail",
-                    janus = if (janusEnabled) "enabled" else "disabled",
                     fcm = if (fcmEnabled) "enabled" else "disabled",
                     uptime_sec = (System.currentTimeMillis() - serverStartTime) / 1000
                 )
@@ -1156,35 +1146,6 @@ fun Application.configureRoutes(
                     encoder.encodeToString(it.signature)
                 },
             ))
-        }
-
-        // --- SFU Room Bilgisi — AUTH GEREKLI ---
-        get("/api/v1/sfu/room/{groupId}") {
-            val authedUserId = requireAuth(call) ?: return@get
-            val groupId = call.parameters["groupId"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "groupId gerekli"))
-                return@get
-            }
-            // Kimlik dogrulamasi tek basina yetki degildir: yalniz aktif
-            // cagrinin katilimcisi oda bilgisini alabilir.
-            val activeCall = GroupCallSessionStore.get(groupId)
-            if (activeCall == null || authedUserId !in activeCall.participants) {
-                AuditLog.log(eventType = "SFU_ROOM_UNAUTHORIZED", ipAddress = call.clientAddress())
-                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Aktif SFU room bulunamadi"))
-                return@get
-            }
-            val info = JanusOrchestrator.getRoomInfo(groupId, activeCall.instanceId)
-            if (info == null) {
-                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Aktif SFU room bulunamadi"))
-            } else {
-                call.respond(
-                    SfuRoomResponse(
-                        roomId = info.roomId,
-                        janusWsUrl = info.janusWsUrl,
-                        status = "active",
-                    ),
-                )
-            }
         }
 
         // --- FCM Token Yonetimi — AUTH GEREKLI ---

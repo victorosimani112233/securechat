@@ -4,7 +4,7 @@ package com.securechat.signaling
  * Sunucunun hangi dagitim profilinde calistigi.
  *
  * Kod tabani bastan iki profil varsayacak sekilde yazilmisti:
- * `BuildManifest.validate`, `SfuPolicy.validate` ve OPRF backend secimi
+ * `BuildManifest.validate` ve OPRF backend secimi
  * production degilse erken doner. Ancak `ProductionDeploymentPolicy` tek bir
  * `require` ile `PRIVACY_PRODUCTION_MODE=true` zorunlu kildigi icin pratikte
  * tek profil kalmisti: yerel bir calistirma da HSM, dogrulanmis PostgreSQL
