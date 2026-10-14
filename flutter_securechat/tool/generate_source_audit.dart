@@ -372,9 +372,9 @@ final _rules = <AuditRule>[
   _rule(
     r'app/.*/crypto/(GroupSenderKey|PreKeyBundle|SessionEnsurer)',
     'COVERED',
-    'lib/src/crypto/signal_protocol_crypto_service.dart',
-    'test/signal_protocol_crypto_service_test.dart',
-    'Signal session/SenderKey production servisine birlestirildi.',
+    'lib/src/crypto/vodozemac/vodozemac_crypto_service.dart',
+    'test/vodozemac_crypto_service_test.dart',
+    'Grup/oturum/prekey/mesaj kriptografisi vodozemac (Olm + Megolm) uretim servisinde.',
   ),
   _rule(
     r'app/.*/crypto/OneToOneFileCipherImpl',
@@ -818,11 +818,18 @@ final _rules = <AuditRule>[
     'Android Keystore/iOS Keychain master material wrapper.',
   ),
   _rule(
-    r'crypto/.*/(MessageEncryptor|PreKeyManager|SecureChatProtocolStore|SecureChatSenderKeyStore|SessionManager)|crypto/.*/store/|crypto/.*/model/(EncryptedEnvelope|KeyBundle)|crypto/.*/ByteArrayExt',
+    r'crypto/.*/(SecureChatProtocolStore|SecureChatSenderKeyStore)|crypto/.*/store/',
     'COVERED',
-    'lib/src/crypto/signal_protocol_crypto_service.dart',
-    'test/libsignal_wire_compat_test.dart',
-    'Signal V3 records/wire/store saf-Dart runtime ve Java 2.8.1 capraz testinde.',
+    'lib/src/crypto/vodozemac/vodozemac_protocol_store.dart',
+    'test/vodozemac_storage_test.dart',
+    'Signal store yerine vodozemac protocol store (Olm/Megolm pickled durum).',
+  ),
+  _rule(
+    r'crypto/.*/(MessageEncryptor|PreKeyManager|SessionManager)|crypto/.*/model/(EncryptedEnvelope|KeyBundle)|crypto/.*/ByteArrayExt',
+    'COVERED',
+    'lib/src/crypto/vodozemac/vodozemac_crypto_service.dart',
+    'test/vodozemac_crypto_service_test.dart',
+    'Grup/oturum/prekey/mesaj kriptografisi vodozemac (Olm + Megolm) uretim servisinde.',
   ),
   _rule(
     r'crypto/.*/di/',
