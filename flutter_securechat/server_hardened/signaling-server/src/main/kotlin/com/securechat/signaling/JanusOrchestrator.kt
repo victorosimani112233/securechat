@@ -24,7 +24,8 @@ private val log = LoggerFactory.getLogger("JanusOrchestrator")
  * 2. Katilimci geldiginde → attachPlugin() + joinRoom()
  * 3. Arama bittiginde → destroyVideoRoom(groupId)
  *
- * SFU threshold: >=4 katilimci → SFU mode, <4 → mesh mode (client tarafinda karar verilir)
+ * SFU esigi sunucuda: 6 katilimciya kadar mesh, 7. katilimci katildiginda
+ * SFU (SfuPolicy.sfuThreshold). SFU kapaliysa mesh 8 kisiyle sinirlidir.
  */
 object JanusOrchestrator {
 

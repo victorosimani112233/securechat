@@ -20,7 +20,8 @@ object GroupCallSessionStore {
 
     /**
      * Aktif grup aramasi bilgisi.
-     * mode: "MESH" (<4 katilimci) veya "SFU" (>=4 katilimci).
+     * mode: "MESH" (6 katilimciya kadar) veya "SFU" (7. katilimcidan itibaren,
+     * bkz. SfuPolicy.sfuThreshold).
      * SFU modunda sfuRoom alanlari doludur.
      */
     data class ActiveCall(

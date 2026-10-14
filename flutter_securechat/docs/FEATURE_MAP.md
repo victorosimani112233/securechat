@@ -33,7 +33,7 @@
 | Sifreli dosya transferi | Hazir | Kamera/galeri/belge picker, 128 KB encrypted chunk, retry/progress, disk tabanli out-of-order assembly, stale cleanup, path traversal korumasi, incoming/outgoing DAO persistence, thumbnail, app-ici goruntuleme, tek-gosterim ve kontrollu native open/share var. |
 | 1:1 WebRTC | Hazir | Dinamik ICE/TURN, audio/video capture, SDP/ICE signaling, renderer, reconnect ve medya kontrolleri var. |
 | Sistem cagri entegrasyonu | Hazir | Android self-managed Telecom ConnectionService ve iOS CallKit CXProvider ayni Dart state machine'e bagli. |
-| Grup WebRTC/Janus | Hazir | Ortak local stream, katilimci basina mesh PeerConnection/renderer, coordinator fanout ve 4+ katilimcida Janus publisher/subscriber RTC baglantisi tamam. |
+| Grup WebRTC/Janus | Hazir | Ortak local stream, katilimci basina mesh PeerConnection/renderer, coordinator fanout ve 7+ katilimcida (6 kisiye kadar mesh) Janus publisher/subscriber RTC baglantisi tamam. |
 | Planli mesajlar | Hazir | Create/edit/list/toggle/delete UI, encrypted DAO, one-off/daily/custom hesaplama ve no-plaintext-fallback fanout tamam. |
 | Background maintenance | Hazir | Android WorkManager, iOS BGTaskScheduler/Fetch, foreground catch-up, expiry cleanup, stuck recovery, timer flush ve 7 gunluk sender-key rotation tamam. |
 | App lifecycle/presence | Hazir | Persisted login ile resume reconnect, taze token provider, online/offline presence, last-seen gizleme, push token refresh, foreground recovery ve background socket kapatma tamam. |
