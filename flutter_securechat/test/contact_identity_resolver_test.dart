@@ -43,6 +43,57 @@ void main() {
     expect(await resolver.resolveDisplayName('known'), 'Alice');
     expect(await resolver.resolvePhoneNumber('unknown'), '');
   });
+
+  // QA 2026-10-14: numarayla eklenen kisi grupta "~Ad" yerine numara
+  // olarak gorunuyordu.
+  test('a contact added only by number uses the shared chat title', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    await fixture.database.contacts.insert(
+      const ContactEntity(
+        id: 'dialed',
+        phoneNumber: '+905321000417',
+        phoneHash: 'h',
+        displayName: '+905321000417',
+        isRegistered: true,
+        addedManually: true,
+      ),
+    );
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: 'dialed',
+        peerId: 'dialed',
+        peerName: '~B Telefonu',
+        peerPhone: '+905321000417',
+      ),
+    );
+    await fixture.database.contacts.insert(
+      const ContactEntity(
+        id: 'named',
+        phoneNumber: '+905321000418',
+        phoneHash: 'h2',
+        displayName: 'Rehber Adi',
+        isRegistered: true,
+        addedManually: true,
+      ),
+    );
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: 'named',
+        peerId: 'named',
+        peerName: '~Sahte',
+        peerPhone: '+905321000418',
+      ),
+    );
+    final resolver = ContactIdentityResolver(database: fixture.database);
+
+    final identities = await resolver.resolveMany(['dialed', 'named']);
+    expect(identities['dialed']!.displayName, '~B Telefonu');
+    expect(identities['dialed']!.phoneNumber, '+905321000417');
+    // Kullanicinin yazdigi rehber adi her zaman onde.
+    expect(identities['named']!.displayName, 'Rehber Adi');
+    expect(await resolver.resolveDisplayName('dialed'), '~B Telefonu');
+  });
 }
 
 class _Fixture {

@@ -110,9 +110,24 @@ class ContactIdentityResolver {
     ContactEntity? local,
     ConversationEntity? conversation,
   ) {
+    // Birebir sohbetin basligi karsi tarafin paylastigi "~Ad" olabilir.
+    // Ad yazilmamis (numarayla eklenmis) kiside grup uye etiketi de onu
+    // gostersin; yoksa grupta numara gorunuyordu (QA 2026-10-14, T2'nin
+    // grup tarafi).
+    final directTitle = conversation == null || conversation.isGroup
+        ? ''
+        : conversation.peerName.trim();
+    final hasDirectTitle =
+        directTitle.isNotEmpty &&
+        directTitle != userId &&
+        directTitle != conversation?.peerPhone.trim() &&
+        directTitle != local?.phoneNumber.trim();
     if (local != null && local.phoneNumber.isNotEmpty) {
       return ContactIdentity(
-        displayName: local.displayName.isEmpty
+        displayName:
+            hasDirectTitle && ProfileNameSharingService.isUnnamedContact(local)
+            ? directTitle
+            : local.displayName.isEmpty
             ? local.phoneNumber
             : local.displayName,
         phoneNumber: local.phoneNumber,
@@ -124,6 +139,8 @@ class ContactIdentityResolver {
       return ContactIdentity(
         displayName: local?.displayName.isNotEmpty == true
             ? local!.displayName
+            : hasDirectTitle
+            ? directTitle
             : conversation.peerPhone,
         phoneNumber: conversation.peerPhone,
       );
