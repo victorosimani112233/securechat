@@ -145,9 +145,13 @@ class ContactIdentityResolver {
         phoneNumber: conversation.peerPhone,
       );
     }
+    // Numara paylasilmamis olsa da birebir sohbetin "~Ad" basligi bilinir;
+    // grupta "Bilinmeyen uye" yerine o gorunur (QA 2026-10-14).
     return ContactIdentity(
       displayName: local?.displayName.isNotEmpty == true
           ? local!.displayName
+          : hasDirectTitle
+          ? directTitle
           : userId,
       phoneNumber: local?.phoneNumber ?? '',
     );

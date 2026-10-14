@@ -94,6 +94,36 @@ void main() {
     expect(identities['named']!.displayName, 'Rehber Adi');
     expect(await resolver.resolveDisplayName('dialed'), '~B Telefonu');
   });
+
+  // QA 2026-10-14: numarasini paylasmayan kisi grupta "Bilinmeyen uye"
+  // gorunuyordu; birebir sohbetin basligi biliniyordu.
+  test('a peer without a shared number uses the direct chat title', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: 'hidden',
+        peerId: 'hidden',
+        peerName: '~A Telefonu',
+        peerPhone: '',
+      ),
+    );
+    await fixture.database.conversations.insert(
+      const ConversationEntity(
+        id: 'untitled',
+        peerId: 'untitled',
+        peerName: 'untitled',
+        peerPhone: '',
+      ),
+    );
+    final resolver = ContactIdentityResolver(database: fixture.database);
+
+    final identities = await resolver.resolveMany(['hidden', 'untitled']);
+    expect(identities['hidden']!.displayName, '~A Telefonu');
+    expect(identities['hidden']!.phoneNumber, isEmpty);
+    // Baslik kimligin kendisiyse yeni bir ad uydurulmaz.
+    expect(identities['untitled']!.displayName, 'untitled');
+  });
 }
 
 class _Fixture {
