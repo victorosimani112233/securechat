@@ -586,7 +586,7 @@
   "onboarding_private_body": "Her mesaj cihazınızda şifrelenir; sunucu içeriği göremez.",
   "onboarding_direct_call": "Doğrudan arama",
   "onboarding_webrtc_subtitle": "Sesli ve görüntülü WebRTC",
-  "onboarding_webrtc_body": "Bire bir aramalar doğrudan, büyük grup aramaları Janus SFU üzerinden çalışır.",
+  "onboarding_webrtc_body": "Bire bir aramalar ve 8 kişiye kadar grup aramaları cihazlar arasında doğrudan kurulur.",
   "onboarding_privacy_control": "Tam gizlilik kontrolü",
   "onboarding_you_decide": "Siz karar verirsiniz",
   "onboarding_privacy_body": "Tek gösterim, süreli mesaj, ekran koruması ve grup export politikası.",

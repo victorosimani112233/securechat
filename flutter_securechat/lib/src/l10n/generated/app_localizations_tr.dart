@@ -1384,7 +1384,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get onboarding_webrtc_body =>
-      'Bire bir aramalar doğrudan, büyük grup aramaları Janus SFU üzerinden çalışır.';
+      'Bire bir aramalar ve 8 kişiye kadar grup aramaları cihazlar arasında doğrudan kurulur.';
 
   @override
   String get onboarding_privacy_control => 'Tam gizlilik kontrolü';

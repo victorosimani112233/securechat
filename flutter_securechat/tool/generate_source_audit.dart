@@ -875,10 +875,10 @@ final _rules = <AuditRule>[
   ),
   _rule(
     r'network/.*/JanusClient',
-    'COVERED',
-    'lib/src/media/janus_client.dart',
-    'test/media_module_test.dart',
-    'Janus VideoRoom protocol/runtime.',
+    'DECISION',
+    '-',
+    '-',
+    'Janus SFU 2026-10-14te kaldirildi; grup aramalari 8 kisiye kadar mesh.',
   ),
   _rule(
     r'network/.*/OfflineMessageQueue|network/.*/StuckMessageRecovery',

@@ -189,6 +189,23 @@ const _routeContracts = <String, RouteContract>{
         'Refresh tokeni tuketir ve dondurur. Access token gecerli '
         'olmadiginda da cagrilabilmesi gerekir, bu yuzden requireAuth yok.',
   ),
+  'POST /api/v1/auth/device/challenge': (
+    status: 'COVERED',
+    guard: Guard.public,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note:
+        'R3-3: refresh zinciri kaybolan cihaz, cihaz anahtariyla imzalayacagi '
+        'tek kullanimlik bir meydan okuma alir. Token istemez; meydan okuma '
+        'tek basina hicbir yetki vermez.',
+  ),
+  'POST /api/v1/auth/device/verify': (
+    status: 'COVERED',
+    guard: Guard.public,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note:
+        'Meydan okumanin cihaz anahtariyla imzasini dogrular ve yeni oturum '
+        'verir. Kayitli cihaz anahtari olmadan gecilemez.',
+  ),
   'POST /api/v1/auth/logout': (
     status: 'COVERED',
     guard: Guard.auth,
@@ -274,14 +291,6 @@ const _routeContracts = <String, RouteContract>{
         'principal\'i da kalkti; artik yalniz kullanici token\'i. '
         'Numaralandirmanin siniri rate limit (120/saat), erisimi kapatmak '
         'degil.',
-  ),
-  'GET /api/v1/sfu/room/{groupId}': (
-    status: 'WS_EQUIVALENT',
-    guard: Guard.auth,
-    evidence: 'flutter_securechat/lib/src/media/call_manager.dart',
-    note:
-        'Istemci ayni bilgiyi WebSocket grup cagri sinyalleriyle alir; '
-        'HTTP yolu operasyon/kurtarma gorunumu.',
   ),
   'POST /api/v1/fcm/register': (
     status: 'COVERED',

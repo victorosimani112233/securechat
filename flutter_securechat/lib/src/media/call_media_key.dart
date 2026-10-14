@@ -4,9 +4,9 @@ import 'dart:typed_data';
 
 /// Bir grup aramasinin medya anahtari ve kusagi.
 ///
-/// SFU yolunda WebRTC oturumu Janus'ta sonlanir; ayri bir uygulama katmani
-/// sifrelemesi olmadan medya sunucunun guven sinirinin icinde kalir. Bu anahtar
-/// frame'leri uclarda sifreler, boylece SFU yalniz ciphertext yonlendirir.
+/// Mesh medyasi DTLS-SRTP ile zaten uctan uca sifrelidir; bu anahtar
+/// frame'leri ayrica cagriya bagli bir anahtarla sifreler. (Ilk amaci Janus
+/// SFU'nun yalniz ciphertext yonlendirmesiydi; SFU 2026-10-14'te kaldirildi.)
 ///
 /// Anahtar sunucudan **gecmez**: her katilimciya mevcut direct Signal zarfi
 /// icinde gonderilir. Sunucu ordinary bir `encrypted_message` gorur.
@@ -68,7 +68,9 @@ class CallMediaKey {
     if (epochSeparator <= 0) return null;
 
     final callId = body.substring(0, epochSeparator);
-    final epoch = int.tryParse(body.substring(epochSeparator + 1, keySeparator));
+    final epoch = int.tryParse(
+      body.substring(epochSeparator + 1, keySeparator),
+    );
     if (callId.isEmpty || epoch == null || epoch < 0) return null;
     if (expectedCallId != null && callId != expectedCallId) return null;
 

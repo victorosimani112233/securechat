@@ -8,7 +8,6 @@ import 'package:flutter_securechat/src/media/call_media_key.dart';
 import 'package:flutter_securechat/src/media/call_models.dart';
 import 'package:flutter_securechat/src/media/group_media_engine.dart';
 import 'package:flutter_securechat/src/media/ice_server_fetcher.dart';
-import 'package:flutter_securechat/src/media/janus_client.dart';
 import 'package:flutter_securechat/src/media/media_engine.dart';
 import 'package:flutter_securechat/src/media/native_call_integration.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
@@ -660,34 +659,31 @@ void main() {
     expect(f.nodes[alice]!.manager.currentSession!.peerIds, [bob, carol]);
   });
 
-  test('unencrypted mesh ignores SFU announcements', () async {
-    final f = await _Network.open(encrypted: false);
-    addTearDown(f.dispose);
-    await f.start(peers: [bob]);
-    f.room(alice);
-    await _settle();
-    expect(f.janusCreated, 0);
-    expect(f.nodes[alice]!.manager.currentSession!.isSfuMode, isFalse);
-  });
-
+  // Janus SFU 2026-10-14'te kaldirildi. Eski bir sunucunun oda bildirimi
+  // mesh aramayi bozmamali ve hicbir baglanti baslatmamali.
   test(
-    'SFU waits for acceptance and key reinstallation after initialize',
+    'a retired SFU room announcement leaves the mesh call untouched',
     () async {
       final f = await _Network.open();
       addTearDown(f.dispose);
       await f.start(peers: [bob]);
       await _until(() => f.nodes[bob]!.manager.currentSession != null);
-      f.room(bob);
-      await _settle();
-      expect(f.janusCreated, 0);
-      expect(f.nodes[bob]!.media.initialized, isFalse);
       expect(await f.nodes[bob]!.manager.acceptCall(), isTrue);
-      await _until(() => f.nodes[bob]!.manager.currentSession!.isSfuMode);
-      expect(f.janusCreated, 1);
-      expect(f.nodes[bob]!.media.key, isNotNull);
-      f.room(bob);
+      final node = f.nodes[alice]!;
+      await _until(() => node.media.remoteSdp.contains(bob));
+      final operations = node.media.meshOperations;
+      final announcement = SignalMessage.decode(
+        '{"type":"sfu_room_created","senderId":"server",'
+        '"recipientId":"$alice","timestamp":0,"groupId":"${f.token}",'
+        '"roomId":42,"janusWsUrl":"wss://janus.invalid/janus"}',
+      );
+      expect(announcement, isA<UnknownSignalMessage>());
+      node.wire.addIncoming(announcement);
       await _settle();
-      expect(f.janusCreated, 1);
+      expect(node.media.meshOperations, operations);
+      expect(node.media.meshPeers, contains(bob));
+      expect(node.manager.currentSession!.state, isNot(CallState.failed));
+      expect(f.failures, isEmpty);
     },
   );
 
@@ -707,68 +703,6 @@ void main() {
       isTrue,
     );
   });
-
-  test(
-    'SFU handoff ignores late mesh SDP ICE and does not recreate peers',
-    () async {
-      final f = await _Network.open();
-      addTearDown(f.dispose);
-      await f.start(peers: [bob, carol]);
-      await _until(() => f.nodes[bob]!.manager.currentSession != null);
-      expect(await f.nodes[bob]!.manager.acceptCall(), isTrue);
-      final node = f.nodes[alice]!;
-      await _until(() => node.media.remoteSdp.contains(bob));
-      final gate = Completer<void>();
-      node.media.publisherGate = gate;
-      f.room(alice);
-      await _until(() => node.media.publisherStarted);
-      expect(node.media.meshPeers, isEmpty);
-      final operations = node.media.meshOperations;
-      void lateFrames() {
-        f.deliver(
-          SdpAnswerSignal(
-            senderId: bob,
-            recipientId: alice,
-            timestamp: DateTime.now(),
-            sdp: 'late-answer',
-          ),
-        );
-        f.deliver(
-          SdpOfferSignal(
-            senderId: bob,
-            recipientId: alice,
-            timestamp: DateTime.now(),
-            sdp: 'late-offer',
-            callType: 'VIDEO',
-          ),
-        );
-        f.deliver(
-          IceCandidateSignal(
-            senderId: bob,
-            recipientId: alice,
-            timestamp: DateTime.now(),
-            candidate: 'late-ice',
-            sdpMid: '0',
-            sdpMLineIndex: 0,
-          ),
-        );
-      }
-
-      lateFrames();
-      expect(await f.nodes[carol]!.manager.acceptCall(), isTrue);
-      await _settle();
-      expect(node.media.meshOperations, operations);
-      gate.complete();
-      await _until(() => node.manager.currentSession!.isSfuMode);
-      await _settle();
-      lateFrames();
-      await _settle();
-      expect(node.media.meshOperations, operations);
-      expect(node.media.meshPeers, isEmpty);
-      expect(node.manager.currentSession!.state, isNot(CallState.failed));
-      expect(f.failures, isEmpty);
-    },
-  );
 }
 
 Future<void> _settle() =>
@@ -795,7 +729,6 @@ class _Network {
   GroupCallStatusResponseSignal Function(GroupCallStatusQuerySignal query)?
   statusOverride;
   bool preparedWhileConnected = false;
-  int janusCreated = 0;
   int nativeAnswers = 0;
 
   static Future<_Network> open({
@@ -850,10 +783,6 @@ class _Network {
                 return true;
               }
             : null,
-        janusClientFactory: () {
-          f.janusCreated++;
-          return _Janus();
-        },
         onAsyncFailure: (operation, error, _) =>
             f.failures.add('$operation: $error'),
       );
@@ -881,16 +810,6 @@ class _Network {
     final decoded = SignalMessage.decode(message.encode());
     nodes[decoded.recipientId]?.wire.addIncoming(decoded);
   }
-
-  void room(String recipient) => deliver(
-    SfuRoomCreatedSignal(
-      recipientId: recipient,
-      timestamp: DateTime.now(),
-      groupId: token,
-      roomId: 42,
-      janusWsUrl: 'wss://janus.invalid',
-    ),
-  );
 
   Future<void> releaseKeys() async {
     for (final key in heldKeys) {
@@ -1035,10 +954,8 @@ class _GroupMedia implements GroupMediaEngine {
   final candidates = <String>{};
   final meshPeers = <String>{};
   int meshOperations = 0;
-  Completer<void>? publisherGate;
   Completer<void>? removalGate;
   bool removalInProgress = false;
-  bool publisherStarted = false;
   CallMediaKey? key;
   bool initialized = false;
   bool closed = false;
@@ -1121,19 +1038,6 @@ class _GroupMedia implements GroupMediaEngine {
   }
 
   @override
-  Future<String> createSfuPublisherOffer({
-    required LocalIceCandidateHandler onIceCandidate,
-  }) async {
-    expect(initialized, isTrue);
-    expect(key, isNotNull);
-    publisherStarted = true;
-    await publisherGate?.future;
-    return 'publisher-offer';
-  }
-
-  @override
-  Future<void> applySfuPublisherAnswer(String answerSdp) async {}
-  @override
   Future<void> removePeer(String peerId) async {
     removalInProgress = true;
     try {
@@ -1164,23 +1068,4 @@ class _GroupMedia implements GroupMediaEngine {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _Janus extends JanusClient {
-  @override
-  Future<bool> connect({
-    required String url,
-    required String accessToken,
-  }) async => true;
-  @override
-  Future<int> createSession() async => 1;
-  @override
-  Future<int> attachVideoRoom() async => 2;
-  @override
-  Future<List<(int, String?)>> joinAsPublisher({
-    required int roomId,
-    required String displayName,
-  }) async => [];
-  @override
-  Future<String> publishSdp(String offerSdp) async => 'publisher-answer';
 }

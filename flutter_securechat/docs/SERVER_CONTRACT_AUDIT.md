@@ -15,7 +15,6 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | `GET /api/v1/ice/config` | `auth` | COVERED | `flutter_securechat/lib/src/media/ice_server_fetcher.dart` | Kisa omurlu TURN yapilandirmasi. |
 | `GET /api/v1/latest-version` | `public` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Magaza/surum politikasi yolu; Flutter istemcisinde cagiran yok. |
 | `GET /api/v1/prekeys/status` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. Kaldirma, libsignal kolonlarini dusuren migration ile birlikte. |
-| `GET /api/v1/sfu/room/{groupId}` | `auth` | WS_EQUIVALENT | `flutter_securechat/lib/src/media/call_manager.dart` | Istemci ayni bilgiyi WebSocket grup cagri sinyalleriyle alir; HTTP yolu operasyon/kurtarma gorunumu. |
 | `GET /api/v1/users/{userId}/prekeys` | `auth` | COVERED | `flutter_securechat/lib/src/crypto/vodozemac/olm_pre_key_bundle_api.dart` | Peer bundle cekimi. Guard `requireServicePrincipal` IDI ve o haliyle kullanici token'ini kabul etmiyordu, yani hicbir istemci peer bundle'i cekemiyordu; tek prekey yolu haline gelince bu, oturum kurmayi tumuyle imkansiz kilardi. Kaldirilan v2 esdegeri zaten requirePrincipal kullaniyordu. Bot API kaldirilinca servis principal'i da kalkti; artik yalniz kullanici token'i. Numaralandirmanin siniri rate limit (120/saat), erisimi kapatmak degil. |
 | `GET /api/v1/version` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Build kimligi operator bilgisidir; surum/commit anonim sizdirilmaz. |
 | `GET /health` | `public` | COVERED | `flutter_securechat/lib/src/network/socket_diagnostics.dart` | Redakte edilmis uyumluluk yoklamasi; anonim cagrilabilir olmasi kasitli, stack ayrintisi dondurmez. |
@@ -27,6 +26,8 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | `POST /api/v1/account/recovery-email/verify` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kurtarma e-postasi kaydini dogrular. |
 | `POST /api/v1/admin/accounts/{userId}/remove` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyonla hesap kaldirma; kullanici silme yoluyla ayni temizlik. |
 | `POST /api/v1/admin/reports/{reportId}/close` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyon karari kaydi. |
+| `POST /api/v1/auth/device/challenge` | `public` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | R3-3: refresh zinciri kaybolan cihaz, cihaz anahtariyla imzalayacagi tek kullanimlik bir meydan okuma alir. Token istemez; meydan okuma tek basina hicbir yetki vermez. |
+| `POST /api/v1/auth/device/verify` | `public` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Meydan okumanin cihaz anahtariyla imzasini dogrular ve yeni oturum verir. Kayitli cihaz anahtari olmadan gecilemez. |
 | `POST /api/v1/auth/login/complete` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Dogrulanmis giristen sonra access+refresh basar. |
 | `POST /api/v1/auth/login/request` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | E-posta ile giris baslatir. Token'i olmayan bir istemci cagirdigi icin guard yok; siniri rate limit (`recovery_request`) ve sunucunun hesap varligini sizdirmayan sabit cevabi kuruyor. |
 | `POST /api/v1/auth/login/verify` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/secure_account_recovery_coordinator.dart` | Giris kodunu tuketir. Guard yerine gecen sey kodun kendisi. |
@@ -47,7 +48,7 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 ## Signal codec
 
 - Sunucunun siniflandirdigi tur: 11 (`MessageTypes.kt`: TRANSIENT, PENDING_CALL, FILE_TRANSFER)
-- Flutter istemcisinin urettigi tur: 33
+- Flutter istemcisinin urettigi tur: 34
 - Sunucu siniflandiriyor ama istemci uretmiyor: audio_data, video_data
 
 ### Acikca reddedilen turler
@@ -64,7 +65,7 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 
 ## Sonuc
 
-- Route: 35/35 eslenmis
+- Route: 36/36 eslenmis
 - Eslenmemis: yok
 - Guard uyusmazligi: yok
 

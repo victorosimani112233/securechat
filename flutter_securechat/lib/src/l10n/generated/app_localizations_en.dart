@@ -1394,7 +1394,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get onboarding_webrtc_body =>
-      'One-to-one calls connect directly; large group calls use the Janus SFU.';
+      'One-to-one calls and group calls of up to 8 people connect directly between devices.';
 
   @override
   String get onboarding_privacy_control => 'Complete privacy control';

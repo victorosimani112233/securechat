@@ -53,7 +53,6 @@ sealed class SignalMessage {
       'call_control' => CallControlSignal.fromJson(data),
       'call_control_ack' => CallControlAckSignal.fromJson(data),
       'session_reset_request' => SessionResetRequestSignal.fromJson(data),
-      'sfu_room_created' => SfuRoomCreatedSignal.fromJson(data),
       'server_shutdown' => ServerShutdownSignal.fromJson(data),
       'group_call_invite' => GroupCallInviteSignal.fromJson(data),
       'group_call_member_joined' => GroupCallMemberJoinedSignal.fromJson(data),
@@ -135,10 +134,7 @@ class SharedProfileNameSignal extends SignalMessage {
       );
 
   @override
-  Map<String, Object?> toJson() => {
-    ..._base(this),
-    'displayName': displayName,
-  };
+  Map<String, Object?> toJson() => {..._base(this), 'displayName': displayName};
 }
 
 /// Alici tek gosterimlik mesaji acti. Yalniz sifreli ozel kontrol icinde,
@@ -930,42 +926,6 @@ class SessionResetRequestSignal extends SignalMessage {
   Map<String, Object?> toJson() => {..._base(this), 'reason': reason};
 }
 
-class SfuRoomCreatedSignal extends SignalMessage {
-  const SfuRoomCreatedSignal({
-    super.senderId = 'server',
-    super.recipientId = 'broadcast',
-    required super.timestamp,
-    required this.groupId,
-    required this.roomId,
-    required this.janusWsUrl,
-  });
-
-  final String groupId;
-  final int roomId;
-  final String janusWsUrl;
-
-  @override
-  String get type => 'sfu_room_created';
-
-  factory SfuRoomCreatedSignal.fromJson(Map<String, Object?> json) =>
-      SfuRoomCreatedSignal(
-        senderId: json['senderId'] as String? ?? 'server',
-        recipientId: json['recipientId'] as String? ?? 'broadcast',
-        timestamp: _dt(json['timestamp']),
-        groupId: json['groupId'] as String? ?? '',
-        roomId: (json['roomId'] as num?)?.toInt() ?? 0,
-        janusWsUrl: json['janusWsUrl'] as String? ?? '',
-      );
-
-  @override
-  Map<String, Object?> toJson() => {
-    ..._base(this),
-    'groupId': groupId,
-    'roomId': roomId,
-    'janusWsUrl': janusWsUrl,
-  };
-}
-
 class ServerShutdownSignal extends SignalMessage {
   const ServerShutdownSignal({
     super.senderId = 'server',
@@ -1010,10 +970,8 @@ class GroupCallInviteSignal extends SignalMessage {
 
   /// Bu istemci medya frame sifrelemesi yapabiliyor mu.
   ///
-  /// Sunucu SFU'ya ancak **tum** katilimcilar bunu bildirdiginde sessizce
-  /// gecer; aksi halde medya Janus'ta acik olur ve gecis acik operator kabulu
-  /// ister. Alan yoksa `false` kabul edilir, yani eski istemci sessizce
-  /// SFU'ya gecirilmez.
+  /// Sifreli baslayan bir aramaya sunucu yetenegi bildirmeyen katilimciyi
+  /// almaz. Alan yoksa `false` kabul edilir.
   final bool mediaE2ee;
 
   @override
@@ -1166,8 +1124,7 @@ class GroupCallJoinRequestSignal extends SignalMessage {
   final String callId;
   final String callType;
 
-  /// Sonradan katilan istemcinin frame sifreleme yetenegi. Tek bir eski
-  /// istemci bile bildirmezse sunucu SFU'ya sessizce gecmez.
+  /// Sonradan katilan istemcinin frame sifreleme yetenegi.
   final bool mediaE2ee;
 
   @override
@@ -1266,9 +1223,6 @@ class GroupCallStatusResponseSignal extends SignalMessage {
     this.coordinatorId,
     this.callType,
     this.participants = const [],
-    this.mode,
-    this.sfuRoomId,
-    this.janusWsUrl,
     this.mediaE2ee = false,
   });
 
@@ -1278,9 +1232,6 @@ class GroupCallStatusResponseSignal extends SignalMessage {
   final String? coordinatorId;
   final String? callType;
   final List<String> participants;
-  final String? mode;
-  final int? sfuRoomId;
-  final String? janusWsUrl;
   final bool mediaE2ee;
 
   @override
@@ -1297,9 +1248,6 @@ class GroupCallStatusResponseSignal extends SignalMessage {
         coordinatorId: json['coordinatorId'] as String?,
         callType: json['callType'] as String?,
         participants: _stringList(json['participants']),
-        mode: json['mode'] as String?,
-        sfuRoomId: (json['sfuRoomId'] as num?)?.toInt(),
-        janusWsUrl: json['janusWsUrl'] as String?,
         mediaE2ee: json['mediaE2ee'] as bool? ?? false,
       );
 
@@ -1312,9 +1260,6 @@ class GroupCallStatusResponseSignal extends SignalMessage {
     if (coordinatorId != null) 'coordinatorId': coordinatorId,
     if (callType != null) 'callType': callType,
     'participants': participants,
-    if (mode != null) 'mode': mode,
-    if (sfuRoomId != null) 'sfuRoomId': sfuRoomId,
-    if (janusWsUrl != null) 'janusWsUrl': janusWsUrl,
     'mediaE2ee': mediaE2ee,
   };
 }

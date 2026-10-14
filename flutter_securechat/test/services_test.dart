@@ -70,12 +70,6 @@ void main() {
         eventType: 'PRIVATE_EVENT',
         adminPayloads: {'admin': 'cipher'},
       ),
-      SfuRoomCreatedSignal(
-        timestamp: now,
-        groupId: 'group',
-        roomId: 42,
-        janusWsUrl: 'wss://janus',
-      ),
       GroupCallInviteSignal(
         senderId: 'me',
         recipientId: 'peer',
@@ -94,9 +88,6 @@ void main() {
         coordinatorId: 'me',
         callType: 'VIDEO',
         participants: ['me', 'peer'],
-        mode: 'SFU',
-        sfuRoomId: 42,
-        janusWsUrl: 'wss://janus',
       ),
     ];
 
@@ -105,6 +96,17 @@ void main() {
       expect(decoded.runtimeType, message.runtimeType);
       expect(decoded.toJson(), message.toJson());
     }
+  });
+
+  // Janus SFU 2026-10-14'te kaldirildi: eski bir sunucunun oda bildirimi
+  // artik hicbir Janus adresine baglanti baslatmaz.
+  test('a retired SFU room announcement decodes as an unknown signal', () {
+    final decoded = SignalMessage.decode(
+      '{"type":"sfu_room_created","senderId":"server","recipientId":"me",'
+      '"timestamp":0,"groupId":"group","roomId":42,'
+      '"janusWsUrl":"wss://janus.invalid/janus"}',
+    );
+    expect(decoded, isA<UnknownSignalMessage>());
   });
 
   test('secure storage database covers DAO-style module contracts', () async {

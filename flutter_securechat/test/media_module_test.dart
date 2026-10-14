@@ -15,7 +15,6 @@ import 'package:flutter_securechat/src/media/call_models.dart';
 import 'package:flutter_securechat/src/media/file_transfer_manager.dart';
 import 'package:flutter_securechat/src/media/group_media_engine.dart';
 import 'package:flutter_securechat/src/media/ice_server_fetcher.dart';
-import 'package:flutter_securechat/src/media/janus_client.dart';
 import 'package:flutter_securechat/src/media/media_engine.dart';
 import 'package:flutter_securechat/src/media/native_call_integration.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
@@ -890,144 +889,10 @@ void main() {
     expect(await Directory('${root.path}/received_files').exists(), isFalse);
   });
 
-  test(
-    'Janus client authenticates and completes VideoRoom publisher flow',
-    () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() => server.close(force: true));
-      String? authorization;
-      final requests = <Map<String, Object?>>[];
-      var nextHandle = 10;
-      server.listen((request) async {
-        authorization = request.headers.value(HttpHeaders.authorizationHeader);
-        final socket = await WebSocketTransformer.upgrade(
-          request,
-          protocolSelector: (protocols) =>
-              protocols.contains('janus-protocol') ? 'janus-protocol' : null,
-        );
-        socket.listen((raw) {
-          final message = (jsonDecode(raw as String) as Map)
-              .cast<String, Object?>();
-          requests.add(message);
-          final transaction = message['transaction'];
-          final kind = message['janus'];
-          if (kind == 'create') {
-            socket.add(
-              jsonEncode({
-                'janus': 'success',
-                'transaction': transaction,
-                'data': {'id': 1},
-              }),
-            );
-          } else if (kind == 'attach') {
-            socket.add(
-              jsonEncode({
-                'janus': 'success',
-                'transaction': transaction,
-                'data': {'id': nextHandle++},
-              }),
-            );
-          } else if (kind == 'message') {
-            final body = (message['body'] as Map).cast<String, Object?>();
-            switch (body['request']) {
-              case 'join' when body['ptype'] == 'publisher':
-                socket.add(
-                  jsonEncode({
-                    'janus': 'event',
-                    'transaction': transaction,
-                    'plugindata': {
-                      'data': {
-                        'publishers': [
-                          {'id': 9, 'display': 'peer'},
-                        ],
-                      },
-                    },
-                  }),
-                );
-              case 'configure':
-                socket.add(
-                  jsonEncode({
-                    'janus': 'event',
-                    'transaction': transaction,
-                    'plugindata': {
-                      'data': {'configured': 'ok'},
-                    },
-                    'jsep': {'type': 'answer', 'sdp': 'remote-answer'},
-                  }),
-                );
-              case 'join':
-                socket.add(
-                  jsonEncode({
-                    'janus': 'event',
-                    'transaction': transaction,
-                    'plugindata': {
-                      'data': {'started': 'ok'},
-                    },
-                    'jsep': {'type': 'offer', 'sdp': 'subscriber-offer'},
-                  }),
-                );
-              case 'start' || 'leave':
-                socket.add(
-                  jsonEncode({
-                    'janus': 'event',
-                    'transaction': transaction,
-                    'plugindata': {
-                      'data': {'started': 'ok'},
-                    },
-                  }),
-                );
-            }
-          }
-        });
-      });
-      final client = JanusClient(requestTimeout: const Duration(seconds: 2));
-      addTearDown(client.dispose);
-      expect(
-        await client.connect(
-          url: 'ws://${server.address.host}:${server.port}',
-          accessToken: 'jwt-token',
-        ),
-        isTrue,
-      );
-      expect(await client.createSession(), 1);
-      expect(await client.attachVideoRoom(), 10);
-      expect(await client.joinAsPublisher(roomId: 77, displayName: 'me'), [
-        (9, 'peer'),
-      ]);
-      final answer = await client.publishSdp(
-        'v=0\r\na=candidate:1 1 UDP 1 192.168.1.2 5000 typ host\r\na=sendrecv',
-      );
-      expect(answer, 'remote-answer');
-      final sentOffer = requests
-          .where((m) => (m['body'] as Map?)?['request'] == 'configure')
-          .single;
-      expect((sentOffer['jsep'] as Map)['sdp'], isNot(contains('192.168.1.2')));
-      expect(await client.subscribeToFeed(9), 'subscriber-offer');
-      await client.answerSubscription(feedId: 9, answerSdp: 'local-answer');
-      expect(
-        client.trickleIce(
-          handleId: 10,
-          candidate: 'candidate:1 1 UDP 1 10.0.0.2 5000 typ host',
-          sdpMid: '0',
-          sdpMLineIndex: 0,
-        ),
-        isFalse,
-      );
-      expect(authorization, 'Bearer jwt-token');
-      final firstDispose = client.dispose();
-      final secondDispose = client.dispose();
-      expect(identical(firstDispose, secondDispose), isTrue);
-      await Future.wait([firstDispose, secondDispose]);
-      await expectLater(
-        client.connect(url: 'ws://test.invalid', accessToken: 'token'),
-        throwsStateError,
-      );
-    },
-  );
   group('call media encryption', () {
-    /// SFU yolunda WebRTC oturumu Janus'ta sonlanir; frame sifrelemesi
-    /// olmadan medya sunucunun guven sinirinin icinde kalir. Sunucu SFU'ya
-    /// ancak tum katilimcilar yetenegi bildirdiginde gecer.
+    /// Frame sifrelemesi mesh'in DTLS-SRTP katmaninin ustune cagri anahtariyla
+    /// ikinci bir katman ekler; yetenegi bildirmeyen katilimci sifreli
+    /// baslayan aramaya alinmaz.
     Future<_MediaKeyFixture> openCall({
       bool withDistributor = true,
       List<String> peerIds = const ['peer-a', 'peer-b'],
@@ -1179,14 +1044,14 @@ void main() {
     );
 
     test(
-      'an unsupported platform stays in mesh instead of a plaintext SFU',
+      'an unsupported platform starts the call without frame encryption',
       () async {
         final call = await openCall(peerIds: ['peer-a'], failEncryption: true);
         addTearDown(call.dispose);
 
         expect(call.started, isTrue);
         expect(call.manager.mediaEncryptionActive, isFalse);
-        // Yetenek bildirilmezse sunucu SFU'ya gecmez.
+        // Yetenek bildirilmez; sunucu bu aramaya sifreleme sart kosmaz.
         final invite = call.signaling.sentMessages
             .whereType<GroupCallInviteSignal>()
             .single;
@@ -1566,28 +1431,7 @@ class _FakeGroupMediaEngine implements GroupMediaEngine {
   }) async => candidates.putIfAbsent(peerId, () => []).add(candidate);
 
   @override
-  Future<String> createSfuPublisherOffer({
-    required LocalIceCandidateHandler onIceCandidate,
-  }) async => 'sfu-publisher-offer';
-  @override
-  Future<void> applySfuPublisherAnswer(String answerSdp) async {}
-  @override
-  Future<String> acceptSfuSubscriberOffer({
-    required int feedId,
-    required String offerSdp,
-    required LocalIceCandidateHandler onIceCandidate,
-  }) async => 'sfu-subscriber-answer';
-  @override
-  Future<void> addSfuSubscriberIce({
-    required int feedId,
-    required String candidate,
-    required String? sdpMid,
-    required int sdpMLineIndex,
-  }) async {}
-  @override
   Future<void> removePeer(String peerId) async {}
-  @override
-  Future<void> removeSfuFeed(int feedId) async {}
   @override
   Future<void> setCameraEnabled(bool enabled) async {}
   @override

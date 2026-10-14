@@ -160,6 +160,8 @@ void main() {
       'app/src/main/java/com/securechat/app/data/BackgroundBlurStore.kt',
       'app/src/main/java/com/securechat/app/diagnostics/HybridLegacyTelemetry.kt',
       'media/src/main/java/com/securechat/media/BackgroundBlurProcessor.kt',
+      // Janus SFU 2026-10-14'te kaldirildi; grup aramalari yalniz mesh.
+      'network/src/main/java/com/securechat/network/JanusClient.kt',
       'network/src/main/java/com/securechat/network/P2PMessageTransport.kt',
     });
   });

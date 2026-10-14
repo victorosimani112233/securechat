@@ -418,7 +418,7 @@
   "onboarding_private_body": "Jede Nachricht wird auf deinem Gerät verschlüsselt; der Server kann ihren Inhalt nicht lesen.",
   "onboarding_direct_call": "Direkte Anrufe",
   "onboarding_webrtc_subtitle": "Sprache und Video über WebRTC",
-  "onboarding_webrtc_body": "Einzelanrufe werden direkt verbunden; große Gruppenanrufe nutzen den Janus-SFU.",
+  "onboarding_webrtc_body": "Einzelanrufe und Gruppenanrufe mit bis zu 8 Personen werden direkt zwischen den Geräten verbunden.",
   "onboarding_privacy_control": "Vollständige Kontrolle über die Privatsphäre",
   "onboarding_you_decide": "Du entscheidest",
   "onboarding_privacy_body": "Einmal ansehen, verschwindende Nachrichten, Bildschirmschutz und Export-Richtlinie für Gruppen.",

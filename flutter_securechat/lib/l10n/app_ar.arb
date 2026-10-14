@@ -521,7 +521,7 @@
   "onboarding_private_body": "تُشفَّر كل رسالة على جهازك؛ ولا يستطيع الخادم قراءة محتواها.",
   "onboarding_direct_call": "مكالمات مباشرة",
   "onboarding_webrtc_subtitle": "صوت وفيديو عبر WebRTC",
-  "onboarding_webrtc_body": "تتصل المكالمات الفردية مباشرة؛ وتستخدم المكالمات الجماعية الكبيرة خادم Janus SFU.",
+  "onboarding_webrtc_body": "تتصل المكالمات الفردية والمكالمات الجماعية حتى 8 أشخاص مباشرة بين الأجهزة.",
   "onboarding_privacy_control": "تحكم كامل في الخصوصية",
   "onboarding_you_decide": "القرار لك",
   "onboarding_privacy_body": "العرض لمرة واحدة، والرسائل المؤقتة، وحماية الشاشة، وسياسة تصدير المجموعات.",

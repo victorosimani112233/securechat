@@ -38,27 +38,12 @@ abstract interface class GroupMediaEngine {
     required String? sdpMid,
     required int sdpMLineIndex,
   });
-  Future<String> createSfuPublisherOffer({
-    required LocalIceCandidateHandler onIceCandidate,
-  });
-  Future<void> applySfuPublisherAnswer(String answerSdp);
-  Future<String> acceptSfuSubscriberOffer({
-    required int feedId,
-    required String offerSdp,
-    required LocalIceCandidateHandler onIceCandidate,
-  });
-  Future<void> addSfuSubscriberIce({
-    required int feedId,
-    required String candidate,
-    required String? sdpMid,
-    required int sdpMLineIndex,
-  });
 
   /// Medya frame sifrelemesini acar.
   ///
-  /// SFU yolunda WebRTC oturumu Janus'ta sonlanir; bu katman olmadan medya
-  /// sunucunun guven sinirinin icinde kalir. Baglantilar kurulmadan **once**
-  /// cagrilmalidir, aksi halde ilk frame'ler sifresiz gider.
+  /// Mesh medyasi zaten DTLS-SRTP ile uctan uca sifrelidir; bu katman cagri
+  /// anahtariyla frame'leri ayrica sifreler. Baglantilar kurulmadan **once**
+  /// cagrilmalidir, aksi halde ilk frame'ler yalniz DTLS-SRTP ile gider.
   ///
   /// Platform destegi yoksa hata firlatir; cagiran mesh'te kalmalidir.
   Future<void> enableMediaEncryption(CallMediaKey mediaKey);
@@ -70,7 +55,6 @@ abstract interface class GroupMediaEngine {
   bool get mediaEncryptionEnabled;
 
   Future<void> removePeer(String peerId);
-  Future<void> removeSfuFeed(int feedId);
   Future<void> setMuted(bool muted);
   Future<void> setSpeakerOn(bool enabled);
   Future<void> setCameraEnabled(bool enabled);
@@ -90,9 +74,6 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
   bool _video = false;
   bool _localRendererInitialized = false;
   Future<void>? _disposeTask;
-
-  static const _sfuPublisherKey = 'sfu:publisher';
-  static String _sfuSubscriberKey(int feedId) => 'sfu:$feedId';
 
   /// Frame sifreleme durumu.
   ///
@@ -243,7 +224,6 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
     final pc = await _createConnection(
       key: peerId,
       onIceCandidate: onIceCandidate,
-      publishLocalTracks: true,
     );
     final offer = await pc.createOffer({
       'offerToReceiveAudio': true,
@@ -262,7 +242,6 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
     final pc = await _createConnection(
       key: peerId,
       onIceCandidate: onIceCandidate,
-      publishLocalTracks: true,
     );
     await pc.setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
     await _attachReceiverCryptors(peerId, pc);
@@ -299,71 +278,9 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
     await pc.addCandidate(RTCIceCandidate(candidate, sdpMid, sdpMLineIndex));
   }
 
-  @override
-  Future<String> createSfuPublisherOffer({
-    required LocalIceCandidateHandler onIceCandidate,
-  }) async {
-    final pc = await _createConnection(
-      key: _sfuPublisherKey,
-      onIceCandidate: onIceCandidate,
-      publishLocalTracks: true,
-      renderRemote: false,
-    );
-    final offer = await pc.createOffer({
-      'offerToReceiveAudio': false,
-      'offerToReceiveVideo': false,
-    });
-    await pc.setLocalDescription(offer);
-    return _requireSdp(offer, 'SFU publisher offer');
-  }
-
-  @override
-  Future<void> applySfuPublisherAnswer(String answerSdp) async {
-    final pc = _connections[_sfuPublisherKey];
-    if (pc == null) throw StateError('SFU publisher connection is missing');
-    await pc.setRemoteDescription(RTCSessionDescription(answerSdp, 'answer'));
-  }
-
-  @override
-  Future<String> acceptSfuSubscriberOffer({
-    required int feedId,
-    required String offerSdp,
-    required LocalIceCandidateHandler onIceCandidate,
-  }) async {
-    final key = _sfuSubscriberKey(feedId);
-    final pc = await _createConnection(
-      key: key,
-      onIceCandidate: onIceCandidate,
-      publishLocalTracks: false,
-    );
-    await pc.setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
-    await _attachReceiverCryptors(key, pc);
-    final answer = await pc.createAnswer({
-      'offerToReceiveAudio': true,
-      'offerToReceiveVideo': _video,
-    });
-    await pc.setLocalDescription(answer);
-    return _requireSdp(answer, 'SFU subscriber answer');
-  }
-
-  @override
-  Future<void> addSfuSubscriberIce({
-    required int feedId,
-    required String candidate,
-    required String? sdpMid,
-    required int sdpMLineIndex,
-  }) => addIceCandidate(
-    peerId: _sfuSubscriberKey(feedId),
-    candidate: candidate,
-    sdpMid: sdpMid,
-    sdpMLineIndex: sdpMLineIndex,
-  );
-
   Future<RTCPeerConnection> _createConnection({
     required String key,
     required LocalIceCandidateHandler onIceCandidate,
-    required bool publishLocalTracks,
-    bool renderRemote = true,
   }) async {
     await _disposeConnection(key);
     final pc = await createPeerConnection({
@@ -373,13 +290,11 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
       'rtcpMuxPolicy': 'require',
     });
     _connections[key] = pc;
-    if (publishLocalTracks) {
-      final stream = _localStream;
-      if (stream == null)
-        throw StateError('Group local media is not initialized');
-      for (final track in stream.getTracks()) {
-        await pc.addTrack(track, stream);
-      }
+    final stream = _localStream;
+    if (stream == null)
+      throw StateError('Group local media is not initialized');
+    for (final track in stream.getTracks()) {
+      await pc.addTrack(track, stream);
     }
     pc.onIceCandidate = (candidate) {
       final value = candidate.candidate;
@@ -388,11 +303,9 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
     };
     // Sifreleme acikken cryptor'lar frame akmadan once baglanmalidir.
     await _attachSenderCryptors(key, pc);
-    if (renderRemote) {
-      pc.onTrack = (event) {
-        unawaited(_attachRemoteStream(key, event));
-      };
-    }
+    pc.onTrack = (event) {
+      unawaited(_attachRemoteStream(key, event));
+    };
     pc.onConnectionState = (state) {
       _peerStates.add(GroupPeerState(key, WebRtcMediaEngine.mapState(state)));
     };
@@ -413,10 +326,6 @@ class WebRtcGroupMediaEngine implements GroupMediaEngine {
 
   @override
   Future<void> removePeer(String peerId) => _disposeConnection(peerId);
-
-  @override
-  Future<void> removeSfuFeed(int feedId) =>
-      _disposeConnection(_sfuSubscriberKey(feedId));
 
   Future<void> _disposeConnection(String key) async {
     for (final cryptor in _cryptors.remove(key) ?? const <FrameCryptor>[]) {

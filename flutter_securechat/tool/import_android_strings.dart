@@ -194,7 +194,7 @@ const _flutterAdditions = <String, Map<String, String>>{
     'onboarding_direct_call': 'Doğrudan arama',
     'onboarding_webrtc_subtitle': 'Sesli ve görüntülü WebRTC',
     'onboarding_webrtc_body':
-        'Bire bir aramalar doğrudan, büyük grup aramaları Janus SFU üzerinden çalışır.',
+        'Bire bir aramalar ve 8 kişiye kadar grup aramaları cihazlar arasında doğrudan kurulur.',
     'onboarding_privacy_control': 'Tam gizlilik kontrolü',
     'onboarding_you_decide': 'Siz karar verirsiniz',
     'onboarding_privacy_body':
@@ -503,7 +503,7 @@ const _flutterAdditions = <String, Map<String, String>>{
     'onboarding_direct_call': 'Direct calls',
     'onboarding_webrtc_subtitle': 'Voice and video over WebRTC',
     'onboarding_webrtc_body':
-        'One-to-one calls connect directly; large group calls use the Janus SFU.',
+        'One-to-one calls and group calls of up to 8 people connect directly between devices.',
     'onboarding_privacy_control': 'Complete privacy control',
     'onboarding_you_decide': 'You decide',
     'onboarding_privacy_body':

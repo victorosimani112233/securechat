@@ -1396,7 +1396,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get onboarding_webrtc_body =>
-      'تتصل المكالمات الفردية مباشرة؛ وتستخدم المكالمات الجماعية الكبيرة خادم Janus SFU.';
+      'تتصل المكالمات الفردية والمكالمات الجماعية حتى 8 أشخاص مباشرة بين الأجهزة.';
 
   @override
   String get onboarding_privacy_control => 'تحكم كامل في الخصوصية';

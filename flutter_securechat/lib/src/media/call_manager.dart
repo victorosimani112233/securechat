@@ -16,12 +16,10 @@ import 'call_media_key.dart';
 import 'call_models.dart';
 import 'group_media_engine.dart';
 import 'ice_server_fetcher.dart';
-import 'janus_client.dart';
 import 'media_engine.dart';
 import 'native_call_integration.dart';
 
 typedef PeerNameResolver = Future<String> Function(String peerId);
-typedef JanusClientFactory = JanusClient Function();
 typedef GroupLocalIdResolver = Future<String?> Function(String routingToken);
 typedef GroupCallPrivacyPreparation =
     Future<String> Function({
@@ -65,7 +63,6 @@ class CallManager {
     required IceServerProvider iceServers,
     required CallLogDao callLogs,
     NativeCallIntegration? nativeCalls,
-    JanusClientFactory? janusClientFactory,
     PeerNameResolver? peerNameResolver,
     GroupLocalIdResolver? groupLocalIdResolver,
     Future<List<String>> Function(String groupId)? groupCallTokens,
@@ -87,7 +84,6 @@ class CallManager {
        _iceServers = iceServers,
        _callLogs = callLogs,
        _nativeCalls = nativeCalls,
-       _janusClientFactory = janusClientFactory ?? JanusClient.new,
        _missedCalls = missedCalls,
        _isBlocked = isBlocked,
        _peerNameResolver = peerNameResolver ?? _identityPeerName,
@@ -115,7 +111,6 @@ class CallManager {
   final IceServerProvider _iceServers;
   final CallLogDao _callLogs;
   final NativeCallIntegration? _nativeCalls;
-  final JanusClientFactory _janusClientFactory;
   final PeerNameResolver _peerNameResolver;
   final GroupLocalIdResolver _groupLocalIdResolver;
   final Future<List<String>> Function(String groupId)? _groupCallTokens;
@@ -142,9 +137,7 @@ class CallManager {
     if (call.participants.isEmpty) return false;
     final current = _current;
     final liveHere =
-        current != null &&
-        !current.isTerminal &&
-        current.callId == call.callId;
+        current != null && !current.isTerminal && current.callId == call.callId;
     if (liveHere) return true;
     if (call.coordinatorId == _session.userId) return false;
     final left = _recentlyLeftGroupCalls[call.callId];
@@ -276,7 +269,7 @@ class CallManager {
   ///
   /// Fail-closed: dagitim kutusu yoksa, platform frame sifrelemesini
   /// desteklemiyorsa veya anahtar bir aliciya bile ulasmazsa `null` doner.
-  /// O durumda arama mesh'te kalir; sifresiz SFU'ya gecilmez.
+  /// O durumda arama frame sifrelemesi olmadan, yalniz DTLS-SRTP ile kurulur.
   Future<CallMediaKey?> _prepareMediaEncryption({
     required GroupMediaEngine groupMedia,
     required String callId,
@@ -496,7 +489,6 @@ class CallManager {
   late final StreamSubscription<MediaConnectionState> _mediaSubscription;
   StreamSubscription<NativeCallAction>? _nativeSubscription;
   StreamSubscription<GroupPeerState>? _groupMediaSubscription;
-  StreamSubscription<JanusEvent>? _janusSubscription;
   CallSession? _current;
   CallSession? _secondary;
   String? _pendingOffer;
@@ -514,15 +506,11 @@ class CallManager {
   String? _currentGroupRoutingToken;
   final Map<String, String> _pendingGroupOffers = {};
   final Map<String, List<IceCandidateSignal>> _pendingGroupIce = {};
-  final Map<int, String> _sfuFeedPeers = {};
   final Set<String> _joinedGroupPeers = {};
   final Set<String> _offeredGroupPeers = {};
   Future<void> _groupSignalTail = Future<void>.value();
   Completer<void> _mediaKeyReady = Completer<void>();
   bool _groupMediaReady = false;
-  bool _sfuBinding = false;
-  (int, String)? _pendingSfuRoom;
-  JanusClient? _janus;
   bool _disposed = false;
   Future<void>? _disposeTask;
 
@@ -704,8 +692,8 @@ class CallManager {
       }
       // Medya anahtari baglantilar kurulmadan once hazir olmali; sonra
       // acilirsa ilk frame'ler sifresiz giderdi. Platform destegi yoksa
-      // veya anahtar bir aliciya ulasmazsa sifreleme kapali kalir ve
-      // sunucu SFU'ya gecmez — sessizce zayif bir garanti verilmez.
+      // veya anahtar bir aliciya ulasmazsa frame sifrelemesi kapali kalir;
+      // mesh medyasi yine DTLS-SRTP ile uctan uca sifrelidir.
       final mediaKey = await _prepareMediaEncryption(
         groupMedia: groupMedia,
         callId: session.callId,
@@ -738,7 +726,6 @@ class CallManager {
         _setSession(_current!.copyWith(state: CallState.ringing));
         _startRingTimeout();
       }
-      await _bindPendingSfu();
       return true;
     } catch (error, stackTrace) {
       _reportCallFailure('initiate-group-call', error, stackTrace);
@@ -907,7 +894,6 @@ class CallManager {
           if (userId.compareTo(peer) < 0) await _offerToGroupPeer(peer);
         }
       });
-      await _bindPendingSfu();
       return true;
     } catch (error, stackTrace) {
       _reportCallFailure('accept-group-call', error, stackTrace);
@@ -1058,7 +1044,6 @@ class CallManager {
     _joinedGroupPeers.clear();
     _offeredGroupPeers.clear();
     _groupMediaReady = false;
-    _pendingSfuRoom = null;
     _mediaKeyReady = Completer<void>();
   }
 
@@ -1127,8 +1112,6 @@ class CallManager {
         _queueGroupSignal(() => _handleGroupMemberLeft(signal));
       case GroupCallCoordinatorChangedSignal():
         _queueGroupSignal(() => _handleCoordinatorChanged(signal));
-      case SfuRoomCreatedSignal():
-        _queueGroupSignal(() => _bindSfuRoom(signal));
       case GroupCallStatusResponseSignal():
         _queueGroupSignal(() => _handleGroupStatus(signal));
       default:
@@ -1153,10 +1136,7 @@ class CallManager {
                   signal.senderId,
                 )));
     if (isGroupPeer) {
-      if (!_isCurrentGroupCall(current.callId) ||
-          current.isSfuMode ||
-          _sfuBinding)
-        return;
+      if (!_isCurrentGroupCall(current.callId)) return;
       if (!_groupMediaReady || !current.peerIds.contains(signal.senderId)) {
         // SDP may overtake the coordinator's membership announcement.
         if (_pendingGroupOffers.length < maxGroupCallParticipants - 1) {
@@ -1242,8 +1222,6 @@ class CallManager {
     final session = _current;
     if (session?.isGroupCall == true) {
       if (!_isCurrentGroupCall(session!.callId) ||
-          session.isSfuMode ||
-          _sfuBinding ||
           !session.peerIds.contains(signal.senderId))
         return;
       try {
@@ -1278,10 +1256,7 @@ class CallManager {
     final session = _current;
     if (session == null) return;
     if (session.isGroupCall) {
-      if (!_isCurrentGroupCall(session.callId) ||
-          session.isSfuMode ||
-          _sfuBinding)
-        return;
+      if (!_isCurrentGroupCall(session.callId)) return;
       try {
         await _groupMedia?.addIceCandidate(
           peerId: signal.senderId,
@@ -1563,8 +1538,7 @@ class CallManager {
           throw StateError('Group membership announcement failed');
       }
     }
-    if (_current?.isSfuMode != true && !_sfuBinding)
-      await _offerToGroupPeer(memberId);
+    await _offerToGroupPeer(memberId);
   }
 
   Future<void> _handleGroupMemberJoined(
@@ -1587,7 +1561,7 @@ class CallManager {
       );
     }
     if (!_joinedGroupPeers.add(signal.joinedMemberId)) return;
-    if (!_groupMediaReady || session.isSfuMode || _sfuBinding) return;
+    if (!_groupMediaReady) return;
     final pending = _pendingGroupOffers.remove(signal.joinedMemberId);
     if (pending != null) {
       await _acceptGroupPeerOffer(signal.joinedMemberId, pending);
@@ -1604,8 +1578,6 @@ class CallManager {
         session == null ||
         !_isCurrentGroupCall(session.callId) ||
         !_groupMediaReady ||
-        session.isSfuMode ||
-        _sfuBinding ||
         !_offeredGroupPeers.add(peerId))
       return;
     final offer = await groupMedia.createOffer(
@@ -1635,12 +1607,7 @@ class CallManager {
     final groupMedia = _groupMedia;
     final session = _current;
     final userId = _requireUserId();
-    if (groupMedia == null ||
-        session == null ||
-        !session.isGroupCall ||
-        session.isSfuMode ||
-        _sfuBinding)
-      return;
+    if (groupMedia == null || session == null || !session.isGroupCall) return;
     _offeredGroupPeers.add(peerId);
     final answer = await groupMedia.acceptOffer(
       peerId: peerId,
@@ -1666,7 +1633,6 @@ class CallManager {
   }
 
   Future<void> _replayGroupIce(String peerId) async {
-    if (_current?.isSfuMode == true || _sfuBinding) return;
     final buffered = _pendingGroupIce.remove(peerId) ?? const [];
     for (final signal in buffered) {
       try {
@@ -1820,166 +1786,7 @@ class CallManager {
     }
     if (!signal.isActive) {
       await _finish(CallState.ended, notifyPeer: false);
-      return;
     }
-    if (signal.callId != session.callId) return;
-    if (signal.mode?.toUpperCase() == 'SFU' &&
-        signal.sfuRoomId != null &&
-        signal.janusWsUrl != null) {
-      await _bindSfu(roomId: signal.sfuRoomId!, janusWsUrl: signal.janusWsUrl!);
-    }
-  }
-
-  Future<void> _bindSfuRoom(SfuRoomCreatedSignal signal) async {
-    final session = _current;
-    if (session == null ||
-        !session.isGroupCall ||
-        signal.groupId != _currentGroupRoutingToken) {
-      return;
-    }
-    await _bindSfu(roomId: signal.roomId, janusWsUrl: signal.janusWsUrl);
-  }
-
-  Future<void> _bindSfu({
-    required int roomId,
-    required String janusWsUrl,
-  }) async {
-    final session = _current;
-    final groupMedia = _groupMedia;
-    final userId = _requireUserId();
-    final token = _session.accessToken;
-    if (session == null ||
-        groupMedia == null ||
-        token == null ||
-        !_isCurrentGroupCall(session.callId) ||
-        session.isSfuMode ||
-        _sfuBinding) {
-      return;
-    }
-    _pendingSfuRoom = (roomId, janusWsUrl);
-    // Never let a server policy/announcement downgrade media to plaintext SFU,
-    // or start publishing while an incoming call is still ringing.
-    if (!_groupMediaReady ||
-        !_mediaEncryptionRequired ||
-        !_mediaEncryptionActive ||
-        !groupMedia.mediaEncryptionEnabled)
-      return;
-    _pendingSfuRoom = null;
-    _sfuBinding = true;
-    _pendingGroupOffers.clear();
-    _pendingGroupIce.clear();
-    final janus = _janusClientFactory();
-    try {
-      if (!await janus.connect(url: janusWsUrl, accessToken: token)) {
-        throw StateError('Janus connection failed');
-      }
-      await janus.createSession();
-      await janus.attachVideoRoom();
-      final publishers = await janus.joinAsPublisher(
-        roomId: roomId,
-        displayName: userId,
-      );
-      if (!_isCurrentGroupCall(session.callId)) {
-        await janus.dispose();
-        return;
-      }
-      await _janus?.dispose();
-      await _janusSubscription?.cancel();
-      _janus = janus;
-      _janusSubscription = janus.events.listen(_handleJanusEvent);
-      for (final peer in session.peerIds) {
-        await groupMedia.removePeer(peer);
-      }
-      final offer = await groupMedia.createSfuPublisherOffer(
-        onIceCandidate: (candidate, mid, line) => janus.trickleIce(
-          handleId: janus.publisherHandleId,
-          candidate: candidate,
-          sdpMid: mid,
-          sdpMLineIndex: line,
-        ),
-      );
-      await groupMedia.applySfuPublisherAnswer(await janus.publishSdp(offer));
-      if (!_isCurrentGroupCall(session.callId)) {
-        await janus.dispose();
-        return;
-      }
-      for (final publisher in publishers) {
-        await _subscribeToSfuFeed(publisher.$1, publisher.$2);
-      }
-      _setSession(
-        _current!.copyWith(
-          isSfuMode: true,
-          sfuRoomId: roomId,
-          connectedPeerIds: const [],
-        ),
-      );
-    } catch (error, stack) {
-      _reportCallFailure('bind-sfu', error, stack);
-      await janus.dispose();
-      if (_isCurrentGroupCall(session.callId)) {
-        await _finish(CallState.failed, notifyPeer: true);
-      }
-    } finally {
-      _sfuBinding = false;
-    }
-  }
-
-  Future<void> _bindPendingSfu() async {
-    final pending = _pendingSfuRoom;
-    if (pending != null) {
-      await _queueGroupSignal(
-        () => _bindSfu(roomId: pending.$1, janusWsUrl: pending.$2),
-      );
-    }
-  }
-
-  void _handleJanusEvent(JanusEvent event) {
-    if (_disposed) return;
-    switch (event) {
-      case JanusPublisherJoined():
-        _track(_subscribeToSfuFeed(event.feedId, event.displayName));
-      case JanusPublisherLeft():
-        _sfuFeedPeers.remove(event.feedId);
-        final operation = _groupMedia?.removeSfuFeed(event.feedId);
-        if (operation != null) _track(operation);
-      case JanusRemoteOffer():
-        _track(_answerSfuOffer(event.feedId, event.sdp));
-      case JanusRemoteAnswer():
-        final operation = _groupMedia?.applySfuPublisherAnswer(event.sdp);
-        if (operation != null) _track(operation);
-    }
-  }
-
-  Future<void> _subscribeToSfuFeed(int feedId, String? displayName) async {
-    final janus = _janus;
-    if (janus == null ||
-        _groupMedia == null ||
-        _sfuFeedPeers.containsKey(feedId))
-      return;
-    _sfuFeedPeers[feedId] = displayName ?? 'feed_$feedId';
-    await _answerSfuOffer(feedId, await janus.subscribeToFeed(feedId));
-  }
-
-  Future<void> _answerSfuOffer(int feedId, String offerSdp) async {
-    final janus = _janus;
-    final groupMedia = _groupMedia;
-    if (janus == null || groupMedia == null) return;
-    final answer = await groupMedia.acceptSfuSubscriberOffer(
-      feedId: feedId,
-      offerSdp: offerSdp,
-      onIceCandidate: (candidate, mid, line) {
-        final handle = janus.subscriberHandleId(feedId);
-        if (handle != null) {
-          janus.trickleIce(
-            handleId: handle,
-            candidate: candidate,
-            sdpMid: mid,
-            sdpMLineIndex: line,
-          );
-        }
-      },
-    );
-    await janus.answerSubscription(feedId: feedId, answerSdp: answer);
   }
 
   void _handleMediaState(MediaConnectionState state) {
@@ -2038,7 +1845,6 @@ class CallManager {
     if (session == null || _terminating) return;
     _terminating = true;
     _groupMediaReady = false;
-    _pendingSfuRoom = null;
     if (!_mediaKeyReady.isCompleted) _mediaKeyReady.complete();
     // Medya anahtari cagriyla birlikte biter; bellekte kalici tutulmaz.
     _dropPendingMediaKeysForCall(session.callId);
@@ -2092,12 +1898,6 @@ class CallManager {
           (_, leftAt) => now.difference(leftAt) >= recentlyLeftWindow,
         )
         ..[session.callId] = now;
-      await _janusSubscription?.cancel();
-      _janusSubscription = null;
-      await _janus?.leaveRoom();
-      await _janus?.dispose();
-      _janus = null;
-      _sfuFeedPeers.clear();
     } else {
       await _media.close();
     }
@@ -2335,7 +2135,6 @@ class CallManager {
     await _mediaSubscription.cancel();
     await _nativeSubscription?.cancel();
     await _groupMediaSubscription?.cancel();
-    await _janusSubscription?.cancel();
     for (final ack in _controlAcks.values) {
       if (!ack.isCompleted) {
         ack.completeError(StateError('Call manager disposed'));
@@ -2348,7 +2147,6 @@ class CallManager {
     _mediaEncryptionRequired = false;
     _currentGroupRoutingToken = null;
     await _operations.close();
-    await _janus?.dispose();
     await _media.dispose();
     await _groupMedia?.dispose();
     await _missedCalls?.close();

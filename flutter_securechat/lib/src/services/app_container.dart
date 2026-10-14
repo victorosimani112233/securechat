@@ -51,7 +51,6 @@ import '../media/call_tone_service.dart';
 import '../media/file_transfer_manager.dart';
 import '../media/group_media_engine.dart';
 import '../media/ice_server_fetcher.dart';
-import '../media/janus_client.dart';
 import '../media/local_file_actions.dart';
 import '../media/media_attachment.dart';
 import '../media/media_engine.dart';
@@ -706,7 +705,6 @@ class AppContainer {
         ),
         callLogs: database.callLogs,
         nativeCalls: nativeCalls,
-        janusClientFactory: () => JanusClient(httpClient: httpClients.create()),
         peerNameResolver: resolvePeerName,
         groupLocalIdResolver: groupCallRoutes.resolve,
         groupCallTokens: groupCallRoutes.tokensForGroup,

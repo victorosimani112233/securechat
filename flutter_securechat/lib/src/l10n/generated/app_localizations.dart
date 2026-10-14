@@ -2613,7 +2613,7 @@ abstract class AppLocalizations {
   /// No description provided for @onboarding_webrtc_body.
   ///
   /// In en, this message translates to:
-  /// **'One-to-one calls connect directly; large group calls use the Janus SFU.'**
+  /// **'One-to-one calls and group calls of up to 8 people connect directly between devices.'**
   String get onboarding_webrtc_body;
 
   /// No description provided for @onboarding_privacy_control.

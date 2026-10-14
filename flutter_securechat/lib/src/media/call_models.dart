@@ -60,8 +60,6 @@ class CallSession {
     this.groupId,
     this.peerIds = const [],
     this.connectedPeerIds = const [],
-    this.isSfuMode = false,
-    this.sfuRoomId = 0,
   });
 
   final String callId;
@@ -82,8 +80,6 @@ class CallSession {
   final String? groupId;
   final List<String> peerIds;
   final List<String> connectedPeerIds;
-  final bool isSfuMode;
-  final int sfuRoomId;
 
   bool get isTerminal => const {
     CallState.ended,
@@ -107,8 +103,6 @@ class CallSession {
     bool? isRemoteCameraEnabled,
     List<String>? connectedPeerIds,
     List<String>? peerIds,
-    bool? isSfuMode,
-    int? sfuRoomId,
   }) => CallSession(
     callId: callId,
     peerId: peerId ?? this.peerId,
@@ -128,8 +122,6 @@ class CallSession {
     groupId: groupId,
     peerIds: peerIds ?? this.peerIds,
     connectedPeerIds: connectedPeerIds ?? this.connectedPeerIds,
-    isSfuMode: isSfuMode ?? this.isSfuMode,
-    sfuRoomId: sfuRoomId ?? this.sfuRoomId,
   );
 }
 

@@ -593,7 +593,7 @@
   "onboarding_private_body": "Every message is encrypted on your device; the server cannot read its content.",
   "onboarding_direct_call": "Direct calls",
   "onboarding_webrtc_subtitle": "Voice and video over WebRTC",
-  "onboarding_webrtc_body": "One-to-one calls connect directly; large group calls use the Janus SFU.",
+  "onboarding_webrtc_body": "One-to-one calls and group calls of up to 8 people connect directly between devices.",
   "onboarding_privacy_control": "Complete privacy control",
   "onboarding_you_decide": "You decide",
   "onboarding_privacy_body": "View once, disappearing messages, screen protection and group export policy.",

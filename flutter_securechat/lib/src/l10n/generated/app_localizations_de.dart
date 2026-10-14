@@ -1407,7 +1407,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get onboarding_webrtc_body =>
-      'Einzelanrufe werden direkt verbunden; große Gruppenanrufe nutzen den Janus-SFU.';
+      'Einzelanrufe und Gruppenanrufe mit bis zu 8 Personen werden direkt zwischen den Geräten verbunden.';
 
   @override
   String get onboarding_privacy_control =>
