@@ -77,6 +77,11 @@ void main() {
     // Numara paylasilmamis: rehbere eklenecek bir sey yok, nedeni yazar.
     expect(find.byKey(const ValueKey('chat-unknown-add')), findsNothing);
     expect(find.text(l10n.not_in_contacts_no_number), findsOneWidget);
+    // Ad bilinmiyorsa kart basligi tekrarlamaz.
+    expect(
+      find.descendant(of: banner, matching: find.text(l10n.unknown_contact)),
+      findsNothing,
+    );
 
     await tester.tap(find.byKey(const ValueKey('chat-unknown-dismiss')));
     await tester.pumpAndSettle();

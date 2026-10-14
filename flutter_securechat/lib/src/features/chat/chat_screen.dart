@@ -1319,9 +1319,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Kartta kisinin kim oldugu: paylasilan ad ve numara.
   String _unknownPeerIdentity(BuildContext context, Conversation conversation) {
-    final title = context.conversationTitle(conversation).trim();
+    var title = context.conversationTitle(conversation).trim();
+    // Ad bilinmiyorsa basliktaki "Bilinmeyen kisi" kartta tekrarlanmaz.
+    if (title == context.l10n.unknown_contact) title = '';
     final phone = conversation.peerPhone.trim();
-    if (phone.isEmpty || title == phone) return title;
+    if (title.isEmpty || phone.isEmpty || title == phone) {
+      return title.isEmpty ? phone : title;
+    }
     return '$title · $phone';
   }
 
