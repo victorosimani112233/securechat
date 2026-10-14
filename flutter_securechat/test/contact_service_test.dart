@@ -23,7 +23,7 @@ void main() {
       RegisteredUserMatch(userId: 'alice-id', phoneHash: aliceHash),
     ]);
     final service = ContactService(
-      deviceContacts: const _FakeGateway([
+      deviceContacts: _FakeGateway(const [
         DeviceContact(displayName: 'Alice', phoneNumber: '0555 123 45 67'),
         DeviceContact(displayName: 'Bob', phoneNumber: '0532 000 00 00'),
       ]),
@@ -53,7 +53,7 @@ void main() {
       ),
     );
     final service = ContactService(
-      deviceContacts: const _FakeGateway([]),
+      deviceContacts: _FakeGateway(const []),
       api: _FakeDiscoveryApi(const []),
       database: fixture.database,
       session: SessionStore(userId: 'me', accessToken: 'access'),
@@ -69,7 +69,7 @@ void main() {
       addTearDown(fixture.close);
       final betaHash = await hashPhoneNumber('905321000413');
       final service = ContactService(
-        deviceContacts: const _FakeGateway([]),
+        deviceContacts: _FakeGateway(const []),
         api: _FakeDiscoveryApi([
           RegisteredUserMatch(userId: 'beta-id', phoneHash: betaHash),
         ]),
@@ -107,7 +107,7 @@ void main() {
           ),
         );
         final service = ContactService(
-          deviceContacts: const _FakeGateway([]),
+          deviceContacts: _FakeGateway(const []),
           api: _FakeDiscoveryApi(const []),
           database: fixture.database,
           session: SessionStore(userId: 'me', accessToken: 'access'),
@@ -135,7 +135,7 @@ void main() {
         ),
       );
       final service = ContactService(
-        deviceContacts: const _FakeGateway([]),
+        deviceContacts: _FakeGateway(const []),
         api: _FakeDiscoveryApi([
           RegisteredUserMatch(userId: 'beta-id', phoneHash: hash),
         ]),
@@ -190,7 +190,7 @@ void main() {
           await fixture.database.conversations.insert(conversation);
         }
         final service = ContactService(
-          deviceContacts: const _FakeGateway([]),
+          deviceContacts: _FakeGateway(const []),
           api: _FakeDiscoveryApi(const []),
           database: fixture.database,
           session: SessionStore(userId: 'me', accessToken: 'access'),
@@ -206,12 +206,46 @@ void main() {
     );
   });
 
+  // Kullanici istegi 2026-10-14: rehberde olmayan kisi rehbere eklenebilir.
+  test(
+    'add to device contacts offers the shared name without the tilde',
+    () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final gateway = _FakeGateway(const []);
+      final service = ContactService(
+        deviceContacts: gateway,
+        api: _FakeDiscoveryApi(const []),
+        database: fixture.database,
+        session: SessionStore(userId: 'me', accessToken: 'access'),
+      );
+
+      expect(
+        await service.openAddToDeviceContacts(
+          phone: ' +905551112233 ',
+          sharedName: '~Ayse',
+        ),
+        isTrue,
+      );
+      expect(
+        await service.openAddToDeviceContacts(
+          phone: '+905551112244',
+          sharedName: '+905551112244',
+        ),
+        isTrue,
+      );
+      // Numara yoksa eklenecek bir sey yok; sistem ekrani acilmaz.
+      expect(await service.openAddToDeviceContacts(phone: ' '), isFalse);
+      expect(gateway.added, [('+905551112233', 'Ayse'), ('+905551112244', '')]);
+    },
+  );
+
   test('permission denial stops discovery before API call', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);
     final api = _FakeDiscoveryApi(const []);
     final service = ContactService(
-      deviceContacts: const _FakeGateway([], permitted: false),
+      deviceContacts: _FakeGateway(const [], permitted: false),
       api: api,
       database: fixture.database,
       session: SessionStore(userId: 'me', accessToken: 'access'),
@@ -236,7 +270,7 @@ void main() {
         ),
       );
       final service = ContactService(
-        deviceContacts: const _FakeGateway([
+        deviceContacts: _FakeGateway(const [
           DeviceContact(
             displayName: 'Cached contact',
             phoneNumber: '+905551234567',
@@ -270,7 +304,7 @@ void main() {
       await signaling.dispose();
     });
     final service = ContactService(
-      deviceContacts: const _FakeGateway([]),
+      deviceContacts: _FakeGateway(const []),
       api: _FakeDiscoveryApi(const []),
       database: fixture.database,
       session: SessionStore(userId: 'me', accessToken: 'access'),
@@ -337,7 +371,7 @@ void main() {
       ),
     );
     final service = ContactService(
-      deviceContacts: const _FakeGateway([]),
+      deviceContacts: _FakeGateway(const []),
       api: _FakeDiscoveryApi(const []),
       database: fixture.database,
       session: SessionStore(userId: 'me', accessToken: 'access'),
@@ -358,10 +392,17 @@ void main() {
 }
 
 class _FakeGateway implements DeviceContactsGateway {
-  const _FakeGateway(this.contacts, {this.permitted = true});
+  _FakeGateway(this.contacts, {this.permitted = true});
 
   final List<DeviceContact> contacts;
   final bool permitted;
+  final added = <(String, String)>[];
+
+  @override
+  Future<bool> openAddContact({required String phone, String name = ''}) async {
+    added.add((phone, name));
+    return true;
+  }
 
   @override
   Future<List<DeviceContact>> getAllContacts() async => contacts;

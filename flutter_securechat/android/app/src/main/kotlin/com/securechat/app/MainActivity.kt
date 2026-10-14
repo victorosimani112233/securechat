@@ -116,6 +116,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "openNotificationChannelSettings" -> openNotificationChannelSettings(call.arguments, result)
                     "openCallReadinessSetting" -> openCallReadinessSetting(call.arguments, result)
                     "openExternalUrl" -> openExternalUrl(call.arguments, result)
+                    "addDeviceContact" -> addDeviceContact(call.arguments, result)
                     "getPermissionStatus" -> result.success(permissionStatus())
                     "requestContactsPermission" -> requestContactsPermission(result)
                     "readContacts" -> readContacts(result)
@@ -286,6 +287,34 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         val intent = Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
+        try {
+            startActivity(intent)
+            result.success(true)
+        } catch (_: Exception) {
+            result.success(false)
+        }
+    }
+
+    /**
+     * Sistemin "kisi ekle" ekranini ad ve numara dolu acar. Kaydi kullanici
+     * sistem ekraninda yapar; uygulama WRITE_CONTACTS istemez ve rehbere
+     * kendisi yazmaz.
+     */
+    private fun addDeviceContact(arguments: Any?, result: MethodChannel.Result) {
+        val args = arguments as? Map<*, *>
+        val phone = args?.get("phone")?.toString()?.trim().orEmpty()
+        val name = args?.get("name")?.toString()?.trim().orEmpty()
+        if (phone.isEmpty() || phone.length > 32) {
+            result.success(false)
+            return
+        }
+        val intent = Intent(ContactsContract.Intents.Insert.ACTION).apply {
+            type = ContactsContract.RawContacts.CONTENT_TYPE
+            putExtra(ContactsContract.Intents.Insert.PHONE, phone)
+            if (name.isNotEmpty()) putExtra(ContactsContract.Intents.Insert.NAME, name.take(100))
+            // Kaydedince kisi ekrani yerine dogrudan uygulamaya donulur.
+            putExtra("finishActivityOnSaveCompleted", true)
+        }
         try {
             startActivity(intent)
             result.success(true)

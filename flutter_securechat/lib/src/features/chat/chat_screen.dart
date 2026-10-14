@@ -33,6 +33,7 @@ import '../../widgets/avatar.dart';
 import '../../widgets/local_video_thumbnail.dart';
 import '../../widgets/view_once_screen_protection.dart';
 import '../../widgets/azure_backdrop.dart';
+import '../../widgets/azure_surface.dart';
 import '../../widgets/azure_options.dart';
 import '../../theme/secure_chat_theme.dart';
 import '../../widgets/haptics.dart';
@@ -102,6 +103,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Karsi taraf kisi kayitlarinda yok (rehberde degil, elle eklenmedi).
   bool _peerUnknown = false;
   bool _unknownBannerDismissed = false;
+
+  /// Sistem kisi ekranindan donuste rehber yeniden eslenmeli mi.
+  bool _awaitingContactAdd = false;
   StreamSubscription<List<Conversation>>? _conversationSubscription;
   StreamSubscription<Map<String, ContactIdentity>>? _groupIdentitySubscription;
   Map<String, ContactIdentity> _groupIdentities = const {};
@@ -496,21 +500,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 _peerUnknown &&
                 !_unknownBannerDismissed)
               // WhatsApp'taki gibi: rehberde olmayan birinden gelen sohbet.
-              MaterialBanner(
-                key: const ValueKey('chat-unknown-banner'),
-                content: Text(context.l10n.not_in_contacts_banner),
-                actions: [
-                  TextButton(
-                    onPressed: () =>
-                        _handleMenu(context, conversation, 'block'),
-                    child: Text(context.l10n.safety_block),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        setState(() => _unknownBannerDismissed = true),
-                    child: Text(context.l10n.action_close),
-                  ),
-                ],
+              _UnknownContactCard(
+                identity: _unknownPeerIdentity(context, conversation),
+                canAdd: conversation.peerPhone.trim().isNotEmpty,
+                onAdd: () => unawaited(_addPeerToContacts(conversation)),
+                onBlock: () => _handleMenu(context, conversation, 'block'),
+                onDismiss: () => setState(() => _unknownBannerDismissed = true),
               ),
             AnimatedSize(
               duration: const Duration(milliseconds: 200),
@@ -1315,7 +1310,50 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _syncNotificationVisibility();
     if (state == AppLifecycleState.resumed && _conversation != null) {
       unawaited(_markReadSafely(_conversation!.id));
+      if (_awaitingContactAdd) {
+        _awaitingContactAdd = false;
+        unawaited(_syncAfterContactAdd(AppContainerScope.of(context)));
+      }
     }
+  }
+
+  /// Kartta kisinin kim oldugu: paylasilan ad ve numara.
+  String _unknownPeerIdentity(BuildContext context, Conversation conversation) {
+    final title = context.conversationTitle(conversation).trim();
+    final phone = conversation.peerPhone.trim();
+    if (phone.isEmpty || title == phone) return title;
+    return '$title · $phone';
+  }
+
+  /// Sistemin kisi ekleme ekranini paylasilan ad ve numarayla acar.
+  Future<void> _addPeerToContacts(Conversation conversation) async {
+    final contacts = AppContainerScope.of(context).contacts;
+    final sharedName = conversation.peerName == conversation.peerId
+        ? ''
+        : conversation.peerName;
+    final opened =
+        await contacts?.openAddToDeviceContacts(
+          phone: conversation.peerPhone,
+          sharedName: sharedName,
+        ) ??
+        false;
+    if (!mounted) return;
+    if (opened) {
+      _awaitingContactAdd = true;
+    } else {
+      _notice(context, context.l10n.add_to_contacts_failed);
+    }
+  }
+
+  /// Kullanici kaydettiyse kisi rehber eslemesiyle bilinir hale gelir ve
+  /// kart kendiliginden kalkar; vazgectiyse kart yerinde kalir.
+  Future<void> _syncAfterContactAdd(AppContainer container) async {
+    try {
+      await container.contacts?.importAndDiscover();
+    } catch (_) {
+      // Izin verilmedi ya da ag yok; kart yerinde kalir, yeniden denenebilir.
+    }
+    if (mounted) await _refreshKnownContact(container);
   }
 
   Future<void> _markReadSafely(String conversationId) async {

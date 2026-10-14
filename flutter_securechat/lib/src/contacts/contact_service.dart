@@ -28,6 +28,9 @@ class DeviceContact {
 abstract interface class DeviceContactsGateway {
   Future<bool> requestPermission();
   Future<List<DeviceContact>> getAllContacts();
+
+  /// Sistemin kisi ekleme ekranini acar; acilamazsa `false`.
+  Future<bool> openAddContact({required String phone, String name = ''});
 }
 
 class NativeDeviceContactsGateway implements DeviceContactsGateway {
@@ -38,6 +41,10 @@ class NativeDeviceContactsGateway implements DeviceContactsGateway {
 
   @override
   Future<bool> requestPermission() => _bridge.requestContactsPermission();
+
+  @override
+  Future<bool> openAddContact({required String phone, String name = ''}) =>
+      _bridge.addDeviceContact(phone: phone, name: name);
 
   @override
   Future<List<DeviceContact>> getAllContacts() async {
@@ -199,6 +206,22 @@ class ContactService {
 
   Future<bool> requestContactsPermission() =>
       _deviceContacts.requestPermission();
+
+  /// Rehberde olmayan birini cihaz rehberine eklemek icin sistem ekranini
+  /// acar. "~Ad" karsi tarafin kendi verdigi ad; rehbere isaretsiz onerilir.
+  /// Kayit sistem ekraninda yapilir; donuste [importAndDiscover] kisiyi
+  /// bilinir kilar.
+  Future<bool> openAddToDeviceContacts({
+    required String phone,
+    String sharedName = '',
+  }) {
+    final number = phone.trim();
+    if (number.isEmpty) return Future.value(false);
+    var name = sharedName.trim();
+    if (name.startsWith('~')) name = name.substring(1).trim();
+    if (name == number) name = '';
+    return _deviceContacts.openAddContact(phone: number, name: name);
+  }
 
   Future<List<ContactEntity>> importAndDiscover() async {
     if (!await _deviceContacts.requestPermission()) {

@@ -4269,8 +4269,32 @@ abstract class AppLocalizations {
   /// No description provided for @not_in_contacts_banner.
   ///
   /// In en, this message translates to:
-  /// **'This person is not in your contacts.'**
+  /// **'This person is not in your contacts'**
   String get not_in_contacts_banner;
+
+  /// No description provided for @not_in_contacts_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'If you do not know them, be careful before you reply.'**
+  String get not_in_contacts_hint;
+
+  /// No description provided for @not_in_contacts_no_number.
+  ///
+  /// In en, this message translates to:
+  /// **'They have not shared their number, so they cannot be added to your contacts.'**
+  String get not_in_contacts_no_number;
+
+  /// No description provided for @add_to_contacts.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to contacts'**
+  String get add_to_contacts;
+
+  /// No description provided for @add_to_contacts_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Contacts could not be opened.'**
+  String get add_to_contacts_failed;
 
   /// No description provided for @settings_share_profile_name.
   ///

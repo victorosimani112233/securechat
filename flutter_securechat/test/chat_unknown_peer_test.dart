@@ -6,6 +6,7 @@ import 'package:flutter_securechat/src/l10n/generated/app_localizations.dart';
 import 'package:flutter_securechat/src/l10n/generated/app_localizations_tr.dart';
 import 'package:flutter_securechat/src/services/app_container.dart';
 import 'package:flutter_securechat/src/services/conversation_repository.dart';
+import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_app_container.dart';
@@ -21,7 +22,12 @@ void main() {
     peerPhone: '',
   );
 
-  Future<void> pump(WidgetTester tester, {required bool known}) async {
+  Future<_Contacts> pump(
+    WidgetTester tester, {
+    required bool known,
+    Conversation conversation = conversation,
+  }) async {
+    final contacts = _Contacts(known);
     final base = createWidgetTestContainer();
     final container = AppContainer.testing(
       session: base.session,
@@ -33,7 +39,7 @@ void main() {
       signaling: base.signaling,
       chatAccessRuntime: base.chatAccessRuntime,
       callReadinessRuntime: base.callReadinessRuntime,
-      contacts: _Contacts(known),
+      contacts: contacts,
     );
     addTearDown(() => tester.pumpWidget(const SizedBox()));
     await tester.pumpWidget(
@@ -44,13 +50,14 @@ void main() {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           onGenerateRoute: (_) => MaterialPageRoute<void>(
-            settings: const RouteSettings(arguments: conversation),
+            settings: RouteSettings(arguments: conversation),
             builder: (_) => const ChatScreen(),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
+    return contacts;
   }
 
   testWidgets('a stranger chat shows no id and offers to block', (
@@ -67,10 +74,45 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(
-      find.descendant(of: banner, matching: find.text(l10n.action_close)),
-    );
+    // Numara paylasilmamis: rehbere eklenecek bir sey yok, nedeni yazar.
+    expect(find.byKey(const ValueKey('chat-unknown-add')), findsNothing);
+    expect(find.text(l10n.not_in_contacts_no_number), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('chat-unknown-dismiss')));
     await tester.pumpAndSettle();
+    expect(banner, findsNothing);
+  });
+
+  // Kullanici istegi 2026-10-14: kart rehbere ekleme secenegi sunar.
+  testWidgets('a stranger with a shared number can be added to contacts', (
+    tester,
+  ) async {
+    final contacts = await pump(
+      tester,
+      known: false,
+      conversation: const Conversation(
+        id: uuid,
+        peerId: uuid,
+        peerName: '~Ayse',
+        peerPhone: '+905551112233',
+      ),
+    );
+    final banner = find.byKey(const ValueKey('chat-unknown-banner'));
+    expect(
+      find.descendant(of: banner, matching: find.text('~Ayse · +905551112233')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('chat-unknown-add')));
+    await tester.pumpAndSettle();
+    expect(contacts.opened, [('+905551112233', '~Ayse')]);
+    expect(banner, findsOneWidget);
+
+    // Sistem kisi ekranindan donus: rehber eslenir, kart kalkar.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(contacts.imports, 1);
     expect(banner, findsNothing);
   });
 
@@ -82,7 +124,25 @@ void main() {
 
 class _Contacts implements ContactService {
   _Contacts(this.known);
-  final bool known;
+  bool known;
+  int imports = 0;
+  final opened = <(String, String)>[];
+
+  @override
+  Future<bool> openAddToDeviceContacts({
+    required String phone,
+    String sharedName = '',
+  }) async {
+    opened.add((phone, sharedName));
+    return true;
+  }
+
+  @override
+  Future<List<ContactEntity>> importAndDiscover() async {
+    imports++;
+    known = true;
+    return const [];
+  }
 
   @override
   Future<bool> isKnownContact(String userId) async => known;

@@ -2324,7 +2324,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get unknown_contact => 'Unknown contact';
 
   @override
-  String get not_in_contacts_banner => 'This person is not in your contacts.';
+  String get not_in_contacts_banner => 'This person is not in your contacts';
+
+  @override
+  String get not_in_contacts_hint =>
+      'If you do not know them, be careful before you reply.';
+
+  @override
+  String get not_in_contacts_no_number =>
+      'They have not shared their number, so they cannot be added to your contacts.';
+
+  @override
+  String get add_to_contacts => 'Add to contacts';
+
+  @override
+  String get add_to_contacts_failed => 'Contacts could not be opened.';
 
   @override
   String get settings_share_profile_name => 'Share my profile name';

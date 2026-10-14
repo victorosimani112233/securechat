@@ -2314,7 +2314,21 @@ class AppLocalizationsTr extends AppLocalizations {
   String get unknown_contact => 'Bilinmeyen kişi';
 
   @override
-  String get not_in_contacts_banner => 'Bu kişi rehberinizde değil.';
+  String get not_in_contacts_banner => 'Bu kişi rehberinizde değil';
+
+  @override
+  String get not_in_contacts_hint =>
+      'Tanıdığınız biri değilse mesajlaşmadan önce emin olun.';
+
+  @override
+  String get not_in_contacts_no_number =>
+      'Numarasını paylaşmadığı için rehbere eklenemiyor.';
+
+  @override
+  String get add_to_contacts => 'Rehbere ekle';
+
+  @override
+  String get add_to_contacts_failed => 'Rehber açılamadı.';
 
   @override
   String get settings_share_profile_name => 'Profil adımı paylaş';

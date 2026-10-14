@@ -1,6 +1,7 @@
 import Flutter
 import AVFoundation
 import Contacts
+import ContactsUI
 import CallKit
 import UIKit
 import workmanager_apple
@@ -158,6 +159,8 @@ enum SecureChatContactsAccess {
           return
         }
         UIApplication.shared.open(url) { opened in result(opened) }
+      case "addDeviceContact":
+        self?.addDeviceContact(call.arguments, result: result)
       case "openCallReadinessSetting":
         self?.openCallReadinessSetting(call.arguments, result: result)
       case "getPermissionStatus":
@@ -463,6 +466,36 @@ enum SecureChatContactsAccess {
     }
     return url
   }
+
+  /// Sistemin "yeni kisi" ekranini ad ve numara dolu acar. Kaydi kullanici
+  /// yapar; uygulama rehbere kendisi yazmaz.
+  private func addDeviceContact(_ arguments: Any?, result: @escaping FlutterResult) {
+    let values = arguments as? [String: Any]
+    let phone = (values?["phone"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+    let name = (values?["name"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+    guard !phone.isEmpty, phone.count <= 32 else {
+      result(false)
+      return
+    }
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self, let presenter = self.topViewController() else {
+        result(false)
+        return
+      }
+      let contact = CNMutableContact()
+      contact.givenName = String(name.prefix(100))
+      contact.phoneNumbers = [
+        CNLabeledValue(label: CNLabelPhoneNumberMobile, value: CNPhoneNumber(stringValue: phone))
+      ]
+      let editor = CNContactViewController(forNewContact: contact)
+      editor.contactStore = CNContactStore()
+      editor.delegate = self.contactEditorDelegate
+      let navigation = UINavigationController(rootViewController: editor)
+      presenter.present(navigation, animated: true) { result(true) }
+    }
+  }
+
+  private let contactEditorDelegate = SecureChatContactEditorDelegate()
 
   private func topViewController() -> UIViewController? {
     guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
@@ -880,3 +913,14 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
     uuidByCallId.removeValue(forKey: callId)
   }
 }
+
+/// Yeni kisi ekrani kaydedilince ya da vazgecilince kendini kapatir.
+final class SecureChatContactEditorDelegate: NSObject, CNContactViewControllerDelegate {
+  func contactViewController(
+    _ viewController: CNContactViewController,
+    didCompleteWith contact: CNContact?
+  ) {
+    viewController.navigationController?.dismiss(animated: true)
+  }
+}
+

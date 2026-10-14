@@ -33,6 +33,25 @@ class NativeBridge {
     }
   }
 
+  /// Sistemin kisi ekleme ekranini ad ve numara dolu acar. Ekran
+  /// acilamazsa (ya da platform desteklemiyorsa) `false` doner.
+  Future<bool> addDeviceContact({
+    required String phone,
+    String name = '',
+  }) async {
+    try {
+      return await _methods.invokeMethod<bool>('addDeviceContact', {
+            'phone': phone,
+            'name': name,
+          }) ??
+          false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   Future<void> enableScreenProtection() {
     return _methods.invokeMethod<void>('enableScreenProtection');
   }

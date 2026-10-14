@@ -2323,7 +2323,20 @@ class AppLocalizationsAr extends AppLocalizations {
   String get unknown_contact => 'جهة اتصال غير معروفة';
 
   @override
-  String get not_in_contacts_banner => 'هذا الشخص ليس ضمن جهات اتصالك.';
+  String get not_in_contacts_banner => 'هذا الشخص ليس ضمن جهات اتصالك';
+
+  @override
+  String get not_in_contacts_hint => 'إذا كنت لا تعرفه، فكن حذرًا قبل الرد.';
+
+  @override
+  String get not_in_contacts_no_number =>
+      'لم يشارك رقمه، لذا لا يمكن إضافته إلى جهات اتصالك.';
+
+  @override
+  String get add_to_contacts => 'إضافة إلى جهات الاتصال';
+
+  @override
+  String get add_to_contacts_failed => 'تعذر فتح جهات الاتصال.';
 
   @override
   String get settings_share_profile_name => 'مشاركة اسم ملفي الشخصي';

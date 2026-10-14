@@ -820,3 +820,137 @@ class _ChatShimmerListState extends State<_ChatShimmerList>
     ),
   );
 }
+
+/// Rehberde olmayan birinden gelen birebir sohbet karti.
+///
+/// Duz bir uyari seridi yerine sohbetin ustunde opak bir kart: kim oldugu,
+/// rehbere ekleme ve engelleme ayni yerde. Numara paylasilmamissa rehbere
+/// eklenecek bir sey yoktur; dugme yerine nedeni yazilir.
+class _UnknownContactCard extends StatelessWidget {
+  const _UnknownContactCard({
+    required this.identity,
+    required this.canAdd,
+    required this.onAdd,
+    required this.onBlock,
+    required this.onDismiss,
+  });
+
+  final String identity;
+  final bool canAdd;
+  final VoidCallback onAdd;
+  final VoidCallback onBlock;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final l10n = context.l10n;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: AzureSurface(
+        key: const ValueKey('chat-unknown-banner'),
+        radius: 18,
+        padding: const EdgeInsetsDirectional.fromSTEB(14, 12, 6, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: scheme.primaryContainer,
+                  foregroundColor: scheme.onPrimaryContainer,
+                  child: const Icon(Icons.person_add_alt_1, size: 21),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.not_in_contacts_banner,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (identity.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          identity,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                        canAdd
+                            ? l10n.not_in_contacts_hint
+                            : l10n.not_in_contacts_no_number,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  key: const ValueKey('chat-unknown-dismiss'),
+                  tooltip: l10n.action_close,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onDismiss,
+                  icon: const Icon(Icons.close, size: 20),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 8),
+              child: Row(
+                children: [
+                  if (canAdd) ...[
+                    Expanded(
+                      child: FilledButton.tonalIcon(
+                        key: const ValueKey('chat-unknown-add'),
+                        onPressed: onAdd,
+                        icon: const Icon(Icons.person_add_alt, size: 18),
+                        label: Text(
+                          l10n.add_to_contacts,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      key: const ValueKey('chat-unknown-block'),
+                      onPressed: onBlock,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: scheme.error,
+                        side: BorderSide(
+                          color: scheme.error.withValues(alpha: .5),
+                        ),
+                      ),
+                      icon: const Icon(Icons.block, size: 18),
+                      label: Text(
+                        l10n.safety_block,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
