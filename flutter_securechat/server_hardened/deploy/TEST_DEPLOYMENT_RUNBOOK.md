@@ -196,7 +196,7 @@ cikmaz.
 
 ---
 
-## Faz 6 — Janus, coturn, nginx
+## Faz 6 — coturn, nginx
 
 **coturn** (`/etc/turnserver.conf`):
 
@@ -217,10 +217,9 @@ no-cli
 istemciler TURN'e authenticate olamaz ve NAT arkasindaki aramalar sessizce
 kurulamaz.
 
-**Janus**: 4 vCPU'da SFU'yu kapali birakmani oneririm. Kapaliyken grup
-aramalari mesh kalir (sesli 8, goruntulu 6 kisiye kadar) ve sunucu CPU'su
-harcanmaz. Acmak istersen `JANUS_WS_URL` + `JANUS_PUBLIC_WS_URL` (wss
-zorunlu) ver ve `SfuPolicy` kabul beyanini isaretle.
+**Grup aramalari**: yalniz mesh, sesli ve goruntulu 8 kisiye kadar; medya
+sunucudan gecmez. Janus SFU 2026-10-14'te kaldirildi, kurulacak ek servis
+yok.
 
 **nginx**: `reverse-proxy.conf` referans alinir. Uc davranis zorunlu —
 access log kapali, WebSocket upgrade'inde `Authorization` header'inin

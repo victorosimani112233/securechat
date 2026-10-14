@@ -47,8 +47,6 @@ for name in \
   offline_queue_key \
   fcm_token_key \
   metrics_token \
-  janus_api_secret \
-  janus_admin_secret \
   directory_hsm_pin
 do
   new_key "$name"

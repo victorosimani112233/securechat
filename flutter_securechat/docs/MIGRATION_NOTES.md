@@ -74,6 +74,10 @@ Karar: Ortak `NativeCallIntegration` sozlesmesi Android'de self-managed `PhoneAc
 
 ### 6. WebRTC ve Janus
 
+> **2026-10-14:** Janus SFU istemciden ve sunucudan kaldirildi. Grup
+> aramalari sesli ve goruntulu 8 kisiye kadar yalniz mesh calisir; asagidaki
+> Janus kararlari tarihsel kayittir.
+
 Kotlin tarafindaki 1:1 WebRTC akisi `flutter_webrtc` ile tasindi: dinamik ICE/TURN config, getUserMedia, unified-plan PeerConnection, SDP offer/answer, ICE trickle, remote/local renderer, mic/speaker/camera/switch-camera ve reconnect/failed durumlari calisir.
 
 Karar: Signaling codec grup arama, SFU room ve Janus metadata tiplerini tasir. Janus istemcisi Bearer-auth WebSocket, create/attach, VideoRoom publisher join/publish, subscriber attach/start, keepalive, trickle ICE ve private/mDNS candidate filtreleme davranisiyla tasindi. Grup aramalarinda ortak local stream uzerinden katilimci basina ayri mesh PeerConnection/renderer kurulur; 7+ katilimci icin (6 kisiye kadar mesh, esik sunucuda SfuPolicy.sfuThreshold) Janus publisher ve subscriber PeerConnection'lari acilir. Coordinator fanout, uye giris/cikis, coordinator degisimi, SDP/ICE buffer/replay ve mesh/SFU video grid UI tamamlandi.

@@ -82,8 +82,6 @@ secret_file_variables=(
   SMTP_PASSWORD_FILE
   FIREBASE_SERVICE_ACCOUNT_FILE
   DIRECTORY_HSM_PIN_FILE
-  JANUS_API_SECRET_FILE
-  JANUS_ADMIN_SECRET_FILE
 )
 declare -A secret_fingerprints=()
 for variable in "${secret_file_variables[@]}"; do

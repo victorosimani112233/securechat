@@ -2,6 +2,11 @@
 
 Tarih: 2026-09-17
 
+> **2026-10-14 notu:** Janus SFU kaldirildi; grup aramalari sesli ve
+> goruntulu 8 kisiye kadar yalniz mesh, medya sunucudan gecmez (TURN'a
+> dusenler haric). Asagidaki Janus satirlari ve SFU bant hesabi artik
+> gecerli degil; sunucuda medya yuku yalniz coturn'dur.
+
 Bu belge; signaling, bot API, PostgreSQL, gecici Redis, Janus SFU, coturn ve
 reverse proxy'nin ayni fiziksel sunucuda calistigi ilk production kurulumu
 icin kapasite varsayimlarini kaydeder. Kayitli hesap sayisindan cok ayni anda

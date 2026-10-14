@@ -24,7 +24,7 @@ volume'unu tasidigi icin hardened privacy release'inde kesinlikle kullanilmaz.
   ayri managed/self-hosted hedef verilmelidir.
 - Ayni sinirlar compose'a guvenmez: signaling binary'si production
   mode, verify-full DB TLS ve legacy queue reddini listener'dan once tekrar
-  dogrular; signaling ayrica PKCS#11 OPRF ile guvenli SMTP/Janus ister.
+  dogrular; signaling ayrica PKCS#11 OPRF ile guvenli SMTP ister.
 
 ## Ag topolojisi ve kontrollu egress
 
@@ -42,7 +42,6 @@ Egress'e cikan hedefler tam olarak sunlardir:
 | signaling | PostgreSQL | sema, hesap ve prekey materyali |
 | signaling | SMTP (TLS) | kayit OTP'si |
 | signaling | Firebase / APNs | generic wake-up push |
-| signaling | Janus kontrol WebSocket'i | grup cagri odasi yonetimi |
 
 **Host firewall bu listenin disina cikisi reddetmelidir.** Compose tek basina
 allow-list saglayamaz; ag ayrimi yalniz "kim disari cikabilir" sorusunu

@@ -1,5 +1,10 @@
 # SFU Medya Uctan Uca Sifrelemesi — Tasarim ve Uygulama Sartnamesi
 
+> **KALDIRILDI (2026-10-14):** Janus SFU istemciden ve sunucudan silindi;
+> grup aramalari 8 kisiye kadar yalniz mesh. Bu belge tarihsel kayittir.
+> Frame sifrelemesi (`CallMediaKey`, FrameCryptor) mesh'te ikinci katman
+> olarak duruyor; eski ve yeni surumler ayni aramada birbirini cozebilsin.
+
 Bu belge `SERVER_REVIEW_2026-08-18.md` P0-05 bulgusunun kalici cozumudur.
 Sunucu tarafinda yapilanlari, istemci tarafinda yapilacaklari dosya ve API
 seviyesinde tanimlar.
