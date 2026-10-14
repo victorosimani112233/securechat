@@ -43,7 +43,7 @@ class AzureBackdropLayer extends StatelessWidget {
         // kenarlarda boyanmamis serit acilirdi.
         ColoredBox(
           key: const ValueKey('azure-backdrop-ground'),
-          color: BackdropPalette.ground(backdrop, dark: dark),
+          color: AzureTokens.ground(dark),
         ),
         if (backdrop == BackdropPreference.drifting)
           _DriftingDoodles(dark: dark)
@@ -64,25 +64,6 @@ class AzureBackdropLayer extends StatelessWidget {
       ],
     );
   }
-}
-
-/// Duz arka plan renkleri. Tonlar dusuk doygunlukta tutulur: balonlar ve
-/// metin her zeminde ayni kontrastla okunmali.
-abstract final class BackdropPalette {
-  static Color ground(BackdropPreference backdrop, {required bool dark}) =>
-      switch (backdrop) {
-        BackdropPreference.drifting ||
-        BackdropPreference.still ||
-        BackdropPreference.plain => AzureTokens.ground(dark),
-        BackdropPreference.blue =>
-          dark ? const Color(0xFF0E1A2B) : const Color(0xFFE3EEFB),
-        BackdropPreference.green =>
-          dark ? const Color(0xFF0F1F17) : const Color(0xFFE4F2E8),
-        BackdropPreference.purple =>
-          dark ? const Color(0xFF1B1428) : const Color(0xFFEDE7F6),
-        BackdropPreference.gray =>
-          dark ? const Color(0xFF16181C) : const Color(0xFFECEEF1),
-      };
 }
 
 /// Desen katmani: cok yavas, capraz ve sonsuz kayar.

@@ -616,19 +616,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get backdrop_still => 'Stehendes Muster';
 
   @override
-  String get backdrop_plain => 'Einfarbig – Standard';
-
-  @override
-  String get backdrop_blue => 'Einfarbig – Blau';
-
-  @override
-  String get backdrop_green => 'Einfarbig – Grün';
-
-  @override
-  String get backdrop_purple => 'Einfarbig – Lila';
-
-  @override
-  String get backdrop_gray => 'Einfarbig – Grau';
+  String get backdrop_plain => 'Einfarbig';
 
   @override
   String get settings_fullscreen => 'Vollbildmodus';

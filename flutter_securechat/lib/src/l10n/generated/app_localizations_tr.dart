@@ -596,25 +596,13 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settings_backdrop => 'Arka Plan';
 
   @override
-  String get backdrop_drifting => 'Kayan desen';
+  String get backdrop_drifting => 'Hareketli desen';
 
   @override
   String get backdrop_still => 'Sabit desen';
 
   @override
-  String get backdrop_plain => 'Düz – varsayılan';
-
-  @override
-  String get backdrop_blue => 'Düz – mavi';
-
-  @override
-  String get backdrop_green => 'Düz – yeşil';
-
-  @override
-  String get backdrop_purple => 'Düz – mor';
-
-  @override
-  String get backdrop_gray => 'Düz – gri';
+  String get backdrop_plain => 'Düz';
 
   @override
   String get settings_fullscreen => 'Tam Ekran Modu';

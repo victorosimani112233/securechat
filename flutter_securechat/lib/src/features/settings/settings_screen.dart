@@ -9,6 +9,7 @@ import '../../contacts/profile_name_sharing_service.dart';
 import '../../settings/account_data_service.dart';
 import '../../settings/settings_service.dart';
 import '../../widgets/avatar.dart';
+import '../../theme/secure_chat_theme.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/azure_options.dart';
 import '../../widgets/notification_sound_picker.dart';
@@ -376,18 +377,14 @@ class SettingsScreen extends StatelessWidget {
   ) {
     final l10n = context.l10n;
     return switch (backdrop) {
-      BackdropPreference.drifting => l10n.backdrop_drifting,
-      BackdropPreference.still => l10n.backdrop_still,
       BackdropPreference.plain => l10n.backdrop_plain,
-      BackdropPreference.blue => l10n.backdrop_blue,
-      BackdropPreference.green => l10n.backdrop_green,
-      BackdropPreference.purple => l10n.backdrop_purple,
-      BackdropPreference.gray => l10n.backdrop_gray,
+      BackdropPreference.still => l10n.backdrop_still,
+      BackdropPreference.drifting => l10n.backdrop_drifting,
     };
   }
 
-  /// Arka plan secimi: kayan/sabit desen ve duz renkler. Her secenegin
-  /// solunda o zeminin acik/koyu temadaki rengi gorunur.
+  /// Arka plan secimi: duz, sabit desen veya hareketli desen. Renk
+  /// secilmez; zemin her zaman temanin zeminidir.
   static Future<void> _showBackdropSheet(
     BuildContext context,
     SettingsService service,
@@ -417,10 +414,7 @@ class SettingsScreen extends StatelessWidget {
                       ),
                     ),
                     child: CircleAvatar(
-                      backgroundColor: BackdropPalette.ground(
-                        option,
-                        dark: dark,
-                      ),
+                      backgroundColor: AzureTokens.ground(dark),
                       child: option.hasPattern
                           ? Icon(
                               option == BackdropPreference.drifting

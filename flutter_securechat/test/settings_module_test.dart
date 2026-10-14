@@ -299,7 +299,7 @@ void main() {
     },
   );
 
-  // Kullanici istegi (2026-10-13): kayan desen, sabit desen ve duz renkler.
+  // Kullanici istegi (2026-10-13/14): duz, sabit desen veya hareketli desen.
   test('backdrop choice maps the legacy pattern flag both ways', () async {
     final fixture = await _SettingsFixture.open();
     addTearDown(fixture.close);
@@ -316,8 +316,15 @@ void main() {
     expect(fixture.session.useDoodleBackground, isTrue);
     expect(fixture.settings.current.useDoodleBackground, isTrue);
 
-    await fixture.settings.setBackdrop(BackdropPreference.purple);
+    await fixture.settings.setBackdrop(BackdropPreference.plain);
     expect(fixture.session.useDoodleBackground, isFalse);
+
+    // 2026-10-14: duz renkler kaldirildi; onlari secmis kullanici duz
+    // zeminde kalir.
+    for (final retired in ['blue', 'green', 'purple', 'gray']) {
+      fixture.session.backdrop = retired;
+      expect(fixture.settings.current.backdrop, BackdropPreference.plain);
+    }
 
     await fixture.settings.setUseDoodleBackground(true);
     expect(fixture.settings.current.backdrop, BackdropPreference.drifting);
@@ -345,6 +352,13 @@ void main() {
         findsOneWidget,
       );
     }
+    // Renk secenegi yok: yalniz duz, sabit ve hareketli.
+    expect(BackdropPreference.values.map((option) => option.name), [
+      'plain',
+      'still',
+      'drifting',
+    ]);
+    expect(find.byKey(const ValueKey('backdrop-option-blue')), findsNothing);
 
     await tester.runAsync(() async {
       await tester.tap(find.byKey(const ValueKey('backdrop-option-still')));
@@ -441,7 +455,7 @@ void main() {
       await fixture.settings.setNotificationSound(
         NotificationSoundPreference.silent,
       );
-      await fixture.settings.setBackdrop(BackdropPreference.green);
+      await fixture.settings.setBackdrop(BackdropPreference.plain);
       await fixture.settings.setFullscreenMode(true);
       await fixture.settings.setSharePhoneNumber(true);
 
@@ -453,7 +467,7 @@ void main() {
       expect(reopened.languagePreference, 'ar');
       expect(reopened.showNotificationContent, isFalse);
       expect(reopened.notificationSound, 'silent');
-      expect(reopened.backdrop, 'green');
+      expect(reopened.backdrop, 'plain');
       expect(reopened.useDoodleBackground, isFalse);
       expect(reopened.fullscreenMode, isTrue);
       expect(reopened.sharePhoneNumber, isTrue);

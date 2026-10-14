@@ -62,19 +62,18 @@ enum NotificationSoundPreference {
   }
 }
 
-/// Uygulama arka plani (kullanici istegi 2026-10-13).
+/// Uygulama arka plani (kullanici istegi 2026-10-13, renkler 2026-10-14'te
+/// kaldirildi).
 ///
-/// Desenli iki secenek ayni Elcim filigranini kullanir; biri yavasca kayar,
-/// digeri sabit durur. Digerleri desensiz duz zeminlerdir; renkleri acik ve
-/// koyu tema icin `BackdropPalette` icinde tanimlidir.
+/// Yalniz uc secenek var: duz zemin, sabit desen ve hareketli (kayan)
+/// desen. Desenli ikisi ayni Elcim filigranini kullanir. Zemin rengi her
+/// zaman temanin zeminidir; kullanici renk secmez.
 enum BackdropPreference {
-  drifting,
-  still,
   plain,
-  blue,
-  green,
-  purple,
-  gray;
+  still,
+  drifting;
+
+  static const _retiredPlainColors = {'blue', 'green', 'purple', 'gray'};
 
   /// Yeni kurulumlarin ve taninmayan kayitlarin varsayilani.
   static const defaultBackdrop = drifting;
@@ -91,6 +90,9 @@ enum BackdropPreference {
     for (final option in values) {
       if (option.name == value) return option;
     }
+    // Kaldirilan duz renkleri secmis kullanici duz zeminde kalir; desen
+    // birdenbire geri gelmez.
+    if (_retiredPlainColors.contains(value)) return plain;
     return defaultBackdrop;
   }
 }

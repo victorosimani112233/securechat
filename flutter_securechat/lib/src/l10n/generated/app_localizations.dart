@@ -1155,32 +1155,8 @@ abstract class AppLocalizations {
   /// No description provided for @backdrop_plain.
   ///
   /// In en, this message translates to:
-  /// **'Plain – default'**
+  /// **'Plain'**
   String get backdrop_plain;
-
-  /// No description provided for @backdrop_blue.
-  ///
-  /// In en, this message translates to:
-  /// **'Plain – blue'**
-  String get backdrop_blue;
-
-  /// No description provided for @backdrop_green.
-  ///
-  /// In en, this message translates to:
-  /// **'Plain – green'**
-  String get backdrop_green;
-
-  /// No description provided for @backdrop_purple.
-  ///
-  /// In en, this message translates to:
-  /// **'Plain – purple'**
-  String get backdrop_purple;
-
-  /// No description provided for @backdrop_gray.
-  ///
-  /// In en, this message translates to:
-  /// **'Plain – gray'**
-  String get backdrop_gray;
 
   /// No description provided for @settings_fullscreen.
   ///

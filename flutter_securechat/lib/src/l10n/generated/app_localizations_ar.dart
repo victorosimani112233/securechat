@@ -617,19 +617,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get backdrop_still => 'نمط ثابت';
 
   @override
-  String get backdrop_plain => 'سادة – افتراضي';
-
-  @override
-  String get backdrop_blue => 'سادة – أزرق';
-
-  @override
-  String get backdrop_green => 'سادة – أخضر';
-
-  @override
-  String get backdrop_purple => 'سادة – بنفسجي';
-
-  @override
-  String get backdrop_gray => 'سادة – رمادي';
+  String get backdrop_plain => 'سادة';
 
   @override
   String get settings_fullscreen => 'وضع ملء الشاشة';
