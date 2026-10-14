@@ -47,18 +47,22 @@ void main() {
 
   test('push handler logs failures including runtime bootstrap', () {
     final source = File('lib/src/push/push_service.dart').readAsStringSync();
-    final runtimeDeclaration = source.indexOf(
-      'SecureChatBackgroundRuntime? runtime',
+    final handler = source.indexOf(
+      'Future<void> firebasePushBackgroundHandler',
     );
-    final tryBlock = source.indexOf('try {', runtimeDeclaration);
+    final tryBlock = source.indexOf('try {', handler);
+    // QA 2026-10-14: runtime surecteki tek arka plan calistiricisi olarak
+    // acilir; acilis hatasi da ayni try icinde loglanir.
+    final guarded = source.indexOf('BackgroundRunGuard.run(', tryBlock);
     final runtimeOpen = source.indexOf(
-      'runtime = await SecureChatBackgroundRuntime.open()',
-      tryBlock,
+      'await SecureChatBackgroundRuntime.open()',
+      guarded,
     );
     final failureLog = source.indexOf("debugPrint('BG-RUNTIME FAIL:");
 
-    expect(runtimeDeclaration, greaterThanOrEqualTo(0));
-    expect(runtimeOpen, greaterThan(tryBlock));
+    expect(handler, greaterThanOrEqualTo(0));
+    expect(guarded, greaterThan(tryBlock));
+    expect(runtimeOpen, greaterThan(guarded));
     expect(failureLog, greaterThan(runtimeOpen));
     expect(source, contains("label: 'BG-RUNTIME STACK'"));
   });
@@ -189,80 +193,86 @@ void main() {
   //
   // Artik olculen sey gercek degismez: rotasyon kripto servisinin urettigi
   // DAGITIM ZARFINI dagitir ve bunu yapmadan once yerel anahtari sifirlar.
-  test('sender key rotation resets then distributes the real envelope', () async {
-    final fixture = await _Fixture.open();
-    addTearDown(fixture.close);
-    await fixture.database.conversations.insert(
-      const ConversationEntity(
-        id: 'group-1',
-        peerId: 'group-1',
-        peerName: 'Group',
-        peerPhone: '',
-        isGroup: true,
-        groupMembers: 'me,alice,bob',
-      ),
-    );
-    final crypto = _RecordingGroupCrypto(fixture.crypto);
-    final service = SenderKeyRotationService(
-      database: fixture.database,
-      crypto: crypto,
-      signaling: fixture.signaling,
-      session: fixture.session,
-    );
-
-    expect(await service.rotate('group-1'), isTrue);
-
-    // Sifirlama dagitimdan ONCE olmali: tersi, eski anahtarin dagitilip
-    // ardindan yerelde degismesi demek olurdu.
-    expect(crypto.resetCalls, ['group-1/me']);
-    expect(crypto.distributionCalls, ['group-1/me']);
-    final deliveries = fixture.signaling.sentMessages
-        .whereType<EncryptedSignalMessage>()
-        .toList();
-    expect(deliveries.map((message) => message.recipientId).toSet(), {
-      'alice',
-      'bob',
-    });
-    // Her aliciya kripto servisinin urettigi zarfin KENDISI gitmeli.
-    //
-    // `LocalAeadCryptoService` anahtari karsi tarafin kimliginden turetiyor
-    // (`direct:<peerId>`), bu yuzden cozme de aliciyla ayni kimlikle
-    // yapiliyor.
-    for (final delivery in deliveries) {
-      expect(
-        await fixture.crypto.decryptDirect(
-          senderId: delivery.recipientId,
-          envelope: delivery.envelope,
+  test(
+    'sender key rotation resets then distributes the real envelope',
+    () async {
+      final fixture = await _Fixture.open();
+      addTearDown(fixture.close);
+      await fixture.database.conversations.insert(
+        const ConversationEntity(
+          id: 'group-1',
+          peerId: 'group-1',
+          peerName: 'Group',
+          peerPhone: '',
+          isGroup: true,
+          groupMembers: 'me,alice,bob',
         ),
-        _RecordingGroupCrypto.distribution,
       );
-    }
-  });
+      final crypto = _RecordingGroupCrypto(fixture.crypto);
+      final service = SenderKeyRotationService(
+        database: fixture.database,
+        crypto: crypto,
+        signaling: fixture.signaling,
+        session: fixture.session,
+      );
 
-  test('rotation fails loudly when the crypto service has no group support', () async {
-    // Sessizce ise yaramaz bir anahtar uretmek, bu yolun butun hatasiydi.
-    final fixture = await _Fixture.open();
-    addTearDown(fixture.close);
-    await fixture.database.conversations.insert(
-      const ConversationEntity(
-        id: 'group-1',
-        peerId: 'group-1',
-        peerName: 'Group',
-        peerPhone: '',
-        isGroup: true,
-        groupMembers: 'me,alice,bob',
-      ),
-    );
-    final service = SenderKeyRotationService(
-      database: fixture.database,
-      crypto: fixture.crypto,
-      signaling: fixture.signaling,
-      session: fixture.session,
-    );
+      expect(await service.rotate('group-1'), isTrue);
 
-    await expectLater(service.rotate('group-1'), throwsStateError);
-    expect(fixture.signaling.sentMessages, isEmpty);
-  });
+      // Sifirlama dagitimdan ONCE olmali: tersi, eski anahtarin dagitilip
+      // ardindan yerelde degismesi demek olurdu.
+      expect(crypto.resetCalls, ['group-1/me']);
+      expect(crypto.distributionCalls, ['group-1/me']);
+      final deliveries = fixture.signaling.sentMessages
+          .whereType<EncryptedSignalMessage>()
+          .toList();
+      expect(deliveries.map((message) => message.recipientId).toSet(), {
+        'alice',
+        'bob',
+      });
+      // Her aliciya kripto servisinin urettigi zarfin KENDISI gitmeli.
+      //
+      // `LocalAeadCryptoService` anahtari karsi tarafin kimliginden turetiyor
+      // (`direct:<peerId>`), bu yuzden cozme de aliciyla ayni kimlikle
+      // yapiliyor.
+      for (final delivery in deliveries) {
+        expect(
+          await fixture.crypto.decryptDirect(
+            senderId: delivery.recipientId,
+            envelope: delivery.envelope,
+          ),
+          _RecordingGroupCrypto.distribution,
+        );
+      }
+    },
+  );
+
+  test(
+    'rotation fails loudly when the crypto service has no group support',
+    () async {
+      // Sessizce ise yaramaz bir anahtar uretmek, bu yolun butun hatasiydi.
+      final fixture = await _Fixture.open();
+      addTearDown(fixture.close);
+      await fixture.database.conversations.insert(
+        const ConversationEntity(
+          id: 'group-1',
+          peerId: 'group-1',
+          peerName: 'Group',
+          peerPhone: '',
+          isGroup: true,
+          groupMembers: 'me,alice,bob',
+        ),
+      );
+      final service = SenderKeyRotationService(
+        database: fixture.database,
+        crypto: fixture.crypto,
+        signaling: fixture.signaling,
+        session: fixture.session,
+      );
+
+      await expectLater(service.rotate('group-1'), throwsStateError);
+      expect(fixture.signaling.sentMessages, isEmpty);
+    },
+  );
 }
 
 /// Grup kriptosu yetenegini kaydeden sahte servis.

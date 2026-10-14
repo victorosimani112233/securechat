@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../background/background_run_guard.dart';
 import '../background/background_scheduler.dart';
 import '../background/background_tasks.dart';
 import '../config/app_config.dart';
@@ -363,21 +364,28 @@ class PushCoordinator {
 Future<void> firebasePushBackgroundHandler(RemoteMessage message) async {
   final event = PushWakeEvent.fromMap(message.data);
   if (!event.isWakeUp) return;
-  SecureChatBackgroundRuntime? runtime;
   try {
     final options = SecureChatFirebaseOptions.current;
     if (options != null && Firebase.apps.isEmpty) {
       await Firebase.initializeApp(options: options);
     }
-    runtime = await SecureChatBackgroundRuntime.open();
-    await runtime.execute(
-      WorkmanagerBackgroundScheduler.pushDrainTask,
-      message.data,
-    );
+    // Soguk baslangicta eklenti ikinci bir arka plan motoru acabiliyor;
+    // iki motor ayni kuyrugu bosaltirsa ayni mesaj iki kez cozulmeye
+    // calisilir. Sira bekleyen motor, oncekinin bitirdigi kuyrugu yeniden
+    // bosaltir; bu sirada gelen mesaj kacmaz.
+    await BackgroundRunGuard.run(() async {
+      final runtime = await SecureChatBackgroundRuntime.open();
+      try {
+        await runtime.execute(
+          WorkmanagerBackgroundScheduler.pushDrainTask,
+          message.data,
+        );
+      } finally {
+        await runtime.close();
+      }
+    });
   } catch (error, stackTrace) {
     debugPrint('BG-RUNTIME FAIL: $error');
     debugPrintStack(label: 'BG-RUNTIME STACK', stackTrace: stackTrace);
-  } finally {
-    await runtime?.close();
   }
 }

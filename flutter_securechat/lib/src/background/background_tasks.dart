@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
 
+import 'background_run_guard.dart';
 import '../auth/auth_api.dart';
 import '../auth/session_token_refresher.dart';
 import '../chat/private_chat_control.dart';
@@ -58,17 +59,22 @@ void secureChatBackgroundCallbackDispatcher() {
     final override = backgroundTaskExecutorOverride;
     if (override != null) return override(task, inputData);
     if (!Platform.isAndroid && !Platform.isIOS) return true;
-    final runtime = await SecureChatBackgroundRuntime.open(
-      executingPlanId:
-          task == WorkmanagerBackgroundScheduler.scheduledMessageTask
-          ? (inputData?['planId'] as String?)
-          : null,
-    );
-    try {
-      return await runtime.execute(task, inputData);
-    } finally {
-      await runtime.close();
-    }
+    // FCM arka plan motoruyla ayni anda ayni veritabanini ve kuyrugu
+    // islememek icin siraya girer; sira gelmezse WorkManager yeniden dener.
+    final result = await BackgroundRunGuard.run(() async {
+      final runtime = await SecureChatBackgroundRuntime.open(
+        executingPlanId:
+            task == WorkmanagerBackgroundScheduler.scheduledMessageTask
+            ? (inputData?['planId'] as String?)
+            : null,
+      );
+      try {
+        return await runtime.execute(task, inputData);
+      } finally {
+        await runtime.close();
+      }
+    });
+    return result ?? false;
   });
 }
 
