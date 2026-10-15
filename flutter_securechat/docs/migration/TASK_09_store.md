@@ -76,7 +76,15 @@ Değişimden sonra cihazda: mesaj bildirimi, arka planda ve kilit ekranında
 gelen arama, Telecom `ConnectionService`.
 
 **Hiçbir mağazaya `com.securechat.app` ile yükleme yapılmaz.** İlk yükleme
-şirket geliştirici hesabından `com.elcim.app` ile.
+`com.elcim.app` ile.
+
+**Karar (2026-10-15):** TestFlight için önce **bireysel** Apple Developer
+hesabı açılıyor, şirkete sonra geçilecek. Geçiş **aynı üyeliğin** Apple
+Developer Support üzerinden kurumsala dönüştürülmesiyle yapılmalı (D-U-N-S
+ile); Team ID, uygulama ve bundle ID korunur. Ayrı bir şirket hesabı açılırsa
+`com.elcim.app` bireysel hesaba bağlı kalır (transfer App Store'da yayın
+şartı ister) ve Team ID değiştiği için keychain'deki E2EE anahtarlarına yeni
+imzalı sürüm erişemez.
 
 ### Teknik kalemler
 - **Gerçek yedek sertifika pini.** Şu anda `app_config.dart`'taki iki pin
