@@ -6,17 +6,20 @@
 # girdileri, kripto cekirdegi ve derleme.
 #
 # Kullanim:
-#   ./tool/ios_build.sh                       # tam kapi: test + release derleme + simulator XCTest
-#   ./tool/ios_build.sh install               # bagli iPhone'a canli sunucuyla kur
+#   ./tool/ios_build.sh                       # tam kapi (test + release derleme + simulator
+#                                             # XCTest), sonra bagli iPhone varsa ona kurar
+#   ./tool/ios_build.sh --no-install          # yalniz kapi, telefona kurma
+#   ./tool/ios_build.sh install               # kapiyi atla, bagli iPhone'a canli sunucuyla kur
 #   ./tool/ios_build.sh install --personal X  # ucretsiz Apple ID: bundle ID'ye .X eki, push kapali
 #
 # Ortam:
 #   SKIP_GIT_UPDATE=1   depoya dokunma (main'e gecme / pull yok)
 #   IOS_SIMULATOR_NAME  kapi icin belirli simulator
-#   IOS_BUILD_NO_UPLOAD=1  hata kaydini GitHub'a gonderme
+#   IOS_BUILD_NO_UPLOAD=1  kaydi GitHub'a gonderme
 #
-# Hata olursa tum cikti `ios-build-logs` dalina `logs/<zaman>-<mod>-<commit>.txt`
-# olarak gonderilir (main'e dokunmaz); Linux tarafi oradan okur:
+# Her kosunun (basarili ya da hatali) tum ciktisi `ios-build-logs` dalina
+# `logs/<zaman>-<mod>-<commit>-<ok|fail>.txt` olarak gonderilir (main'e
+# dokunmaz); Linux tarafi oradan okur:
 #   git fetch github-codemagic ios-build-logs && git show FETCH_HEAD:logs/<dosya>
 #
 # Bu derleme `com.securechat.app` kimligiyle cikar: deneme icindir, hicbir
@@ -32,17 +35,19 @@ note() { printf '         %s\n' "$1"; }
 
 original_args=("$@")
 mode="gate"
+install_after_gate=1
 personal_suffix=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     install) mode="install" ;;
     gate) mode="gate" ;;
+    --no-install) install_after_gate=0 ;;
     --personal)
       [[ $# -ge 2 ]] || die "--personal bir ek ister, ornek: --personal grj"
       personal_suffix="$2"
       shift
       ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
     *) die "Bilinmeyen arguman: $1  (yardim: $0 --help)" ;;
   esac
   shift
@@ -77,8 +82,8 @@ github_remote() {
 }
 
 # --- Hata kaydi ---------------------------------------------------------------
-# Tum cikti hem ekrana hem dosyaya yazilir. Betik hatayla biterse kayit
-# `ios-build-logs` dalina ayri bir commit olarak gonderilir. Calisma agaci,
+# Tum cikti hem ekrana hem dosyaya yazilir. Betik bitince (basarili ya da
+# hatali) kayit `ios-build-logs` dalina ayri bir commit olarak gonderilir. Calisma agaci,
 # index ve main'e dokunulmaz: commit gecici bir index ile kurulur.
 log_directory="${TMPDIR:-/tmp}/securechat-ios-build"
 mkdir -p "$log_directory"
@@ -92,9 +97,9 @@ exec > >(tee -a "$log_file") 2>&1
 } >> "$log_file"
 
 upload_log() {
-  local remote branch="ios-build-logs" parent="" name blob tree commit index_dir
+  local result="$1" remote branch="ios-build-logs" parent="" name blob tree commit index_dir
   remote="$(github_remote)" || return 1
-  name="logs/$(basename "$log_file" .txt)-$(git rev-parse --short HEAD).txt"
+  name="logs/$(basename "$log_file" .txt)-$(git rev-parse --short HEAD)-$result.txt"
   if git fetch --quiet "$remote" "$branch" 2>/dev/null; then
     parent="$(git rev-parse FETCH_HEAD)"
   fi
@@ -113,7 +118,7 @@ upload_log() {
     GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-$(git config user.email || echo ios-build@localhost)}" \
     GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-$(git config user.name || echo ios-build)}" \
     GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-$(git config user.email || echo ios-build@localhost)}" \
-    git commit-tree "$tree" ${parent:+-p "$parent"} -m "log: ios_build.sh $mode failed ($(git rev-parse --short HEAD))"
+    git commit-tree "$tree" ${parent:+-p "$parent"} -m "log: ios_build.sh $mode $result ($(git rev-parse --short HEAD))"
   )" || return 1
   git push --quiet "$remote" "$commit:refs/heads/$branch" || return 1
   echo "$name"
@@ -124,7 +129,8 @@ on_exit() {
   # tee'ye giden boruyu kapat ve kaydin diske yazilmasini bekle.
   exec 1>&3 2>&4
   sleep 1
-  [[ $status -eq 0 ]] && return
+  local result="ok"
+  [[ $status -eq 0 ]] || result="fail"
   echo "# cikis kodu $status, $(date '+%H:%M:%S')" >> "$log_file"
   echo
   echo "Kayit: $log_file"
@@ -132,8 +138,8 @@ on_exit() {
     return
   fi
   local uploaded
-  if uploaded="$(upload_log 2>&1 | tail -1)" && [[ "$uploaded" == logs/* ]]; then
-    printf '\033[33m    Hata kaydi GitHub ios-build-logs dalina gonderildi: %s\033[0m\n' "$uploaded"
+  if uploaded="$(upload_log "$result" 2>&1 | tail -1)" && [[ "$uploaded" == logs/* ]]; then
+    printf '\033[33m    Kayit GitHub ios-build-logs dalina gonderildi: %s\033[0m\n' "$uploaded"
     echo "         Claude'a \"kayda bak\" demen yeterli."
   else
     echo "    Kayit GitHub'a gonderilemedi ($uploaded). Dosyayi elle gonderin: $log_file"
@@ -226,6 +232,20 @@ fi
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim >/dev/null
 ok "$(rustc --version), hedefler aarch64-apple-ios(-sim)"
 
+# Mac'e USB ile bagli (simulator olmayan) ilk iPhone'un kimligi; yoksa bos.
+connected_iphone() {
+  flutter devices --machine 2>/dev/null | python3 -c '
+import json, sys
+try:
+    devices = json.load(sys.stdin)
+except Exception:
+    devices = []
+for d in devices:
+    if d.get("targetPlatform", "").startswith("ios") and not d.get("emulator", False):
+        print(d["id"]); break
+' || true
+}
+
 # --- 5. Calistir ------------------------------------------------------------
 if [[ "$mode" == "gate" ]]; then
   # `flutter test` ana makinede gercek bir sifreli veritabani acar.
@@ -250,7 +270,15 @@ if [[ "$mode" == "gate" ]]; then
 
   step "iOS kapisi (analiz, testler, release derleme, simulator XCTest)"
   ./tool/verify_ios_on_macos.sh
-  exit 0
+
+  if [[ "$install_after_gate" != "1" ]]; then
+    exit 0
+  fi
+  if [[ -z "$(connected_iphone)" ]]; then
+    note "Bagli iPhone yok; kurulum atlandi. Kurmak icin baglayip: $0 install"
+    exit 0
+  fi
+  note "Kapi gecti ve bagli bir iPhone var: kuruluma geciliyor."
 fi
 
 if [[ -n "$personal_suffix" ]]; then
@@ -261,16 +289,7 @@ if [[ -n "$personal_suffix" ]]; then
 fi
 
 step "Cihaz"
-device="$(flutter devices --machine 2>/dev/null | python3 -c '
-import json, sys
-try:
-    devices = json.load(sys.stdin)
-except Exception:
-    devices = []
-for d in devices:
-    if d.get("targetPlatform", "").startswith("ios") and not d.get("emulator", False):
-        print(d["id"]); break
-' || true)"
+device="$(connected_iphone)"
 [[ -n "$device" ]] || die "Bagli iPhone yok. USB ile baglayin, telefonda 'Guven' deyin,
          Ayarlar > Gizlilik ve Guvenlik > Gelistirici Modu acik olmali."
 ok "$device"

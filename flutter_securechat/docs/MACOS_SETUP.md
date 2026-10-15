@@ -22,8 +22,10 @@ kripto çekirdeği — `tool/ios_build.sh` yapar:
 Commitlenmemiş değişiklik varsa durur; yalnız kişisel imza / Xcode takım
 ayarı (`Runner.entitlements`, `project.pbxproj`) geri alınır.
 
-Betik hatayla biterse bütün çıktı GitHub'da `ios-build-logs` dalına
-`logs/<zaman>-<mod>-<commit>.txt` olarak gönderilir; `main`'e dokunmaz.
+Varsayılan çalıştırma kapı geçince Mac'e bağlı iPhone'a da kurar
+(`--no-install` ile yalnız kapı). Her çalıştırmanın bütün çıktısı GitHub'da
+`ios-build-logs` dalına `logs/<zaman>-<mod>-<commit>-<ok|fail>.txt` olarak
+gönderilir; `main`'e dokunmaz.
 Okumak için: `git fetch <github-remote> ios-build-logs && git show
 FETCH_HEAD:logs/<dosya>`. Göndermemek için `IOS_BUILD_NO_UPLOAD=1`.
 
