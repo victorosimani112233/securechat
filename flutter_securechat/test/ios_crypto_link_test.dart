@@ -79,7 +79,7 @@ void main() {
     expect(install, greaterThan(check));
     expect(script, contains('./tool/verify_ios_on_macos.sh'));
     // Hata kaydi main'e degil ayri dala gider (2026-10-15).
-    expect(script, contains('refs/heads/$branch'));
+    expect(script, contains(r'refs/heads/$branch'));
     expect(script, contains('branch="ios-build-logs"'));
     expect(script, contains('rustup target add aarch64-apple-ios'));
   });
