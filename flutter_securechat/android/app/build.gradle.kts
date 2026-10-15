@@ -55,6 +55,18 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            // Dosya olarak dagitilan APK'de .so kutuphaneleri (~37 MB, WebRTC +
+            // Flutter + SQLCipher) sikistirilir: APK ~46 MB'tan ~24 MB'a iner.
+            // Play AAB'de sikistirilmaz: Play indirmeyi kendisi sikistirir ve
+            // cihazda kutuphaneler ikinci kez acilip yer kaplamaz.
+            useLegacyPackaging = gradle.startParameter.taskNames.none {
+                it.contains("bundle", ignoreCase = true)
+            }
+        }
+    }
+
     signingConfigs {
         if (signingPropertiesFile.exists()) {
             create("release") {
