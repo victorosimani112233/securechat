@@ -132,35 +132,54 @@ echo "Kripto cekirdegi: $(echo "$expected_symbols" | wc -l | tr -d ' ') simge Ru
 # "Unable to find a device matching the provided destination" oldugu icin
 # sorunun simulator adi oldugu anlasilmiyordu.
 #
-# IOS_SIMULATOR_NAME verilirse o kullanilir; verilmezse kurulu olanlardan
-# ilki secilir. Runner XCTest'i cihaz modelinden bagimsiz oldugu icin
+# IOS_SIMULATOR_NAME verilirse o kullanilir; verilmezse en yeni runtime'daki
+# ilk iPhone secilir. Runner XCTest'i cihaz modelinden bagimsiz oldugu icin
 # hangisi oldugu onemli degil, VAR OLMASI onemli.
-if [[ -n "${IOS_SIMULATOR_NAME:-}" ]]; then
-  simulator_name="$IOS_SIMULATOR_NAME"
-else
-  # `simctl list devices available` yalniz calistirilabilir cihazlari
-  # listeler; runtime'i indirilmemis olanlar bu listede yer almaz.
-  simulator_name="$(
-    xcrun simctl list devices available 2>/dev/null \
-      | sed -nE 's/^[[:space:]]+(iPhone[^(]*[^ (])[[:space:]]+\([0-9A-F-]{36}\).*/\1/p' \
-      | head -1
-  )"
-  if [[ -z "$simulator_name" ]]; then
+#
+# Ad + `OS=latest` birlikte verilmez: bir model yalniz eski bir runtime'da
+# kuruluysa (ornek: "iPhone 16 Pro" yalniz iOS 18.2'de, en yeni 27.0)
+# ikisi eslesmez ve xcodebuild cihaz bulamaz (2026-10-15). Cihaz UDID ile
+# secilir: en yeni iOS runtime'indan baslayarak ilk iPhone, ya da verilen ad.
+simulator="$(
+  xcrun simctl list devices available -j 2>/dev/null | python3 -c '
+import json, re, sys
+wanted = sys.argv[1]
+try:
+    runtimes = json.load(sys.stdin).get("devices", {})
+except Exception:
+    runtimes = {}
+def version(runtime):
+    match = re.search(r"iOS-([0-9-]+)$", runtime)
+    return [int(part) for part in match.group(1).split("-")] if match else None
+for runtime in sorted((r for r in runtimes if version(r)), key=version, reverse=True):
+    for device in runtimes[runtime]:
+        name = device.get("name", "")
+        if (name == wanted) if wanted else name.startswith("iPhone"):
+            print(device["udid"] + "\t" + name + " (iOS " + ".".join(map(str, version(runtime))) + ")")
+            sys.exit(0)
+' "${IOS_SIMULATOR_NAME:-}"
+)"
+if [[ -z "$simulator" ]]; then
+  if [[ -n "${IOS_SIMULATOR_NAME:-}" ]]; then
+    echo "\"$IOS_SIMULATOR_NAME\" adli kurulu simulator yok." >&2
+    echo "Kurulu olanlar: xcrun simctl list devices available" >&2
+  else
     echo "Kurulu iPhone simulatoru yok; Runner XCTest kosulamaz." >&2
     echo "Xcode > Settings > Components uzerinden bir iOS Simulator" >&2
     echo "runtime'i indirin, ya da elinizdeki .dmg icin:" >&2
     echo "  xcodebuild -importPlatform <iOS_Simulator_Runtime.dmg>" >&2
-    echo "Belirli bir cihaz kullanmak icin: IOS_SIMULATOR_NAME=\"...\"" >&2
-    exit 2
   fi
+  echo "Belirli bir cihaz kullanmak icin: IOS_SIMULATOR_NAME=\"...\"" >&2
+  exit 2
 fi
-echo "Simulator: $simulator_name  (Xcode $(xcodebuild -version | head -1 | awk '{print $2}'))"
+simulator_id="${simulator%%$'\t'*}"
+echo "Simulator: ${simulator#*$'\t'}  (Xcode $(xcodebuild -version | head -1 | awk '{print $2}'))"
 if [[ "$offline_mode" == "1" ]]; then
   xcodebuild test \
     -workspace ios/Runner.xcworkspace \
     -scheme Runner \
     -sdk iphonesimulator \
-    -destination "platform=iOS Simulator,OS=latest,name=$simulator_name" \
+    -destination "id=$simulator_id" \
     "${package_flags[@]}" \
     CODE_SIGNING_ALLOWED=NO
 else
@@ -168,7 +187,7 @@ else
     -workspace ios/Runner.xcworkspace \
     -scheme Runner \
     -sdk iphonesimulator \
-    -destination "platform=iOS Simulator,OS=latest,name=$simulator_name" \
+    -destination "id=$simulator_id" \
     CODE_SIGNING_ALLOWED=NO
 fi
 
