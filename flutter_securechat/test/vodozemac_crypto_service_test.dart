@@ -261,6 +261,25 @@ void main() {
       expect(after.skip(1), containsAll(before));
     });
 
+    // macOS 2026-10-15: ayni milisaniyede acilan oturumlar esit damga
+    // aliyordu ve taze oturum her zaman en basta degildi. Ayni durum saat
+    // geri alindiginda da olur: eski oturumun damgasi "simdi"den buyuk.
+    test('taze oturum, damgasi ilerideki oturumlarin da onune gecer', () async {
+      await alice.service.ensureSession('bob');
+      final [old] = await alice.database.vodozemacSessions.forPeer('bob');
+      final ahead = DateTime.now().millisecondsSinceEpoch + 60000;
+      await alice.database.vodozemacSessions.upsert(
+        old.copyWith(lastUsedAt: ahead),
+      );
+
+      for (var round = 0; round < 3; round++) {
+        final before = await alice.store.sessionIdsForPeer('bob');
+        expect(await alice.service.openFreshSession('bob'), isTrue);
+        final after = await alice.store.sessionIdsForPeer('bob');
+        expect(after.skip(1), orderedEquals(before), reason: 'tur $round');
+      }
+    });
+
     test('desteklenmeyen zarf reddedilir', () {
       expect(
         () => bob.service.decryptDirect(

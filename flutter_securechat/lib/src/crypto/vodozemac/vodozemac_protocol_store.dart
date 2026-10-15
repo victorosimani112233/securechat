@@ -48,10 +48,7 @@ class VodozemacProtocolStore {
   /// tarafindaki `PRIVACY_INDEX_KEY` / `OFFLINE_QUEUE_ENCRYPTION_KEY`
   /// ayrimiyla ayni gerekce.
   static Future<Uint8List> derivePickleKey(List<int> masterKey) async {
-    final derived = await Hkdf(
-      hmac: Hmac.sha256(),
-      outputLength: 32,
-    ).deriveKey(
+    final derived = await Hkdf(hmac: Hmac.sha256(), outputLength: 32).deriveKey(
       secretKey: SecretKey(masterKey),
       info: utf8.encode('securechat/vodozemac-pickle/v1'),
       nonce: const <int>[],
@@ -66,7 +63,9 @@ class VodozemacProtocolStore {
   ///
   /// Hesap yoksa olusturulur. [action] firlatirsa durum YAZILMAZ: yarim
   /// kalmis bir anahtar uretimi diske gecmez.
-  Future<T> withAccount<T>(Future<T> Function(OlmAccount account) action) async {
+  Future<T> withAccount<T>(
+    Future<T> Function(OlmAccount account) action,
+  ) async {
     final pickle = await _database.vodozemacAccount.readPickle();
     final account = pickle == null
         ? _crypto.createAccount()
@@ -85,7 +84,9 @@ class VodozemacProtocolStore {
   /// Anahtar ureten veya tuketen bir cagri icin bunu KULLANMA: uretilen
   /// anahtarlar kaybolur. Sadece identity anahtari, sayac okuma ve imza
   /// gibi durumu degistirmeyen islemler icindir.
-  Future<T> readAccount<T>(Future<T> Function(OlmAccount account) action) async {
+  Future<T> readAccount<T>(
+    Future<T> Function(OlmAccount account) action,
+  ) async {
     final pickle = await _database.vodozemacAccount.readPickle();
     if (pickle == null) {
       throw StateError('vodozemac hesabi henuz olusturulmadi');
@@ -174,7 +175,7 @@ class VodozemacProtocolStore {
       await _database.vodozemacSessions.upsert(
         stored.copyWith(
           pickle: session.pickle(_pickleKey),
-          lastUsedAt: DateTime.now().millisecondsSinceEpoch,
+          lastUsedAt: await _nextUseStamp(peerId),
         ),
       );
       return result;
@@ -184,15 +185,29 @@ class VodozemacProtocolStore {
   }
 
   /// Yeni kurulmus bir oturumu saklar. Oturum cagirana ait kalir.
-  Future<void> persistNewSession(String peerId, OlmSession session) =>
+  Future<void> persistNewSession(String peerId, OlmSession session) async =>
       _database.vodozemacSessions.upsert(
         VodozemacSessionEntity(
           peerId: peerId,
           sessionId: session.sessionId,
           pickle: session.pickle(_pickleKey),
-          lastUsedAt: DateTime.now().millisecondsSinceEpoch,
+          lastUsedAt: await _nextUseStamp(peerId),
         ),
       );
+
+  /// Peer'in oturumlari arasinda kesin en yeni damga.
+  ///
+  /// Duz milisaniye ayni milisaniyede kurulan/kullanilan iki oturumu
+  /// esitler ve [sessionIdsForPeer] sirasi rastgele olur: onarim icin acilan
+  /// taze oturum yerine bozuk olani secilebilir (macOS'ta testte goruldu,
+  /// 2026-10-15). Damga her zaman oncekilerden buyuk tutulur.
+  Future<int> _nextUseStamp(String peerId) async {
+    var stamp = DateTime.now().millisecondsSinceEpoch;
+    for (final session in await _database.vodozemacSessions.forPeer(peerId)) {
+      if (session.lastUsedAt >= stamp) stamp = session.lastUsedAt + 1;
+    }
+    return stamp;
+  }
 
   /// Bir peer ile butun oturumlari siler. Kimlik degisiminde kullanilir.
   Future<void> deleteSessionsForPeer(String peerId) =>
