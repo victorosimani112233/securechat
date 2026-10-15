@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'features/auth/auth_screen.dart';
+import 'features/auth/profile_completion_screen.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'media/call_models.dart';
 import 'features/backup/backup_screen.dart';
@@ -166,6 +167,7 @@ class _SecureChatFlutterAppState extends State<SecureChatFlutterApp>
           '/permissions': (_) => const PermissionWalkthroughScreen(),
           '/auth': (_) => const AuthScreen(),
           '/': (_) => const MainShell(),
+          '/profile': (_) => const ProfileCompletionScreen(),
           '/chat': (_) => const ChatScreen(),
           '/contacts': (_) => const ContactsScreen(),
           '/calls': (_) => const CallScreen(),

@@ -1098,5 +1098,12 @@
   },
   "profile_name_hint": "The name people you message will see",
   "profile_name_add": "Add your name",
-  "profile_name_edit": "Change your name"
+  "profile_name_edit": "Change your name",
+  "profile_complete_title": "Complete your profile",
+  "profile_complete_description": "Your name and number could not be restored with your account. Enter them again so people can find you and see your name.",
+  "profile_complete_save": "Save",
+  "profile_complete_later": "Not now",
+  "profile_complete_phone_mismatch": "This number does not match your account. Enter the number you registered with.",
+  "profile_complete_phone_taken": "This number belongs to another account.",
+  "profile_complete_check_failed": "Your number could not be checked. Check your connection and try again."
 }

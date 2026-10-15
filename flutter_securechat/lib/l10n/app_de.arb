@@ -711,5 +711,12 @@
   "profile_name_title": "Dein Name",
   "profile_name_hint": "Der Name, den deine Chatpartner sehen",
   "profile_name_add": "Namen hinzufügen",
-  "profile_name_edit": "Namen ändern"
+  "profile_name_edit": "Namen ändern",
+  "profile_complete_title": "Profil vervollständigen",
+  "profile_complete_description": "Dein Name und deine Nummer wurden mit deinem Konto nicht wiederhergestellt. Gib sie erneut ein, damit andere dich finden und deinen Namen sehen.",
+  "profile_complete_save": "Speichern",
+  "profile_complete_later": "Nicht jetzt",
+  "profile_complete_phone_mismatch": "Diese Nummer passt nicht zu deinem Konto. Gib die Nummer ein, mit der du dich registriert hast.",
+  "profile_complete_phone_taken": "Diese Nummer gehört zu einem anderen Konto.",
+  "profile_complete_check_failed": "Deine Nummer konnte nicht geprüft werden. Prüfe deine Verbindung und versuche es erneut."
 }

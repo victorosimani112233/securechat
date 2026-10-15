@@ -171,6 +171,9 @@ class ContactIdentityResolver {
       (await resolve(userId)).phoneNumber;
 }
 
+/// Dizine gore kullanicinin girdigi kendi numarasi.
+enum OwnPhoneStatus { matches, otherAccount, notRegistered }
+
 class ContactService {
   ContactService({
     required DeviceContactsGateway deviceContacts,
@@ -314,6 +317,24 @@ class ContactService {
     await _database.contacts.insert(contact);
     await ensureConversation(contact);
     return contact;
+  }
+
+  /// Kurtarmadan sonra yeniden girilen kendi numaranin dizinde bu hesaba
+  /// kayitli olup olmadigini okur. Dizine yazmaz: yanlis yazilan bir numara
+  /// hesabin dizin kaydini degistirmemeli (QA 2026-10-13 O5).
+  Future<OwnPhoneStatus> ownPhoneStatus(String input) async {
+    final token = _session.accessToken;
+    final userId = _session.userId;
+    if (token == null || token.isEmpty || userId == null) {
+      throw StateError('Login gerekli');
+    }
+    final hash = await hashPhoneNumber(input);
+    final matches = await _api.checkUsers([hash], token);
+    final owner = matches.where((m) => m.phoneHash == hash).firstOrNull;
+    if (owner == null) return OwnPhoneStatus.notRegistered;
+    return owner.userId == userId
+        ? OwnPhoneStatus.matches
+        : OwnPhoneStatus.otherAccount;
   }
 
   Future<ConversationEntity> ensureConversation(ContactEntity contact) async {

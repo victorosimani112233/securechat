@@ -4373,6 +4373,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Change your name'**
   String get profile_name_edit;
+
+  /// No description provided for @profile_complete_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete your profile'**
+  String get profile_complete_title;
+
+  /// No description provided for @profile_complete_description.
+  ///
+  /// In en, this message translates to:
+  /// **'Your name and number could not be restored with your account. Enter them again so people can find you and see your name.'**
+  String get profile_complete_description;
+
+  /// No description provided for @profile_complete_save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get profile_complete_save;
+
+  /// No description provided for @profile_complete_later.
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get profile_complete_later;
+
+  /// No description provided for @profile_complete_phone_mismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'This number does not match your account. Enter the number you registered with.'**
+  String get profile_complete_phone_mismatch;
+
+  /// No description provided for @profile_complete_phone_taken.
+  ///
+  /// In en, this message translates to:
+  /// **'This number belongs to another account.'**
+  String get profile_complete_phone_taken;
+
+  /// No description provided for @profile_complete_check_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Your number could not be checked. Check your connection and try again.'**
+  String get profile_complete_check_failed;
 }
 
 class _AppLocalizationsDelegate

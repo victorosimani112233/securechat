@@ -2382,4 +2382,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get profile_name_edit => 'Change your name';
+
+  @override
+  String get profile_complete_title => 'Complete your profile';
+
+  @override
+  String get profile_complete_description =>
+      'Your name and number could not be restored with your account. Enter them again so people can find you and see your name.';
+
+  @override
+  String get profile_complete_save => 'Save';
+
+  @override
+  String get profile_complete_later => 'Not now';
+
+  @override
+  String get profile_complete_phone_mismatch =>
+      'This number does not match your account. Enter the number you registered with.';
+
+  @override
+  String get profile_complete_phone_taken =>
+      'This number belongs to another account.';
+
+  @override
+  String get profile_complete_check_failed =>
+      'Your number could not be checked. Check your connection and try again.';
 }

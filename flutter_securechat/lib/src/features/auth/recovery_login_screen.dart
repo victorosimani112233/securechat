@@ -6,6 +6,7 @@ import '../../auth/account_recovery_coordinator.dart';
 import '../../auth/auth_api.dart';
 import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
+import 'profile_completion_screen.dart';
 import 'recovery_form_screen.dart';
 
 enum _LoginStep { checking, email, code, approval, pending }
@@ -123,7 +124,15 @@ class _RecoveryLoginScreenState extends State<RecoveryLoginScreen> {
   }
 
   void _finish() {
-    Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false);
+    // Kurtarma eski oturumun bos ad/numarasini tasir; eksikse once sor.
+    final session = context
+        .getInheritedWidgetOfExactType<AppContainerScope>()
+        ?.container
+        .session;
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      session == null ? '/' : homeRouteFor(session),
+      (_) => false,
+    );
   }
 
   Future<void> _submit() async {

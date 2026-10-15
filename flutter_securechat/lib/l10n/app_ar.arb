@@ -731,5 +731,12 @@
   "profile_name_title": "اسمك",
   "profile_name_hint": "الاسم الذي يراه من تراسلهم",
   "profile_name_add": "أضف اسمك",
-  "profile_name_edit": "غيّر اسمك"
+  "profile_name_edit": "غيّر اسمك",
+  "profile_complete_title": "أكمل ملفك الشخصي",
+  "profile_complete_description": "لم تتم استعادة اسمك ورقمك مع حسابك. أدخلهما مرة أخرى ليتمكن الآخرون من العثور عليك ورؤية اسمك.",
+  "profile_complete_save": "حفظ",
+  "profile_complete_later": "ليس الآن",
+  "profile_complete_phone_mismatch": "هذا الرقم لا يطابق حسابك. أدخل الرقم الذي سجلت به.",
+  "profile_complete_phone_taken": "هذا الرقم يخص حسابًا آخر.",
+  "profile_complete_check_failed": "تعذر التحقق من رقمك. تحقق من اتصالك وحاول مرة أخرى."
 }

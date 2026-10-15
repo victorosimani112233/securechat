@@ -40,6 +40,40 @@ void main() {
     expect(await fixture.database.contacts.getRegisteredCount(), 1);
   });
 
+  // QA 2026-10-13 O5: kurtarmadan sonra girilen numara yalniz okunur;
+  // checkUsers ownPhoneHash almadigi icin dizin kaydi degismez.
+  test('own phone status reads the directory without claiming it', () async {
+    final fixture = await _openFixture();
+    addTearDown(fixture.close);
+    final mine = await hashPhoneNumber('+905551234567');
+    final theirs = await hashPhoneNumber('+905320000000');
+    final api = _FakeDiscoveryApi([
+      RegisteredUserMatch(userId: 'me', phoneHash: mine),
+      RegisteredUserMatch(userId: 'other', phoneHash: theirs),
+    ]);
+    final service = ContactService(
+      deviceContacts: _FakeGateway(const []),
+      api: api,
+      database: fixture.database,
+      session: SessionStore(userId: 'me', accessToken: 'access'),
+    );
+
+    expect(
+      await service.ownPhoneStatus('+905551234567'),
+      OwnPhoneStatus.matches,
+    );
+    expect(api.receivedHashes, [mine]);
+    expect(api.receivedOwnHash, isNull);
+    expect(
+      await service.ownPhoneStatus('+905320000000'),
+      OwnPhoneStatus.otherAccount,
+    );
+    expect(
+      await service.ownPhoneStatus('+905449999999'),
+      OwnPhoneStatus.notRegistered,
+    );
+  });
+
   test('contact sync removes entries no longer present on device', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);
@@ -416,6 +450,7 @@ class _FakeDiscoveryApi implements ContactDiscoveryApi {
 
   final List<RegisteredUserMatch> matches;
   List<String> receivedHashes = const [];
+  String? receivedOwnHash;
 
   @override
   Future<List<RegisteredUserMatch>> checkUsers(
@@ -425,7 +460,8 @@ class _FakeDiscoveryApi implements ContactDiscoveryApi {
     String? ownUserId,
   }) async {
     receivedHashes = List.of(hashes);
-    return matches;
+    receivedOwnHash = ownPhoneHash;
+    return matches.where((m) => hashes.contains(m.phoneHash)).toList();
   }
 }
 

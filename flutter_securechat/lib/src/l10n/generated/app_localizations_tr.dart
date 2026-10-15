@@ -2372,4 +2372,28 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get profile_name_edit => 'Adını değiştir';
+
+  @override
+  String get profile_complete_title => 'Profilini tamamla';
+
+  @override
+  String get profile_complete_description =>
+      'Adın ve numaran hesabınla birlikte geri gelmedi. Seni bulabilmeleri ve adını görebilmeleri için tekrar gir.';
+
+  @override
+  String get profile_complete_save => 'Kaydet';
+
+  @override
+  String get profile_complete_later => 'Şimdi değil';
+
+  @override
+  String get profile_complete_phone_mismatch =>
+      'Bu numara hesabınla eşleşmiyor. Kayıt olurken kullandığın numarayı gir.';
+
+  @override
+  String get profile_complete_phone_taken => 'Bu numara başka bir hesaba ait.';
+
+  @override
+  String get profile_complete_check_failed =>
+      'Numaran kontrol edilemedi. Bağlantını kontrol edip tekrar dene.';
 }

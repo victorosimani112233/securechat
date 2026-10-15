@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../onboarding/permission_service.dart';
 import '../../services/app_container.dart';
+import '../auth/profile_completion_screen.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../theme/secure_chat_theme.dart';
 
@@ -34,13 +35,15 @@ class _LaunchScreenState extends State<LaunchScreen>
     final container = AppContainerScope.of(context);
     final onboarding = container.onboardingRuntime?.service;
     final route = onboarding == null
-        ? (container.session.isLoggedIn ? '/' : '/auth')
+        ? (container.session.isLoggedIn
+              ? homeRouteFor(container.session)
+              : '/auth')
         : !await onboarding.isIntroSeen()
         ? '/onboarding'
         : !await onboarding.isPermissionWalkthroughSeen()
         ? '/permissions'
         : container.session.isLoggedIn
-        ? '/'
+        ? homeRouteFor(container.session)
         : '/auth';
     if (mounted) Navigator.pushReplacementNamed(context, route);
   }
@@ -338,7 +341,9 @@ class _PermissionWalkthroughScreenState
     if (mounted)
       Navigator.pushReplacementNamed(
         context,
-        container.session.isLoggedIn ? '/' : '/auth',
+        container.session.isLoggedIn
+            ? homeRouteFor(container.session)
+            : '/auth',
       );
   }
 

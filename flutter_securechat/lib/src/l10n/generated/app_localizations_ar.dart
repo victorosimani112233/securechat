@@ -2380,4 +2380,28 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get profile_name_edit => 'غيّر اسمك';
+
+  @override
+  String get profile_complete_title => 'أكمل ملفك الشخصي';
+
+  @override
+  String get profile_complete_description =>
+      'لم تتم استعادة اسمك ورقمك مع حسابك. أدخلهما مرة أخرى ليتمكن الآخرون من العثور عليك ورؤية اسمك.';
+
+  @override
+  String get profile_complete_save => 'حفظ';
+
+  @override
+  String get profile_complete_later => 'ليس الآن';
+
+  @override
+  String get profile_complete_phone_mismatch =>
+      'هذا الرقم لا يطابق حسابك. أدخل الرقم الذي سجلت به.';
+
+  @override
+  String get profile_complete_phone_taken => 'هذا الرقم يخص حسابًا آخر.';
+
+  @override
+  String get profile_complete_check_failed =>
+      'تعذر التحقق من رقمك. تحقق من اتصالك وحاول مرة أخرى.';
 }

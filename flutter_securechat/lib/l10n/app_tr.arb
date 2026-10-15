@@ -1082,5 +1082,12 @@
   "profile_name_title": "Adın",
   "profile_name_hint": "Mesajlaştığın kişilerin göreceği ad",
   "profile_name_add": "Adını ekle",
-  "profile_name_edit": "Adını değiştir"
+  "profile_name_edit": "Adını değiştir",
+  "profile_complete_title": "Profilini tamamla",
+  "profile_complete_description": "Adın ve numaran hesabınla birlikte geri gelmedi. Seni bulabilmeleri ve adını görebilmeleri için tekrar gir.",
+  "profile_complete_save": "Kaydet",
+  "profile_complete_later": "Şimdi değil",
+  "profile_complete_phone_mismatch": "Bu numara hesabınla eşleşmiyor. Kayıt olurken kullandığın numarayı gir.",
+  "profile_complete_phone_taken": "Bu numara başka bir hesaba ait.",
+  "profile_complete_check_failed": "Numaran kontrol edilemedi. Bağlantını kontrol edip tekrar dene."
 }

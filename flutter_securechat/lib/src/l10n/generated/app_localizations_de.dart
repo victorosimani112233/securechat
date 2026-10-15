@@ -2421,4 +2421,29 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get profile_name_edit => 'Namen ändern';
+
+  @override
+  String get profile_complete_title => 'Profil vervollständigen';
+
+  @override
+  String get profile_complete_description =>
+      'Dein Name und deine Nummer wurden mit deinem Konto nicht wiederhergestellt. Gib sie erneut ein, damit andere dich finden und deinen Namen sehen.';
+
+  @override
+  String get profile_complete_save => 'Speichern';
+
+  @override
+  String get profile_complete_later => 'Nicht jetzt';
+
+  @override
+  String get profile_complete_phone_mismatch =>
+      'Diese Nummer passt nicht zu deinem Konto. Gib die Nummer ein, mit der du dich registriert hast.';
+
+  @override
+  String get profile_complete_phone_taken =>
+      'Diese Nummer gehört zu einem anderen Konto.';
+
+  @override
+  String get profile_complete_check_failed =>
+      'Deine Nummer konnte nicht geprüft werden. Prüfe deine Verbindung und versuche es erneut.';
 }
