@@ -312,14 +312,36 @@ flutter pub get >/dev/null
 ./tool/build_native_crypto.sh ios
 ok "SecureChatCrypto.xcframework hazir"
 
-step "Release derleme (canli sunucu)"
-if ! flutter build ios --release \
+build_release() {
+  flutter build ios --release \
     --dart-define=SECURECHAT_API_BASE_URL="$SECURECHAT_API_BASE_URL" \
     --dart-define=SECURECHAT_SIGNALING_URL="$SECURECHAT_SIGNALING_URL" \
     --dart-define=SECURECHAT_CERT_PIN_HOST="$SECURECHAT_CERT_PIN_HOST" \
     --dart-define=SECURECHAT_CERT_PIN_SHA256="$SECURECHAT_CERT_PIN_SHA256" \
     --dart-define=SECURECHAT_CERT_PIN_SHA256_BACKUP="$SECURECHAT_CERT_PIN_SHA256_BACKUP" \
-    --dart-define=SECURECHAT_FIREBASE_IOS_APP_ID="$SECURECHAT_FIREBASE_IOS_APP_ID"; then
+    --dart-define=SECURECHAT_FIREBASE_IOS_APP_ID="$SECURECHAT_FIREBASE_IOS_APP_ID" \
+    2>&1 | tee "$build_output"
+  return "${PIPESTATUS[0]}"
+}
+
+step "Release derleme (canli sunucu)"
+build_output="$(mktemp)"
+build_ok=1
+build_release || build_ok=0
+# Ucretsiz Apple ID (Personal Team) push yetkisi veremez; Xcode bunu
+# imzalamadan once reddeder. Kisisel imzaya gecip bir kez daha dene.
+if [[ "$build_ok" == "0" && -z "$personal_suffix" ]] \
+    && grep -q 'Personal development teams.*do not support' "$build_output"; then
+  personal_suffix="$(id -un | tr -cd 'A-Za-z0-9')"
+  [[ -n "$personal_suffix" ]] || personal_suffix="dev"
+  step "Ucretsiz Apple hesabi: kisisel imzayla tekrar (.$personal_suffix)"
+  ./tool/ios_personal_signing.sh "$personal_suffix" >/dev/null
+  ok "bundle ID com.securechat.app.$personal_suffix, push kapali (bildirim gelmez)"
+  build_ok=1
+  build_release || build_ok=0
+fi
+rm -f "$build_output"
+if [[ "$build_ok" == "0" ]]; then
   cat >&2 <<HELP
 
 Derleme basarisiz. Hata "Signing" / "Development Team" / "provisioning"

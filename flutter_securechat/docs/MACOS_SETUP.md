@@ -15,7 +15,8 @@ kripto çekirdeği — `tool/ios_build.sh` yapar:
 
 ```bash
 ./tool/ios_build.sh                        # derle ve bağlı iPhone'a canlı sunucuyla kur
-./tool/ios_build.sh --personal grj         # aynı, ücretsiz Apple ID (push kapalı)
+./tool/ios_build.sh --personal grj         # aynı, ücretsiz Apple ID (push kapalı); takım
+                                           # ücretsizse betik buna kendisi geçer
 ./tool/ios_build.sh gate                   # kapı: testler + release derleme + simülatör XCTest
 ```
 

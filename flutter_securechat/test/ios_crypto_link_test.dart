@@ -82,5 +82,14 @@ void main() {
     expect(script, contains(r'refs/heads/$branch'));
     expect(script, contains('branch="ios-build-logs"'));
     expect(script, contains('rustup target add aarch64-apple-ios'));
+    // Ucretsiz Apple ID push vermez; betik kisisel imzaya kendisi gecer.
+    expect(
+      script,
+      contains("grep -q 'Personal development teams.*do not support'"),
+    );
+    expect(
+      script.indexOf(r'./tool/ios_personal_signing.sh "$personal_suffix"'),
+      lessThan(install),
+    );
   });
 }
