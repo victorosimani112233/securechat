@@ -338,6 +338,12 @@ class _SeededDeviceContacts implements DeviceContactsGateway {
 
   @override
   Future<bool> requestPermission() async => true;
+
+  @override
+  Future<bool> openAddContact({
+    required String phone,
+    String name = '',
+  }) async => false;
 }
 
 class _DeviceDiscovery implements ContactDiscoveryApi {
