@@ -25,7 +25,13 @@ void main() {
   late MediaVault vault;
 
   setUp(() async {
-    root = await Directory.systemTemp.createTemp('media_at_rest_');
+    // macOS'ta gecici dizin /var -> /private/var baglantisinin arkasinda;
+    // servis yollari gercek yola cozer, test de ayni yoldan baslar.
+    root = Directory(
+      await (await Directory.systemTemp.createTemp(
+        'media_at_rest_',
+      )).resolveSymbolicLinks(),
+    );
     media = Directory('${root.path}/media')..createSync();
     crypto = LocalAeadCryptoService(
       SecretKey(List<int>.generate(32, (index) => index + 1)),
