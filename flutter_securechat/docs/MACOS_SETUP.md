@@ -9,6 +9,19 @@ aşağıda. Önce denetim, sonra eksikler.
 
 Betik hiçbir şey kurmaz; eksik olan her madde için çalıştırılacak komutu yazar.
 
+**Tek komut (2026-10-15):** aşağıdaki adımların hepsini — main'e geçme,
+Xcode dizini, Rust ve iOS hedefleri, SQLCipher, canlı sunucu girdileri,
+kripto çekirdeği — `tool/ios_build.sh` yapar:
+
+```bash
+./tool/ios_build.sh                        # kapı: testler + release derleme + simülatör XCTest
+./tool/ios_build.sh install                # bağlı iPhone'a canlı sunucuyla kur
+./tool/ios_build.sh install --personal grj # ücretsiz Apple ID (push kapalı)
+```
+
+Commitlenmemiş değişiklik varsa durur; yalnız kişisel imza / Xcode takım
+ayarı (`Runner.entitlements`, `project.pbxproj`) geri alınır.
+
 ## 1 · Depoyu taşıma
 
 `origin` uzak sunucusu bir **LAN adresi** (`git remote -v` ile görürsünüz).

@@ -67,4 +67,17 @@ void main() {
     expect(build, lessThan(resolve));
     expect(gate, contains('Kripto cekirdegi simgeleri Runner ikilisinde yok'));
   });
+
+  // 2026-10-15: tek komutluk Mac betigi; cihaza kurmadan once ayni denetim.
+  test('the one-command iOS script builds the core before installing', () {
+    final script = File('tool/ios_build.sh').readAsStringSync();
+    final build = script.indexOf('./tool/build_native_crypto.sh ios');
+    final check = script.indexOf('Kripto cekirdegi simgeleri Runner');
+    final install = script.indexOf('flutter install --release');
+    expect(build, greaterThanOrEqualTo(0));
+    expect(check, greaterThan(build));
+    expect(install, greaterThan(check));
+    expect(script, contains('exec ./tool/verify_ios_on_macos.sh'));
+    expect(script, contains('rustup target add aarch64-apple-ios'));
+  });
 }
