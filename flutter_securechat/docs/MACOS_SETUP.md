@@ -14,16 +14,16 @@ Xcode dizini, Rust ve iOS hedefleri, SQLCipher, canlı sunucu girdileri,
 kripto çekirdeği — `tool/ios_build.sh` yapar:
 
 ```bash
-./tool/ios_build.sh                        # kapı: testler + release derleme + simülatör XCTest
-./tool/ios_build.sh install                # bağlı iPhone'a canlı sunucuyla kur
-./tool/ios_build.sh install --personal grj # ücretsiz Apple ID (push kapalı)
+./tool/ios_build.sh                        # derle ve bağlı iPhone'a canlı sunucuyla kur
+./tool/ios_build.sh --personal grj         # aynı, ücretsiz Apple ID (push kapalı)
+./tool/ios_build.sh gate                   # kapı: testler + release derleme + simülatör XCTest
 ```
 
 Commitlenmemiş değişiklik varsa durur; yalnız kişisel imza / Xcode takım
 ayarı (`Runner.entitlements`, `project.pbxproj`) geri alınır.
 
-Varsayılan çalıştırma kapı geçince Mac'e bağlı iPhone'a da kurar
-(`--no-install` ile yalnız kapı). Her çalıştırmanın bütün çıktısı GitHub'da
+`gate` kapı geçince Mac'e bağlı iPhone'a da kurar (`gate --no-install`
+ile yalnız kapı). Her çalıştırmanın bütün çıktısı GitHub'da
 `ios-build-logs` dalına `logs/<zaman>-<mod>-<commit>-<ok|fail>.txt` olarak
 gönderilir; `main`'e dokunmaz.
 Okumak için: `git fetch <github-remote> ios-build-logs && git show

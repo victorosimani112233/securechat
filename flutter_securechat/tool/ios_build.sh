@@ -6,11 +6,11 @@
 # girdileri, kripto cekirdegi ve derleme.
 #
 # Kullanim:
-#   ./tool/ios_build.sh                       # tam kapi (test + release derleme + simulator
-#                                             # XCTest), sonra bagli iPhone varsa ona kurar
-#   ./tool/ios_build.sh --no-install          # yalniz kapi, telefona kurma
-#   ./tool/ios_build.sh install               # kapiyi atla, bagli iPhone'a canli sunucuyla kur
-#   ./tool/ios_build.sh install --personal X  # ucretsiz Apple ID: bundle ID'ye .X eki, push kapali
+#   ./tool/ios_build.sh                       # derle ve bagli iPhone'a canli sunucuyla kur
+#   ./tool/ios_build.sh --personal X          # ayni, ucretsiz Apple ID: bundle ID'ye .X eki, push kapali
+#   ./tool/ios_build.sh gate                  # tam kapi (testler + simulator XCTest), sonra
+#                                             # bagli iPhone varsa ona da kurar
+#   ./tool/ios_build.sh gate --no-install     # yalniz kapi
 #
 # Ortam:
 #   SKIP_GIT_UPDATE=1   depoya dokunma (main'e gecme / pull yok)
@@ -34,7 +34,9 @@ note() { printf '         %s\n' "$1"; }
 [[ "$(uname -s)" == "Darwin" ]] || die "Bu betik macOS icin."
 
 original_args=("$@")
-mode="gate"
+# Varsayilan dogrudan kurulum (2026-10-15 kullanici istegi): testler uzun,
+# telefona kurmak icin beklenmesin. Kapi `gate` ile.
+mode="install"
 install_after_gate=1
 personal_suffix=""
 while [[ $# -gt 0 ]]; do
@@ -53,7 +55,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 [[ -z "$personal_suffix" || "$mode" == "install" ]] \
-  || die "--personal yalniz install ile kullanilir."
+  || die "--personal gate ile kullanilmaz."
 
 script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_directory="$(cd "$script_directory/.." && pwd)"
@@ -69,6 +71,14 @@ export SECURECHAT_CERT_PIN_SHA256="${SECURECHAT_CERT_PIN_SHA256:-HiU372IT5EOlaX+
 export SECURECHAT_CERT_PIN_SHA256_BACKUP="${SECURECHAT_CERT_PIN_SHA256_BACKUP:-4oaRg+Six29KZ2tcFLyoYT+FKUZhYPzp1pI5BoK5RI4=}"
 
 signing_files=(ios/Runner/Runner.entitlements ios/Runner.xcodeproj/project.pbxproj)
+
+# Depo herkese acik: okuma her zaman bu adresten, kimlik sormadan yapilir.
+readonly public_url="${SECURECHAT_PUBLIC_REPO_URL:-https://github.com/victorosimani112233/securechat.git}"
+# Git hicbir adimda kullanici adi/parola ya da SSH parolasi sormasin
+# (2026-10-15: kullanici Mac'te GitHub girisi istenmesinden sikayet etti).
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+export GCM_INTERACTIVE=never
 
 # `origin` Mac'te LAN adresini gosterebilir; yalniz GitHub kullanilir.
 github_remote() {
@@ -100,7 +110,7 @@ upload_log() {
   local result="$1" remote branch="ios-build-logs" parent="" name blob tree commit index_dir
   remote="$(github_remote)" || return 1
   name="logs/$(basename "$log_file" .txt)-$(git rev-parse --short HEAD)-$result.txt"
-  if git fetch --quiet "$remote" "$branch" 2>/dev/null; then
+  if git fetch --quiet "$public_url" "$branch" 2>/dev/null; then
     parent="$(git rev-parse FETCH_HEAD)"
   fi
   blob="$(git hash-object -w "$log_file")" || return 1
@@ -120,6 +130,7 @@ upload_log() {
     GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-$(git config user.email || echo ios-build@localhost)}" \
     git commit-tree "$tree" ${parent:+-p "$parent"} -m "log: ios_build.sh $mode $result ($(git rev-parse --short HEAD))"
   )" || return 1
+  # Yazma kimlik ister; anahtar zincirinde kayitli degilse sormadan vazgecer.
   git push --quiet "$remote" "$commit:refs/heads/$branch" || return 1
   echo "$name"
 }
@@ -142,7 +153,8 @@ on_exit() {
     printf '\033[33m    Kayit GitHub ios-build-logs dalina gonderildi: %s\033[0m\n' "$uploaded"
     echo "         Claude'a \"kayda bak\" demen yeterli."
   else
-    echo "    Kayit GitHub'a gonderilemedi ($uploaded). Dosyayi elle gonderin: $log_file"
+    echo "    Kayit GitHub'a gonderilemedi (bu Mac'te GitHub yazma yetkisi kayitli degil)."
+    echo "    Sorun varsa su dosyanin son satirlarini yapistirin: $log_file"
   fi
 }
 trap on_exit EXIT
@@ -167,7 +179,8 @@ else
          Saklamak icin: git stash   — sonra betigi tekrar calistirin."
   fi
   remote="$(github_remote)"
-  git fetch --prune --quiet "$remote" main || die "GitHub'dan cekilemedi ($remote). Ag/kimlik bilgisini kontrol edin."
+  git fetch --quiet "$public_url" "+refs/heads/main:refs/remotes/$remote/main" \
+    || die "GitHub'dan cekilemedi. Internet baglantisini kontrol edin."
   upstream="$remote/main"
   if [[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]]; then
     if git show-ref --verify --quiet refs/heads/main; then
@@ -275,7 +288,7 @@ if [[ "$mode" == "gate" ]]; then
     exit 0
   fi
   if [[ -z "$(connected_iphone)" ]]; then
-    note "Bagli iPhone yok; kurulum atlandi. Kurmak icin baglayip: $0 install"
+    note "Bagli iPhone yok; kurulum atlandi. Kurmak icin baglayip: $0"
     exit 0
   fi
   note "Kapi gecti ve bagli bir iPhone var: kuruluma geciliyor."
@@ -314,7 +327,7 @@ iceriyorsa takim secilmemis demektir:
   open ios/Runner.xcworkspace
   Runner > Signing & Capabilities > Team secin, Xcode'u kapatin,
   betigi tekrar calistirin. Ucretsiz Apple ID ise ya da hata bundle ID'nin
-  kullanilamadigini soyluyorsa: $0 install --personal <ek>
+  kullanilamadigini soyluyorsa: $0 --personal <ek>
 Baska bir hataysa ciktiyi gonderin.
 HELP
   exit 1
