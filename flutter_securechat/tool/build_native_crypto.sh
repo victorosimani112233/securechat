@@ -73,7 +73,7 @@ build_android() {
     cargo ndk \
       $(printf -- '-t %s ' "${abis[@]}") \
       -o "$JNI_DIR" \
-      build --release "${CARGO_FLAGS[@]}"
+      build --release ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"}
   )
 
   # Teslim edilen her native kutuphanede debug sembolu KALMAMALI:
@@ -124,8 +124,8 @@ build_ios() {
   log "iOS derlemesi: cihaz + simulator"
   (
     cd "$CRATE_DIR"
-    cargo build --release --target aarch64-apple-ios "${CARGO_FLAGS[@]}"
-    cargo build --release --target aarch64-apple-ios-sim "${CARGO_FLAGS[@]}"
+    cargo build --release --target aarch64-apple-ios ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"}
+    cargo build --release --target aarch64-apple-ios-sim ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"}
   )
 
   local device="$CRATE_DIR/target/aarch64-apple-ios/release/$LIB_NAME.a"

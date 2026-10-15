@@ -103,7 +103,7 @@ if [[ "${IOS_SKIP_FLUTTER_CHECKS:-0}" != "1" ]]; then
   # sessizce degil ama ATLANIR. Gate'te atlanmasinlar.
   cargo_offline=()
   [[ "$offline_mode" == "1" ]] && cargo_offline=(--offline)
-  ( cd native/securechat_crypto && cargo build --release --locked "${cargo_offline[@]}" )
+  ( cd native/securechat_crypto && cargo build --release --locked ${cargo_offline[@]+"${cargo_offline[@]}"} )
   flutter analyze
   flutter test
 fi
