@@ -13,6 +13,11 @@
 # Ortam:
 #   SKIP_GIT_UPDATE=1   depoya dokunma (main'e gecme / pull yok)
 #   IOS_SIMULATOR_NAME  kapi icin belirli simulator
+#   IOS_BUILD_NO_UPLOAD=1  hata kaydini GitHub'a gonderme
+#
+# Hata olursa tum cikti `ios-build-logs` dalina `logs/<zaman>-<mod>-<commit>.txt`
+# olarak gonderilir (main'e dokunmaz); Linux tarafi oradan okur:
+#   git fetch github-codemagic ios-build-logs && git show FETCH_HEAD:logs/<dosya>
 #
 # Bu derleme `com.securechat.app` kimligiyle cikar: deneme icindir, hicbir
 # magazaya yuklenmez. Ilk yukleme `com.elcim.app` ile olacak.
@@ -25,6 +30,7 @@ note() { printf '         %s\n' "$1"; }
 
 [[ "$(uname -s)" == "Darwin" ]] || die "Bu betik macOS icin."
 
+original_args=("$@")
 mode="gate"
 personal_suffix=""
 while [[ $# -gt 0 ]]; do
@@ -59,6 +65,82 @@ export SECURECHAT_CERT_PIN_SHA256_BACKUP="${SECURECHAT_CERT_PIN_SHA256_BACKUP:-4
 
 signing_files=(ios/Runner/Runner.entitlements ios/Runner.xcodeproj/project.pbxproj)
 
+# `origin` Mac'te LAN adresini gosterebilir; yalniz GitHub kullanilir.
+github_remote() {
+  local remote
+  remote="$(git remote -v | awk '/victorosimani112233\/securechat/ {print $1; exit}')"
+  if [[ -z "$remote" ]]; then
+    remote="github"
+    git remote add "$remote" https://github.com/victorosimani112233/securechat.git
+  fi
+  echo "$remote"
+}
+
+# --- Hata kaydi ---------------------------------------------------------------
+# Tum cikti hem ekrana hem dosyaya yazilir. Betik hatayla biterse kayit
+# `ios-build-logs` dalina ayri bir commit olarak gonderilir. Calisma agaci,
+# index ve main'e dokunulmaz: commit gecici bir index ile kurulur.
+log_directory="${TMPDIR:-/tmp}/securechat-ios-build"
+mkdir -p "$log_directory"
+log_file="$log_directory/$(date +%Y%m%d-%H%M%S)-$mode.txt"
+exec 3>&1 4>&2
+exec > >(tee -a "$log_file") 2>&1
+{
+  echo "# ios_build.sh ${original_args[*]+${original_args[*]}} (mod: $mode)"
+  echo "# baslangic $(date '+%Y-%m-%d %H:%M:%S %z'), $(sw_vers -productName 2>/dev/null) $(sw_vers -productVersion 2>/dev/null), $(uname -m)"
+  echo "# commit $(git rev-parse --short HEAD 2>/dev/null) dal $(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+} >> "$log_file"
+
+upload_log() {
+  local remote branch="ios-build-logs" parent="" name blob tree commit index_dir
+  remote="$(github_remote)" || return 1
+  name="logs/$(basename "$log_file" .txt)-$(git rev-parse --short HEAD).txt"
+  if git fetch --quiet "$remote" "$branch" 2>/dev/null; then
+    parent="$(git rev-parse FETCH_HEAD)"
+  fi
+  blob="$(git hash-object -w "$log_file")" || return 1
+  index_dir="$(mktemp -d)"
+  (
+    export GIT_INDEX_FILE="$index_dir/index"
+    if [[ -n "$parent" ]]; then git read-tree "$parent"; else git read-tree --empty; fi
+    git update-index --add --cacheinfo "100644,$blob,$name"
+    git write-tree
+  ) > "$index_dir/tree" || { rm -rf "$index_dir"; return 1; }
+  tree="$(cat "$index_dir/tree")"
+  rm -rf "$index_dir"
+  commit="$(
+    GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-$(git config user.name || echo ios-build)}" \
+    GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-$(git config user.email || echo ios-build@localhost)}" \
+    GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-$(git config user.name || echo ios-build)}" \
+    GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-$(git config user.email || echo ios-build@localhost)}" \
+    git commit-tree "$tree" ${parent:+-p "$parent"} -m "log: ios_build.sh $mode failed ($(git rev-parse --short HEAD))"
+  )" || return 1
+  git push --quiet "$remote" "$commit:refs/heads/$branch" || return 1
+  echo "$name"
+}
+
+on_exit() {
+  local status=$?
+  # tee'ye giden boruyu kapat ve kaydin diske yazilmasini bekle.
+  exec 1>&3 2>&4
+  sleep 1
+  [[ $status -eq 0 ]] && return
+  echo "# cikis kodu $status, $(date '+%H:%M:%S')" >> "$log_file"
+  echo
+  echo "Kayit: $log_file"
+  if [[ "${IOS_BUILD_NO_UPLOAD:-0}" == "1" ]]; then
+    return
+  fi
+  local uploaded
+  if uploaded="$(upload_log 2>&1 | tail -1)" && [[ "$uploaded" == logs/* ]]; then
+    printf '\033[33m    Hata kaydi GitHub ios-build-logs dalina gonderildi: %s\033[0m\n' "$uploaded"
+    echo "         Claude'a \"kayda bak\" demen yeterli."
+  else
+    echo "    Kayit GitHub'a gonderilemedi ($uploaded). Dosyayi elle gonderin: $log_file"
+  fi
+}
+trap on_exit EXIT
+
 # --- 1. Depo ----------------------------------------------------------------
 step "Depo"
 if [[ "${SKIP_GIT_UPDATE:-0}" == "1" ]]; then
@@ -78,13 +160,7 @@ else
     die "Depoda commitlenmemis degisiklik var; ezmemek icin durdum.
          Saklamak icin: git stash   — sonra betigi tekrar calistirin."
   fi
-  # `origin` Mac'te LAN adresini gosterebilir; yalniz GitHub uzaktan cekilir.
-  remote="$(git remote -v | awk '/victorosimani112233\/securechat/ {print $1; exit}')"
-  if [[ -z "$remote" ]]; then
-    remote="github"
-    git remote add "$remote" https://github.com/victorosimani112233/securechat.git
-    note "GitHub uzak sunucusu '$remote' adiyla eklendi"
-  fi
+  remote="$(github_remote)"
   git fetch --prune --quiet "$remote" main || die "GitHub'dan cekilemedi ($remote). Ag/kimlik bilgisini kontrol edin."
   upstream="$remote/main"
   if [[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]]; then
@@ -94,16 +170,27 @@ else
       git checkout --quiet -b main --track "$upstream"
     fi
   fi
+  before="$(git rev-parse HEAD)"
   git merge --ff-only --quiet "$upstream" \
     || die "main, $upstream ile ileri sarilamiyor (yerel commit var). Elle bakin."
   ok "main $(git rev-parse --short HEAD) ($upstream ile ayni)"
+  # Betigin kendisi guncellendiyse yeni surumu kostur; eski surum yeni
+  # depoda yanlis adimlar atabilir.
+  if ! git diff --quiet "$before" HEAD -- tool/ios_build.sh; then
+    note "betik guncellendi, yeni surumle yeniden baslatiliyor"
+    trap - EXIT
+    exec 1>&3 2>&4
+    sleep 1
+    rm -f "$log_file"
+    SKIP_GIT_UPDATE=1 exec "$script_directory/ios_build.sh" ${original_args[@]+"${original_args[@]}"}
+  fi
 fi
 
 # --- 2. Xcode ---------------------------------------------------------------
 step "Xcode"
 developer_directory="$(xcode-select -p 2>/dev/null || true)"
 if [[ "$developer_directory" != *Xcode*.app* ]]; then
-  xcode_app="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -1)"
+  xcode_app="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -1 || true)"
   [[ -n "$xcode_app" ]] || die "Xcode bulunamadi. App Store'dan kurun."
   note "aktif dizin $developer_directory — Xcode'a cevriliyor (parola sorabilir)"
   sudo xcode-select -s "$xcode_app/Contents/Developer"
@@ -162,7 +249,8 @@ if [[ "$mode" == "gate" ]]; then
   ok "$sqlcipher"
 
   step "iOS kapisi (analiz, testler, release derleme, simulator XCTest)"
-  exec ./tool/verify_ios_on_macos.sh
+  ./tool/verify_ios_on_macos.sh
+  exit 0
 fi
 
 if [[ -n "$personal_suffix" ]]; then
