@@ -155,8 +155,9 @@ void main() {
     // libsignal (GPL-3.0) kaldirildi: ne bagimlilik ne de wire-compat
     // fixture betigi geri gelmemeli. Store yayini bu lisansla imkansizdi.
     expect(
-      File('${Directory.current.path}/tool/prepare_libsignal_compat.sh')
-          .existsSync(),
+      File(
+        '${Directory.current.path}/tool/prepare_libsignal_compat.sh',
+      ).existsSync(),
       isFalse,
     );
     expect(source('pubspec.yaml'), isNot(contains('libsignal_protocol_dart')));
@@ -184,7 +185,13 @@ void main() {
     );
     expect(macGate, isNot(contains(r'plutil -lint "$resolved_lock"')));
     expect(macGate, contains('flutter build ios --release --no-codesign'));
-    final simulatorGate = macGate.substring(macGate.indexOf('simulator_name='));
+    // Simulator UDID ile secilir; ad + OS=latest eslesmeyebilir (2026-10-15).
+    final simulatorGate = macGate.substring(macGate.indexOf('simulator_id='));
+    expect(
+      RegExp(r'-destination "id=\$simulator_id"').allMatches(simulatorGate),
+      hasLength(2),
+    );
+    expect(macGate, isNot(contains('OS=latest,name=')));
     expect(simulatorGate, contains(r'if [[ "$offline_mode" == "1" ]]; then'));
     expect(RegExp(r'xcodebuild test').allMatches(simulatorGate).length, 2);
     expect(
