@@ -135,6 +135,61 @@ void main() {
     );
   });
 
+  test(
+    'contact sync drops a contact whose number left ELÇİM or moved to a new account',
+    () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final leftHash = await hashPhoneNumber('+90 533 000 00 01');
+      final movedHash = await hashPhoneNumber('+90 533 000 00 02');
+      for (final (id, hash) in [
+        ('left-old', leftHash),
+        ('moved-old', movedHash),
+      ]) {
+        await fixture.database.contacts.insert(
+          ContactEntity(
+            id: id,
+            phoneNumber: '+90',
+            phoneHash: hash,
+            displayName: id,
+            isRegistered: true,
+          ),
+        );
+      }
+      final service = ContactService(
+        deviceContacts: _FakeGateway(const [
+          DeviceContact(
+            displayName: 'Ayrilan',
+            phoneNumber: '+90 533 000 00 01',
+          ),
+          DeviceContact(
+            displayName: 'Tasinan',
+            phoneNumber: '+90 533 000 00 02',
+          ),
+        ]),
+        api: _FakeDiscoveryApi([
+          RegisteredUserMatch(userId: 'moved-new', phoneHash: movedHash),
+        ]),
+        database: fixture.database,
+        session: SessionStore(userId: 'me', accessToken: 'access'),
+      );
+
+      await service.importAndDiscover();
+
+      expect(await fixture.database.contacts.getById('left-old'), isNull);
+      expect(await fixture.database.contacts.getById('moved-old'), isNull);
+      expect(
+        (await fixture.database.contacts.getById('moved-new'))?.displayName,
+        'Tasinan',
+      );
+      // Ayrilan kisi davet listesine duser.
+      expect(
+        (await service.loadInvitableContacts()).map((c) => c.displayName),
+        ['Ayrilan'],
+      );
+    },
+  );
+
   test('contact sync removes entries no longer present on device', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);

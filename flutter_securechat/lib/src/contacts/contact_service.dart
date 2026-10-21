@@ -309,8 +309,17 @@ class ContactService {
     // Yalniz rehber kaynakli kisiler rehberle eslenir. Elle eklenen kisi
     // (tus takimindan numara) rehberde olmadigi icin siliniyordu.
     final deviceHashes = byHash.keys.toSet();
+    final matchedIds = {for (final contact in registered) contact.id};
     for (final existing in await _database.contacts.getAllOnce()) {
-      if (existing.addedManually || deviceHashes.contains(existing.phoneHash)) {
+      if (existing.addedManually || matchedIds.contains(existing.id)) {
+        continue;
+      }
+      if (deviceHashes.contains(existing.phoneHash)) {
+        // Rehberde duruyor ama artik bu hesapla eslesmiyor: hesap ELÇİM'den
+        // ayrilmis ya da numara yeni bir hesaba gecmis. Eski kayit kalirsa
+        // kisi "ELÇİM'de" gorunmeye ve ona ulasilamayan eski hesaba mesaj
+        // gitmeye devam ederdi. Sohbet gecmisi silinmez.
+        await _database.contacts.delete(existing.id);
         continue;
       }
       final conversation = await _database.conversations.getByPeerId(
