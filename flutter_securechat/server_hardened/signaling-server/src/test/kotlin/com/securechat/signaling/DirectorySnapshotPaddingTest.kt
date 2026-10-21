@@ -69,15 +69,21 @@ class DirectorySnapshotPaddingTest {
     }
 
     @Test
-    fun `accounts without an Olm identity are left out of the directory`() {
+    fun `libsignal-only accounts are left out of the directory but new registrations are not`() {
         val ready = RegisteredUser("123e4567-e89b-42d3-a456-426614174000", "t1", "k")
         val stale = RegisteredUser("223e4567-e89b-42d3-a456-426614174000", "t2", "k")
+        val registering = RegisteredUser("323e4567-e89b-42d3-a456-426614174000", "t3", "k")
+        val users = listOf(ready, stale, registering)
 
-        // Anahtari olmayan hesap listelenirse karsi taraf ona mesaj ya da
-        // grup daveti sifreleyemez; davet listesinde gorunmesi gerekir.
-        assertEquals(listOf(ready), DirectorySnapshotCache.messageable(listOf(ready, stale), setOf(ready.userId)))
+        // Yalniz libsignal kimligi olan hesaba mesaj sifrelenemez; davet
+        // listesinde gorunmesi gerekir. Anahtarini henuz yuklememis yeni
+        // kayit ise kendini rehberde gormek zorunda.
+        assertEquals(
+            listOf(ready, registering),
+            DirectorySnapshotCache.messageable(users, setOf(stale.userId)),
+        )
         // Sorgu basarisizsa kimse rehberden kaybolmaz.
-        assertEquals(listOf(ready, stale), DirectorySnapshotCache.messageable(listOf(ready, stale), null))
+        assertEquals(users, DirectorySnapshotCache.messageable(users, null))
     }
 
     @Test

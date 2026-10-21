@@ -43,7 +43,7 @@ object DirectorySnapshotCache {
         registry: UserRegistry,
         oprf: PrivateDirectoryOprf = PrivateDirectory.oprf,
         nowMillis: Long = System.currentTimeMillis(),
-        messageableUsers: () -> Set<String>? = OlmPreKeyStore::usersWithIdentity,
+        legacyOnlyUsers: () -> Set<String>? = OlmPreKeyStore::legacyOnlyUsers,
     ): List<PrivateDirectoryEntry> {
         val version = registry.membershipVersion()
         val current = cached
@@ -63,7 +63,7 @@ object DirectorySnapshotCache {
             ) {
                 return existing
             }
-            val built = build(registry, oprf, messageableUsers())
+            val built = build(registry, oprf, legacyOnlyUsers())
             cached = built
             cachedVersion = version
             cachedKeyId = oprf.keyId
@@ -91,27 +91,29 @@ object DirectorySnapshotCache {
     }
 
     /**
-     * Yalniz mesaj alabilen hesaplar rehberde "ELÇİM'de" gorunur.
+     * Yalniz libsignal kimligi olan hesaplar rehberde "ELÇİM'de" gorunmez.
      *
-     * Olm kimligini hic yayinlamamis hesap (vodozemac gecisinden beri
-     * uygulamayi acmamis) listelenirse karsi taraf onu kayitli sanar, fakat
-     * ona ne mesaj ne grup daveti sifrelenebilir. Boyle bir kisi davet
-     * listesine duser; uygulamayi acip anahtarini yayinlayinca en gec
-     * [TTL_MILLIS] icinde yeniden gorunur. Sorgu basarisizsa ([reachable]
-     * null) eski davranis korunur: herkes listelenir.
+     * Boyle bir hesap vodozemac gecisinden beri acilmamistir; listelenirse
+     * karsi taraf onu kayitli sanar ama ona ne mesaj ne grup daveti
+     * sifrelenebilir. Kisi davet listesine duser; uygulamayi acip anahtarini
+     * yayinlayinca en gec [TTL_MILLIS] icinde yeniden gorunur.
+     *
+     * Hic anahtari olmayan hesap LISTELENIR: yeni kayit numarasini Olm
+     * anahtarlarindan once alir ve hemen ardindan kendini rehberde arar.
+     * Sorgu basarisizsa ([legacyOnly] null) herkes listelenir.
      */
     internal fun messageable(
         users: List<RegisteredUser>,
-        reachable: Set<String>?,
+        legacyOnly: Set<String>?,
     ): List<RegisteredUser> =
-        if (reachable == null) users else users.filter { it.userId in reachable }
+        if (legacyOnly == null) users else users.filter { it.userId !in legacyOnly }
 
     private fun build(
         registry: UserRegistry,
         oprf: PrivateDirectoryOprf,
-        reachable: Set<String>?,
+        legacyOnly: Set<String>?,
     ): List<PrivateDirectoryEntry> {
-        val real = messageable(registry.privateDirectorySnapshot(), reachable).map { user ->
+        val real = messageable(registry.privateDirectorySnapshot(), legacyOnly).map { user ->
             oprf.sealUserId(user.directoryToken, user.userId)
         }
         val target = paddedSize(real.size)

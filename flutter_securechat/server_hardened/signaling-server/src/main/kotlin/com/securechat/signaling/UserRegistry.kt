@@ -104,20 +104,19 @@ class UserRegistry(
     }
 
     /**
-     * Numara, vodozemac gecisinden once acilmis ve bir daha hic acilmamis
-     * bir hesapta kaldiysa onu yeni hesaba devreder.
+     * Numara mesaj alamayan bir hesapta kaldiysa onu yeni hesaba devreder.
      *
-     * Boyle bir hesapta yalniz libsignal kimligi vardir, Olm kimligi yoktur:
-     * ona ne mesaj ne grup daveti sifrelenebilir, yani numarayi tutmasi
-     * yalniz sahibini kendi numarasindan mahrum birakir. Sahibi yeni
-     * uygulamada baska bir hesapla oturum actiginda rehber senkronu
-     * numarasini burada kendiliginden geri alir; kullanicidan bir sey
-     * istenmez.
+     * Iki durum: (1) vodozemac gecisinden beri acilmamis, yalniz libsignal
+     * kimligi olan hesap; (2) numarayi alip anahtar yuklemeden yarim kalmis
+     * kayit. Ikisine de mesaj sifrelenemez, numarayi tutmalari yalniz
+     * sahibini kendi numarasindan mahrum birakir. Sahibi yeni hesapla
+     * rehberi senkronladiginda ya da yeniden kayit oldugunda numara burada
+     * kendiliginden gecer; kullanicidan bir sey istenmez.
      *
      * Kosul SQL'de, ayni satir kilidi altinda yeniden dogrulanir. Olm
      * kimligi olan hesaptan ve kurtarma ortasindaki hesaptan (kurtarma iki
-     * kimlik kolonunu da bosaltir) numara alinamaz; o durumda eski davranis
-     * gecerlidir.
+     * kimlik kolonunu bosaltir, `recovery_identity_pin` yazar) numara
+     * alinamaz; o durumda eski davranis gecerlidir.
      */
     private fun reclaimFromLegacyAccount(
         owner: RegisteredUser,
@@ -132,7 +131,8 @@ class UserRegistry(
                     """UPDATE users SET directory_token = ?, directory_key_id = NULL
                        WHERE user_id = ?::uuid AND directory_token = ?
                          AND olm_identity_key IS NULL
-                         AND identity_public_key IS NOT NULL""",
+                         AND (identity_public_key IS NOT NULL
+                              OR recovery_identity_pin IS NULL)""",
                 ).use { statement ->
                     statement.setString(1, released.directoryToken)
                     statement.setString(2, owner.userId)

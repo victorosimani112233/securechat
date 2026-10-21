@@ -324,15 +324,20 @@ object OlmPreKeyStore {
     }
 
     /**
-     * Olm kimligi kurulmus (mesaj alabilen) hesaplar. Sorgu basarisizsa
-     * null: cagiran filtrelememeyi secer.
+     * Yalniz libsignal kimligi olan, Olm kimligini hic yayinlamamis hesaplar
+     * (vodozemac surumunu hic acmamis cihazlar). Sorgu basarisizsa null:
+     * cagiran filtrelememeyi secer.
+     *
+     * Hic anahtari olmayan hesap bu kumeye GIRMEZ: yeni kayit numarasini
+     * anahtarlarindan birkac saniye once alir ve kendini rehberde gormek
+     * zorundadir, aksi halde kayit "numara baskasinda" diye durur.
      */
-    fun usersWithIdentity(): Set<String>? = try {
+    fun legacyOnlyUsers(): Set<String>? = try {
         Database.getConnection().use { conn ->
             conn.createStatement().use { statement ->
                 statement.executeQuery(
                     "SELECT user_id::text FROM users " +
-                        "WHERE olm_identity_key IS NOT NULL AND signing_public_key IS NOT NULL",
+                        "WHERE olm_identity_key IS NULL AND identity_public_key IS NOT NULL",
                 ).use { rows ->
                     buildSet { while (rows.next()) add(rows.getString(1)) }
                 }

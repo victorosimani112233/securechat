@@ -115,6 +115,7 @@ class PrivateDirectoryRegistryIntegrationTest {
         val token = directory.tokenForPhoneHash(phoneHash)
         val created = registry.registerUser(userId)
         registry.updateOwnDirectoryToken(userId, token)
+        setIdentityColumns(userId, libsignal = false, olm = true)
         registry.registerUser(attackerId)
 
         assertEquals(userId, created.userId)
@@ -170,8 +171,9 @@ class PrivateDirectoryRegistryIntegrationTest {
         setIdentityColumns(activeId, libsignal = true, olm = true)
         registry.registerUser(recoveringId)
         registry.updateOwnDirectoryToken(recoveringId, recoveringToken)
-        // Kurtarma iki kimlik kolonunu da bosaltir.
+        // Kurtarma iki kimlik kolonunu bosaltir ve kurtarma pinini yazar.
         setIdentityColumns(recoveringId, libsignal = false, olm = false)
+        setRecoveryPin(recoveringId)
         registry.registerUser(claimantId)
 
         assertThrows(IllegalArgumentException::class.java) {
@@ -182,6 +184,34 @@ class PrivateDirectoryRegistryIntegrationTest {
         }
         assertEquals(activeId, tokenOwner(activeToken))
         assertEquals(recoveringId, tokenOwner(recoveringToken))
+    }
+
+    @Test
+    fun `a re-registration takes the number back from its own abandoned attempt`() {
+        val abandonedId = UUID.randomUUID().toString()
+        val retryId = UUID.randomUUID().toString()
+        val token = directory.tokenForPhoneHash(sha256Hex("+905556666666"))
+        // Ilk deneme numarayi aldi ama anahtar yukleyemeden yarim kaldi.
+        registry.registerUser(abandonedId)
+        registry.updateOwnDirectoryToken(abandonedId, token)
+        registry.registerUser(retryId)
+
+        registry.updateOwnDirectoryToken(retryId, token)
+
+        assertEquals(retryId, tokenOwner(token))
+        assertTrue(directoryTokenOf(abandonedId).startsWith("pending:"))
+    }
+
+    private fun setRecoveryPin(userId: String) {
+        Database.getConnection().use { connection ->
+            connection.prepareStatement(
+                "UPDATE users SET recovery_identity_pin = ? WHERE user_id = ?::uuid",
+            ).use { statement ->
+                statement.setBytes(1, ByteArray(32) { 3 })
+                statement.setString(2, userId)
+                statement.executeUpdate()
+            }
+        }
     }
 
     private fun setIdentityColumns(userId: String, libsignal: Boolean, olm: Boolean) {
