@@ -518,7 +518,9 @@ fun Application.configureRoutes(
 
         // Every account receives the same opaque snapshot. Labels and user IDs
         // are independently protected by each OPRF token; only a client that
-        // evaluated a matching phone can locate and open that entry.
+        // evaluated a matching phone can locate and open that entry. A keyless
+        // account additionally receives its own entry so registration can
+        // confirm its claim before uploading keys.
         get("/api/v1/directory/snapshot") {
             val authedUserId = requireAuth(call) ?: return@get
             if (!RateLimiter.allow("directory_snapshot", authedUserId)) {
@@ -530,7 +532,7 @@ fun Application.configureRoutes(
                 )
                 return@get
             }
-            val entries = DirectorySnapshotCache.entries(userRegistry).map { entry ->
+            val entries = DirectorySnapshotCache.entriesFor(authedUserId, userRegistry).map { entry ->
                 DirectorySnapshotEntryResponse(entry.label, entry.sealedUserId)
             }
             call.respond(DirectorySnapshotResponse(PrivateDirectory.oprf.keyId, entries))

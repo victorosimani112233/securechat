@@ -202,6 +202,39 @@ class PrivateDirectoryRegistryIntegrationTest {
         assertTrue(directoryTokenOf(abandonedId).startsWith("pending:"))
     }
 
+    @Test
+    fun `a retry is not blocked by its abandoned attempt in the snapshot`() {
+        val abandonedId = UUID.randomUUID().toString()
+        val retryId = UUID.randomUUID().toString()
+        val observerId = UUID.randomUUID().toString()
+        val token = directory.tokenForPhoneHash(sha256Hex("+905557777777"))
+        val label = directory.sealUserId(token, abandonedId).label
+        registry.registerUser(abandonedId)
+        registry.updateOwnDirectoryToken(abandonedId, token)
+        registry.registerUser(retryId)
+        registry.registerUser(observerId)
+        DirectorySnapshotCache.invalidate()
+
+        // Istemci numarayi listede baskasinda gorurse devir istemeden durur;
+        // yarim kalan deneme bu yuzden listede olmamali.
+        assertFalse(snapshotLabels(retryId).contains(label))
+
+        registry.updateOwnDirectoryToken(retryId, token)
+
+        // Yeni kayit kendini anahtar yuklemeden once gorur, baskasi gormez.
+        assertTrue(snapshotLabels(retryId).contains(label))
+        assertFalse(snapshotLabels(observerId).contains(label))
+        setIdentityColumns(retryId, libsignal = false, olm = true)
+        DirectorySnapshotCache.invalidate()
+        assertTrue(snapshotLabels(observerId).contains(label))
+        DirectorySnapshotCache.invalidate()
+    }
+
+    private fun snapshotLabels(requesterId: String): Set<String> =
+        DirectorySnapshotCache.entriesFor(requesterId, registry, directory)
+            .map { it.label }
+            .toSet()
+
     private fun setRecoveryPin(userId: String) {
         Database.getConnection().use { connection ->
             connection.prepareStatement(

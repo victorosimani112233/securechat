@@ -184,6 +184,10 @@ class UserRegistry(
             .sortedBy { it.userId }
             .toList()
 
+    /** Hesabin guncel rehber anahtariyla kayitli girdisi; yoksa null. */
+    fun directoryEntryOf(userId: String): RegisteredUser? =
+        cacheByUserId[userId]?.takeIf { it.directoryKeyId == directory.keyId }
+
     fun removeUser(userId: String) {
         val removed = cacheByUserId.remove(userId) ?: return
         cacheByDirectoryToken.remove(removed.directoryToken, removed)

@@ -27,58 +27,80 @@ object DirectorySnapshotCache {
 
     private val lock = Any()
 
-    @Volatile
-    private var cached: List<PrivateDirectoryEntry>? = null
+    /** Paylasilan liste ve listeden cikarilan anahtarsiz hesaplar birlikte tutulur. */
+    private class Built(
+        val entries: List<PrivateDirectoryEntry>,
+        val hidden: Set<String>?,
+        val version: Long,
+        val keyId: String,
+        val builtAtMillis: Long,
+    )
 
     @Volatile
-    private var cachedVersion: Long = -1
-
-    @Volatile
-    private var cachedKeyId: String? = null
-
-    @Volatile
-    private var builtAtMillis: Long = 0
+    private var cached: Built? = null
 
     fun entries(
         registry: UserRegistry,
         oprf: PrivateDirectoryOprf = PrivateDirectory.oprf,
         nowMillis: Long = System.currentTimeMillis(),
-        legacyOnlyUsers: () -> Set<String>? = OlmPreKeyStore::legacyOnlyUsers,
+        keylessUsers: () -> Set<String>? = OlmPreKeyStore::keylessUsers,
+    ): List<PrivateDirectoryEntry> = built(registry, oprf, nowMillis, keylessUsers).entries
+
+    /**
+     * Isteyen hesabin gordugu liste: paylasilan liste, hesap anahtarsiz
+     * oldugu icin listeden cikarildiysa kendi kaydiyla birlikte.
+     *
+     * Yeni kayit numarasini Olm anahtarlarindan once alir ve hemen ardindan
+     * kendini rehberde arar; kendi kaydini goremezse kurulum durur. Kayit
+     * yalniz sahibine eklenir; sahibi numarasini ve kimligini zaten bilir.
+     */
+    fun entriesFor(
+        requesterId: String,
+        registry: UserRegistry,
+        oprf: PrivateDirectoryOprf = PrivateDirectory.oprf,
+        nowMillis: Long = System.currentTimeMillis(),
+        keylessUsers: () -> Set<String>? = OlmPreKeyStore::keylessUsers,
     ): List<PrivateDirectoryEntry> {
+        val built = built(registry, oprf, nowMillis, keylessUsers)
+        return withOwnEntry(built.entries, built.hidden, registry.directoryEntryOf(requesterId), oprf)
+    }
+
+    internal fun withOwnEntry(
+        shared: List<PrivateDirectoryEntry>,
+        hidden: Set<String>?,
+        requester: RegisteredUser?,
+        oprf: PrivateDirectoryOprf,
+    ): List<PrivateDirectoryEntry> {
+        if (requester == null || hidden == null || requester.userId !in hidden) return shared
+        if (requester.directoryKeyId != oprf.keyId) return shared
+        return (shared + oprf.sealUserId(requester.directoryToken, requester.userId))
+            .sortedBy { it.label }
+    }
+
+    private fun built(
+        registry: UserRegistry,
+        oprf: PrivateDirectoryOprf,
+        nowMillis: Long,
+        keylessUsers: () -> Set<String>?,
+    ): Built {
         val version = registry.membershipVersion()
-        val current = cached
-        if (current != null &&
-            cachedVersion == version &&
-            cachedKeyId == oprf.keyId &&
-            nowMillis - builtAtMillis < TTL_MILLIS
-        ) {
-            return current
-        }
+        cached?.takeIf { it.isFresh(version, oprf.keyId, nowMillis) }?.let { return it }
         synchronized(lock) {
-            val existing = cached
-            if (existing != null &&
-                cachedVersion == version &&
-                cachedKeyId == oprf.keyId &&
-                nowMillis - builtAtMillis < TTL_MILLIS
-            ) {
-                return existing
-            }
-            val built = build(registry, oprf, legacyOnlyUsers())
+            cached?.takeIf { it.isFresh(version, oprf.keyId, nowMillis) }?.let { return it }
+            val hidden = keylessUsers()
+            val built = Built(build(registry, oprf, hidden), hidden, version, oprf.keyId, nowMillis)
             cached = built
-            cachedVersion = version
-            cachedKeyId = oprf.keyId
-            builtAtMillis = nowMillis
             return built
         }
     }
+
+    private fun Built.isFresh(version: Long, keyId: String, nowMillis: Long): Boolean =
+        this.version == version && this.keyId == keyId && nowMillis - builtAtMillis < TTL_MILLIS
 
     /** Test ve anahtar rotasyonu icin onbellegi bosaltir. */
     fun invalidate() {
         synchronized(lock) {
             cached = null
-            cachedVersion = -1
-            cachedKeyId = null
-            builtAtMillis = 0
         }
     }
 
@@ -91,29 +113,28 @@ object DirectorySnapshotCache {
     }
 
     /**
-     * Yalniz libsignal kimligi olan hesaplar rehberde "ELÇİM'de" gorunmez.
+     * Olm kimligi olmayan hesaplar rehberde "ELÇİM'de" gorunmez.
      *
-     * Boyle bir hesap vodozemac gecisinden beri acilmamistir; listelenirse
-     * karsi taraf onu kayitli sanar ama ona ne mesaj ne grup daveti
-     * sifrelenebilir. Kisi davet listesine duser; uygulamayi acip anahtarini
-     * yayinlayinca en gec [TTL_MILLIS] icinde yeniden gorunur.
-     *
-     * Hic anahtari olmayan hesap LISTELENIR: yeni kayit numarasini Olm
-     * anahtarlarindan once alir ve hemen ardindan kendini rehberde arar.
-     * Sorgu basarisizsa ([legacyOnly] null) herkes listelenir.
+     * Iki tur: vodozemac gecisinden beri acilmamis, yalniz libsignal kimligi
+     * olan hesap ve numarayi alip anahtar yuklemeden yarim kalmis kayit.
+     * Ikisine de mesaj ya da grup daveti sifrelenemez; kisi davet listesine
+     * duser. Listede gorunselerdi ayni numarayla yeniden kayit olan
+     * istemci numarayi "baskasinda" sanip sunucuya devir istegi bile
+     * gondermeden dururdu. Anahtarini yayinlayan hesap en gec [TTL_MILLIS]
+     * icinde gorunur. Sorgu basarisizsa ([hidden] null) herkes listelenir.
      */
     internal fun messageable(
         users: List<RegisteredUser>,
-        legacyOnly: Set<String>?,
+        hidden: Set<String>?,
     ): List<RegisteredUser> =
-        if (legacyOnly == null) users else users.filter { it.userId !in legacyOnly }
+        if (hidden == null) users else users.filter { it.userId !in hidden }
 
     private fun build(
         registry: UserRegistry,
         oprf: PrivateDirectoryOprf,
-        legacyOnly: Set<String>?,
+        hidden: Set<String>?,
     ): List<PrivateDirectoryEntry> {
-        val real = messageable(registry.privateDirectorySnapshot(), legacyOnly).map { user ->
+        val real = messageable(registry.privateDirectorySnapshot(), hidden).map { user ->
             oprf.sealUserId(user.directoryToken, user.userId)
         }
         val target = paddedSize(real.size)

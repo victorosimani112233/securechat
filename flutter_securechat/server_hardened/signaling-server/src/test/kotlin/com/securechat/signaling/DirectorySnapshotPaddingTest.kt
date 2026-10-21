@@ -69,21 +69,48 @@ class DirectorySnapshotPaddingTest {
     }
 
     @Test
-    fun `libsignal-only accounts are left out of the directory but new registrations are not`() {
+    fun `accounts without an Olm identity are left out of the shared directory`() {
         val ready = RegisteredUser("123e4567-e89b-42d3-a456-426614174000", "t1", "k")
         val stale = RegisteredUser("223e4567-e89b-42d3-a456-426614174000", "t2", "k")
-        val registering = RegisteredUser("323e4567-e89b-42d3-a456-426614174000", "t3", "k")
-        val users = listOf(ready, stale, registering)
+        val abandoned = RegisteredUser("323e4567-e89b-42d3-a456-426614174000", "t3", "k")
+        val users = listOf(ready, stale, abandoned)
 
-        // Yalniz libsignal kimligi olan hesaba mesaj sifrelenemez; davet
-        // listesinde gorunmesi gerekir. Anahtarini henuz yuklememis yeni
-        // kayit ise kendini rehberde gormek zorunda.
+        // Ne yalniz libsignal kimligi olan hesaba ne de anahtar yuklemeden
+        // yarim kalmis kayda mesaj sifrelenebilir; ikisi de davet
+        // listesinde gorunmeli.
         assertEquals(
-            listOf(ready, registering),
-            DirectorySnapshotCache.messageable(users, setOf(stale.userId)),
+            listOf(ready),
+            DirectorySnapshotCache.messageable(users, setOf(stale.userId, abandoned.userId)),
         )
         // Sorgu basarisizsa kimse rehberden kaybolmaz.
         assertEquals(users, DirectorySnapshotCache.messageable(users, null))
+    }
+
+    @Test
+    fun `a keyless account still finds its own entry`() {
+        val token = oprf.tokenForPhoneHash(sha256Hex("+905551230000"))
+        val registering = RegisteredUser("423e4567-e89b-42d3-a456-426614174000", token, oprf.keyId)
+        val other = RegisteredUser("523e4567-e89b-42d3-a456-426614174000", token, oprf.keyId)
+        val shared = (0 until 4).map { oprf.decoyEntry("seed-own-$it") }.sortedBy { it.label }
+        val hidden = setOf(registering.userId, other.userId)
+        val ownLabel = oprf.sealUserId(token, registering.userId).label
+
+        // Yeni kayit numarasini Olm anahtarlarindan once alir ve hemen
+        // kendini arar; kendi kaydini goremezse kurulum durur.
+        val own = DirectorySnapshotCache.withOwnEntry(shared, hidden, registering, oprf)
+        assertEquals(shared.size + 1, own.size)
+        assertTrue(own.any { it.label == ownLabel })
+        assertEquals(own.sortedBy { it.label }, own)
+
+        // Anahtari olan hesap ve sorgu hatasi paylasilan listeyi aynen alir.
+        val ready = registering.copy(userId = "623e4567-e89b-42d3-a456-426614174000")
+        assertEquals(shared, DirectorySnapshotCache.withOwnEntry(shared, hidden, ready, oprf))
+        assertEquals(shared, DirectorySnapshotCache.withOwnEntry(shared, null, registering, oprf))
+        // Numarasini henuz almamis (eski anahtarli) kayit eklenmez.
+        assertEquals(
+            shared,
+            DirectorySnapshotCache.withOwnEntry(shared, hidden, registering.copy(directoryKeyId = null), oprf),
+        )
     }
 
     @Test
