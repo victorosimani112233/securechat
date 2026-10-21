@@ -666,6 +666,15 @@ class AppLocalizationsTr extends AppLocalizations {
       'İşlem tamamlanamadı. Lütfen tekrar deneyin.';
 
   @override
+  String group_members_skipped(String names) {
+    return '$names gruba eklenemedi: bu kişiyle şifreli bağlantı kurulamadı. Kişi ELÇİM\'i açtıktan sonra grup bilgilerinden tekrar ekleyebilirsiniz.';
+  }
+
+  @override
+  String get group_members_unreachable =>
+      'Seçilen kişilerin hiçbiriyle şifreli bağlantı kurulamadı. Kişilerin ELÇİM\'i güncel sürümle açmış olması gerekiyor.';
+
+  @override
   String get settings_share_online => 'Çevrimiçi bilgimi paylaş';
 
   @override

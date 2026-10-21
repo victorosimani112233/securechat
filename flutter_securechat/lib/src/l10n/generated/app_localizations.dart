@@ -1272,6 +1272,18 @@ abstract class AppLocalizations {
   /// **'Could not complete the action. Please try again.'**
   String get recipient_action_failed;
 
+  /// No description provided for @group_members_skipped.
+  ///
+  /// In en, this message translates to:
+  /// **'{names} could not be added: no encrypted connection could be set up. You can add them again from group info after they open ELÇİM.'**
+  String group_members_skipped(String names);
+
+  /// No description provided for @group_members_unreachable.
+  ///
+  /// In en, this message translates to:
+  /// **'No encrypted connection could be set up with any of the selected people. They need to open the latest version of ELÇİM.'**
+  String get group_members_unreachable;
+
   /// No description provided for @settings_share_online.
   ///
   /// In en, this message translates to:

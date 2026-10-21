@@ -681,6 +681,15 @@ class AppLocalizationsAr extends AppLocalizations {
       'تعذر إكمال العملية. يرجى المحاولة مرة أخرى.';
 
   @override
+  String group_members_skipped(String names) {
+    return 'تعذرت إضافة $names: لم يمكن إنشاء اتصال مشفر. يمكنك إضافتهم مجددًا من معلومات المجموعة بعد أن يفتحوا ELÇİM.';
+  }
+
+  @override
+  String get group_members_unreachable =>
+      'تعذر إنشاء اتصال مشفر مع أي من الأشخاص المحددين. يجب أن يفتحوا أحدث إصدار من ELÇİM.';
+
+  @override
   String get settings_share_online => 'مشاركة حالة الاتصال';
 
   @override

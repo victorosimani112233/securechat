@@ -379,8 +379,9 @@ class _NavigationContacts extends Fake implements ContactService {
   @override
   Future<ConversationEntity> createGroup(
     String name,
-    List<ContactEntity> members,
-  ) async {
+    List<ContactEntity> members, {
+    void Function(List<ContactEntity> skipped)? onUnreachable,
+  }) async {
     created++;
     return ConversationEntity(
       id: 'group-ops',

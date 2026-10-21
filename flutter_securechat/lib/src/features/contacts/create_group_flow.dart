@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models.dart';
+import '../../contacts/contact_service.dart';
 import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
@@ -43,7 +44,10 @@ Future<void> showCreateGroupFlow(BuildContext context) async {
   );
   if (name == null || !context.mounted) return;
   ConversationEntity? group;
+  var skipped = const <ContactEntity>[];
   final contacts = <String, ContactEntity>{};
+  final messenger = ScaffoldMessenger.of(context);
+  final l10n = context.l10n;
   final result = await Navigator.of(context).push<List<RecipientChoice>>(
     MaterialPageRoute(
       builder: (_) => RecipientPickerScreen(
@@ -67,10 +71,18 @@ Future<void> showCreateGroupFlow(BuildContext context) async {
         onConfirm: (selected) async {
           if (selected.any((item) => !contacts.containsKey(item.id)))
             throw StateError('Contact unavailable');
-          group = await service.createGroup(
-            name,
-            selected.map((item) => contacts[item.id]!).toList(),
-          );
+          try {
+            group = await service.createGroup(
+              name,
+              selected.map((item) => contacts[item.id]!).toList(),
+              onUnreachable: (members) => skipped = members,
+            );
+          } on GroupMembersUnreachableException {
+            messenger.showSnackBar(
+              SnackBar(content: Text(l10n.group_members_unreachable)),
+            );
+            return false;
+          }
           return true;
         },
       ),
@@ -78,6 +90,18 @@ Future<void> showCreateGroupFlow(BuildContext context) async {
   );
   final created = group;
   if (result == null || created == null || !context.mounted) return;
+  if (skipped.isNotEmpty) {
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 8),
+        content: Text(
+          l10n.group_members_skipped(
+            skipped.map((member) => member.displayName).join(', '),
+          ),
+        ),
+      ),
+    );
+  }
   Navigator.of(context).pushNamed(
     '/chat',
     arguments: Conversation(

@@ -392,6 +392,84 @@ void main() {
     );
   });
 
+  test(
+    'group creation skips members without keys and keeps the rest',
+    () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final signaling = InMemorySignalingService()..setConnected(true);
+      final local = LocalAeadCryptoService(SecretKey(List.filled(32, 7)));
+      final crypto = _UnreachableCrypto(local, {'stale'});
+      final queue = OfflineMessageQueue(
+        database: fixture.database,
+        signaling: signaling,
+      );
+      addTearDown(() async {
+        await queue.close();
+        await signaling.dispose();
+      });
+      final service = ContactService(
+        deviceContacts: _FakeGateway(const []),
+        api: _FakeDiscoveryApi(const []),
+        database: fixture.database,
+        session: SessionStore(userId: 'me', accessToken: 'access'),
+        groupControls: PrivateGroupControlSender(
+          crypto: crypto,
+          signaling: signaling,
+        ),
+        offlineQueue: queue,
+      );
+      const alice = ContactEntity(
+        id: 'alice',
+        phoneNumber: '+90',
+        phoneHash: 'hash',
+        displayName: 'Alice',
+        isRegistered: true,
+      );
+      const stale = ContactEntity(
+        id: 'stale',
+        phoneNumber: '+91',
+        phoneHash: 'hash-2',
+        displayName: 'Eski',
+        isRegistered: true,
+      );
+
+      List<ContactEntity>? skipped;
+      final group = await service.createGroup('Team', [
+        alice,
+        stale,
+      ], onUnreachable: (members) => skipped = members);
+
+      expect(skipped?.map((member) => member.id), ['stale']);
+      expect(group.groupMembers, 'me,alice');
+      final invite = signaling.sentMessages
+          .whereType<EncryptedSignalMessage>()
+          .single;
+      expect(invite.recipientId, 'alice');
+      final decoded = await decodePrivateGroupControl(
+        plaintext: await local.decryptDirect(
+          senderId: 'alice',
+          envelope: invite.envelope,
+        ),
+        authenticatedSenderId: 'me',
+        localRecipientId: 'alice',
+      );
+      // Davet edilen uye, atlanan kisiyi uye listesinde gormemeli.
+      expect(decoded.groupMembers, ['me', 'alice']);
+
+      await expectLater(
+        service.createGroup('Solo', [stale]),
+        throwsA(isA<GroupMembersUnreachableException>()),
+      );
+      expect(
+        (await fixture.database.conversations.getAllImmediate()).where(
+          (conversation) => conversation.peerName == 'Solo',
+        ),
+        isEmpty,
+      );
+    },
+  );
+
   test('opening a contact preserves the existing chat lock', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);
@@ -423,6 +501,52 @@ void main() {
 
     expect(conversation.isLocked, isTrue);
   });
+}
+
+class _UnreachableCrypto implements CryptoService {
+  _UnreachableCrypto(this._inner, this._unreachable);
+
+  final CryptoService _inner;
+  final Set<String> _unreachable;
+
+  @override
+  Future<String> encryptDirect({
+    required String recipientId,
+    required String plaintext,
+  }) {
+    if (_unreachable.contains(recipientId)) {
+      throw StateError('prekey bundle unavailable');
+    }
+    return _inner.encryptDirect(recipientId: recipientId, plaintext: plaintext);
+  }
+
+  @override
+  Future<String> decryptDirect({
+    required String senderId,
+    required String envelope,
+  }) => _inner.decryptDirect(senderId: senderId, envelope: envelope);
+
+  @override
+  Future<String> encryptGroup({
+    required String senderId,
+    required String groupId,
+    required String plaintext,
+  }) => _inner.encryptGroup(
+    senderId: senderId,
+    groupId: groupId,
+    plaintext: plaintext,
+  );
+
+  @override
+  Future<String> decryptGroup({
+    required String senderId,
+    required String groupId,
+    required String envelope,
+  }) => _inner.decryptGroup(
+    senderId: senderId,
+    groupId: groupId,
+    envelope: envelope,
+  );
 }
 
 class _FakeGateway implements DeviceContactsGateway {

@@ -274,6 +274,15 @@
   "settings_storage_usage": "Storage",
   "create_group_and_add": "Create group and add people",
   "recipient_action_failed": "Could not complete the action. Please try again.",
+  "group_members_skipped": "{names} could not be added: no encrypted connection could be set up. You can add them again from group info after they open ELÇİM.",
+  "@group_members_skipped": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "group_members_unreachable": "No encrypted connection could be set up with any of the selected people. They need to open the latest version of ELÇİM.",
   "settings_share_online": "Share online status",
   "settings_read_receipts": "Read receipts",
   "settings_read_receipts_desc": "When off, you won't send read receipts or see other people's read receipts.",

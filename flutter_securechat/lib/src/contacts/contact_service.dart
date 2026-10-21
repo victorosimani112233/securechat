@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 import '../auth/phone_privacy.dart';
 import '../groups/private_group_control.dart';
 import '../network/network_resilience.dart';
@@ -382,10 +384,17 @@ class ContactService {
     );
   }
 
+  /// Grubu kurar ve her uyeye sifreli davet hazirlar.
+  ///
+  /// Anahtarina ulasilamayan uye (hesabi silinmis, uygulamayi guncel
+  /// surumle hic acmamis vb.) artik butun grubu dusurmez: o uye atlanir,
+  /// grup kalanlarla kurulur ve atlananlar [onUnreachable] ile bildirilir.
+  /// Hicbir uyeye ulasilamazsa [GroupMembersUnreachableException] firlatilir.
   Future<ConversationEntity> createGroup(
     String name,
-    List<ContactEntity> members,
-  ) async {
+    List<ContactEntity> members, {
+    void Function(List<ContactEntity> skipped)? onUnreachable,
+  }) async {
     if (members.isEmpty) throw ArgumentError('En az bir uye secin');
     final senderId = _session.userId;
     final controls = _groupControls;
@@ -394,38 +403,96 @@ class ContactService {
       throw StateError('Authenticated group delivery is unavailable');
     }
     final id = _newPrivateGroupId();
+    final groupName = name.trim().isEmpty ? 'Yeni Grup' : name.trim();
+    final byId = {for (final member in members) member.id: member}
+      ..remove(senderId);
+    if (byId.isEmpty || groupName.length > 256) {
+      throw ArgumentError('Invalid group name or members');
+    }
+    final now = DateTime.now();
+    final unreachable = <String>{};
+    var pending = await _prepareGroupInvites(
+      controls: controls,
+      senderId: senderId,
+      groupId: id,
+      groupName: groupName,
+      recipients: byId.keys.toList(growable: false),
+      now: now,
+      onRecipientUnavailable: (recipientId, error) {
+        unreachable.add(recipientId);
+        debugPrint(
+          'GROUP-CREATE member_unreachable '
+          'error=${error.runtimeType}: ${_diagnostic(error)}',
+        );
+      },
+    );
+    if (unreachable.isNotEmpty) {
+      final reachable = byId.keys
+          .where((memberId) => !unreachable.contains(memberId))
+          .toList(growable: false);
+      if (reachable.isEmpty) {
+        throw GroupMembersUnreachableException([
+          for (final memberId in unreachable) byId[memberId]!,
+        ]);
+      }
+      // Ilk turdaki davetler atlanan uyeyi de listeliyordu; uye listesi
+      // kalanlarla yeniden sifrelenir. Bu turda hata yine butun islemi durdurur.
+      pending = await _prepareGroupInvites(
+        controls: controls,
+        senderId: senderId,
+        groupId: id,
+        groupName: groupName,
+        recipients: reachable,
+        now: now,
+      );
+    }
     final group = ConversationEntity(
       id: id,
       peerId: id,
-      peerName: name.trim().isEmpty ? 'Yeni Grup' : name.trim(),
+      peerName: groupName,
       peerPhone: '',
       isGroup: true,
       groupMembers: [
         senderId,
-        ...members.map((member) => member.id),
-      ].toSet().join(','),
+        ...byId.keys.where((memberId) => !unreachable.contains(memberId)),
+      ].join(','),
       groupAdmins: senderId,
     );
-    final recipients = members.map((m) => m.id).toSet()..remove(senderId);
-    if (recipients.isEmpty || group.peerName.length > 256) {
-      throw ArgumentError('Invalid group name or members');
+    await _database.conversations.insertWithPendingSignals(group, pending);
+    await queue.flushEnqueuedSignals();
+    if (unreachable.isNotEmpty) {
+      onUnreachable?.call([
+        for (final memberId in unreachable) byId[memberId]!,
+      ]);
     }
+    return group;
+  }
+
+  // Prepare every encrypted invitation before committing the group. A failed
+  // prekey lookup must not leave a local-only or partially invited group.
+  Future<List<PendingSignalEntity>> _prepareGroupInvites({
+    required PrivateGroupControlSender controls,
+    required String senderId,
+    required String groupId,
+    required String groupName,
+    required List<String> recipients,
+    required DateTime now,
+    void Function(String recipientId, Object error)? onRecipientUnavailable,
+  }) async {
     final pending = <PendingSignalEntity>[];
-    final now = DateTime.now();
-    // Prepare every encrypted invitation before committing the group. A failed
-    // prekey lookup must not leave a local-only or partially invited group.
     await controls.send(
       senderId: senderId,
-      groupId: id,
-      groupName: group.peerName,
+      groupId: groupId,
+      groupName: groupName,
       memberIds: [senderId, ...recipients],
       recipients: recipients,
       action: 'CREATE',
       timestamp: now,
+      onRecipientUnavailable: onRecipientUnavailable,
       sendSignal: (signal) async {
         pending.add(
           PendingSignalEntity(
-            id: '$id-invite-${pending.length}',
+            id: '$groupId-invite-${pending.length}',
             encodedSignal: signal.encode(),
             createdAt: now.millisecondsSinceEpoch,
           ),
@@ -433,10 +500,25 @@ class ContactService {
         return true;
       },
     );
-    await _database.conversations.insertWithPendingSignals(group, pending);
-    await queue.flushEnqueuedSignals();
-    return group;
+    return pending;
   }
+}
+
+/// Secilen uyelerin hicbirine sifreli davet hazirlanamadi.
+class GroupMembersUnreachableException implements Exception {
+  const GroupMembersUnreachableException(this.members);
+
+  final List<ContactEntity> members;
+
+  @override
+  String toString() =>
+      'GroupMembersUnreachableException(${members.length} member)';
+}
+
+/// Hata mesajini loga yazilabilir uzunlukta tutar.
+String _diagnostic(Object error) {
+  final text = error.toString().replaceAll('\n', ' ');
+  return text.length <= 160 ? text : '${text.substring(0, 160)}...';
 }
 
 String _newPrivateGroupId() {

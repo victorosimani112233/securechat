@@ -682,6 +682,15 @@ class AppLocalizationsDe extends AppLocalizations {
       'Aktion fehlgeschlagen. Bitte erneut versuchen.';
 
   @override
+  String group_members_skipped(String names) {
+    return '$names konnte nicht hinzugefügt werden: Es konnte keine verschlüsselte Verbindung aufgebaut werden. Sie können die Person über die Gruppeninfo erneut hinzufügen, sobald sie ELÇİM öffnet.';
+  }
+
+  @override
+  String get group_members_unreachable =>
+      'Mit keiner der ausgewählten Personen konnte eine verschlüsselte Verbindung aufgebaut werden. Sie müssen die aktuelle Version von ELÇİM öffnen.';
+
+  @override
   String get settings_share_online => 'Online-Status teilen';
 
   @override

@@ -675,6 +675,15 @@ class AppLocalizationsEn extends AppLocalizations {
       'Could not complete the action. Please try again.';
 
   @override
+  String group_members_skipped(String names) {
+    return '$names could not be added: no encrypted connection could be set up. You can add them again from group info after they open ELÇİM.';
+  }
+
+  @override
+  String get group_members_unreachable =>
+      'No encrypted connection could be set up with any of the selected people. They need to open the latest version of ELÇİM.';
+
+  @override
   String get settings_share_online => 'Share online status';
 
   @override

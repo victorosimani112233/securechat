@@ -57,7 +57,8 @@ class _RecipientPickerScreenState extends State<RecipientPickerScreen> {
       final selected = _selected.values.toList(growable: false);
       final close = await widget.onConfirm?.call(selected) ?? true;
       if (mounted && close) Navigator.pop(context, selected);
-    } catch (_) {
+    } catch (error) {
+      debugPrint('RECIPIENT-ACTION failed error=${error.runtimeType}');
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(context.l10n.recipient_action_failed)),

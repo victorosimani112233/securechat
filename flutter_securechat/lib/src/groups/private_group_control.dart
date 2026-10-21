@@ -37,6 +37,7 @@ class PrivateGroupControlSender {
     String? targetMemberId,
     DateTime? timestamp,
     Future<bool> Function(EncryptedSignalMessage signal)? sendSignal,
+    void Function(String recipientId, Object error)? onRecipientUnavailable,
   }) async {
     final members = memberIds
         .where((id) => id.isNotEmpty)
@@ -69,10 +70,19 @@ class PrivateGroupControlSender {
       timestamp: sentAt,
     ).encode();
     for (final recipientId in targets) {
-      final envelope = await _crypto.encryptDirect(
-        recipientId: recipientId,
-        plaintext: payload,
-      );
+      final String envelope;
+      try {
+        envelope = await _crypto.encryptDirect(
+          recipientId: recipientId,
+          plaintext: payload,
+        );
+      } catch (error) {
+        // Cagiran ulasilamayan uyeyi atlayabiliyorsa tek kisi butun islemi
+        // dusurmez; atlayamiyorsa hata eskisi gibi yukari cikar.
+        if (onRecipientUnavailable == null) rethrow;
+        onRecipientUnavailable(recipientId, error);
+        continue;
+      }
       final signal = EncryptedSignalMessage(
         senderId: senderId,
         recipientId: recipientId,

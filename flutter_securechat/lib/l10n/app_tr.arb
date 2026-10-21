@@ -267,6 +267,8 @@
   "settings_storage_usage": "Depolama",
   "create_group_and_add": "Grubu kur ve Kişileri Ekle",
   "recipient_action_failed": "İşlem tamamlanamadı. Lütfen tekrar deneyin.",
+  "group_members_skipped": "{names} gruba eklenemedi: bu kişiyle şifreli bağlantı kurulamadı. Kişi ELÇİM''i açtıktan sonra grup bilgilerinden tekrar ekleyebilirsiniz.",
+  "group_members_unreachable": "Seçilen kişilerin hiçbiriyle şifreli bağlantı kurulamadı. Kişilerin ELÇİM''i güncel sürümle açmış olması gerekiyor.",
   "settings_share_online": "Çevrimiçi bilgimi paylaş",
   "settings_read_receipts": "Okundu bilgisi",
   "settings_read_receipts_desc": "Kapalıyken okundu bilgisi gönderilmez ve başkalarının okundu bilgisini göremezsiniz.",

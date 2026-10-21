@@ -195,6 +195,8 @@
   "settings_storage_usage": "Speicher",
   "create_group_and_add": "Gruppe erstellen und Personen hinzufügen",
   "recipient_action_failed": "Aktion fehlgeschlagen. Bitte erneut versuchen.",
+  "group_members_skipped": "{names} konnte nicht hinzugefügt werden: Es konnte keine verschlüsselte Verbindung aufgebaut werden. Sie können die Person über die Gruppeninfo erneut hinzufügen, sobald sie ELÇİM öffnet.",
+  "group_members_unreachable": "Mit keiner der ausgewählten Personen konnte eine verschlüsselte Verbindung aufgebaut werden. Sie müssen die aktuelle Version von ELÇİM öffnen.",
   "settings_share_online": "Online-Status teilen",
   "settings_read_receipts": "Lesebestätigungen",
   "settings_read_receipts_desc": "Wenn deaktiviert, werden keine Lesebestätigungen gesendet oder von anderen angezeigt.",

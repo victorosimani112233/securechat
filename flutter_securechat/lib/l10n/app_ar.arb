@@ -3,6 +3,8 @@
   "settings_storage_usage": "التخزين",
   "create_group_and_add": "إنشاء المجموعة وإضافة الأشخاص",
   "recipient_action_failed": "تعذر إكمال العملية. يرجى المحاولة مرة أخرى.",
+  "group_members_skipped": "تعذرت إضافة {names}: لم يمكن إنشاء اتصال مشفر. يمكنك إضافتهم مجددًا من معلومات المجموعة بعد أن يفتحوا ELÇİM.",
+  "group_members_unreachable": "تعذر إنشاء اتصال مشفر مع أي من الأشخاص المحددين. يجب أن يفتحوا أحدث إصدار من ELÇİM.",
   "settings_share_online": "مشاركة حالة الاتصال",
   "settings_read_receipts": "إيصالات القراءة",
   "settings_read_receipts_desc": "عند إيقافها لن ترسل إيصالات القراءة أو ترى إيصالات الآخرين.",
