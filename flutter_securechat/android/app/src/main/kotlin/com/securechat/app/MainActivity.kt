@@ -117,6 +117,8 @@ class MainActivity : FlutterFragmentActivity() {
                     "openCallReadinessSetting" -> openCallReadinessSetting(call.arguments, result)
                     "openExternalUrl" -> openExternalUrl(call.arguments, result)
                     "addDeviceContact" -> addDeviceContact(call.arguments, result)
+                    "composeInviteSms" -> composeInviteSms(call.arguments, result)
+                    "shareInviteText" -> shareInviteText(call.arguments, result)
                     "getPermissionStatus" -> result.success(permissionStatus())
                     "requestContactsPermission" -> requestContactsPermission(result)
                     "readContacts" -> readContacts(result)
@@ -300,6 +302,48 @@ class MainActivity : FlutterFragmentActivity() {
      * sistem ekraninda yapar; uygulama WRITE_CONTACTS istemez ve rehbere
      * kendisi yazmaz.
      */
+    /**
+     * Davet metnini kullanicinin kendi SMS uygulamasinda acar. Mesaji
+     * kullanici gonderir; uygulama SMS izni istemez, sunucuya bir sey gitmez.
+     */
+    private fun composeInviteSms(arguments: Any?, result: MethodChannel.Result) {
+        val args = arguments as? Map<*, *>
+        val phone = args?.get("phone")?.toString()?.trim().orEmpty()
+        val body = args?.get("body")?.toString()?.trim().orEmpty()
+        if (phone.isEmpty() || phone.length > 32 || body.isEmpty() || body.length > 1000) {
+            result.success(false)
+            return
+        }
+        val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(phone)))
+            .putExtra("sms_body", body)
+        try {
+            startActivity(intent)
+            result.success(true)
+        } catch (_: Exception) {
+            result.success(false)
+        }
+    }
+
+    /** Davet metnini sistemin paylasim ekraniyla baska bir uygulamaya verir. */
+    private fun shareInviteText(arguments: Any?, result: MethodChannel.Result) {
+        val text = (arguments as? Map<*, *>)?.get("text")?.toString()?.trim().orEmpty()
+        val title = (arguments as? Map<*, *>)?.get("title")?.toString()?.trim().orEmpty()
+        if (text.isEmpty() || text.length > 1000) {
+            result.success(false)
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        try {
+            startActivity(Intent.createChooser(intent, title.ifEmpty { null }))
+            result.success(true)
+        } catch (_: Exception) {
+            result.success(false)
+        }
+    }
+
     private fun addDeviceContact(arguments: Any?, result: MethodChannel.Result) {
         val args = arguments as? Map<*, *>
         val phone = args?.get("phone")?.toString()?.trim().orEmpty()

@@ -1074,6 +1074,60 @@ abstract class AppLocalizations {
   /// **'Invite'**
   String get contacts_invite_short;
 
+  /// No description provided for @contacts_on_elcim_section.
+  ///
+  /// In en, this message translates to:
+  /// **'On ELÇİM ({count})'**
+  String contacts_on_elcim_section(int count);
+
+  /// No description provided for @contacts_invite_section.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite to ELÇİM ({count})'**
+  String contacts_invite_section(int count);
+
+  /// No description provided for @contacts_invite_section_body.
+  ///
+  /// In en, this message translates to:
+  /// **'These people don\'\'t use ELÇİM yet. You send the invitation from your own SMS app or any app you choose; the numbers are not sent to the server.'**
+  String get contacts_invite_section_body;
+
+  /// No description provided for @contacts_invite_friends.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite friends'**
+  String get contacts_invite_friends;
+
+  /// No description provided for @invite_via_sms.
+  ///
+  /// In en, this message translates to:
+  /// **'Send by SMS'**
+  String get invite_via_sms;
+
+  /// No description provided for @invite_via_share.
+  ///
+  /// In en, this message translates to:
+  /// **'Share with another app'**
+  String get invite_via_share;
+
+  /// No description provided for @invite_message.
+  ///
+  /// In en, this message translates to:
+  /// **'Hi! Let\'\'s message and call each other end-to-end encrypted on ELÇİM. You can download the app here: {link}'**
+  String invite_message(String link);
+
+  /// No description provided for @invite_copied.
+  ///
+  /// In en, this message translates to:
+  /// **'Invitation copied to the clipboard.'**
+  String get invite_copied;
+
+  /// No description provided for @contacts_number_not_on_elcim.
+  ///
+  /// In en, this message translates to:
+  /// **'This number is not registered on ELÇİM.'**
+  String get contacts_number_not_on_elcim;
+
   /// No description provided for @settings_title.
   ///
   /// In en, this message translates to:

@@ -12,6 +12,7 @@ import '../../widgets/avatar.dart';
 import '../../widgets/azure_backdrop.dart';
 import '../../widgets/azure_empty_state.dart';
 import '../../widgets/azure_surface.dart';
+import '../../widgets/invite_sender.dart';
 import '../../widgets/text_controller_scope.dart';
 import 'create_group_flow.dart';
 
@@ -34,6 +35,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
   String _query = '';
   bool _syncing = false;
   _ContactSyncFailure? _failure;
+
+  /// Rehberde olup ELÇİM kullanmayanlar. Yalniz bellekte tutulur.
+  List<DeviceContact> _invitable = const [];
 
   @override
   void didChangeDependencies() {
@@ -61,6 +65,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ),
           actions: [
             IconButton(
+              key: const Key('contacts-invite-friends'),
+              onPressed: () => _invite(),
+              icon: const Icon(Icons.person_add_alt_1_outlined),
+              tooltip: context.l10n.contacts_invite_friends,
+            ),
+            IconButton(
               onPressed: _syncing ? null : _syncContacts,
               icon: const Icon(Icons.sync),
               tooltip: context.l10n.contacts_sync,
@@ -82,8 +92,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         ),
                       )
                       .toList(growable: false);
+                  final invitable = _invitable
+                      .where(
+                        (contact) => matchesContactQuery(
+                          name: contact.displayName,
+                          phone: contact.phoneNumber,
+                          query: _query,
+                        ),
+                      )
+                      .toList(growable: false);
                   final noSearchResults =
-                      registered.isNotEmpty && contacts.isEmpty;
+                      (registered.isNotEmpty || _invitable.isNotEmpty) &&
+                      contacts.isEmpty &&
+                      invitable.isEmpty;
                   return ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
@@ -162,7 +183,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         ),
                       ],
                       const SizedBox(height: 16),
-                      if (!_syncing && contacts.isEmpty)
+                      if (contacts.isNotEmpty && invitable.isNotEmpty)
+                        _SectionHeader(
+                          title: context.l10n.contacts_on_elcim_section(
+                            contacts.length,
+                          ),
+                        ),
+                      if (!_syncing && contacts.isEmpty && invitable.isEmpty)
                         AzureEmptyState(
                           icon: noSearchResults
                               ? Icons.search_off
@@ -189,6 +216,38 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         ),
                         const SizedBox(height: 7),
                       ],
+                      if (invitable.isNotEmpty) ...[
+                        _SectionHeader(
+                          key: const Key('contacts-invite-section'),
+                          title: context.l10n.contacts_invite_section(
+                            invitable.length,
+                          ),
+                          body: context.l10n.contacts_invite_section_body,
+                        ),
+                        for (final contact in invitable) ...[
+                          AzureSurface(
+                            child: ListTile(
+                              leading: GeneratedAvatar(
+                                name: contact.displayName,
+                              ),
+                              title: Text(contact.displayName),
+                              subtitle: Text(contact.phoneNumber),
+                              trailing: TextButton(
+                                onPressed: () => _invite(
+                                  phone: contact.phoneNumber,
+                                  name: contact.displayName,
+                                ),
+                                child: Text(context.l10n.contacts_invite_short),
+                              ),
+                              onTap: () => _invite(
+                                phone: contact.phoneNumber,
+                                name: contact.displayName,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 7),
+                        ],
+                      ],
                     ],
                   );
                 },
@@ -208,10 +267,25 @@ class _ContactsScreenState extends State<ContactsScreen> {
       await service.importAndDiscover();
     } catch (error) {
       if (mounted) setState(() => _failure = _presentFailure(error));
-    } finally {
-      if (mounted) setState(() => _syncing = false);
+    }
+    // Eslesme basarisiz olsa da onceki eslesmeye gore davet listesi
+    // gosterilir; liste cihazda hesaplanir, sunucuya bir sey gitmez.
+    var invitable = const <DeviceContact>[];
+    try {
+      invitable = await service.loadInvitableContacts();
+    } catch (_) {
+      // Rehber okunamadiysa davet listesi bos kalir; hata yukarida gosterildi.
+    }
+    if (mounted) {
+      setState(() {
+        _invitable = invitable;
+        _syncing = false;
+      });
     }
   }
+
+  Future<void> _invite({String? phone, String? name}) =>
+      sendInvite(context, phone: phone, name: name);
 
   _ContactSyncFailure _presentFailure(Object error) {
     if (error is DirectoryServiceUnavailableException) {
@@ -339,7 +413,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
       if (!mounted) return;
       if (contact == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.create_group_user_not_found)),
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            content: Text(context.l10n.contacts_number_not_on_elcim),
+            action: SnackBarAction(
+              label: context.l10n.contacts_invite_short,
+              onPressed: () => _invite(phone: value),
+            ),
+          ),
         );
       } else {
         await _openContact(service, contact);
@@ -365,6 +446,37 @@ class _ContactsScreenState extends State<ContactsScreen> {
     isReadOnly: conversation.isReadOnly,
     isExportEnabled: conversation.isExportEnabled,
   );
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({super.key, required this.title, this.body});
+
+  final String title;
+  final String? body;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          if (body != null) ...[
+            const SizedBox(height: 4),
+            Text(body!, style: theme.textTheme.bodySmall),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class _ContactSyncFailure {

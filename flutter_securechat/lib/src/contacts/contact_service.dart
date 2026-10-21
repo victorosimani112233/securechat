@@ -228,6 +228,38 @@ class ContactService {
     return _deviceContacts.openAddContact(phone: number, name: name);
   }
 
+  /// Rehberde olup ELÇİM'de bulunmayan kisiler (davet listesi).
+  ///
+  /// Tamamen cihazda hesaplanir: sunucuya bir sey gitmez ve sonuc
+  /// veritabanina yazilmaz. Kayitli kisiler rehber eslemesinin yerel
+  /// sonucundan (telefon ozeti) ayiklanir; ayni numara bir kez listelenir.
+  Future<List<DeviceContact>> loadInvitableContacts() async {
+    if (!await _deviceContacts.requestPermission()) return const [];
+    final registeredHashes = {
+      for (final contact in await _database.contacts.getAllOnce())
+        if (contact.isRegistered && contact.phoneHash.isNotEmpty)
+          contact.phoneHash,
+    };
+    final ownPhone = _session.phoneNumber;
+    final seen = <String>{
+      if (ownPhone != null && ownPhone.trim().isNotEmpty)
+        await hashPhoneNumber(ownPhone),
+    };
+    final invitable = <DeviceContact>[];
+    for (final contact in await _deviceContacts.getAllContacts()) {
+      if (normalizePhoneDigits(contact.phoneNumber).length < 8) continue;
+      final hash = await hashPhoneNumber(contact.phoneNumber);
+      if (registeredHashes.contains(hash) || !seen.add(hash)) continue;
+      invitable.add(contact);
+    }
+    invitable.sort(
+      (left, right) => left.displayName.toLowerCase().compareTo(
+        right.displayName.toLowerCase(),
+      ),
+    );
+    return invitable;
+  }
+
   Future<List<ContactEntity>> importAndDiscover() async {
     if (!await _deviceContacts.requestPermission()) {
       throw StateError('Rehber izni verilmedi');

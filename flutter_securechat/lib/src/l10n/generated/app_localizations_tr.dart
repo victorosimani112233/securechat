@@ -560,6 +560,41 @@ class AppLocalizationsTr extends AppLocalizations {
   String get contacts_invite_short => 'Davet Et';
 
   @override
+  String contacts_on_elcim_section(int count) {
+    return 'ELÇİM\'de ($count)';
+  }
+
+  @override
+  String contacts_invite_section(int count) {
+    return 'ELÇİM\'e davet et ($count)';
+  }
+
+  @override
+  String get contacts_invite_section_body =>
+      'Bu kişiler henüz ELÇİM kullanmıyor. Davet mesajını kendi SMS uygulamandan ya da istediğin bir uygulamadan gönderirsin; numaralar sunucuya gönderilmez.';
+
+  @override
+  String get contacts_invite_friends => 'Arkadaşlarını davet et';
+
+  @override
+  String get invite_via_sms => 'SMS ile gönder';
+
+  @override
+  String get invite_via_share => 'Başka bir uygulamayla paylaş';
+
+  @override
+  String invite_message(String link) {
+    return 'Merhaba! ELÇİM\'de uçtan uca şifreli mesajlaşalım ve görüşelim. Uygulamayı buradan indirebilirsin: $link';
+  }
+
+  @override
+  String get invite_copied => 'Davet mesajı panoya kopyalandı.';
+
+  @override
+  String get contacts_number_not_on_elcim =>
+      'Bu numara ELÇİM\'de kayıtlı değil.';
+
+  @override
   String get settings_title => 'Ayarlar';
 
   @override

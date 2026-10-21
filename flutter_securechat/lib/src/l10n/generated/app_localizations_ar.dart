@@ -576,6 +576,40 @@ class AppLocalizationsAr extends AppLocalizations {
   String get contacts_invite_short => 'دعوة';
 
   @override
+  String contacts_on_elcim_section(int count) {
+    return 'على ELÇİM ($count)';
+  }
+
+  @override
+  String contacts_invite_section(int count) {
+    return 'ادعُ إلى ELÇİM ($count)';
+  }
+
+  @override
+  String get contacts_invite_section_body =>
+      'هؤلاء الأشخاص لا يستخدمون ELÇİM بعد. ترسل الدعوة من تطبيق الرسائل الخاص بك أو من أي تطبيق تختاره؛ لا تُرسل الأرقام إلى الخادم.';
+
+  @override
+  String get contacts_invite_friends => 'ادعُ أصدقاءك';
+
+  @override
+  String get invite_via_sms => 'إرسال عبر SMS';
+
+  @override
+  String get invite_via_share => 'مشاركة مع تطبيق آخر';
+
+  @override
+  String invite_message(String link) {
+    return 'مرحبًا! لنتراسل ونتصل بتشفير تام بين الطرفين على ELÇİM. يمكنك تنزيل التطبيق من هنا: $link';
+  }
+
+  @override
+  String get invite_copied => 'تم نسخ الدعوة إلى الحافظة.';
+
+  @override
+  String get contacts_number_not_on_elcim => 'هذا الرقم غير مسجل على ELÇİM.';
+
+  @override
   String get settings_title => 'الإعدادات';
 
   @override

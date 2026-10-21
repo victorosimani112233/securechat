@@ -7,6 +7,7 @@ import UIKit
 import workmanager_apple
 import firebase_messaging
 import LocalAuthentication
+import MessageUI
 import SQLCipher
 import UserNotifications
 import WebRTC
@@ -161,6 +162,10 @@ enum SecureChatContactsAccess {
         UIApplication.shared.open(url) { opened in result(opened) }
       case "addDeviceContact":
         self?.addDeviceContact(call.arguments, result: result)
+      case "composeInviteSms":
+        self?.composeInviteSms(call.arguments, result: result)
+      case "shareInviteText":
+        self?.shareInviteText(call.arguments, result: result)
       case "openCallReadinessSetting":
         self?.openCallReadinessSetting(call.arguments, result: result)
       case "getPermissionStatus":
@@ -496,6 +501,55 @@ enum SecureChatContactsAccess {
   }
 
   private let contactEditorDelegate = SecureChatContactEditorDelegate()
+
+  private let messageComposeDelegate = SecureChatMessageComposeDelegate()
+
+  /// Davet metnini sistemin mesaj ekraninda acar. Mesaji kullanici gonderir.
+  private func composeInviteSms(_ arguments: Any?, result: @escaping FlutterResult) {
+    let values = arguments as? [String: Any]
+    let phone = (values?["phone"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+    let body = (values?["body"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !phone.isEmpty, phone.count <= 32, !body.isEmpty, body.count <= 1000 else {
+      result(false)
+      return
+    }
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self,
+            MFMessageComposeViewController.canSendText(),
+            let presenter = self.topViewController() else {
+        result(false)
+        return
+      }
+      let composer = MFMessageComposeViewController()
+      composer.recipients = [phone]
+      composer.body = body
+      composer.messageComposeDelegate = self.messageComposeDelegate
+      presenter.present(composer, animated: true) { result(true) }
+    }
+  }
+
+  /// Davet metnini sistemin paylasim ekraniyla baska bir uygulamaya verir.
+  private func shareInviteText(_ arguments: Any?, result: @escaping FlutterResult) {
+    let text = ((arguments as? [String: Any])?["text"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !text.isEmpty, text.count <= 1000 else {
+      result(false)
+      return
+    }
+    DispatchQueue.main.async { [weak self] in
+      guard let presenter = self?.topViewController() else {
+        result(false)
+        return
+      }
+      let sheet = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+      // iPad'de paylasim ekrani bir kaynaga baglanmadan acilirsa uygulama coker.
+      sheet.popoverPresentationController?.sourceView = presenter.view
+      sheet.popoverPresentationController?.sourceRect = CGRect(
+        x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+      sheet.popoverPresentationController?.permittedArrowDirections = []
+      presenter.present(sheet, animated: true) { result(true) }
+    }
+  }
 
   private func topViewController() -> UIViewController? {
     guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
@@ -915,6 +969,15 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
 }
 
 /// Yeni kisi ekrani kaydedilince ya da vazgecilince kendini kapatir.
+final class SecureChatMessageComposeDelegate: NSObject, MFMessageComposeViewControllerDelegate {
+  func messageComposeViewController(
+    _ controller: MFMessageComposeViewController,
+    didFinishWith result: MessageComposeResult
+  ) {
+    controller.dismiss(animated: true)
+  }
+}
+
 final class SecureChatContactEditorDelegate: NSObject, CNContactViewControllerDelegate {
   func contactViewController(
     _ viewController: CNContactViewController,

@@ -52,6 +52,42 @@ class NativeBridge {
     }
   }
 
+  /// Davet metnini sistemin SMS ekraninda acar; mesaji kullanici gonderir.
+  Future<bool> composeInviteSms({
+    required String phone,
+    required String body,
+  }) async {
+    try {
+      return await _methods.invokeMethod<bool>('composeInviteSms', {
+            'phone': phone,
+            'body': body,
+          }) ??
+          false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  /// Davet metnini sistemin paylasim ekraniyla baska bir uygulamaya verir.
+  Future<bool> shareInviteText({
+    required String text,
+    String title = '',
+  }) async {
+    try {
+      return await _methods.invokeMethod<bool>('shareInviteText', {
+            'text': text,
+            'title': title,
+          }) ??
+          false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   Future<void> enableScreenProtection() {
     return _methods.invokeMethod<void>('enableScreenProtection');
   }

@@ -42,6 +42,67 @@ void main() {
 
   // QA 2026-10-13 O5: kurtarmadan sonra girilen numara yalniz okunur;
   // checkUsers ownPhoneHash almadigi icin dizin kaydi degismez.
+  test(
+    'invite list keeps only device contacts that are not on ELÇİM',
+    () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      await fixture.database.contacts.insert(
+        ContactEntity(
+          id: 'peer-ayse',
+          phoneNumber: '+90 532 000 00 01',
+          phoneHash: await hashPhoneNumber('+90 532 000 00 01'),
+          displayName: 'Ayse',
+          isRegistered: true,
+        ),
+      );
+      final service = ContactService(
+        deviceContacts: _FakeGateway(const [
+          DeviceContact(displayName: 'Ayse', phoneNumber: '0532 000 00 01'),
+          DeviceContact(
+            displayName: 'zeynep',
+            phoneNumber: '+90 533 111 22 33',
+          ),
+          DeviceContact(displayName: 'Zeynep is', phoneNumber: '+905331112233'),
+          DeviceContact(displayName: 'Ben', phoneNumber: '+90 555 000 00 09'),
+          DeviceContact(displayName: 'Kisa', phoneNumber: '112'),
+          DeviceContact(displayName: 'Ali', phoneNumber: '+90 544 222 33 44'),
+        ]),
+        api: _FakeDiscoveryApi(const []),
+        database: fixture.database,
+        session: SessionStore(
+          userId: 'me',
+          accessToken: 'access',
+          phoneNumber: '+90 555 000 00 09',
+        ),
+      );
+
+      final invitable = await service.loadInvitableContacts();
+
+      // Kayitli kisi, kendi numaram, kisa servis numarasi ve ayni numaranin
+      // ikinci kaydi listelenmez; sira ada gore.
+      expect(invitable.map((contact) => contact.displayName), [
+        'Ali',
+        'zeynep',
+      ]);
+    },
+  );
+
+  test('invite list is empty without contacts permission', () async {
+    final fixture = await _openFixture();
+    addTearDown(fixture.close);
+    final service = ContactService(
+      deviceContacts: _FakeGateway(const [
+        DeviceContact(displayName: 'Ali', phoneNumber: '+90 544 222 33 44'),
+      ], permitted: false),
+      api: _FakeDiscoveryApi(const []),
+      database: fixture.database,
+      session: SessionStore(userId: 'me', accessToken: 'access'),
+    );
+
+    expect(await service.loadInvitableContacts(), isEmpty);
+  });
+
   test('own phone status reads the directory without claiming it', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);
