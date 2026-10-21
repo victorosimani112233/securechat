@@ -135,6 +135,95 @@ class PrivateDirectoryRegistryIntegrationTest {
     }
 
     @Test
+    fun `a new account takes its number back from an abandoned libsignal-only account`() {
+        val legacyId = UUID.randomUUID().toString()
+        val newId = UUID.randomUUID().toString()
+        val token = directory.tokenForPhoneHash(sha256Hex("+905553333333"))
+        registry.registerUser(legacyId)
+        registry.updateOwnDirectoryToken(legacyId, token)
+        setIdentityColumns(legacyId, libsignal = true, olm = false)
+        registry.registerUser(newId)
+
+        val claimed = registry.updateOwnDirectoryToken(newId, token)
+
+        assertEquals(token, claimed.directoryToken)
+        assertEquals(newId, tokenOwner(token))
+        // Eski hesap numarasiz kalir; rehberde artik gorunmez.
+        assertTrue(directoryTokenOf(legacyId).startsWith("pending:"))
+        assertEquals(
+            listOf(newId),
+            registry.privateDirectorySnapshot()
+                .filter { it.directoryToken == token }
+                .map { it.userId },
+        )
+    }
+
+    @Test
+    fun `a number held by an account with an Olm identity or mid-recovery is not taken`() {
+        val activeId = UUID.randomUUID().toString()
+        val recoveringId = UUID.randomUUID().toString()
+        val claimantId = UUID.randomUUID().toString()
+        val activeToken = directory.tokenForPhoneHash(sha256Hex("+905554444444"))
+        val recoveringToken = directory.tokenForPhoneHash(sha256Hex("+905555555555"))
+        registry.registerUser(activeId)
+        registry.updateOwnDirectoryToken(activeId, activeToken)
+        setIdentityColumns(activeId, libsignal = true, olm = true)
+        registry.registerUser(recoveringId)
+        registry.updateOwnDirectoryToken(recoveringId, recoveringToken)
+        // Kurtarma iki kimlik kolonunu da bosaltir.
+        setIdentityColumns(recoveringId, libsignal = false, olm = false)
+        registry.registerUser(claimantId)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.updateOwnDirectoryToken(claimantId, activeToken)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.updateOwnDirectoryToken(claimantId, recoveringToken)
+        }
+        assertEquals(activeId, tokenOwner(activeToken))
+        assertEquals(recoveringId, tokenOwner(recoveringToken))
+    }
+
+    private fun setIdentityColumns(userId: String, libsignal: Boolean, olm: Boolean) {
+        Database.getConnection().use { connection ->
+            connection.prepareStatement(
+                """UPDATE users SET identity_public_key = ?, olm_identity_key = ?,
+                       signing_public_key = ?
+                   WHERE user_id = ?::uuid""",
+            ).use { statement ->
+                statement.setBytes(1, if (libsignal) ByteArray(33) { 5 } else null)
+                statement.setBytes(2, if (olm) ByteArray(32) { 7 } else null)
+                statement.setBytes(3, if (olm) ByteArray(32) { 9 } else null)
+                statement.setString(4, userId)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    private fun tokenOwner(token: String): String? =
+        Database.getConnection().use { connection ->
+            connection.prepareStatement(
+                "SELECT user_id::text FROM users WHERE directory_token = ?",
+            ).use { statement ->
+                statement.setString(1, token)
+                statement.executeQuery().use { rows -> if (rows.next()) rows.getString(1) else null }
+            }
+        }
+
+    private fun directoryTokenOf(userId: String): String =
+        Database.getConnection().use { connection ->
+            connection.prepareStatement(
+                "SELECT directory_token FROM users WHERE user_id = ?::uuid",
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.executeQuery().use { rows ->
+                    check(rows.next())
+                    rows.getString(1)
+                }
+            }
+        }
+
+    @Test
     fun `v23 schema allows protected recovery but forbids legacy social and plaintext identity links`() {
         Database.getConnection().use { connection ->
             val tables = connection.prepareStatement(

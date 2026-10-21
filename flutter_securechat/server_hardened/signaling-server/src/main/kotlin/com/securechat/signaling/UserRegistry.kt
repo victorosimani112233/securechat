@@ -97,10 +97,79 @@ class UserRegistry(
             return current
         }
         val owner = cacheByDirectoryToken[token] ?: findByDirectoryToken(token)
-        require(owner == null || owner.userId == userId) {
-            "Directory token is already assigned to another account"
+        if (owner != null && owner.userId != userId) {
+            return reclaimFromLegacyAccount(owner, current, token)
         }
         return replaceDirectoryToken(current, token, directory.keyId)
+    }
+
+    /**
+     * Numara, vodozemac gecisinden once acilmis ve bir daha hic acilmamis
+     * bir hesapta kaldiysa onu yeni hesaba devreder.
+     *
+     * Boyle bir hesapta yalniz libsignal kimligi vardir, Olm kimligi yoktur:
+     * ona ne mesaj ne grup daveti sifrelenebilir, yani numarayi tutmasi
+     * yalniz sahibini kendi numarasindan mahrum birakir. Sahibi yeni
+     * uygulamada baska bir hesapla oturum actiginda rehber senkronu
+     * numarasini burada kendiliginden geri alir; kullanicidan bir sey
+     * istenmez.
+     *
+     * Kosul SQL'de, ayni satir kilidi altinda yeniden dogrulanir. Olm
+     * kimligi olan hesaptan ve kurtarma ortasindaki hesaptan (kurtarma iki
+     * kimlik kolonunu da bosaltir) numara alinamaz; o durumda eski davranis
+     * gecerlidir.
+     */
+    private fun reclaimFromLegacyAccount(
+        owner: RegisteredUser,
+        claimant: RegisteredUser,
+        token: String,
+    ): RegisteredUser {
+        val released = owner.copy(directoryToken = pendingDirectoryToken(), directoryKeyId = null)
+        Database.getConnection().use { connection ->
+            connection.autoCommit = false
+            try {
+                val releasedRows = connection.prepareStatement(
+                    """UPDATE users SET directory_token = ?, directory_key_id = NULL
+                       WHERE user_id = ?::uuid AND directory_token = ?
+                         AND olm_identity_key IS NULL
+                         AND identity_public_key IS NOT NULL""",
+                ).use { statement ->
+                    statement.setString(1, released.directoryToken)
+                    statement.setString(2, owner.userId)
+                    statement.setString(3, token)
+                    statement.executeUpdate()
+                }
+                require(releasedRows == 1) {
+                    "Directory token is already assigned to another account"
+                }
+                val claimedRows = connection.prepareStatement(
+                    """UPDATE users SET directory_token = ?, directory_key_id = ?
+                       WHERE user_id = ?::uuid AND directory_token = ?""",
+                ).use { statement ->
+                    statement.setString(1, token)
+                    statement.setString(2, directory.keyId)
+                    statement.setString(3, claimant.userId)
+                    statement.setString(4, claimant.directoryToken)
+                    statement.executeUpdate()
+                }
+                check(claimedRows == 1) {
+                    "Directory token migration lost its compare-and-set race"
+                }
+                connection.commit()
+            } catch (error: Exception) {
+                connection.rollback()
+                throw error
+            } finally {
+                connection.autoCommit = true
+            }
+        }
+        cacheByDirectoryToken.remove(owner.directoryToken, owner)
+        cache(released)
+        val migrated = claimant.copy(directoryToken = token, directoryKeyId = directory.keyId)
+        cacheByDirectoryToken.remove(claimant.directoryToken, claimant)
+        cache(migrated)
+        log.info("[R] Eski (libsignal) hesabin rehber kaydi yeni hesaba devredildi")
+        return migrated
     }
 
     private fun pendingDirectoryToken(): String {
