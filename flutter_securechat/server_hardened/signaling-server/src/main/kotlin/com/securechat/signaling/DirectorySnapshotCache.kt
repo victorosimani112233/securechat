@@ -43,6 +43,7 @@ object DirectorySnapshotCache {
         registry: UserRegistry,
         oprf: PrivateDirectoryOprf = PrivateDirectory.oprf,
         nowMillis: Long = System.currentTimeMillis(),
+        messageableUsers: () -> Set<String>? = OlmPreKeyStore::usersWithIdentity,
     ): List<PrivateDirectoryEntry> {
         val version = registry.membershipVersion()
         val current = cached
@@ -62,7 +63,7 @@ object DirectorySnapshotCache {
             ) {
                 return existing
             }
-            val built = build(registry, oprf)
+            val built = build(registry, oprf, messageableUsers())
             cached = built
             cachedVersion = version
             cachedKeyId = oprf.keyId
@@ -89,11 +90,28 @@ object DirectorySnapshotCache {
         return buckets * bucket
     }
 
+    /**
+     * Yalniz mesaj alabilen hesaplar rehberde "ELÇİM'de" gorunur.
+     *
+     * Olm kimligini hic yayinlamamis hesap (vodozemac gecisinden beri
+     * uygulamayi acmamis) listelenirse karsi taraf onu kayitli sanar, fakat
+     * ona ne mesaj ne grup daveti sifrelenebilir. Boyle bir kisi davet
+     * listesine duser; uygulamayi acip anahtarini yayinlayinca en gec
+     * [TTL_MILLIS] icinde yeniden gorunur. Sorgu basarisizsa ([reachable]
+     * null) eski davranis korunur: herkes listelenir.
+     */
+    internal fun messageable(
+        users: List<RegisteredUser>,
+        reachable: Set<String>?,
+    ): List<RegisteredUser> =
+        if (reachable == null) users else users.filter { it.userId in reachable }
+
     private fun build(
         registry: UserRegistry,
         oprf: PrivateDirectoryOprf,
+        reachable: Set<String>?,
     ): List<PrivateDirectoryEntry> {
-        val real = registry.privateDirectorySnapshot().map { user ->
+        val real = messageable(registry.privateDirectorySnapshot(), reachable).map { user ->
             oprf.sealUserId(user.directoryToken, user.userId)
         }
         val target = paddedSize(real.size)

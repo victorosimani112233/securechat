@@ -69,6 +69,18 @@ class DirectorySnapshotPaddingTest {
     }
 
     @Test
+    fun `accounts without an Olm identity are left out of the directory`() {
+        val ready = RegisteredUser("123e4567-e89b-42d3-a456-426614174000", "t1", "k")
+        val stale = RegisteredUser("223e4567-e89b-42d3-a456-426614174000", "t2", "k")
+
+        // Anahtari olmayan hesap listelenirse karsi taraf ona mesaj ya da
+        // grup daveti sifreleyemez; davet listesinde gorunmesi gerekir.
+        assertEquals(listOf(ready), DirectorySnapshotCache.messageable(listOf(ready, stale), setOf(ready.userId)))
+        // Sorgu basarisizsa kimse rehberden kaybolmaz.
+        assertEquals(listOf(ready, stale), DirectorySnapshotCache.messageable(listOf(ready, stale), null))
+    }
+
+    @Test
     fun `different seeds produce different decoys`() {
         val labels = (0 until 64).map { oprf.decoyEntry("seed-$it").label }.toSet()
 

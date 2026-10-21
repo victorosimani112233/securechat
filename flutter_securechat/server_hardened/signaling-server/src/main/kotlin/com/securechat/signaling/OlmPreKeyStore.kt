@@ -323,6 +323,26 @@ object OlmPreKeyStore {
         0
     }
 
+    /**
+     * Olm kimligi kurulmus (mesaj alabilen) hesaplar. Sorgu basarisizsa
+     * null: cagiran filtrelememeyi secer.
+     */
+    fun usersWithIdentity(): Set<String>? = try {
+        Database.getConnection().use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeQuery(
+                    "SELECT user_id::text FROM users " +
+                        "WHERE olm_identity_key IS NOT NULL AND signing_public_key IS NOT NULL",
+                ).use { rows ->
+                    buildSet { while (rows.next()) add(rows.getString(1)) }
+                }
+            }
+        }
+    } catch (error: Exception) {
+        log.error("[OlmPreKey] Kimlik listesi hatasi: {}", error.javaClass.simpleName)
+        null
+    }
+
     /** Hesabin Olm kimligi kurulmus mu. */
     fun hasIdentity(userId: String): Boolean = try {
         Database.getConnection().use { conn ->
