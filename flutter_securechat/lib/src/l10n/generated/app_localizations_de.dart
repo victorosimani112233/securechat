@@ -2508,4 +2508,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get group_photo_change => 'Gruppenfoto ändern';
+
+  @override
+  String conversation_draft_preview(String text) {
+    return 'Entwurf: $text';
+  }
 }

@@ -23,7 +23,24 @@ abstract interface class ConversationRepository {
   Future<void> setFavorite(String conversationId, bool favorite);
   Future<void> setManuallyUnread(String conversationId, bool unread);
   Future<void> deleteConversation(String conversationId);
+
+  /// Sohbetin kayitli taslagi; yoksa null.
+  Future<String?> loadDraft(String conversationId);
+
+  /// Bos ya da yalniz bosluk olan metin taslagi siler.
+  Future<void> saveDraft(String conversationId, String? text);
 }
+
+/// Taslak olarak saklanacak metin; bossa null.
+String? normalizeDraft(String? text) {
+  if (text == null || text.trim().isEmpty) return null;
+  return text.length > maxDraftLength
+      ? text.substring(0, maxDraftLength)
+      : text;
+}
+
+/// Mesaj kutusunun kabul ettigi uzunlukla ayni.
+const maxDraftLength = 10000;
 
 class InMemoryConversationRepository implements ConversationRepository {
   InMemoryConversationRepository({
@@ -152,6 +169,22 @@ class InMemoryConversationRepository implements ConversationRepository {
         conversationId,
         (conversation) => conversation.copyWith(manuallyUnread: unread),
       );
+
+  @override
+  Future<String?> loadDraft(String conversationId) async => _conversations
+      .where((conversation) => conversation.id == conversationId)
+      .firstOrNull
+      ?.draft;
+
+  @override
+  Future<void> saveDraft(String conversationId, String? text) async {
+    final draft = normalizeDraft(text);
+    if (await loadDraft(conversationId) == draft) return;
+    await _updateConversation(
+      conversationId,
+      (conversation) => conversation.copyWith(draft: draft),
+    );
+  }
 
   @override
   Future<void> deleteConversation(String conversationId) async {
@@ -335,6 +368,14 @@ class StorageConversationRepository implements ConversationRepository {
       _db.conversations.updateFavorite(conversationId, favorite);
 
   @override
+  Future<String?> loadDraft(String conversationId) async =>
+      (await _db.conversations.getById(conversationId))?.draft;
+
+  @override
+  Future<void> saveDraft(String conversationId, String? text) =>
+      _db.conversations.updateDraft(conversationId, normalizeDraft(text));
+
+  @override
   Future<void> setManuallyUnread(String conversationId, bool unread) =>
       _db.conversations.updateManuallyUnread(conversationId, unread);
 
@@ -385,6 +426,7 @@ Conversation _conversationFromEntity(storage.ConversationEntity entity) {
     isExportEnabled: entity.isExportEnabled,
     groupDescription: entity.groupDescription,
     groupPhoto: entity.groupPhoto,
+    draft: entity.draft,
   );
 }
 

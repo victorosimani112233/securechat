@@ -1106,5 +1106,6 @@
   "group_description_add": "Grup açıklaması ekle",
   "group_photo_choose": "Fotoğraf seç",
   "group_photo_remove": "Fotoğrafı kaldır",
-  "group_photo_change": "Grup fotoğrafını değiştir"
+  "group_photo_change": "Grup fotoğrafını değiştir",
+  "conversation_draft_preview": "Taslak: {text}"
 }

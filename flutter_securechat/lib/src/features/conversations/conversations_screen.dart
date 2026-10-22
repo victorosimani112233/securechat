@@ -445,10 +445,16 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     Conversation conversation,
     bool typing,
   ) {
+    // Kilitli sohbetin taslagi da gizli kalir.
+    final draft = conversation.isLocked ? null : conversation.draft;
     final subtitle = typing
         ? context.l10n.conversation_typing
         : conversation.isLocked
         ? context.l10n.conversation_locked_preview
+        : draft != null
+        ? context.l10n.conversation_draft_preview(
+            draft.replaceAll(RegExp(r'\s+'), ' ').trim(),
+          )
         : conversation.lastMessageType == MessageContentType.poll &&
               conversation.lastMessage != viewOncePreviewLabel
         ? context.l10n.poll
@@ -594,7 +600,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                         if (subtitle.isNotEmpty)
                           Row(
                             children: [
-                              if (!typing)
+                              if (!typing && draft == null)
                                 ..._previewLeading(context, conversation),
                               Expanded(
                                 child: Text(

@@ -44,6 +44,7 @@ class ConversationEntity {
     this.isReadOnly = false,
     this.groupDescription,
     this.groupPhoto,
+    this.draft,
   });
 
   final String id;
@@ -85,6 +86,9 @@ class ConversationEntity {
   /// Grup fotografi: base64 JPEG/PNG (ham hali en fazla 64 KB); yoksa null.
   final String? groupPhoto;
 
+  /// Gonderilmemis metin taslagi; yoksa null. Sifreli veritabaninda durur.
+  final String? draft;
+
   ConversationEntity copyWith({
     String? peerName,
     String? peerPhone,
@@ -109,6 +113,7 @@ class ConversationEntity {
     bool? isReadOnly,
     Object? groupDescription = _notProvided,
     Object? groupPhoto = _notProvided,
+    Object? draft = _notProvided,
   }) => ConversationEntity(
     id: id,
     peerId: peerId,
@@ -144,6 +149,7 @@ class ConversationEntity {
     groupPhoto: identical(groupPhoto, _notProvided)
         ? this.groupPhoto
         : groupPhoto as String?,
+    draft: identical(draft, _notProvided) ? this.draft : draft as String?,
   );
 
   factory ConversationEntity.fromJson(Map<String, Object?> json) =>
@@ -175,6 +181,7 @@ class ConversationEntity {
         isReadOnly: json['isReadOnly'] as bool? ?? false,
         groupDescription: json['groupDescription'] as String?,
         groupPhoto: json['groupPhoto'] as String?,
+        draft: json['draft'] as String?,
       );
 
   Map<String, Object?> toJson() => {
@@ -204,6 +211,7 @@ class ConversationEntity {
     'isReadOnly': isReadOnly,
     if (groupDescription != null) 'groupDescription': groupDescription,
     if (groupPhoto != null) 'groupPhoto': groupPhoto,
+    if (draft != null) 'draft': draft,
   };
 }
 

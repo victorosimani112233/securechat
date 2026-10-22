@@ -2465,4 +2465,9 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get group_photo_change => 'تغيير صورة المجموعة';
+
+  @override
+  String conversation_draft_preview(String text) {
+    return 'مسودة: $text';
+  }
 }

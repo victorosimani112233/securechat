@@ -808,6 +808,13 @@ class ConversationDao {
   Future<void> updateGroupPhoto(String id, String? photo) =>
       _patch(id, (c) => c.copyWith(groupPhoto: photo));
 
+  /// Taslak degismediyse yazmaz; sohbetten her cikista cagrilir.
+  Future<void> updateDraft(String id, String? draft) async {
+    final current = _db._snapshot.conversations[id];
+    if (current == null || current.draft == draft) return;
+    await _patch(id, (c) => c.copyWith(draft: draft));
+  }
+
   Future<MessageEntity?> _latest(String conversationId) async => _db
       ._snapshot
       .messages
@@ -1460,6 +1467,7 @@ ConversationEntity _withoutLastMessage(ConversationEntity current) =>
       isReadOnly: current.isReadOnly,
       groupDescription: current.groupDescription,
       groupPhoto: current.groupPhoto,
+      draft: current.draft,
     );
 
 class ContactDao {

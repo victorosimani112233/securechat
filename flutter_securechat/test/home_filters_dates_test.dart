@@ -76,6 +76,61 @@ void main() {
       },
     );
   }
+  testWidgets('chat list shows a draft unless the chat is locked', (
+    tester,
+  ) async {
+    final base = createWidgetTestContainer();
+    final repo = InMemoryConversationRepository(
+      conversations: const [
+        Conversation(
+          id: 'open',
+          peerId: 'open',
+          peerName: 'Açık',
+          peerPhone: '',
+          lastMessage: 'Görünmemeli',
+          lastMessageOutgoing: true,
+          lastMessageStatus: MessageStatus.read,
+          draft: 'Yarım\nkalan',
+        ),
+        Conversation(
+          id: 'locked',
+          peerId: 'locked',
+          peerName: 'Kilitli',
+          peerPhone: '',
+          isLocked: true,
+          draft: 'Gizli taslak',
+        ),
+      ],
+      messages: {},
+    );
+    final container = AppContainer.testing(
+      session: base.session,
+      conversations: repo,
+      crypto: base.crypto,
+      signaling: base.signaling,
+      chatAccessRuntime: base.chatAccessRuntime,
+      callReadinessRuntime: base.callReadinessRuntime,
+    );
+    await tester.pumpWidget(
+      AppContainerScope(
+        container: container,
+        child: MaterialApp(
+          locale: const Locale('tr'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const ConversationsScreen(embedded: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Taslak: Yarım kalan'), findsOneWidget);
+    expect(find.text('Görünmemeli'), findsNothing);
+    // Taslakta teslim tiki gosterilmez.
+    expect(find.byIcon(Icons.done_all), findsNothing);
+    expect(find.textContaining('Gizli taslak'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   setUpAll(() async {
     for (final font in {
       'Inter': 'assets/fonts/inter_regular.ttf',

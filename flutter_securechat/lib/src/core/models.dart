@@ -34,6 +34,7 @@ class Conversation {
     this.isExportEnabled = false,
     this.groupDescription,
     this.groupPhoto,
+    this.draft,
   });
 
   final String id;
@@ -68,6 +69,9 @@ class Conversation {
   /// Grup fotografi (base64 JPEG/PNG); yoksa null.
   final String? groupPhoto;
 
+  /// Gonderilmemis metin taslagi; yoksa null.
+  final String? draft;
+
   bool get hasUnread => unreadCount > 0 || manuallyUnread;
 
   bool hasLeftGroup(String? userId) =>
@@ -96,6 +100,7 @@ class Conversation {
     bool? isExportEnabled,
     Object? groupDescription = _unchanged,
     Object? groupPhoto = _unchanged,
+    Object? draft = _unchanged,
   }) {
     return Conversation(
       id: id,
@@ -128,6 +133,7 @@ class Conversation {
       groupPhoto: identical(groupPhoto, _unchanged)
           ? this.groupPhoto
           : groupPhoto as String?,
+      draft: identical(draft, _unchanged) ? this.draft : draft as String?,
     );
   }
 
@@ -155,6 +161,7 @@ class Conversation {
     isExportEnabled: json['isExportEnabled'] as bool? ?? false,
     groupDescription: json['groupDescription'] as String?,
     groupPhoto: json['groupPhoto'] as String?,
+    draft: json['draft'] as String?,
   );
 
   Map<String, Object?> toJson() => {
@@ -179,6 +186,7 @@ class Conversation {
     'isExportEnabled': isExportEnabled,
     if (groupDescription != null) 'groupDescription': groupDescription,
     if (groupPhoto != null) 'groupPhoto': groupPhoto,
+    if (draft != null) 'draft': draft,
   };
 }
 

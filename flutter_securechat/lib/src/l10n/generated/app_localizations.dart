@@ -4517,6 +4517,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Change group photo'**
   String get group_photo_change;
+
+  /// Chat list preview for a conversation with an unsent draft.
+  ///
+  /// In en, this message translates to:
+  /// **'Draft: {text}'**
+  String conversation_draft_preview(String text);
 }
 
 class _AppLocalizationsDelegate

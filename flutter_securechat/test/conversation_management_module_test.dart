@@ -32,6 +32,33 @@ void main() {
     expect(raw, isNot(contains('Alice')));
   });
 
+  test('a draft is stored encrypted and cleared when blank', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+
+    expect(await fixture.repository.loadDraft('alice'), isNull);
+    await fixture.repository.saveDraft('alice', 'Yarın gizli buluşma');
+    expect(await fixture.repository.loadDraft('alice'), 'Yarın gizli buluşma');
+    expect(
+      (await fixture.repository.watchConversations().first).single.draft,
+      'Yarın gizli buluşma',
+    );
+    final raw = await storageAtRest(fixture.databaseFile);
+    expect(raw, isNot(contains('gizli')));
+
+    await fixture.repository.saveDraft('alice', '   \n ');
+    expect(await fixture.repository.loadDraft('alice'), isNull);
+    final long = 'a' * (maxDraftLength + 50);
+    await fixture.repository.saveDraft('alice', long);
+    expect(
+      (await fixture.repository.loadDraft('alice'))!.length,
+      maxDraftLength,
+    );
+    // Bilinmeyen sohbet icin taslak sessizce yok sayilir.
+    await fixture.repository.saveDraft('missing', 'x');
+    expect(await fixture.repository.loadDraft('missing'), isNull);
+  });
+
   test('deleting a conversation removes its local message rows', () async {
     final fixture = await _Fixture.open();
     addTearDown(fixture.close);

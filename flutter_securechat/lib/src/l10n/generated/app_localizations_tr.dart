@@ -2458,4 +2458,9 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get group_photo_change => 'Grup fotoğrafını değiştir';
+
+  @override
+  String conversation_draft_preview(String text) {
+    return 'Taslak: $text';
+  }
 }

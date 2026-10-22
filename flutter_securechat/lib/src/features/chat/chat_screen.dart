@@ -112,6 +112,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Map<String, ContactIdentity> _groupIdentities = const {};
   MentionQuery? _mentionQuery;
 
+  /// Taslak, ekran kapanirken (context artik kullanilamazken) de yazilir.
+  ConversationRepository? _draftRepository;
+
+  /// Taslagi okunmus sohbet. Okuma bitmeden cikilirsa bos kutu kayitli
+  /// taslagin uzerine yazilmamali.
+  String? _draftLoadedFor;
+
   /// Secilen bahsetmeler: kullanici kimligi -> metne yazilan ad.
   final Map<String, String> _pickedMentions = {};
   bool _accessGranted = false;
@@ -137,6 +144,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _notificationRuntime?.coordinator.clearActiveConversation(this);
     final stopTyping = _stopTyping;
     if (stopTyping != null) unawaited(stopTyping());
+    final open = _conversation;
+    if (open != null) _persistDraft(open.id);
     _highlightTimer?.cancel();
     _composerScrollTimer?.cancel();
     _messageExpiryTimer?.cancel();
@@ -162,6 +171,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         );
     if (_conversation?.id != routeConversation.id) {
       final container = AppContainerScope.of(context);
+      // Onceki sohbetin yarim metni o sohbete taslak olarak kalir.
+      final previous = _conversation;
+      if (previous != null) {
+        _persistDraft(previous.id);
+        _input.clear();
+      }
+      _draftRepository = container.conversations;
+      unawaited(_restoreDraft(container.conversations, routeConversation.id));
       _conversation = routeConversation;
       _peerBlocked = false;
       _peerUnknown = false;
@@ -1214,6 +1231,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _persistDraft(String conversationId) {
+    final repo = _draftRepository;
+    if (repo == null || _draftLoadedFor != conversationId) return;
+    // Cikis sirasinda veritabani kapanmis olabilir; taslak kaybi uygulamayi
+    // dusurmemeli.
+    unawaited(repo.saveDraft(conversationId, _input.text).onError((_, _) {}));
+  }
+
+  Future<void> _restoreDraft(
+    ConversationRepository repo,
+    String conversationId,
+  ) async {
+    final String? draft;
+    try {
+      draft = await repo.loadDraft(conversationId);
+    } catch (_) {
+      return;
+    }
+    if (!mounted || _conversation?.id != conversationId) return;
+    _draftLoadedFor = conversationId;
+    if (draft == null || _input.text.isNotEmpty) return;
+    setState(() {
+      _input.value = TextEditingValue(
+        text: draft!,
+        selection: TextSelection.collapsed(offset: draft.length),
+      );
+    });
+  }
+
   void _updateMentionQuery(Conversation conversation) {
     final query = conversation.isGroup
         ? activeMentionQuery(_input.value)
@@ -1263,6 +1309,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ? resolveMentionedUserIds(text, _pickedMentions)
         : const <String>[];
     _input.clear();
+    // Uygulama gonderimden hemen sonra kapanirsa eski taslak geri gelmemeli.
+    unawaited(repo.saveDraft(conversation.id, null).onError((_, _) {}));
     setState(() {
       _replying = null;
       _showAttachments = false;
@@ -1371,6 +1419,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!mounted) return;
     _syncNotificationVisibility();
+    // Uygulama arka planda kapatilabilir; taslak o ana kadar yazilmis olmali.
+    if ((state == AppLifecycleState.paused ||
+            state == AppLifecycleState.hidden) &&
+        _conversation != null) {
+      _persistDraft(_conversation!.id);
+    }
     if (state == AppLifecycleState.resumed && _conversation != null) {
       unawaited(_markReadSafely(_conversation!.id));
       if (_awaitingContactAdd) {

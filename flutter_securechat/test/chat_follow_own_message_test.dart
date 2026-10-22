@@ -72,4 +72,47 @@ void main() {
     expect(position.pixels, closeTo(position.maxScrollExtent, 1));
     expect(find.text('Kendi mesajım'), findsOneWidget);
   });
+
+  testWidgets('a draft survives leaving the chat and clears on send', (
+    tester,
+  ) async {
+    final container = createWidgetTestContainer();
+    final repository =
+        container.conversations as InMemoryConversationRepository;
+    await repository.saveDraft('peer-ayse', 'Yarım kalan');
+    Widget app() => AppContainerScope(
+      container: container,
+      child: const MaterialApp(
+        locale: Locale('tr'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ChatScreen(),
+      ),
+    );
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    final field = find.byType(TextField).last;
+    expect(tester.widget<TextField>(field).controller!.text, 'Yarım kalan');
+
+    await tester.enterText(field, 'Yarım kalan mesaj, devamı');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    expect(
+      await repository.loadDraft('peer-ayse'),
+      'Yarım kalan mesaj, devamı',
+    );
+
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+      'Yarım kalan mesaj, devamı',
+    );
+    await tester.tap(find.byIcon(Icons.send).last);
+    await tester.pumpAndSettle();
+    expect(await repository.loadDraft('peer-ayse'), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    expect(await repository.loadDraft('peer-ayse'), isNull);
+  });
 }
