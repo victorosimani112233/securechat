@@ -47,6 +47,11 @@ class SecureChatDatabase {
   /// Hata enjeksiyon testleri icin depoya erisim.
   @visibleForTesting
   EncryptedRecordStore get store => _store;
+
+  /// YALNIZCA TEST: bellekte cozulmus duran mesaj sayisi. Mesajlar acilista
+  /// yuklenmedigini dogrulamak icin.
+  @visibleForTesting
+  int get debugLoadedMessageCount => _cachedSnapshot.messages._cache.length;
   _StorageSnapshot _cachedSnapshot;
   int? _snapshotVersion;
   bool _inWrite = false;
@@ -143,12 +148,12 @@ class SecureChatDatabase {
     // Depo acildiktan sonraki her hata yolunda native tanitici KAPATILMALI.
     // Bozuk bir depoda okuma hata verdiginde tanitici acik kaliyordu.
     final db = SecureChatDatabase._(
-      snapshot: _StorageSnapshot.empty(),
+      snapshot: _StorageSnapshot.empty(store: store),
       store: store,
     );
     try {
       final legacy = store.count() == 0
-          ? await _readLegacy(file, crypto)
+          ? await _readLegacy(file, crypto, store)
           : null;
       if (legacy != null) {
         await db._write((_) {
@@ -171,21 +176,33 @@ class SecureChatDatabase {
   Future<void> _repairConversationPreviews() => _write(_repairPreviewSnapshot);
 
   void _repairPreviewSnapshot(_StorageSnapshot snapshot) {
-    final latest = <String, MessageEntity>{};
-    for (final stored in snapshot.messages.values) {
-      var message = stored;
-      // Legacy group status cannot prove delivery to every original recipient.
-      if (message.isOutgoing &&
-          snapshot.conversations[message.conversationId]?.isGroup == true &&
+    // Legacy group status cannot prove delivery to every original recipient.
+    // Yalniz aday satirlar okunur; butun gecmisi taramaya gerek yok.
+    for (final message in snapshot.messages.select(
+      sqlWhere:
+          "json_extract(data, '\$.isOutgoing') = 1 AND "
+          "json_extract(data, '\$.status') IN ('delivered', 'read') AND "
+          "json_extract(data, '\$.receiptRecipients') IS NULL",
+      test: (message) =>
+          message.isOutgoing &&
           message.receiptRecipients == null &&
           (message.status == StorageMessageStatus.delivered ||
-              message.status == StorageMessageStatus.read)) {
-        message = message.copyWith(status: StorageMessageStatus.sent);
-        snapshot.messages[message.id] = message;
+              message.status == StorageMessageStatus.read),
+    )) {
+      if (snapshot.conversations[message.conversationId]?.isGroup != true) {
+        continue;
       }
-      final previous = latest[message.conversationId];
-      if (previous == null || message.timestamp > previous.timestamp)
-        latest[message.conversationId] = message;
+      snapshot.messages[message.id] = message.copyWith(
+        status: StorageMessageStatus.sent,
+      );
+    }
+    // Her sohbetin son mesaji sohbet indeksinden okunur.
+    final latest = <String, MessageEntity>{};
+    for (final conversationId in snapshot.conversations.keys) {
+      final message = snapshot.messages
+          .select(conversationId: conversationId, newestFirst: true, limit: 1)
+          .firstOrNull;
+      if (message != null) latest[conversationId] = message;
     }
     final repairs = <String, ConversationEntity>{};
     for (final entry in latest.entries) {
@@ -215,6 +232,7 @@ class SecureChatDatabase {
   static Future<_StorageSnapshot?> _readLegacy(
     File file,
     LocalAeadCryptoService crypto,
+    EncryptedRecordStore store,
   ) async {
     if (!await file.exists()) return null;
     final envelope = await file.readAsString();
@@ -222,7 +240,7 @@ class SecureChatDatabase {
     final json =
         jsonDecode(await crypto.decryptStorageJson(envelope))
             as Map<String, Object?>;
-    return _StorageSnapshot.fromJson(json);
+    return _StorageSnapshot.fromJson(json, store: store);
   }
 
   static _StorageSnapshot _load(EncryptedRecordStore store) {
@@ -242,7 +260,8 @@ class SecureChatDatabase {
     };
     return _StorageSnapshot(
       conversations: byString('conversations', ConversationEntity.fromJson),
-      messages: byString('messages', MessageEntity.fromJson),
+      // Mesajlar acilista yuklenmez; bkz. _MessageTable.
+      messages: _MessageTable(store),
       contacts: byString('contacts', ContactEntity.fromJson),
       callLogs: byString('callLogs', CallLogEntity.fromJson),
       scheduledMessages: byString(
@@ -329,7 +348,7 @@ class SecureChatDatabase {
     }
     // Parse before entering the serialized write queue. A malformed backup
     // therefore cannot partially mutate the active database.
-    final replacement = _StorageSnapshot.fromJson(map);
+    final replacement = _StorageSnapshot.fromJson(map, store: _store);
     await _write((current) {
       validateBeforeCommit?.call();
       if (preserveLocalSecurityState) {
@@ -380,6 +399,7 @@ class SecureChatDatabase {
     }
     final replacement = _StorageSnapshot.fromJson(
       decoded.cast<String, Object?>(),
+      store: _store,
     );
     replacement.cryptoState[legacyRoomImportMarker] = 'true';
     await _write((current) {
@@ -401,7 +421,7 @@ class SecureChatDatabase {
   /// Clears every logical table in one serialized, atomically persisted
   /// snapshot replacement. The database file remains valid and encrypted.
   Future<void> clearAll() => _write((_) {
-    _snapshot = _StorageSnapshot.empty();
+    _snapshot = _StorageSnapshot.empty(store: _store);
     _fullReset = true;
   });
 
@@ -594,12 +614,14 @@ class SecureChatDatabase {
   void _persist() {
     final upserts = <String, Map<String, Map<String, Object?>>>{};
     final deletions = <String, Set<String>>{};
+    final cleared = <String>{};
     for (final collection in _snapshot.tracked) {
-      collection.collect(upserts, deletions);
+      collection.collect(upserts, deletions, cleared);
     }
     _store.applyChanges(
       upserts: upserts,
       deletions: deletions,
+      clearedCollections: cleared,
       clearFirst: _fullReset,
     );
   }
@@ -658,7 +680,7 @@ class ConversationDao {
   );
   Future<void> delete(String conversationId) => _db._write((s) {
     s.conversations.remove(conversationId);
-    s.messages.removeWhere((_, m) => m.conversationId == conversationId);
+    s.messages.removeWhere(conversationId: conversationId);
   });
   Future<void> deleteLocalHistory(
     String conversationId, {
@@ -677,9 +699,7 @@ class ConversationDao {
     } else {
       s.conversations.remove(conversationId);
     }
-    s.messages.removeWhere(
-      (_, message) => message.conversationId == conversationId,
-    );
+    s.messages.removeWhere(conversationId: conversationId);
   });
   Future<void> completeLocalGroupLeave(String groupId, String userId) =>
       _db._write((s) {
@@ -818,9 +838,7 @@ class ConversationDao {
   Future<MessageEntity?> _latest(String conversationId) async => _db
       ._snapshot
       .messages
-      .values
-      .where((m) => m.conversationId == conversationId)
-      .sortedBy((m) => -m.timestamp)
+      .select(conversationId: conversationId, newestFirst: true, limit: 1)
       .firstOrNull;
 
   Future<void> _patch(
@@ -844,23 +862,32 @@ class MessageDao {
   MessageDao._(this._db);
   final SecureChatDatabase _db;
 
-  Stream<List<MessageEntity>> getMessages(String conversationId) => _db._watch(
-    (s) => s.messages.values
-        .where((m) => m.conversationId == conversationId)
-        .sortedBy((m) => m.timestamp),
-  );
+  Stream<List<MessageEntity>> getMessages(String conversationId) =>
+      _db._watch((s) => s.messages.select(conversationId: conversationId));
   Future<List<MessageEntity>> getMessagesImmediate(
     String conversationId,
-  ) async => _db._snapshot.messages.values
-      .where((message) => message.conversationId == conversationId)
-      .sortedBy((message) => message.timestamp);
+  ) async => _db._snapshot.messages.select(conversationId: conversationId);
+
+  /// Sohbetin en yeni [limit] mesaji, eskiden yeniye sirali. Sohbet ekrani
+  /// gecmisi sayfa sayfa acar; tamamini okumaz.
+  Stream<List<MessageEntity>> getLatestPage(String conversationId, int limit) =>
+      _db._watch(
+        (s) => s.messages
+            .select(
+              conversationId: conversationId,
+              newestFirst: true,
+              limit: limit,
+            )
+            .reversed
+            .toList(growable: false),
+      );
   Stream<List<MessageEntity>> getRecentMessages(String id, int limit) =>
       _db._watch(
-        (s) => s.messages.values
-            .where((m) => m.conversationId == id)
-            .sortedBy((m) => -m.timestamp)
-            .take(limit)
-            .toList(),
+        (s) => s.messages.select(
+          conversationId: id,
+          newestFirst: true,
+          limit: limit,
+        ),
       );
   Future<void> insert(MessageEntity message) =>
       _db._write((s) => s.messages[message.id] = message);
@@ -1000,35 +1027,43 @@ class MessageDao {
   });
   Future<MessageEntity?> getById(String id) async => _db._snapshot.messages[id];
   Future<void> delete(String id) => _db._write((s) => s.messages.remove(id));
-  Future<void> deleteByConversation(String conversationId) => _db._write(
-    (s) => s.messages.removeWhere((_, m) => m.conversationId == conversationId),
-  );
+  Future<void> deleteByConversation(String conversationId) =>
+      _db._write((s) => s.messages.removeWhere(conversationId: conversationId));
   Stream<int> getUnreadCount(String conversationId) => _db._watch(
-    (s) => s.messages.values
-        .where(
-          (m) =>
-              m.conversationId == conversationId &&
-              !m.isOutgoing &&
-              m.status != StorageMessageStatus.read,
+    (s) => s.messages
+        .select(
+          conversationId: conversationId,
+          sqlWhere:
+              "json_extract(data, '\$.isOutgoing') = 0 AND "
+              "json_extract(data, '\$.status') != 'read'",
+          test: (m) => !m.isOutgoing && m.status != StorageMessageStatus.read,
         )
         .length,
   );
-  Future<void> deleteOlderThan(int cutoff) =>
-      _db._write((s) => s.messages.removeWhere((_, m) => m.timestamp < cutoff));
+  Future<void> deleteOlderThan(int cutoff) => _db._write(
+    (s) => s.messages.removeWhere(
+      sqlWhere: "json_extract(data, '\$.timestamp') < ?",
+      args: [cutoff],
+      test: (m) => m.timestamp < cutoff,
+    ),
+  );
   Future<void> updateContent(
     String id,
     String content,
     StorageMessageContentType type,
   ) => _patch(id, (m) => m.copyWith(content: content, contentType: type));
   Future<List<MessageEntity>> getAllMessages() async =>
-      _db._snapshot.messages.values.sortedBy((m) => m.timestamp);
+      _db._snapshot.messages.all();
   Future<List<MessageEntity>> getMessagesPaginated(
     String conversationId,
     int limit,
     int offset,
-  ) async => _db._snapshot.messages.values
-      .where((m) => m.conversationId == conversationId)
-      .sortedBy((m) => -m.timestamp)
+  ) async => _db._snapshot.messages
+      .select(
+        conversationId: conversationId,
+        newestFirst: true,
+        limit: limit + offset,
+      )
       .skip(offset)
       .take(limit)
       .toList();
@@ -1036,21 +1071,19 @@ class MessageDao {
     String conversationId,
     int beforeTimestamp,
     int limit,
-  ) async => _db._snapshot.messages.values
-      .where((m) => m.conversationId == conversationId)
-      .where((m) => m.timestamp < beforeTimestamp)
-      .sortedBy((m) => -m.timestamp)
-      .take(limit)
-      .toList();
-  Future<int> getMessageCount(String conversationId) async => _db
-      ._snapshot
-      .messages
-      .values
-      .where((m) => m.conversationId == conversationId)
-      .length;
+  ) async => _db._snapshot.messages.select(
+    conversationId: conversationId,
+    sqlWhere: "json_extract(data, '\$.timestamp') < ?",
+    args: [beforeTimestamp],
+    test: (m) => m.timestamp < beforeTimestamp,
+    newestFirst: true,
+    limit: limit,
+  );
+  Future<int> getMessageCount(String conversationId) async =>
+      _db._snapshot.messages.countInConversation(conversationId);
   Future<List<MessageEntity>> getMessagesBatch(int limit, int offset) async =>
-      _db._snapshot.messages.values
-          .sortedBy((m) => m.timestamp)
+      _db._snapshot.messages
+          .select(limit: limit + offset)
           .skip(offset)
           .take(limit)
           .toList();
@@ -1154,28 +1187,33 @@ class MessageDao {
   );
   Future<void> updateStarred(String id, bool isStarred) =>
       _patch(id, (m) => m.copyWith(isStarred: isStarred));
+  static const _starredSql = "json_extract(data, '\$.isStarred') = 1";
+  static const _fileLikeSql =
+      "json_extract(data, '\$.contentType') IN ('file', 'image', 'voiceNote')";
+
   Stream<List<MessageEntity>> getStarredMessages(String conversationId) =>
       _db._watch(
-        (s) => s.messages.values
-            .where(
-              (m) =>
-                  m.conversationId == conversationId &&
-                  m.isStarred &&
-                  _canBrowse(m),
-            )
-            .sortedBy((m) => -m.timestamp),
+        (s) => s.messages.select(
+          conversationId: conversationId,
+          sqlWhere: _starredSql,
+          test: (m) => m.isStarred && _canBrowse(m),
+          newestFirst: true,
+        ),
       );
   Stream<List<MessageEntity>> getAllStarredMessages() => _db._watch(
-    (s) => s.messages.values
-        .where((m) => m.isStarred && _canBrowse(m))
-        .sortedBy((m) => -m.timestamp),
+    (s) => s.messages.select(
+      sqlWhere: _starredSql,
+      test: (m) => m.isStarred && _canBrowse(m),
+      newestFirst: true,
+    ),
   );
   Stream<List<MessageEntity>> searchMessages(String conversationId, String q) =>
       _db._watch(
-        (s) => s.messages.values
-            .where((m) => m.conversationId == conversationId)
-            .where((m) => _matchesSearch(m, q))
-            .sortedBy((m) => -m.timestamp),
+        (s) => s.messages.select(
+          conversationId: conversationId,
+          test: (m) => _matchesSearch(m, q),
+          newestFirst: true,
+        ),
       );
   Future<List<MessageEntity>> searchAllMessages(
     String q, {
@@ -1183,38 +1221,37 @@ class MessageDao {
   }) async {
     final clean = q.trim().toLowerCase();
     if (clean.length < 2 || limit <= 0) return const [];
-    return _db._snapshot.messages.values
-        .where((m) => _matchesSearch(m, clean))
-        .sortedBy((m) => -m.timestamp)
+    return _db._snapshot.messages
+        .select(test: (m) => _matchesSearch(m, clean), newestFirst: true)
         .take(limit)
         .toList();
   }
 
   Stream<List<MessageEntity>> getMediaMessages(String conversationId) =>
       _db._watch(
-        (s) => s.messages.values
-            .where((m) => m.conversationId == conversationId)
-            .where((m) => _canBrowse(m) && _isMedia(m))
-            .sortedBy((m) => -m.timestamp),
+        (s) => s.messages.select(
+          conversationId: conversationId,
+          sqlWhere: _fileLikeSql,
+          test: (m) => _canBrowse(m) && _isMedia(m),
+          newestFirst: true,
+        ),
       );
   Stream<List<MessageEntity>> getDocumentMessages(String conversationId) =>
       _db._watch(
-        (s) => s.messages.values
-            .where((m) => m.conversationId == conversationId)
-            .where(
-              (m) =>
-                  m.contentType == StorageMessageContentType.file &&
-                  _canBrowse(m) &&
-                  !_isMedia(m),
-            )
-            .sortedBy((m) => -m.timestamp),
+        (s) => s.messages.select(
+          conversationId: conversationId,
+          sqlWhere: "json_extract(data, '\$.contentType') = 'file'",
+          test: (m) =>
+              m.contentType == StorageMessageContentType.file &&
+              _canBrowse(m) &&
+              !_isMedia(m),
+          newestFirst: true,
+        ),
       );
   Future<int> deleteExpiredMessages(int now) async {
     var deleted = 0;
     await _db._write((s) {
-      final expired = s.messages.values
-          .where((m) => m.expiresAt != null && m.expiresAt! <= now)
-          .toList(growable: false);
+      final expired = _expired(s, now, inclusive: true);
       if (expired.isEmpty) return;
       final affectedConversations = expired
           .map((message) => message.conversationId)
@@ -1225,9 +1262,8 @@ class MessageDao {
       for (final conversationId in affectedConversations) {
         final conversation = s.conversations[conversationId];
         if (conversation == null) continue;
-        final remaining = s.messages.values
-            .where((message) => message.conversationId == conversationId)
-            .sortedBy((message) => -message.timestamp)
+        final remaining = s.messages
+            .select(conversationId: conversationId, newestFirst: true, limit: 1)
             .firstOrNull;
         s.conversations[conversationId] = remaining == null
             ? _withoutLastMessage(conversation)
@@ -1247,28 +1283,35 @@ class MessageDao {
     return deleted;
   }
 
-  Future<List<String>> getExpiredConversationIds(int now) async => _db
-      ._snapshot
-      .messages
-      .values
-      .where((m) => m.expiresAt != null && m.expiresAt! < now)
-      .map((m) => m.conversationId)
-      .toSet()
-      .toList();
-  Future<List<String>> getExpiredMediaContents(int now) async => _db
-      ._snapshot
-      .messages
-      .values
-      .where((m) => m.expiresAt != null && m.expiresAt! < now)
-      .where(_isFileLike)
-      .map((m) => m.content)
-      .toList();
+  Future<List<String>> getExpiredConversationIds(int now) async => _expired(
+    _db._snapshot,
+    now,
+    inclusive: false,
+  ).map((m) => m.conversationId).toSet().toList();
+  Future<List<String>> getExpiredMediaContents(int now) async => _expired(
+    _db._snapshot,
+    now,
+    inclusive: false,
+  ).where(_isFileLike).map((m) => m.content).toList();
+
+  /// Suresi dolmus mesajlar; yalniz `expiresAt` dolu satirlar okunur.
+  static List<MessageEntity> _expired(
+    _StorageSnapshot s,
+    int now, {
+    required bool inclusive,
+  }) => s.messages.select(
+    sqlWhere: inclusive
+        ? "json_extract(data, '\$.expiresAt') <= ?"
+        : "json_extract(data, '\$.expiresAt') < ?",
+    args: [now],
+    test: (m) =>
+        m.expiresAt != null &&
+        (inclusive ? m.expiresAt! <= now : m.expiresAt! < now),
+  );
   Future<MessageEntity?> getLatestMessage(String conversationId) async => _db
       ._snapshot
       .messages
-      .values
-      .where((m) => m.conversationId == conversationId)
-      .sortedBy((m) => -m.timestamp)
+      .select(conversationId: conversationId, newestFirst: true, limit: 1)
       .firstOrNull;
   Future<int> applyRetroactiveExpiry(
     String conversationId,
@@ -1278,41 +1321,49 @@ class MessageDao {
   ) async {
     var count = 0;
     await _db._write((s) {
-      for (final entry in s.messages.entries.toList()) {
-        final m = entry.value;
-        if (m.conversationId == conversationId &&
+      for (final m in s.messages.select(
+        conversationId: conversationId,
+        sqlWhere:
+            "json_extract(data, '\$.timestamp') BETWEEN ? AND ? AND "
+            "json_extract(data, '\$.expiresAt') IS NULL",
+        args: [windowStart, now],
+        test: (m) =>
             !m.isOutgoing &&
             m.expiresAt == null &&
             m.timestamp >= windowStart &&
-            m.timestamp <= now) {
-          s.messages[entry.key] = m.copyWith(expiresAt: m.timestamp + duration);
-          count++;
-        }
+            m.timestamp <= now,
+      )) {
+        s.messages[m.id] = m.copyWith(expiresAt: m.timestamp + duration);
+        count++;
       }
     });
     return count;
   }
 
+  static const _sendingSql =
+      "json_extract(data, '\$.status') = 'sending' AND "
+      "json_extract(data, '\$.timestamp') < ?";
+
   Future<List<MessageEntity>> getStuckSendingMessages(int olderThan) async =>
-      _db._snapshot.messages.values
-          .where(
-            (m) =>
-                m.status == StorageMessageStatus.sending &&
-                m.isOutgoing &&
-                m.timestamp < olderThan,
-          )
-          .toList();
+      _db._snapshot.messages.select(
+        sqlWhere: _sendingSql,
+        args: [olderThan],
+        test: (m) =>
+            m.status == StorageMessageStatus.sending &&
+            m.isOutgoing &&
+            m.timestamp < olderThan,
+      );
   Future<int> markStuckMessagesAsFailed(int cutoff) async {
     var count = 0;
     await _db._write((s) {
-      for (final entry in s.messages.entries.toList()) {
-        final m = entry.value;
-        if (m.status == StorageMessageStatus.sending && m.timestamp < cutoff) {
-          s.messages[entry.key] = m.copyWith(
-            status: StorageMessageStatus.failed,
-          );
-          count++;
-        }
+      for (final m in s.messages.select(
+        sqlWhere: _sendingSql,
+        args: [cutoff],
+        test: (m) =>
+            m.status == StorageMessageStatus.sending && m.timestamp < cutoff,
+      )) {
+        s.messages[m.id] = m.copyWith(status: StorageMessageStatus.failed);
+        count++;
       }
     });
     return count;
@@ -1356,13 +1407,15 @@ class MessageDao {
       final now = DateTime.now().millisecondsSinceEpoch;
       if (isPinned &&
           (!_canPin(current, now) ||
-              s.messages.values.any(
-                (other) =>
-                    other.id != id &&
-                    other.conversationId == current.conversationId &&
-                    other.isPinned &&
-                    _canPin(other, now),
-              ))) {
+              s.messages
+                  .select(
+                    conversationId: current.conversationId,
+                    sqlWhere: _pinnedSql,
+                    test: (other) =>
+                        other.id != id && other.isPinned && _canPin(other, now),
+                    limit: 1,
+                  )
+                  .isNotEmpty)) {
         return;
       }
       result = (accepted: true, wasPinned: current.isPinned);
@@ -1378,32 +1431,49 @@ class MessageDao {
       message.contentType != StorageMessageContentType.deleted &&
       (message.expiresAt == null || message.expiresAt! > now);
 
+  static const _pinnedSql = "json_extract(data, '\$.isPinned') = 1";
+
   Stream<MessageEntity?> observeLatestPinned(String conversationId) =>
       _db._watch(
-        (s) => s.messages.values
-            .where((m) => m.conversationId == conversationId)
-            .where((m) => m.isPinned && m.pinnedAt != null)
-            .where((m) => _canPin(m, DateTime.now().millisecondsSinceEpoch))
+        (s) => s.messages
+            .select(
+              conversationId: conversationId,
+              sqlWhere: _pinnedSql,
+              test: (m) =>
+                  m.isPinned &&
+                  m.pinnedAt != null &&
+                  _canPin(m, DateTime.now().millisecondsSinceEpoch),
+            )
             .sortedBy((m) => -m.pinnedAt!)
             .firstOrNull,
       );
   Stream<List<MessageEntity>> getPinnedMessages(String conversationId) =>
       _db._watch(
-        (s) => s.messages.values
-            .where((m) => m.conversationId == conversationId && m.isPinned)
-            .where((m) => _canPin(m, DateTime.now().millisecondsSinceEpoch))
+        (s) => s.messages
+            .select(
+              conversationId: conversationId,
+              sqlWhere: _pinnedSql,
+              test: (m) =>
+                  m.isPinned &&
+                  _canPin(m, DateTime.now().millisecondsSinceEpoch),
+            )
             .sortedBy((m) => -(m.pinnedAt ?? 0)),
       );
   Future<List<String>> getFileContentsByConversation(
     String conversationId,
-  ) async => _db._snapshot.messages.values
-      .where((m) => m.conversationId == conversationId)
-      .where(_isFileLike)
+  ) async => _db._snapshot.messages
+      .select(
+        conversationId: conversationId,
+        sqlWhere: _fileLikeSql,
+        test: _isFileLike,
+      )
       .map((m) => m.content)
       .toList();
   Future<void> deleteMediaByConversation(String conversationId) => _db._write(
     (s) => s.messages.removeWhere(
-      (_, m) => m.conversationId == conversationId && _isFileLike(m),
+      conversationId: conversationId,
+      sqlWhere: _fileLikeSql,
+      test: _isFileLike,
     ),
   );
 
@@ -1959,7 +2029,7 @@ class VodozemacInboundGroupSessionDao {
 class _StorageSnapshot {
   _StorageSnapshot({
     required Map<String, ConversationEntity> conversations,
-    required Map<String, MessageEntity> messages,
+    required this.messages,
     required Map<String, ContactEntity> contacts,
     required Map<String, CallLogEntity> callLogs,
     required Map<String, ScheduledMessageEntity> scheduledMessages,
@@ -1981,12 +2051,6 @@ class _StorageSnapshot {
   }) : conversations = _TrackedMap(
          'conversations',
          conversations,
-         (value) => value.toJson(),
-         (key) => key,
-       ),
-       messages = _TrackedMap(
-         'messages',
-         messages,
          (value) => value.toJson(),
          (key) => key,
        ),
@@ -2094,7 +2158,7 @@ class _StorageSnapshot {
        );
 
   final _TrackedMap<String, ConversationEntity> conversations;
-  final _TrackedMap<String, MessageEntity> messages;
+  final _MessageTable messages;
   final _TrackedMap<String, ContactEntity> contacts;
   final _TrackedMap<String, CallLogEntity> callLogs;
   final _TrackedMap<String, ScheduledMessageEntity> scheduledMessages;
@@ -2168,39 +2232,42 @@ class _StorageSnapshot {
       vodozemacGroupSessions.isEmpty &&
       vodozemacInboundGroupSessions.isEmpty;
 
-  factory _StorageSnapshot.empty() => _StorageSnapshot(
-    conversations: {},
-    messages: {},
-    contacts: {},
-    callLogs: {},
-    scheduledMessages: {},
-    scheduledMessageHistory: {},
-    exportLogs: {},
-    pendingTimerUpdates: {},
-    identities: {},
-    preKeys: {},
-    signedPreKeys: {},
-    sessions: {},
-    senderKeys: {},
-    cryptoState: {},
-    pendingSignals: {},
-    vodozemacAccount: {},
-    vodozemacSessions: {},
-    vodozemacGroupSessions: {},
-    vodozemacInboundGroupSessions: {},
-  );
+  factory _StorageSnapshot.empty({required EncryptedRecordStore? store}) =>
+      _StorageSnapshot(
+        conversations: {},
+        messages: _MessageTable.detached(store),
+        contacts: {},
+        callLogs: {},
+        scheduledMessages: {},
+        scheduledMessageHistory: {},
+        exportLogs: {},
+        pendingTimerUpdates: {},
+        identities: {},
+        preKeys: {},
+        signedPreKeys: {},
+        sessions: {},
+        senderKeys: {},
+        cryptoState: {},
+        pendingSignals: {},
+        vodozemacAccount: {},
+        vodozemacSessions: {},
+        vodozemacGroupSessions: {},
+        vodozemacInboundGroupSessions: {},
+      );
 
-  factory _StorageSnapshot.fromJson(Map<String, Object?> json) {
+  factory _StorageSnapshot.fromJson(
+    Map<String, Object?> json, {
+    required EncryptedRecordStore? store,
+  }) {
     return _StorageSnapshot(
       conversations: _mapByString(
         json['conversations'],
         ConversationEntity.fromJson,
         (e) => e.id,
       ),
-      messages: _mapByString(
-        json['messages'],
-        MessageEntity.fromJson,
-        (e) => e.id,
+      messages: _MessageTable.detached(
+        store,
+        _mapByString(json['messages'], MessageEntity.fromJson, (e) => e.id),
       ),
       contacts: _mapByString(
         json['contacts'],
@@ -2289,7 +2356,7 @@ class _StorageSnapshot {
   Map<String, Object?> toJson() => {
     'schema': 1,
     'conversations': conversations.values.map((e) => e.toJson()).toList(),
-    'messages': messages.values.map((e) => e.toJson()).toList(),
+    'messages': messages.all().map((e) => e.toJson()).toList(),
     'contacts': contacts.values.map((e) => e.toJson()).toList(),
     'callLogs': callLogs.values.map((e) => e.toJson()).toList(),
     'scheduledMessages': scheduledMessages.values
@@ -2365,6 +2432,7 @@ abstract interface class _Tracked {
   void collect(
     Map<String, Map<String, Map<String, Object?>>> upserts,
     Map<String, Set<String>> deletions,
+    Set<String> cleared,
   );
   void rollback();
   void commit();
@@ -2423,6 +2491,7 @@ class _TrackedMap<K, V> extends MapBase<K, V> implements _Tracked {
   void collect(
     Map<String, Map<String, Map<String, Object?>>> upserts,
     Map<String, Set<String>> deletions,
+    Set<String> cleared,
   ) {
     for (final key in _previous.keys) {
       final current = _inner[key];
@@ -2456,4 +2525,233 @@ class _TrackedMap<K, V> extends MapBase<K, V> implements _Tracked {
       _mark(key);
     }
   }
+}
+
+/// Mesaj koleksiyonu: acilista bellege YUKLENMEZ.
+///
+/// Onceki tasarimda butun mesaj gecmisi her acilista, her on plana donuste
+/// ve baska bir isolate (FCM, arka plan isi) her yazdiginda bastan okunup
+/// JSON'dan cozuluyordu; her yazmada da acik ekranlarin projeksiyonlari tum
+/// mesajlari tek tek tariyordu. Maliyet gecmisle buyuyordu. Artik kimlikle
+/// okuma ve sohbete gore sorgu SQL'den yapilir (sohbet + zaman kismi
+/// indeksi); bellekte yalniz cozulmus kayitlarin sinirli bir onbellegi durur.
+///
+/// Yazma islemi sirasinda yapilan degisiklikler commit'e kadar [_pending]
+/// icindedir ve her sorgunun sonucuna bindirilir; boylece ayni islemdeki
+/// sonraki okumalar onlari gorur. Geri alma yalniz bu bekleyenleri atar.
+///
+/// "Kopuk" tablo (yedekten geri yukleme, eski depo ice aktarimi, tum
+/// verinin silinmesi) diskteki satirlari gormez: o yazma butun depoyu
+/// zaten bastan yazar. Commit'ten sonra tablo diske baglanir.
+class _MessageTable implements _Tracked {
+  _MessageTable(this._store) : _detached = false;
+
+  _MessageTable.detached(this._store, [Map<String, MessageEntity>? seed])
+    : _detached = true {
+    if (seed != null) _pending.addAll(seed);
+  }
+
+  static const _conversationExpr = EncryptedRecordStore.messageConversationExpr;
+  static const _timestampExpr = EncryptedRecordStore.messageTimestampExpr;
+
+  /// Onbellek bu boyutu asinca bosaltilir; kayitlar gerekince yeniden okunur.
+  static const _cacheLimit = 5000;
+
+  final EncryptedRecordStore? _store;
+  final _cache = <String, MessageEntity>{};
+
+  /// Henuz commit edilmemis degisiklikler; `null` silinmis demektir.
+  final _pending = <String, MessageEntity?>{};
+  bool _detached;
+
+  /// Bu islemde [clear] cagrildi: diskteki satirlar gorunmez ve commit'te
+  /// koleksiyon diskten tek komutla silinir.
+  bool _clearPending = false;
+
+  bool get _diskVisible => _store != null && !_detached && !_clearPending;
+
+  @override
+  String get collection => 'messages';
+
+  @override
+  bool get hasChanges => _pending.isNotEmpty || _clearPending;
+
+  MessageEntity? operator [](String id) {
+    if (_pending.containsKey(id)) return _pending[id];
+    if (!_diskVisible) return null;
+    final cached = _cache[id];
+    if (cached != null) return cached;
+    final rows = _store!.query(
+      "SELECT data FROM records WHERE collection = 'messages' AND id = ?;",
+      [id],
+    );
+    if (rows.isEmpty) return null;
+    return _remember(id, rows.single['data']! as String);
+  }
+
+  void operator []=(String id, MessageEntity value) => _pending[id] = value;
+
+  MessageEntity? remove(String id) {
+    final current = this[id];
+    if (current != null) _pending[id] = null;
+    return current;
+  }
+
+  void clear() {
+    _pending.clear();
+    if (!_detached) _clearPending = true;
+  }
+
+  /// Kosula uyan mesajlar, zamana gore sirali.
+  ///
+  /// [sqlWhere] yalniz bir ON FILTREDIR (performans icin); karari her zaman
+  /// [test] verir, bu yuzden ikisi tutarsiz olsa bile sonuc dogru kalir.
+  /// [conversationId] verildiginde sohbet indeksi kullanilir.
+  List<MessageEntity> select({
+    String? conversationId,
+    String? sqlWhere,
+    List<Object?> args = const [],
+    bool Function(MessageEntity message)? test,
+    bool newestFirst = false,
+    int? limit,
+  }) {
+    if (limit != null && limit <= 0) return const [];
+    final found = <String, MessageEntity>{};
+    bool accept(MessageEntity message) =>
+        (conversationId == null || message.conversationId == conversationId) &&
+        (test == null || test(message));
+    if (_diskVisible) {
+      final where = ["collection = 'messages'"];
+      final params = <Object?>[];
+      if (conversationId != null) {
+        where.add('$_conversationExpr = ?');
+        params.add(conversationId);
+      }
+      if (sqlWhere != null) {
+        where.add('($sqlWhere)');
+        params.addAll(args);
+      }
+      final order = newestFirst ? 'DESC' : 'ASC';
+      // Bekleyen degisiklikler sonucu daraltabilir; limit o kadar genisletilir.
+      final sqlLimit = limit == null ? '' : ' LIMIT ${limit + _pending.length}';
+      final rows = _store!.query(
+        'SELECT id, data FROM records WHERE ${where.join(' AND ')} '
+        'ORDER BY $_timestampExpr $order$sqlLimit;',
+        params,
+      );
+      for (final row in rows) {
+        final id = row['id']! as String;
+        if (_pending.containsKey(id)) continue;
+        final message = _cache[id] ?? _remember(id, row['data']! as String);
+        if (accept(message)) found[id] = message;
+      }
+    }
+    for (final entry in _pending.entries) {
+      final message = entry.value;
+      if (message != null && accept(message)) found[entry.key] = message;
+    }
+    final sorted = found.values.toList()
+      ..sort(
+        (a, b) => newestFirst
+            ? b.timestamp.compareTo(a.timestamp)
+            : a.timestamp.compareTo(b.timestamp),
+      );
+    return limit == null || sorted.length <= limit
+        ? sorted
+        : sorted.sublist(0, limit);
+  }
+
+  /// Sohbetteki mesaj sayisi; bekleyen degisiklik yokken diskte sayilir.
+  int countInConversation(String conversationId) {
+    if (_pending.isEmpty && _diskVisible) {
+      return _store!.query(
+            "SELECT count(*) AS n FROM records WHERE collection = 'messages' "
+            'AND $_conversationExpr = ?;',
+            [conversationId],
+          ).single['n']!
+          as int;
+    }
+    return select(conversationId: conversationId).length;
+  }
+
+  bool get isEmpty => select(limit: 1).isEmpty;
+  bool get isNotEmpty => !isEmpty;
+
+  /// Kosula uyanlari siler; silinen sayisini dondurur.
+  int removeWhere({
+    String? conversationId,
+    String? sqlWhere,
+    List<Object?> args = const [],
+    bool Function(MessageEntity message)? test,
+  }) {
+    final matches = select(
+      conversationId: conversationId,
+      sqlWhere: sqlWhere,
+      args: args,
+      test: test,
+    );
+    for (final message in matches) {
+      _pending[message.id] = null;
+    }
+    return matches.length;
+  }
+
+  /// Yedek disa aktarimi icin butun mesajlar.
+  List<MessageEntity> all() => select();
+
+  /// Baska bir baglanti yazdi: onbellek artik guvenilir degil.
+  void invalidate() => _cache.clear();
+
+  MessageEntity _remember(String id, String data) {
+    final message = MessageEntity.fromJson(
+      (jsonDecode(data) as Map).cast<String, Object?>(),
+    );
+    if (_cache.length >= _cacheLimit) _cache.clear();
+    _cache[id] = message;
+    return message;
+  }
+
+  @override
+  void collect(
+    Map<String, Map<String, Map<String, Object?>>> upserts,
+    Map<String, Set<String>> deletions,
+    Set<String> cleared,
+  ) {
+    if (_clearPending) cleared.add(collection);
+    for (final entry in _pending.entries) {
+      final message = entry.value;
+      if (message == null) {
+        (deletions[collection] ??= <String>{}).add(entry.key);
+      } else {
+        (upserts[collection] ??= {})[entry.key] = message.toJson();
+      }
+    }
+  }
+
+  @override
+  void rollback() {
+    _pending.clear();
+    _clearPending = false;
+  }
+
+  @override
+  void commit() {
+    if (_clearPending || _detached) _cache.clear();
+    for (final entry in _pending.entries) {
+      final message = entry.value;
+      if (message == null) {
+        _cache.remove(entry.key);
+      } else if (_cache.length < _cacheLimit) {
+        _cache[entry.key] = message;
+      }
+    }
+    _pending.clear();
+    _clearPending = false;
+    _detached = false;
+  }
+
+  /// Kopuk tabloda kayitlar zaten bekleyenlerde; bagli tabloda diskteki
+  /// satirlar degismedigi icin yeniden yazmaya gerek yok.
+  @override
+  void markAll() {}
 }

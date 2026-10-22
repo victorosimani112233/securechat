@@ -54,6 +54,11 @@ class EncryptedRecordStore {
 
   /// Kayit tablosu: koleksiyon + kimlik basina bir satir, degeri entity JSON.
   ///
+  /// Mesajlar acilista bellege yuklenmez; sohbet ve zamana gore buradan
+  /// okunur. Bunun icin JSON alanlari uzerinde kismi bir ifade indeksi
+  /// tutulur, veri gocu gerekmez. Eski `records_collection_idx` birincil
+  /// anahtarin onekini tekrarliyordu; her yazmada bosuna guncelleniyordu.
+  ///
   /// Entity'lerin hepsinde zaten `toJson`/`fromJson` var; iliskisel bir sema
   /// cikarmak 14 koleksiyon icin sutun sutun esleme demekti ve bu gecisin
   /// riskini gereksiz yere buyuturdu. Yazma maliyetini dusuren sey satir
@@ -65,8 +70,19 @@ CREATE TABLE IF NOT EXISTS records (
   data       TEXT NOT NULL,
   PRIMARY KEY (collection, id)
 );
-CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
+DROP INDEX IF EXISTS records_collection_idx;
+CREATE INDEX IF NOT EXISTS records_message_timeline ON records (
+  json_extract(data, '\$.conversationId'),
+  json_extract(data, '\$.timestamp')
+) WHERE collection = 'messages';
 ''';
+
+  /// Mesaj indeksinin ifadeleri; sorgular bunlari BIREBIR kullanmali ve
+  /// `collection = 'messages'` kosulunu sabit metin olarak yazmali, yoksa
+  /// SQLite kismi indeksi secmez.
+  static const messageConversationExpr =
+      "json_extract(data, '\$.conversationId')";
+  static const messageTimestampExpr = "json_extract(data, '\$.timestamp')";
 
   static Future<EncryptedRecordStore> open({
     required File file,
@@ -229,6 +245,12 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
     };
   }
 
+  /// Okuma sorgusu. SQL sabit metindir; degerler [args] ile baglanir.
+  List<Map<String, Object?>> query(
+    String sql, [
+    List<Object?> args = const [],
+  ]) => [for (final row in _database.select(sql, args)) Map.of(row)];
+
   /// Connection-local counter: only commits from OTHER connections change it.
   int get dataVersion =>
       _database.select('PRAGMA data_version;').first.values.first as int;
@@ -287,11 +309,25 @@ CREATE INDEX IF NOT EXISTS records_collection_idx ON records (collection);
   void applyChanges({
     required Map<String, Map<String, Map<String, Object?>>> upserts,
     required Map<String, Set<String>> deletions,
+    Set<String> clearedCollections = const {},
     bool clearFirst = false,
   }) {
-    if (upserts.isEmpty && deletions.isEmpty && !clearFirst) return;
+    if (upserts.isEmpty &&
+        deletions.isEmpty &&
+        clearedCollections.isEmpty &&
+        !clearFirst) {
+      return;
+    }
     writeTransaction(() {
       if (clearFirst) _database.execute('DELETE FROM records;');
+      // Bellege yuklenmemis bir koleksiyonun tamami tek komutla silinir;
+      // kayit kayit silmek once hepsini okumayi gerektirirdi. Silme,
+      // ayni islemdeki yeni kayitlardan ONCE yapilir.
+      for (final collection in clearedCollections) {
+        _database.execute('DELETE FROM records WHERE collection = ?;', [
+          collection,
+        ]);
+      }
       // `INSERT OR REPLACE`, `ON CONFLICT ... DO UPDATE` yerine bilerek
       // kullanilir: UPSERT sozdizimi SQLite 3.24+ gerektirir ve test
       // ortamindaki sistem SQLCipher'i (3.4.1) bunu desteklemiyor. Tabloda
