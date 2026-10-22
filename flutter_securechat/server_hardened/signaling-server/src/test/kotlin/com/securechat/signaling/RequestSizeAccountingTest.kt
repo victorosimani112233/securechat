@@ -23,6 +23,18 @@ class RequestSizeAccountingTest {
             .joinToString("\n")
 
     @Test
+    fun `a message to a full group fits the websocket frame window`() {
+        val limit = RateLimiter.LIMITS.getValue("ws_message")
+        // 255 uyelik grupta tek mesaj: grup kaydi + gonderici anahtari + mesaj.
+        val fullGroupBurst = 3 * 255
+        assertTrue(limit.maxRequests >= fullGroupBurst)
+        // Istemcinin jeton kovasi (150 + 40/sn) pencereyi asmamali.
+        assertTrue(150 + 40 * limit.windowSeconds <= limit.maxRequests)
+        // Ortalama hiz eskisinden (50/sn) yuksek olmamali.
+        assertTrue(limit.maxRequests / limit.windowSeconds <= 50)
+    }
+
+    @Test
     fun `a multi byte body is four times larger than its character count`() {
         // Emoji: 1 karakter, 4 byte.
         val text = "🎉".repeat(1_000)

@@ -164,7 +164,12 @@ class WebSocketSignalingService implements SignalingService {
     PinnedWebSocketConnector? webSocketConnector,
     WebSocketTelemetry? telemetry,
     bool callCapable = true,
-  }) : _random = random ?? Random.secure(),
+    int frameBurst = defaultFrameBurst,
+    int framesPerSecond = defaultFramesPerSecond,
+  }) : _frameBurst = frameBurst,
+       _framesPerSecond = framesPerSecond,
+       _frameTokens = frameBurst.toDouble(),
+       _random = random ?? Random.secure(),
        _httpClient = httpClient,
        _webSocketConnector = webSocketConnector,
        _callCapable = callCapable,
@@ -211,6 +216,25 @@ class WebSocketSignalingService implements SignalingService {
   final _fileFrameClock = Stopwatch()..start();
   Future<void> _fileSendTail = Future.value();
   int _lastFileFrameMicros = -50000;
+
+  /// Tum cikan cercevelerin ortak hiz siniri (jeton kovasi).
+  ///
+  /// Sunucu bir hesabin 20 saniyede 1000 cerceveyi asmasina izin vermez ve
+  /// asan baglantiyi kapatir. Grup mesaji her uyeye ayri cerceveyle gider
+  /// (grup kaydi, gerekirse gonderici anahtari, mesaj): 255 uyelik grupta
+  /// tek mesaj 765 cerceveye cikabilir ve hepsi ayni anda yaziliyordu;
+  /// 50'den fazla uyeli gruba yazan kisinin baglantisi kopuyordu. Kova
+  /// [defaultFrameBurst] cerceveyi hemen gecirir, sonra saniyede
+  /// [defaultFramesPerSecond]; 20 saniyede en cok 950 cerceve eder.
+  /// Siralama korunur; gundelik kullanimda bekleme olmaz.
+  static const defaultFrameBurst = 150;
+  static const defaultFramesPerSecond = 40;
+  final int _frameBurst;
+  final int _framesPerSecond;
+  final _frameClock = Stopwatch()..start();
+  double _frameTokens;
+  int _frameTokensAtMicros = 0;
+  Future<void> _frameTail = Future.value();
   int _generation = 0;
   SignalingStatus _status = const SignalingStatus(
     SignalingConnectionState.disconnected,
@@ -482,14 +506,40 @@ class WebSocketSignalingService implements SignalingService {
           await Future<void>.delayed(Duration(microseconds: remaining));
         }
         if (_disposed || generation != _generation) return false;
-        final sent = _sendNow(message);
+        final sent = await _sendPaced(message, generation);
         _lastFileFrameMicros = _fileFrameClock.elapsedMicroseconds;
         return sent;
       });
       _fileSendTail = pending.then<void>((_) {}, onError: (_, _) {});
       return pending;
     }
-    return _sendNow(message);
+    return _sendPaced(message, _generation);
+  }
+
+  Future<bool> _sendPaced(SignalMessage message, int generation) {
+    final pending = _frameTail.then((_) async {
+      final wait = _takeFrameToken();
+      if (wait > Duration.zero) await Future<void>.delayed(wait);
+      if (_disposed || generation != _generation) return false;
+      return _sendNow(message);
+    });
+    _frameTail = pending.then<void>((_) {}, onError: (_, _) {});
+    return pending;
+  }
+
+  /// Bir jeton harcar; kova bossa jetonun dolmasi icin beklenecek sure.
+  Duration _takeFrameToken() {
+    final now = _frameClock.elapsedMicroseconds;
+    _frameTokens = min(
+      _frameBurst.toDouble(),
+      _frameTokens + (now - _frameTokensAtMicros) * _framesPerSecond / 1e6,
+    );
+    _frameTokensAtMicros = now;
+    _frameTokens -= 1;
+    if (_frameTokens >= 0) return Duration.zero;
+    return Duration(
+      microseconds: (-_frameTokens * 1e6 / _framesPerSecond).ceil(),
+    );
   }
 
   bool _sendNow(SignalMessage message) {

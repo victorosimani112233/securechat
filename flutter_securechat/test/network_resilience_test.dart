@@ -119,6 +119,66 @@ void main() {
     },
   );
 
+  test(
+    'a burst of frames is paced instead of tripping the server limit',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(server.close);
+      final received = <int>[];
+      final arrivals = <int>[];
+      final clock = Stopwatch()..start();
+      server.listen((request) async {
+        final socket = await WebSocketTransformer.upgrade(request);
+        addTearDown(socket.close);
+        socket.listen((event) {
+          final signal = SignalMessage.decode(event as String);
+          if (signal is EncryptedSignalMessage) {
+            received.add(int.parse(signal.envelope));
+            arrivals.add(clock.elapsedMilliseconds);
+          }
+        });
+      });
+      // Kucuk sinirlarla: 5 cerceve hemen, sonra saniyede 50.
+      final signaling = WebSocketSignalingService(
+        frameBurst: 5,
+        framesPerSecond: 50,
+      );
+      addTearDown(signaling.dispose);
+      await signaling.connect(
+        userId: 'me',
+        url: 'ws://${server.address.address}:${server.port}',
+        accessToken: 'token',
+      );
+      clock.reset();
+      // Buyuk bir gruba tek mesaj: her uyeye ayri cerceve.
+      final sends = [
+        for (var index = 0; index < 30; index++)
+          signaling.send(
+            EncryptedSignalMessage(
+              senderId: 'me',
+              recipientId: 'member-$index',
+              timestamp: DateTime.now(),
+              envelope: '$index',
+            ),
+          ),
+      ];
+      expect(await Future.wait(sends), everyElement(isTrue));
+      // 25 cerceve kovanin dolmasini bekler: en az ~0,5 sn.
+      expect(clock.elapsedMilliseconds, greaterThanOrEqualTo(450));
+      for (var attempt = 0; attempt < 50 && received.length < 30; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(received, List.generate(30, (index) => index));
+      // Hicbir 100 ms'lik dilimde kovanin izin verdiginden fazlasi yok.
+      for (final start in arrivals) {
+        final inWindow = arrivals
+            .where((time) => time >= start && time < start + 100)
+            .length;
+        expect(inWindow, lessThanOrEqualTo(5 + 5 + 1));
+      }
+    },
+  );
+
   test('offline queue refuses non-encrypted transient signals', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);

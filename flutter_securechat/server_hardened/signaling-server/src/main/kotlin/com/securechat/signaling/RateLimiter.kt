@@ -38,7 +38,11 @@ object RateLimiter {
         // Upload + refresh yazma yolu; sinirsizken tek hesap one_time_prekeys
         // tablosunu sinirsiz buyutebiliyordu.
         "prekey_write" to RateLimit(30, 3600),        // 30 yazma/saat per account
-        "ws_message" to RateLimit(50, 1),             // 50 msg/sn per userId (DoS koruma)
+        // 50 msg/sn ortalama, 20 sn pencerede. 1 sn pencere grup mesajinin
+        // her uyeye ayri giden cercevelerini (255 uye: ~765 cerceve) ayni anda
+        // reddedip gonderenin baglantisini kapatiyordu. Istemci kendini
+        // 20 sn'de 950 cerceveyle sinirlar.
+        "ws_message" to RateLimit(1000, 20),          // per userId (DoS koruma)
         "ws_connect" to RateLimit(10, 1),             // 10 yeni WS baglanti/sn per IP
         "otp_request" to RateLimit(5, 600),           // 5 req/10dk per IP (OTP istegi)
         "otp_verify" to RateLimit(20, 600),        // 20 req/10dk per IP (brute force korumasi zaten OTP servisinde)
