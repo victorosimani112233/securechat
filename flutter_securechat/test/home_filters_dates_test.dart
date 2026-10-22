@@ -114,11 +114,11 @@ void main() {
     await tester.pumpWidget(
       AppContainerScope(
         container: container,
-        child: MaterialApp(
-          locale: const Locale('tr'),
+        child: const MaterialApp(
+          locale: Locale('tr'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: const ConversationsScreen(embedded: true),
+          home: ConversationsScreen(embedded: true),
         ),
       ),
     );
