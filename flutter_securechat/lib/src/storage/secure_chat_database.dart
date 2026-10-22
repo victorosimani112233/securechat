@@ -802,6 +802,12 @@ class ConversationDao {
   Future<void> updateReadOnly(String id, bool isReadOnly) =>
       _patch(id, (c) => c.copyWith(isReadOnly: isReadOnly));
 
+  Future<void> updateGroupDescription(String id, String? description) =>
+      _patch(id, (c) => c.copyWith(groupDescription: description));
+
+  Future<void> updateGroupPhoto(String id, String? photo) =>
+      _patch(id, (c) => c.copyWith(groupPhoto: photo));
+
   Future<MessageEntity?> _latest(String conversationId) async => _db
       ._snapshot
       .messages
@@ -1452,6 +1458,8 @@ ConversationEntity _withoutLastMessage(ConversationEntity current) =>
       isExportEnabled: current.isExportEnabled,
       manuallyUnread: current.manuallyUnread,
       isReadOnly: current.isReadOnly,
+      groupDescription: current.groupDescription,
+      groupPhoto: current.groupPhoto,
     );
 
 class ContactDao {
@@ -1902,13 +1910,16 @@ class VodozemacInboundGroupSessionDao {
     String senderId,
     String sessionId,
   ) async =>
-      _db._snapshot.vodozemacInboundGroupSessions[VodozemacInboundGroupSessionEntity
-          .keyFor(groupId, senderId, sessionId)];
+      _db
+          ._snapshot
+          .vodozemacInboundGroupSessions[VodozemacInboundGroupSessionEntity.keyFor(
+        groupId,
+        senderId,
+        sessionId,
+      )];
 
   Future<void> upsert(VodozemacInboundGroupSessionEntity session) =>
-      _db._write(
-        (s) => s.vodozemacInboundGroupSessions[session.key] = session,
-      );
+      _db._write((s) => s.vodozemacInboundGroupSessions[session.key] = session);
 
   Future<void> deleteForGroup(String groupId) => _db._write(
     (s) => s.vodozemacInboundGroupSessions.removeWhere(
@@ -2072,8 +2083,7 @@ class _StorageSnapshot {
   final _TrackedMap<String, String> cryptoState;
   final _TrackedMap<String, VodozemacAccountEntity> vodozemacAccount;
   final _TrackedMap<String, VodozemacSessionEntity> vodozemacSessions;
-  final _TrackedMap<String, VodozemacGroupSessionEntity>
-  vodozemacGroupSessions;
+  final _TrackedMap<String, VodozemacGroupSessionEntity> vodozemacGroupSessions;
   final _TrackedMap<String, VodozemacInboundGroupSessionEntity>
   vodozemacInboundGroupSessions;
 

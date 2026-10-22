@@ -1101,5 +1101,10 @@
   "profile_complete_phone_mismatch": "Bu numara hesabınla eşleşmiyor. Kayıt olurken kullandığın numarayı gir.",
   "profile_complete_phone_taken": "Bu numara başka bir hesaba ait.",
   "profile_complete_check_failed": "Numaran kontrol edilemedi. Bağlantını kontrol edip tekrar dene.",
-  "mention_suggestions_label": "Bahsedilebilecek üyeler"
+  "mention_suggestions_label": "Bahsedilebilecek üyeler",
+  "group_description": "Grup açıklaması",
+  "group_description_add": "Grup açıklaması ekle",
+  "group_photo_choose": "Fotoğraf seç",
+  "group_photo_remove": "Fotoğrafı kaldır",
+  "group_photo_change": "Grup fotoğrafını değiştir"
 }

@@ -7,6 +7,44 @@ import '../services/signaling_service.dart';
 const _privateGroupControlPrefix = 'GROUPCTRL:v2:';
 const privateGroupCallPreparationAction = 'PREPARE_CALL';
 
+/// Grup aciklamasinin en uzun hali (karakter).
+const maxGroupDescriptionLength = 512;
+
+/// Grup fotografinin ham boyut siniri. Fotograf her uyeye ayri sifrelenip
+/// tek WebSocket cercevesinde (256 KB) gider; base64 ve sifreleme sarmali
+/// boyutu yaklasik 1.8 katina cikarir.
+const maxGroupPhotoBytes = 64 * 1024;
+
+/// base64 haliyle fotograf siniri.
+const _maxGroupPhotoBase64Length = (maxGroupPhotoBytes + 2) ~/ 3 * 4;
+
+/// Fotograf yalniz JPEG ya da PNG ve [maxGroupPhotoBytes] icinde olabilir.
+bool isAcceptedGroupPhoto(List<int> bytes) {
+  if (bytes.isEmpty || bytes.length > maxGroupPhotoBytes) return false;
+  final jpeg =
+      bytes.length > 3 &&
+      bytes[0] == 0xFF &&
+      bytes[1] == 0xD8 &&
+      bytes[2] == 0xFF;
+  const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  final png =
+      bytes.length > pngSignature.length &&
+      Iterable<int>.generate(
+        pngSignature.length,
+      ).every((index) => bytes[index] == pngSignature[index]);
+  return jpeg || png;
+}
+
+/// Gelen base64 fotografi dogrular; gecersizse null.
+String? acceptedGroupPhotoBase64(String? value) {
+  if (value == null || value.isEmpty) return null;
+  try {
+    return isAcceptedGroupPhoto(base64.decode(value)) ? value : null;
+  } on FormatException {
+    return null;
+  }
+}
+
 String privateGroupCallRouteStateKey(String routingToken) =>
     'private-group-call-route:$routingToken';
 
@@ -35,6 +73,8 @@ class PrivateGroupControlSender {
     required Iterable<String> recipients,
     required String action,
     String? targetMemberId,
+    String? description,
+    String? photo,
     DateTime? timestamp,
     Future<bool> Function(EncryptedSignalMessage signal)? sendSignal,
     void Function(String recipientId, Object error)? onRecipientUnavailable,
@@ -67,6 +107,8 @@ class PrivateGroupControlSender {
       action: action,
       memberIds: members,
       targetMemberId: targetMemberId,
+      description: description,
+      photo: photo,
       timestamp: sentAt,
     ).encode();
     for (final recipientId in targets) {
@@ -135,6 +177,8 @@ Future<GroupNotificationSignal> decodePrivateGroupControl({
     action: payload.action,
     groupMembers: payload.memberIds,
     targetMemberId: payload.targetMemberId,
+    description: payload.description,
+    photo: payload.photo,
   );
 }
 
@@ -147,6 +191,8 @@ class _PrivateGroupControlPayload {
     required this.action,
     required this.memberIds,
     required this.targetMemberId,
+    this.description,
+    this.photo,
     required this.timestamp,
   });
 
@@ -158,6 +204,12 @@ class _PrivateGroupControlPayload {
   final String action;
   final List<String> memberIds;
   final String? targetMemberId;
+
+  /// Bos dize aciklamanin kaldirildigini, null alanin yoklugunu belirtir.
+  final String? description;
+
+  /// base64 fotograf; bos dize fotografin kaldirildigini belirtir.
+  final String? photo;
   final DateTime timestamp;
 
   factory _PrivateGroupControlPayload.fromJson(Map<String, Object?> json) {
@@ -197,6 +249,17 @@ class _PrivateGroupControlPayload {
     if (target != null && (target is! String || target.length > 128)) {
       throw const FormatException('Invalid private group target');
     }
+    final description = json['description'];
+    if (description != null &&
+        (description is! String ||
+            description.length > maxGroupDescriptionLength)) {
+      throw const FormatException('Invalid private group description');
+    }
+    final photo = json['photo'];
+    if (photo != null &&
+        (photo is! String || photo.length > _maxGroupPhotoBase64Length)) {
+      throw const FormatException('Invalid private group photo');
+    }
     return _PrivateGroupControlPayload(
       senderId: senderId,
       groupId: groupId,
@@ -205,6 +268,8 @@ class _PrivateGroupControlPayload {
       action: action,
       memberIds: members,
       targetMemberId: target as String?,
+      description: description as String?,
+      photo: photo as String?,
       timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp.toInt()),
     );
   }
@@ -221,6 +286,8 @@ class _PrivateGroupControlPayload {
           'action': action,
           'memberIds': memberIds,
           if (targetMemberId != null) 'targetMemberId': targetMemberId,
+          if (description != null) 'description': description,
+          if (photo != null) 'photo': photo,
           'timestamp': timestamp.millisecondsSinceEpoch,
         }),
       ),

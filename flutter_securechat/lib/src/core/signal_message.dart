@@ -463,6 +463,8 @@ class GroupNotificationSignal extends SignalMessage {
     required this.action,
     required this.groupMembers,
     this.targetMemberId,
+    this.description,
+    this.photo,
   });
 
   final String groupId;
@@ -470,6 +472,12 @@ class GroupNotificationSignal extends SignalMessage {
   final String action;
   final List<String> groupMembers;
   final String? targetMemberId;
+
+  /// Grup aciklamasi (UPDATE_DESCRIPTION ve CREATE); bos dize = kaldirildi.
+  final String? description;
+
+  /// base64 grup fotografi (UPDATE_PHOTO ve CREATE); bos dize = kaldirildi.
+  final String? photo;
 
   @override
   String get type => 'group_notification';
@@ -484,6 +492,8 @@ class GroupNotificationSignal extends SignalMessage {
         action: json['action'] as String? ?? '',
         groupMembers: _stringList(json['groupMembers']),
         targetMemberId: json['targetMemberId'] as String?,
+        description: json['description'] as String?,
+        photo: json['photo'] as String?,
       );
 
   @override
@@ -494,6 +504,8 @@ class GroupNotificationSignal extends SignalMessage {
     'action': action,
     'groupMembers': groupMembers,
     if (targetMemberId != null) 'targetMemberId': targetMemberId,
+    if (description != null) 'description': description,
+    if (photo != null) 'photo': photo,
   };
 }
 

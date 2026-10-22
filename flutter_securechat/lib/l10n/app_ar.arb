@@ -750,5 +750,10 @@
   "profile_complete_phone_mismatch": "هذا الرقم لا يطابق حسابك. أدخل الرقم الذي سجلت به.",
   "profile_complete_phone_taken": "هذا الرقم يخص حسابًا آخر.",
   "profile_complete_check_failed": "تعذر التحقق من رقمك. تحقق من اتصالك وحاول مرة أخرى.",
-  "mention_suggestions_label": "الأعضاء الذين يمكنك الإشارة إليهم"
+  "mention_suggestions_label": "الأعضاء الذين يمكنك الإشارة إليهم",
+  "group_description": "وصف المجموعة",
+  "group_description_add": "إضافة وصف للمجموعة",
+  "group_photo_choose": "اختيار صورة",
+  "group_photo_remove": "إزالة الصورة",
+  "group_photo_change": "تغيير صورة المجموعة"
 }

@@ -2450,4 +2450,19 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get mention_suggestions_label => 'الأعضاء الذين يمكنك الإشارة إليهم';
+
+  @override
+  String get group_description => 'وصف المجموعة';
+
+  @override
+  String get group_description_add => 'إضافة وصف للمجموعة';
+
+  @override
+  String get group_photo_choose => 'اختيار صورة';
+
+  @override
+  String get group_photo_remove => 'إزالة الصورة';
+
+  @override
+  String get group_photo_change => 'تغيير صورة المجموعة';
 }

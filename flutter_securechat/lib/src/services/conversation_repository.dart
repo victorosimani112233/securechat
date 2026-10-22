@@ -383,6 +383,8 @@ Conversation _conversationFromEntity(storage.ConversationEntity entity) {
     manuallyUnread: entity.manuallyUnread,
     isReadOnly: entity.isReadOnly,
     isExportEnabled: entity.isExportEnabled,
+    groupDescription: entity.groupDescription,
+    groupPhoto: entity.groupPhoto,
   );
 }
 

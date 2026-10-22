@@ -5,6 +5,8 @@ import '../../core/models.dart';
 import '../../export/export_audit_service.dart';
 import '../../groups/group_management_service.dart';
 import '../../l10n/l10n.dart';
+import '../../groups/private_group_control.dart';
+import '../../media/group_photo_picker.dart';
 import '../../widgets/text_controller_scope.dart';
 import '../../services/app_container.dart';
 import '../../storage/storage_entities.dart';
@@ -18,6 +20,10 @@ import '../../widgets/system_inset_padding.dart';
 
 class GroupInfoScreen extends StatelessWidget {
   const GroupInfoScreen({super.key});
+
+  /// Testler galeri yerine sabit bir fotograf verebilsin diye degistirilebilir.
+  @visibleForTesting
+  static GroupPhotoPicker pickPhoto = pickGroupPhotoFromGallery;
 
   @override
   Widget build(BuildContext context) {
@@ -93,10 +99,9 @@ class _GroupInfoBody extends StatelessWidget {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  GeneratedAvatar(
-                    name: group.peerName,
-                    size: 96,
-                    isGroup: true,
+                  _GroupPhoto(
+                    group: group,
+                    onEdit: isAdmin ? () => _editPhoto(context) : null,
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -121,6 +126,19 @@ class _GroupInfoBody extends StatelessWidget {
                 ],
               ),
             ),
+            if (group.groupDescription != null || isAdmin)
+              ListTile(
+                key: const ValueKey('group-description'),
+                leading: const Icon(Icons.notes_outlined),
+                title: Text(
+                  group.groupDescription ?? context.l10n.group_description_add,
+                ),
+                subtitle: group.groupDescription == null
+                    ? null
+                    : Text(context.l10n.group_description),
+                trailing: isAdmin ? const Icon(Icons.edit_outlined) : null,
+                onTap: isAdmin ? () => _editDescription(context) : null,
+              ),
             const Divider(),
             SharedContentEntries(
               onSelected: chatInfo == null
@@ -362,6 +380,78 @@ class _GroupInfoBody extends StatelessWidget {
     }
   }
 
+  Future<void> _editDescription(BuildContext context) async {
+    final description = await showDialog<String>(
+      context: context,
+      builder: (context) => TextControllerScope(
+        initialText: group.groupDescription ?? '',
+        builder: (context, controller) => AlertDialog(
+          title: Text(context.l10n.group_description),
+          content: TextField(
+            key: const ValueKey('group-description-field'),
+            controller: controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 6,
+            maxLength: maxGroupDescriptionLength,
+            textCapitalization: TextCapitalization.sentences,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(context.l10n.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: Text(context.l10n.save),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (description != null && context.mounted) {
+      await _run(
+        context,
+        () => groups.updateDescription(group.id, description),
+      );
+    }
+  }
+
+  Future<void> _editPhoto(BuildContext context) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const ValueKey('group-photo-choose'),
+              leading: const Icon(Icons.photo_library_outlined),
+              title: Text(context.l10n.group_photo_choose),
+              onTap: () => Navigator.pop(context, 'choose'),
+            ),
+            if (group.groupPhoto != null)
+              ListTile(
+                key: const ValueKey('group-photo-remove'),
+                leading: const Icon(Icons.delete_outline),
+                title: Text(context.l10n.group_photo_remove),
+                onTap: () => Navigator.pop(context, 'remove'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !context.mounted) return;
+    if (action == 'remove') {
+      await _run(context, () => groups.updatePhoto(group.id, null));
+      return;
+    }
+    await _run(context, () async {
+      final photo = await GroupInfoScreen.pickPhoto();
+      if (photo != null) await groups.updatePhoto(group.id, photo);
+    });
+  }
+
   Future<void> _addMembers(BuildContext context, List<String> members) async {
     final eligible = contacts
         .where(
@@ -490,3 +580,50 @@ List<String> _csv(String? value) => [
   for (final id in (value ?? '').split(','))
     if (id.trim().isNotEmpty) id.trim(),
 ];
+
+/// Grup fotografi; yonetici dokunup degistirebilir.
+class _GroupPhoto extends StatelessWidget {
+  const _GroupPhoto({required this.group, required this.onEdit});
+
+  final ConversationEntity group;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final avatar = GeneratedAvatar(
+      name: group.peerName,
+      size: 96,
+      isGroup: true,
+      photo: group.groupPhoto,
+    );
+    final edit = onEdit;
+    if (edit == null) return avatar;
+    return Semantics(
+      button: true,
+      label: context.l10n.group_photo_change,
+      child: InkWell(
+        key: const ValueKey('group-photo-edit'),
+        customBorder: const CircleBorder(),
+        onTap: edit,
+        child: Stack(
+          children: [
+            avatar,
+            PositionedDirectional(
+              end: 0,
+              bottom: 0,
+              child: CircleAvatar(
+                radius: 15,
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                child: Icon(
+                  Icons.photo_camera_outlined,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onPrimary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

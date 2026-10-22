@@ -200,7 +200,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     listEquals(updated.groupMembers, current.groupMembers) &&
                     listEquals(updated.groupAdmins, current.groupAdmins) &&
                     updated.isReadOnly == current.isReadOnly &&
-                    updated.isExportEnabled == current.isExportEnabled))
+                    updated.isExportEnabled == current.isExportEnabled &&
+                    updated.groupPhoto == current.groupPhoto))
               return;
             setState(() {
               // Refresh membership/policy too, but preserve the independently
@@ -212,6 +213,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 groupAdmins: updated.groupAdmins,
                 isReadOnly: updated.isReadOnly,
                 isExportEnabled: updated.isExportEnabled,
+                groupDescription: updated.groupDescription,
+                groupPhoto: updated.groupPhoto,
               );
             });
           });
@@ -317,6 +320,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       name: conversation.peerName,
                       size: 38,
                       isGroup: conversation.isGroup,
+                      photo: conversation.groupPhoto,
                     ),
                     const SizedBox(width: 11),
                     Expanded(

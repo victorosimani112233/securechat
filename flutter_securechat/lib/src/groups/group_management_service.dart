@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import '../contacts/contact_service.dart';
 import '../services/crypto_service.dart';
 import '../services/session_store.dart';
@@ -100,6 +103,8 @@ class GroupManagementService {
         memberIds: updated,
         recipients: [newMember],
         action: 'CREATE',
+        description: state.group.groupDescription,
+        photo: state.group.groupPhoto,
       );
       await _fanout(
         state.group,
@@ -175,6 +180,45 @@ class GroupManagementService {
       state.group.copyWith(peerName: clean),
       state.members,
       action: 'UPDATE_NAME',
+    );
+  }
+
+  /// Bos metin aciklamayi kaldirir.
+  Future<void> updateDescription(String groupId, String description) async {
+    final state = await _adminState(groupId);
+    final clean = description.trim();
+    if (clean.length > maxGroupDescriptionLength) {
+      throw const GroupManagementException('Grup açıklaması çok uzun.');
+    }
+    if (clean == (state.group.groupDescription ?? '')) return;
+    await _database.conversations.updateGroupDescription(
+      groupId,
+      clean.isEmpty ? null : clean,
+    );
+    await _fanout(
+      state.group,
+      state.members,
+      action: 'UPDATE_DESCRIPTION',
+      description: clean,
+    );
+  }
+
+  /// [photo] null ise fotograf kaldirilir.
+  Future<void> updatePhoto(String groupId, Uint8List? photo) async {
+    final state = await _adminState(groupId);
+    if (photo != null && !isAcceptedGroupPhoto(photo)) {
+      throw const GroupManagementException(
+        'Fotoğraf çok büyük ya da desteklenmiyor.',
+      );
+    }
+    final encoded = photo == null ? null : base64.encode(photo);
+    if (encoded == state.group.groupPhoto) return;
+    await _database.conversations.updateGroupPhoto(groupId, encoded);
+    await _fanout(
+      state.group,
+      state.members,
+      action: 'UPDATE_PHOTO',
+      photo: encoded ?? '',
     );
   }
 
@@ -272,6 +316,8 @@ class GroupManagementService {
     required String action,
     String? targetMemberId,
     List<String>? advertisedMembers,
+    String? description,
+    String? photo,
   }) async {
     final userId = _session.userId!;
     await _controls.send(
@@ -282,6 +328,8 @@ class GroupManagementService {
       recipients: recipients,
       action: action,
       targetMemberId: targetMemberId,
+      description: description,
+      photo: photo,
     );
   }
 

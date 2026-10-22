@@ -103,7 +103,12 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
         padding: const EdgeInsets.all(28),
         child: Column(
           children: [
-            GeneratedAvatar(name: c.peerName, size: 96, isGroup: c.isGroup),
+            GeneratedAvatar(
+              name: c.peerName,
+              size: 96,
+              isGroup: c.isGroup,
+              photo: c.groupPhoto,
+            ),
             const SizedBox(height: 12),
             Text(
               c.isGroup

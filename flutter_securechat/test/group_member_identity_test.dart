@@ -1,4 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
@@ -122,6 +125,65 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('admin edits the group description and photo from group info', (
+    tester,
+  ) async {
+    final f = (await tester.runAsync(_Fixture.open))!;
+    final photo = Uint8List.fromList([
+      0xFF,
+      0xD8,
+      0xFF,
+      0xE0,
+      ...List.filled(64, 1),
+    ]);
+    final previousPicker = GroupInfoScreen.pickPhoto;
+    GroupInfoScreen.pickPhoto = () async => photo;
+    addTearDown(() => GroupInfoScreen.pickPhoto = previousPicker);
+    // Degisiklik uyelere gider; bagli olmayan sinyal sahte saatte beklerdi.
+    await tester.runAsync(
+      () => f.signaling.connect(
+        userId: 'me',
+        url: 'ws://test',
+        accessToken: 'test-only',
+      ),
+    );
+    await tester.pumpWidget(f.app(const GroupInfoScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add group description'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('group-description')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('group-description-field')),
+      'Cuma toplantıları',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Cuma toplantıları'), findsOneWidget);
+    expect(find.text('Group description'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('group-photo-edit')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('group-photo-remove')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('group-photo-choose')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+    final stored = (await tester.runAsync(
+      () => f.database.conversations.getById(_group.id),
+    ))!;
+    expect(stored.groupDescription, 'Cuma toplantıları');
+    expect(stored.groupPhoto, base64.encode(photo));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await _closeWhilePumping(tester, f);
   });
 
   testWidgets('departed group hides leave and stale admin actions', (
@@ -414,6 +476,21 @@ Future<void> _until(bool Function() predicate) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   fail('Local identity stream did not update');
+}
+
+/// Ekrandan tetiklenen yazmalar sahte saatte dinleyici biraktigi icin
+/// veritabani da sahte saatte, zaman ilerletilerek kapatilir; aksi halde
+/// kapanis dinleyicinin bitisini sonsuza dek bekler.
+Future<void> _closeWhilePumping(WidgetTester tester, _Fixture f) async {
+  var closed = false;
+  unawaited(f.close().then((_) => closed = true));
+  for (var i = 0; i < 50 && !closed; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  expect(closed, isTrue);
 }
 
 class _MentionRecordingRepository extends InMemoryConversationRepository {

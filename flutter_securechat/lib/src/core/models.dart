@@ -6,6 +6,8 @@ enum MessageStatus { sending, sent, delivered, read, failed }
 
 enum ConnectionStateKind { disconnected, connecting, connected, error }
 
+const _unchanged = Object();
+
 class Conversation {
   const Conversation({
     required this.id,
@@ -30,6 +32,8 @@ class Conversation {
     this.manuallyUnread = false,
     this.isReadOnly = false,
     this.isExportEnabled = false,
+    this.groupDescription,
+    this.groupPhoto,
   });
 
   final String id;
@@ -58,6 +62,12 @@ class Conversation {
   final bool isReadOnly;
   final bool isExportEnabled;
 
+  /// Grup aciklamasi; yoksa null.
+  final String? groupDescription;
+
+  /// Grup fotografi (base64 JPEG/PNG); yoksa null.
+  final String? groupPhoto;
+
   bool get hasUnread => unreadCount > 0 || manuallyUnread;
 
   bool hasLeftGroup(String? userId) =>
@@ -84,6 +94,8 @@ class Conversation {
     bool? manuallyUnread,
     bool? isReadOnly,
     bool? isExportEnabled,
+    Object? groupDescription = _unchanged,
+    Object? groupPhoto = _unchanged,
   }) {
     return Conversation(
       id: id,
@@ -110,6 +122,12 @@ class Conversation {
       manuallyUnread: manuallyUnread ?? this.manuallyUnread,
       isReadOnly: isReadOnly ?? this.isReadOnly,
       isExportEnabled: isExportEnabled ?? this.isExportEnabled,
+      groupDescription: identical(groupDescription, _unchanged)
+          ? this.groupDescription
+          : groupDescription as String?,
+      groupPhoto: identical(groupPhoto, _unchanged)
+          ? this.groupPhoto
+          : groupPhoto as String?,
     );
   }
 
@@ -135,6 +153,8 @@ class Conversation {
     manuallyUnread: json['manuallyUnread'] as bool? ?? false,
     isReadOnly: json['isReadOnly'] as bool? ?? false,
     isExportEnabled: json['isExportEnabled'] as bool? ?? false,
+    groupDescription: json['groupDescription'] as String?,
+    groupPhoto: json['groupPhoto'] as String?,
   );
 
   Map<String, Object?> toJson() => {
@@ -157,6 +177,8 @@ class Conversation {
     'manuallyUnread': manuallyUnread,
     'isReadOnly': isReadOnly,
     'isExportEnabled': isExportEnabled,
+    if (groupDescription != null) 'groupDescription': groupDescription,
+    if (groupPhoto != null) 'groupPhoto': groupPhoto,
   };
 }
 

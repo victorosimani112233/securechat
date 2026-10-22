@@ -2443,4 +2443,19 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get mention_suggestions_label => 'Bahsedilebilecek üyeler';
+
+  @override
+  String get group_description => 'Grup açıklaması';
+
+  @override
+  String get group_description_add => 'Grup açıklaması ekle';
+
+  @override
+  String get group_photo_choose => 'Fotoğraf seç';
+
+  @override
+  String get group_photo_remove => 'Fotoğrafı kaldır';
+
+  @override
+  String get group_photo_change => 'Grup fotoğrafını değiştir';
 }

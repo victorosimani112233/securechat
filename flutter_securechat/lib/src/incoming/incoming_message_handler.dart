@@ -1056,6 +1056,8 @@ class IncomingMessageHandler {
             isGroup: true,
             groupMembers: signal.groupMembers.join(','),
             groupAdmins: signal.senderId,
+            groupDescription: _groupDescription(signal.description),
+            groupPhoto: acceptedGroupPhotoBase64(signal.photo),
           ),
         );
         if (signal.senderId != localUserId) {
@@ -1082,6 +1084,19 @@ class IncomingMessageHandler {
           signal.groupId,
           {..._csv(group.groupMembers), ...signal.groupMembers}.join(','),
         );
+        // Yeniden eklenen uye ayrildigi surede degisen bilgiyi de alir.
+        if (signal.description != null) {
+          await _database.conversations.updateGroupDescription(
+            signal.groupId,
+            _groupDescription(signal.description),
+          );
+        }
+        if (signal.photo != null) {
+          await _database.conversations.updateGroupPhoto(
+            signal.groupId,
+            acceptedGroupPhotoBase64(signal.photo),
+          );
+        }
       }
       return;
     }
@@ -1096,6 +1111,8 @@ class IncomingMessageHandler {
       'REMOVE_MEMBER',
       'UPDATE_ADMIN',
       'UPDATE_NAME',
+      'UPDATE_DESCRIPTION',
+      'UPDATE_PHOTO',
       'UPDATE_EXPORT_POLICY',
       'SET_READ_ONLY',
     };
@@ -1179,6 +1196,37 @@ class IncomingMessageHandler {
           '${await _groupMemberName(signal.senderId)} grup adını '
           '“$previous” → “${signal.groupName.trim()}” olarak değiştirdi',
         );
+      case 'UPDATE_DESCRIPTION':
+        final description = signal.description;
+        if (description == null ||
+            description.length > maxGroupDescriptionLength) {
+          return;
+        }
+        await _database.conversations.updateGroupDescription(
+          signal.groupId,
+          _groupDescription(description),
+        );
+        await _systemMessage(
+          signal,
+          description.trim().isEmpty
+              ? '${await _groupMemberName(signal.senderId)} grup açıklamasını kaldırdı'
+              : '${await _groupMemberName(signal.senderId)} grup açıklamasını değiştirdi',
+        );
+      case 'UPDATE_PHOTO':
+        final photo = signal.photo;
+        if (photo == null) return;
+        final accepted = acceptedGroupPhotoBase64(photo);
+        if (photo.isNotEmpty && accepted == null) return;
+        await _database.conversations.updateGroupPhoto(
+          signal.groupId,
+          accepted,
+        );
+        await _systemMessage(
+          signal,
+          accepted == null
+              ? '${await _groupMemberName(signal.senderId)} grup fotoğrafını kaldırdı'
+              : '${await _groupMemberName(signal.senderId)} grup fotoğrafını değiştirdi',
+        );
       case 'UPDATE_EXPORT_POLICY':
         final enabled = _strictBool(target);
         if (enabled == null) return;
@@ -1204,6 +1252,12 @@ class IncomingMessageHandler {
       default:
         return;
     }
+  }
+
+  static String? _groupDescription(String? value) {
+    final clean = value?.trim() ?? '';
+    if (clean.isEmpty || clean.length > maxGroupDescriptionLength) return null;
+    return clean;
   }
 
   Future<void> _preparePrivateGroupCall(GroupNotificationSignal control) async {

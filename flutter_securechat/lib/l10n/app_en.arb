@@ -1128,5 +1128,15 @@
   "profile_complete_phone_taken": "This number belongs to another account.",
   "profile_complete_check_failed": "Your number could not be checked. Check your connection and try again.",
   "mention_suggestions_label": "Members you can mention",
-  "@mention_suggestions_label": {"description": "Screen reader label for the @mention member suggestions above the group chat composer."}
+  "@mention_suggestions_label": {"description": "Screen reader label for the @mention member suggestions above the group chat composer."},
+  "group_description": "Group description",
+  "@group_description": {"description": "Title of the group description row and edit dialog."},
+  "group_description_add": "Add group description",
+  "@group_description_add": {"description": "Shown to admins when the group has no description yet."},
+  "group_photo_choose": "Choose a photo",
+  "@group_photo_choose": {"description": "Bottom sheet action that opens the gallery to pick a group photo."},
+  "group_photo_remove": "Remove photo",
+  "@group_photo_remove": {"description": "Bottom sheet action that removes the group photo."},
+  "group_photo_change": "Change group photo",
+  "@group_photo_change": {"description": "Screen reader label of the tappable group photo for admins."}
 }

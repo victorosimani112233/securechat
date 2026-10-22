@@ -730,5 +730,10 @@
   "profile_complete_phone_mismatch": "Diese Nummer passt nicht zu deinem Konto. Gib die Nummer ein, mit der du dich registriert hast.",
   "profile_complete_phone_taken": "Diese Nummer gehört zu einem anderen Konto.",
   "profile_complete_check_failed": "Deine Nummer konnte nicht geprüft werden. Prüfe deine Verbindung und versuche es erneut.",
-  "mention_suggestions_label": "Mitglieder, die du erwähnen kannst"
+  "mention_suggestions_label": "Mitglieder, die du erwähnen kannst",
+  "group_description": "Gruppenbeschreibung",
+  "group_description_add": "Gruppenbeschreibung hinzufügen",
+  "group_photo_choose": "Foto auswählen",
+  "group_photo_remove": "Foto entfernen",
+  "group_photo_change": "Gruppenfoto ändern"
 }

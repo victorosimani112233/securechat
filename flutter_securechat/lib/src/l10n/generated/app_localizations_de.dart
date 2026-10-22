@@ -2493,4 +2493,19 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get mention_suggestions_label => 'Mitglieder, die du erwähnen kannst';
+
+  @override
+  String get group_description => 'Gruppenbeschreibung';
+
+  @override
+  String get group_description_add => 'Gruppenbeschreibung hinzufügen';
+
+  @override
+  String get group_photo_choose => 'Foto auswählen';
+
+  @override
+  String get group_photo_remove => 'Foto entfernen';
+
+  @override
+  String get group_photo_change => 'Gruppenfoto ändern';
 }

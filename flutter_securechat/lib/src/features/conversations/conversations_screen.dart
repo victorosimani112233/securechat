@@ -532,6 +532,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                       GeneratedAvatar(
                         name: conversation.peerName,
                         isGroup: conversation.isGroup,
+                        photo: conversation.groupPhoto,
                       ),
                       if (conversation.isLocked)
                         const Positioned(

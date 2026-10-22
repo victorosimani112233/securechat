@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_securechat/src/core/signal_message.dart';
@@ -49,6 +50,185 @@ void main() {
       expect((await f.database.conversations.getById('g1'))!.groupAdmins, 'me');
     },
   );
+
+  test('admin sets description and photo; new members receive both', () async {
+    final f = await _fixture();
+    addTearDown(f.close);
+    final photo = _jpeg(2048);
+
+    await f.groups.updateDescription('g1', '  Haftalık plan burada  ');
+    await f.groups.updatePhoto('g1', photo);
+    var group = (await f.database.conversations.getById('g1'))!;
+    expect(group.groupDescription, 'Haftalık plan burada');
+    expect(group.groupPhoto, base64.encode(photo));
+    final described = await _outboundControls(f, action: 'UPDATE_DESCRIPTION');
+    expect(described.single.recipientId, 'member');
+    expect(described.single.description, 'Haftalık plan burada');
+    final pictured = await _outboundControls(f, action: 'UPDATE_PHOTO');
+    expect(pictured.single.photo, base64.encode(photo));
+
+    // Yeni uye grup kaydini CREATE ile alir; bilgiyi de orada gormeli.
+    await f.groups.addMembers('g1', ['new-member']);
+    final bootstrap = await _outboundControls(f, action: 'CREATE');
+    expect(bootstrap.single.description, 'Haftalık plan burada');
+    expect(bootstrap.single.photo, base64.encode(photo));
+
+    await f.groups.updateDescription('g1', '');
+    await f.groups.updatePhoto('g1', null);
+    group = (await f.database.conversations.getById('g1'))!;
+    expect(group.groupDescription, isNull);
+    expect(group.groupPhoto, isNull);
+    expect(
+      (await _outboundControls(f, action: 'UPDATE_PHOTO')).last.photo,
+      isEmpty,
+    );
+  });
+
+  test('description and photo limits are enforced before sending', () async {
+    final f = await _fixture();
+    addTearDown(f.close);
+    final sentBefore = f.signaling.sentMessages.length;
+
+    await expectLater(
+      f.groups.updateDescription('g1', 'a' * (maxGroupDescriptionLength + 1)),
+      throwsA(isA<GroupManagementException>()),
+    );
+    await expectLater(
+      f.groups.updatePhoto('g1', _jpeg(maxGroupPhotoBytes + 1)),
+      throwsA(isA<GroupManagementException>()),
+    );
+    await expectLater(
+      f.groups.updatePhoto('g1', Uint8List.fromList(utf8.encode('not image'))),
+      throwsA(isA<GroupManagementException>()),
+    );
+    expect(f.signaling.sentMessages.length, sentBefore);
+    final member = await _fixture(userId: 'member');
+    addTearDown(member.close);
+    await expectLater(
+      member.groups.updateDescription('g1', 'yetkisiz'),
+      throwsA(isA<GroupManagementException>()),
+    );
+  });
+
+  test(
+    'incoming description and photo require an admin and a real image',
+    () async {
+      final f = await _fixture(userId: 'member');
+      final handler = IncomingMessageHandler(
+        signaling: f.signaling,
+        crypto: f.crypto,
+        database: f.database,
+        session: f.session,
+      )..start();
+      addTearDown(() async {
+        await handler.close();
+        await f.close();
+      });
+      GroupNotificationSignal control(
+        String sender,
+        String action, {
+        String? description,
+        String? photo,
+        int at = 1,
+      }) => GroupNotificationSignal(
+        senderId: sender,
+        recipientId: 'member',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(at),
+        groupId: 'g1',
+        groupName: 'Ekip',
+        action: action,
+        groupMembers: const ['me', 'member'],
+        description: description,
+        photo: photo,
+      );
+
+      f.signaling.addIncoming(
+        control('member', 'UPDATE_DESCRIPTION', description: 'yetkisiz'),
+      );
+      f.signaling.addIncoming(
+        control(
+          'me',
+          'UPDATE_PHOTO',
+          photo: base64.encode(utf8.encode('x')),
+          at: 2,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      var group = (await f.database.conversations.getById('g1'))!;
+      expect(group.groupDescription, isNull);
+      expect(group.groupPhoto, isNull);
+
+      final photo = base64.encode(_jpeg(512));
+      f.signaling.addIncoming(
+        control('me', 'UPDATE_DESCRIPTION', description: 'Kurallar', at: 3),
+      );
+      f.signaling.addIncoming(
+        control('me', 'UPDATE_PHOTO', photo: photo, at: 4),
+      );
+      await _eventually(() async {
+        final current = (await f.database.conversations.getById('g1'))!;
+        return current.groupDescription == 'Kurallar' &&
+            current.groupPhoto == photo;
+      });
+      await _eventually(
+        () async => await f.database.messages.getMessageCount('g1') == 2,
+      );
+
+      f.signaling.addIncoming(control('me', 'UPDATE_PHOTO', photo: '', at: 5));
+      await _eventually(
+        () async =>
+            (await f.database.conversations.getById('g1'))!.groupPhoto == null,
+      );
+      group = (await f.database.conversations.getById('g1'))!;
+      expect(group.groupDescription, 'Kurallar');
+    },
+  );
+
+  test('a new member bootstraps the group description and photo', () async {
+    final f = await _fixture(userId: 'fresh');
+    final handler = IncomingMessageHandler(
+      signaling: f.signaling,
+      crypto: f.crypto,
+      database: f.database,
+      session: f.session,
+    )..start();
+    addTearDown(() async {
+      await handler.close();
+      await f.close();
+    });
+    final photo = base64.encode(_jpeg(256));
+    f.signaling.addIncoming(
+      GroupNotificationSignal(
+        senderId: 'owner',
+        recipientId: 'fresh',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(1),
+        groupId: 'g2',
+        groupName: 'Aile',
+        action: 'CREATE',
+        groupMembers: const ['owner', 'fresh'],
+        description: 'Sadece aile',
+        photo: photo,
+      ),
+    );
+    await _eventually(
+      () async => await f.database.conversations.getById('g2') != null,
+    );
+    final group = (await f.database.conversations.getById('g2'))!;
+    expect(group.groupDescription, 'Sadece aile');
+    expect(group.groupPhoto, photo);
+  });
+
+  test('group control payload rejects oversized description and photo', () {
+    expect(isAcceptedGroupPhoto(_jpeg(maxGroupPhotoBytes)), isTrue);
+    expect(isAcceptedGroupPhoto(_jpeg(maxGroupPhotoBytes + 1)), isFalse);
+    expect(
+      isAcceptedGroupPhoto([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0]),
+      isTrue,
+    );
+    expect(isAcceptedGroupPhoto(const []), isFalse);
+    expect(acceptedGroupPhotoBase64('%%%'), isNull);
+    expect(acceptedGroupPhotoBase64(''), isNull);
+  });
 
   test('non-admin mutation is rejected without local changes', () async {
     final f = await _fixture(userId: 'member');
@@ -379,4 +559,11 @@ Future<void> _eventually(Future<bool> Function() condition) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   expect(await condition(), isTrue);
+}
+
+/// JPEG imzasiyla baslayan, istenen boyutta sahte fotograf.
+Uint8List _jpeg(int length) {
+  final bytes = Uint8List(length);
+  bytes.setAll(0, const [0xFF, 0xD8, 0xFF, 0xE0]);
+  return bytes;
 }

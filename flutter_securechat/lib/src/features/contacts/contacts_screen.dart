@@ -445,6 +445,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     isLocked: conversation.isLocked,
     isReadOnly: conversation.isReadOnly,
     isExportEnabled: conversation.isExportEnabled,
+    groupDescription: conversation.groupDescription,
+    groupPhoto: conversation.groupPhoto,
   );
 }
 

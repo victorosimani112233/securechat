@@ -2454,4 +2454,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get mention_suggestions_label => 'Members you can mention';
+
+  @override
+  String get group_description => 'Group description';
+
+  @override
+  String get group_description_add => 'Add group description';
+
+  @override
+  String get group_photo_choose => 'Choose a photo';
+
+  @override
+  String get group_photo_remove => 'Remove photo';
+
+  @override
+  String get group_photo_change => 'Change group photo';
 }

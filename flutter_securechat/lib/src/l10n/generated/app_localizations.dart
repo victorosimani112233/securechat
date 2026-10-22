@@ -4487,6 +4487,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Members you can mention'**
   String get mention_suggestions_label;
+
+  /// Title of the group description row and edit dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Group description'**
+  String get group_description;
+
+  /// Shown to admins when the group has no description yet.
+  ///
+  /// In en, this message translates to:
+  /// **'Add group description'**
+  String get group_description_add;
+
+  /// Bottom sheet action that opens the gallery to pick a group photo.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a photo'**
+  String get group_photo_choose;
+
+  /// Bottom sheet action that removes the group photo.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove photo'**
+  String get group_photo_remove;
+
+  /// Screen reader label of the tappable group photo for admins.
+  ///
+  /// In en, this message translates to:
+  /// **'Change group photo'**
+  String get group_photo_change;
 }
 
 class _AppLocalizationsDelegate

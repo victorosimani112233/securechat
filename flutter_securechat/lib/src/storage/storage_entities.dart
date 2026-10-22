@@ -42,6 +42,8 @@ class ConversationEntity {
     this.isExportEnabled = false,
     this.manuallyUnread = false,
     this.isReadOnly = false,
+    this.groupDescription,
+    this.groupPhoto,
   });
 
   final String id;
@@ -77,6 +79,12 @@ class ConversationEntity {
   final bool manuallyUnread;
   final bool isReadOnly;
 
+  /// Yoneticinin yazdigi grup aciklamasi; yoksa null.
+  final String? groupDescription;
+
+  /// Grup fotografi: base64 JPEG/PNG (ham hali en fazla 64 KB); yoksa null.
+  final String? groupPhoto;
+
   ConversationEntity copyWith({
     String? peerName,
     String? peerPhone,
@@ -99,6 +107,8 @@ class ConversationEntity {
     bool? isExportEnabled,
     bool? manuallyUnread,
     bool? isReadOnly,
+    Object? groupDescription = _notProvided,
+    Object? groupPhoto = _notProvided,
   }) => ConversationEntity(
     id: id,
     peerId: peerId,
@@ -128,6 +138,12 @@ class ConversationEntity {
     isExportEnabled: isExportEnabled ?? this.isExportEnabled,
     manuallyUnread: manuallyUnread ?? this.manuallyUnread,
     isReadOnly: isReadOnly ?? this.isReadOnly,
+    groupDescription: identical(groupDescription, _notProvided)
+        ? this.groupDescription
+        : groupDescription as String?,
+    groupPhoto: identical(groupPhoto, _notProvided)
+        ? this.groupPhoto
+        : groupPhoto as String?,
   );
 
   factory ConversationEntity.fromJson(Map<String, Object?> json) =>
@@ -157,6 +173,8 @@ class ConversationEntity {
         isExportEnabled: json['isExportEnabled'] as bool? ?? false,
         manuallyUnread: json['manuallyUnread'] as bool? ?? false,
         isReadOnly: json['isReadOnly'] as bool? ?? false,
+        groupDescription: json['groupDescription'] as String?,
+        groupPhoto: json['groupPhoto'] as String?,
       );
 
   Map<String, Object?> toJson() => {
@@ -184,6 +202,8 @@ class ConversationEntity {
     'isExportEnabled': isExportEnabled,
     'manuallyUnread': manuallyUnread,
     'isReadOnly': isReadOnly,
+    if (groupDescription != null) 'groupDescription': groupDescription,
+    if (groupPhoto != null) 'groupPhoto': groupPhoto,
   };
 }
 
@@ -863,8 +883,7 @@ class VodozemacSessionEntity {
     required this.lastUsedAt,
   });
 
-  static String keyFor(String peerId, String sessionId) =>
-      '$peerId|$sessionId';
+  static String keyFor(String peerId, String sessionId) => '$peerId|$sessionId';
 
   final String peerId;
   final String sessionId;
