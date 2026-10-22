@@ -8,7 +8,17 @@ import 'session_store.dart';
 
 abstract interface class ConversationRepository {
   Stream<List<Conversation>> watchConversations();
-  Stream<List<LocalMessage>> watchMessages(String conversationId);
+
+  /// Sohbetin mesajlari, eskiden yeniye. [limit] verilirse yalniz en yeni
+  /// [limit] mesaj gelir; sohbet ekrani gecmisi sayfa sayfa acar.
+  Stream<List<LocalMessage>> watchMessages(String conversationId, {int? limit});
+
+  /// Tek mesaj; yuklu sayfanin disindaki bir yanit alintisi icin.
+  Future<LocalMessage?> getMessage(String messageId);
+
+  /// Sohbette sabitlenmis (gecerli) mesaj; yoksa null. Sayfanin disinda
+  /// kalsa bile bant gosterilebilsin diye ayri izlenir.
+  Stream<LocalMessage?> watchPinnedMessage(String conversationId);
   Future<List<LocalMessage>> searchAllMessages(String query, {int limit = 100});
   Future<void> sendText(
     String conversationId,
@@ -30,6 +40,18 @@ abstract interface class ConversationRepository {
   /// Bos ya da yalniz bosluk olan metin taslagi siler.
   Future<void> saveDraft(String conversationId, String? text);
 }
+
+/// Sohbet bandinda gosterilecek sabitlenmis mesaj: silinmemis, suresi
+/// dolmamis olanlarin en yenisi.
+LocalMessage? latestPinnedMessage(Iterable<LocalMessage> messages) => messages
+    .where(
+      (message) =>
+          message.isPinned &&
+          !message.isDeleted &&
+          (message.expiresAt == null ||
+              message.expiresAt!.isAfter(DateTime.now())),
+    )
+    .lastOrNull;
 
 /// Taslak olarak saklanacak metin; bossa null.
 String? normalizeDraft(String? text) {
@@ -69,14 +91,32 @@ class InMemoryConversationRepository implements ConversationRepository {
   }
 
   @override
-  Stream<List<LocalMessage>> watchMessages(String conversationId) async* {
+  Stream<List<LocalMessage>> watchMessages(
+    String conversationId, {
+    int? limit,
+  }) async* {
     final controller = _messageControllers.putIfAbsent(
       conversationId,
       () => StreamController<List<LocalMessage>>.broadcast(),
     );
-    yield List.unmodifiable(_messages[conversationId] ?? const []);
-    yield* controller.stream;
+    List<LocalMessage> page(List<LocalMessage> all) => List.unmodifiable(
+      limit == null || all.length <= limit
+          ? all
+          : all.sublist(all.length - limit),
+    );
+    yield page(_messages[conversationId] ?? const []);
+    yield* controller.stream.map(page);
   }
+
+  @override
+  Future<LocalMessage?> getMessage(String messageId) async => _messages.values
+      .expand((messages) => messages)
+      .where((message) => message.id == messageId)
+      .firstOrNull;
+
+  @override
+  Stream<LocalMessage?> watchPinnedMessage(String conversationId) =>
+      watchMessages(conversationId).map(latestPinnedMessage);
 
   @override
   Future<List<LocalMessage>> searchAllMessages(
@@ -296,8 +336,33 @@ class StorageConversationRepository implements ConversationRepository {
   }
 
   @override
-  Stream<List<LocalMessage>> watchMessages(String conversationId) {
-    return _db.messages.getMessages(conversationId).asyncMap((items) async {
+  Future<LocalMessage?> getMessage(String messageId) async {
+    final entity = await _db.messages.getById(messageId);
+    if (entity == null) return null;
+    final conversation = await _db.conversations.getById(entity.conversationId);
+    return _messageFromEntity(entity, isGroup: conversation?.isGroup ?? false);
+  }
+
+  @override
+  Stream<LocalMessage?> watchPinnedMessage(String conversationId) =>
+      _db.messages.observeLatestPinned(conversationId).asyncMap((entity) async {
+        if (entity == null) return null;
+        final conversation = await _db.conversations.getById(conversationId);
+        return _messageFromEntity(
+          entity,
+          isGroup: conversation?.isGroup ?? false,
+        );
+      });
+
+  @override
+  Stream<List<LocalMessage>> watchMessages(
+    String conversationId, {
+    int? limit,
+  }) {
+    final source = limit == null
+        ? _db.messages.getMessages(conversationId)
+        : _db.messages.getLatestPage(conversationId, limit);
+    return source.asyncMap((items) async {
       final conversation = await _db.conversations.getById(conversationId);
       return items
           .map(

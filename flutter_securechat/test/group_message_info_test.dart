@@ -261,7 +261,10 @@ class _ReceiptRepository extends InMemoryConversationRepository {
   final _conversations = StreamController<List<Conversation>>.broadcast();
 
   @override
-  Stream<List<LocalMessage>> watchMessages(String conversationId) async* {
+  Stream<List<LocalMessage>> watchMessages(
+    String conversationId, {
+    int? limit,
+  }) async* {
     yield messages;
     yield* _messages.stream;
   }

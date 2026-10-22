@@ -220,7 +220,10 @@ class _ReadTrackingRepository extends InMemoryConversationRepository {
       _histories.putIfAbsent(id, () => [_message(id, 'seed-$id', _seedTime)]);
 
   @override
-  Stream<List<LocalMessage>> watchMessages(String conversationId) async* {
+  Stream<List<LocalMessage>> watchMessages(
+    String conversationId, {
+    int? limit,
+  }) async* {
     final updates = _updates.putIfAbsent(
       conversationId,
       () => StreamController<List<LocalMessage>>.broadcast(),

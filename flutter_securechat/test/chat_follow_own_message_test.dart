@@ -169,11 +169,16 @@ void main() {
 class _CountingRepository extends InMemoryConversationRepository {
   _CountingRepository({required super.conversations, required super.messages});
 
+  /// Yalniz sohbet ekraninin sayfali abonelikleri; sabitlenmis mesaj bandi
+  /// da (bellek ici depoda) tam listeyi izler, o sayilmaz.
   var messageWatches = 0;
 
   @override
-  Stream<List<LocalMessage>> watchMessages(String conversationId) {
-    messageWatches++;
-    return super.watchMessages(conversationId);
+  Stream<List<LocalMessage>> watchMessages(
+    String conversationId, {
+    int? limit,
+  }) {
+    if (limit != null) messageWatches++;
+    return super.watchMessages(conversationId, limit: limit);
   }
 }

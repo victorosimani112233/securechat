@@ -93,8 +93,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// yeni akis vermek her setState'te aboneligi yenileyip veritabanindaki
   /// tum mesajlari yeniden suzup siraliyordu.
   String? _streamsConversationId;
+  int? _streamsLimit;
   Stream<List<LocalMessage>>? _messagesStream;
   Stream<List<CallHistoryEntry>>? _callsStream;
+  Stream<LocalMessage?>? _pinnedStream;
+
+  /// Gecmis sayfa sayfa acilir: once en yeni [_pageSize] mesaj, en uste
+  /// yaklasildikca bir sayfa daha. Butun gecmisi okumak uzun sohbette her
+  /// degisiklikte diskten binlerce mesaj cozmek demekti.
+  static const _pageSize = 100;
+  int _messageLimit = _pageSize;
+
+  /// Ekrandaki listenin hangi sayfa siniri icin geldigi. [_messageLimit]
+  /// ile ayni degilse yeni sayfa henuz gelmedi.
+  int? _loadedLimit;
+
+  bool get _pageLoading => _loadedLimit != _messageLimit;
+
+  /// Yuklu sayfa sohbetin en eski mesajina ulasti.
+  bool get _reachedStart =>
+      !_pageLoading && _latestMessages.length < _messageLimit;
+
+  /// Sohbet acildiginda yuklenen sayfanin en eski mesajinin zamani. Liste bu
+  /// cizgide ikiye ayrilir: eski sayfalar cizginin ustune YUKARI dogru,
+  /// yeni mesajlar altina ASAGI dogru eklenir; hicbiri gorunen icerigi
+  /// kaydirmaz.
+  DateTime? _anchorTime;
+
+  /// Yuklu sayfanin disinda kalan yanit hedefleri (alinti icin).
+  final Map<String, LocalMessage?> _replyTargets = {};
+  final Set<String> _replyTargetsLoading = {};
   Timer? _highlightTimer;
   Timer? _composerScrollTimer;
   Timer? _messageExpiryTimer;
@@ -189,6 +217,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _draftRepository = container.conversations;
       unawaited(_restoreDraft(container.conversations, routeConversation.id));
       _conversation = routeConversation;
+      _messageLimit = _pageSize;
+      _loadedLimit = null;
+      _anchorTime = null;
+      _replyTargets.clear();
+      _replyTargetsLoading.clear();
+      _pinnedStream = null;
       _peerBlocked = false;
       _peerUnknown = false;
       _unknownBannerDismissed = false;
@@ -567,6 +601,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         growable: false,
                       )..sort((a, b) => a.timestamp.compareTo(b.timestamp));
                   _latestMessages = allMessages;
+                  if (snapshot.connectionState == ConnectionState.active) {
+                    _loadedLimit = _streamsLimit;
+                  }
+                  // Cizgi yalniz ilk sayfa doluysa (daha eski mesaj olabilir)
+                  // konur. Sohbetin tamami tek sayfaya sigiyorsa liste
+                  // bolunmez; sifreleme notu ve gun ayiricisi en ustte gorunur.
+                  if (snapshot.hasData && allMessages.length >= _messageLimit) {
+                    _anchorTime ??= allMessages.first.timestamp;
+                  }
                   _scheduleMessageExpiry(allMessages);
                   if (snapshot.hasData && allMessages.isNotEmpty) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -722,27 +765,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
       );
     }
-    final pinned = messages
-        .where(
-          (message) =>
-              message.isPinned &&
-              !message.isDeleted &&
-              (message.expiresAt == null ||
-                  message.expiresAt!.isAfter(DateTime.now())),
-        )
-        .lastOrNull;
     final canUnpin =
         !conversation.isGroup ||
         conversation.groupAdmins.contains(container.session.userId);
+    // Sabitlenmis mesaj yuklu sayfanin disinda (eski) olabilir; bant ayri
+    // izlenir.
+    final pinnedStream = _pinnedStream ??= relistenable(
+      () => container.conversations.watchPinnedMessage(conversation.id),
+    );
     return Column(
       children: [
-        if (pinned != null)
-          _PinnedMessageBanner(
-            message: pinned,
-            canUnpin: canUnpin,
-            onTap: () => _scrollToMessage(pinned.id),
-            onUnpin: () => _unpinMessage(pinned),
-          ),
+        StreamBuilder<LocalMessage?>(
+          stream: pinnedStream,
+          builder: (context, snapshot) {
+            final pinned = snapshot.data;
+            if (pinned == null) return const SizedBox.shrink();
+            return _PinnedMessageBanner(
+              message: pinned,
+              canUnpin: canUnpin,
+              onTap: () => _scrollToMessage(pinned.id),
+              onUnpin: () => _unpinMessage(pinned),
+            );
+          },
+        ),
         Expanded(
           child: Stack(
             children: [
@@ -795,6 +840,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void _onMessageScroll() {
     if (!_messageScroll.hasClients) return;
+    final position = _messageScroll.position;
+    // En uste yaklasinca bir sayfa daha; liste yukari buyudugu icin
+    // gorunen icerik yerinde kalir.
+    if (position.pixels - position.minScrollExtent < 800) _loadOlderPage();
     final distance =
         _messageScroll.position.maxScrollExtent - _messageScroll.offset;
     final nearBottom = distance <= 72;
@@ -813,10 +862,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     AppContainer container,
     Conversation conversation,
   ) {
-    if (_streamsConversationId != conversation.id || _messagesStream == null) {
+    if (_streamsConversationId != conversation.id) _callsStream = null;
+    if (_streamsConversationId != conversation.id ||
+        _streamsLimit != _messageLimit ||
+        _messagesStream == null) {
       _streamsConversationId = conversation.id;
-      _messagesStream = relistenable(() => repo.watchMessages(conversation.id));
-      _callsStream = null;
+      _streamsLimit = _messageLimit;
+      final limit = _messageLimit;
+      _messagesStream = relistenable(
+        () => repo.watchMessages(conversation.id, limit: limit),
+      );
     }
     return _messagesStream!;
   }
@@ -950,26 +1005,94 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Yalniz ekrandaki ogeler kurulur. Onceden her cizimde tum gecmis icin
   /// balon nesneleri olusturuluyordu; uzun sohbette her setState gecmisin
   /// boyuyla buyuyordu.
+  ///
+  /// Liste [_anchorTime] cizgisinde iki parcadir. Cizginin ustu (eski
+  /// sayfalar ve sifreleme notu) `center` sliver'inin oncesinde oldugu icin
+  /// YUKARI dogru buyur: eski sayfa eklenince gorunen icerik yerinde kalir.
+  /// Alti asagi dogru buyur: yeni mesaj eklenince de icerik kaymaz.
   Widget _buildMessageList(
     List<LocalMessage> messages,
     List<CallHistoryEntry> calls,
   ) {
     final items = _timelineItems(messages, calls);
-    final indexByKey = <Key, int>{
-      for (var index = 0; index < items.length; index++)
-        items[index].key: index,
+    final anchor = _anchorTime;
+    final older = <_TimelineItem>[];
+    final newer = <_TimelineItem>[];
+    for (final item in items) {
+      final at = item.at;
+      if (anchor != null && (at == null || at.isBefore(anchor))) {
+        older.add(item);
+      } else {
+        newer.add(item);
+      }
+    }
+    // Cizginin ustundeki parca asagidan yukari kurulur: ilk oge cizgiye en
+    // yakin (en yeni) olandir.
+    final olderUpward = older.reversed.toList(growable: false);
+    Map<Key, int> indexOf(List<_TimelineItem> list) => {
+      for (var index = 0; index < list.length; index++) list[index].key: index,
     };
-    return ListView.builder(
+    final olderIndex = indexOf(olderUpward);
+    final newerIndex = indexOf(newer);
+    const newerKey = ValueKey('chat-message-list-newer');
+    return CustomScrollView(
       key: const ValueKey('chat-message-list'),
       controller: _messageScroll,
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
-      itemCount: items.length,
-      // Yeni mesaj eklenince ya da silinince kurulu ogeler (ses oynatici,
-      // acilmis uzun metin) yerini kaybetmez.
-      findChildIndexCallback: (key) => indexByKey[key],
-      itemBuilder: (context, index) => items[index].build(),
+      center: newerKey,
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => olderUpward[index].build(),
+              childCount: olderUpward.length,
+              // Yeni sayfa eklenince kurulu ogeler (ses oynatici, acilmis
+              // uzun metin) yerini kaybetmez.
+              findChildIndexCallback: (key) => olderIndex[key],
+            ),
+          ),
+        ),
+        SliverPadding(
+          key: newerKey,
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => newer[index].build(),
+              childCount: newer.length,
+              findChildIndexCallback: (key) => newerIndex[key],
+            ),
+          ),
+        ),
+      ],
     );
+  }
+
+  /// Yuklu sayfa en eski mesaja ulasmadiysa bir sayfa daha ister.
+  void _loadOlderPage() {
+    if (_pageLoading || _reachedStart) return;
+    setState(() {
+      // Sohbet acikken bir sayfayi asacak kadar buyuduyse cizgi simdi konur.
+      if (_latestMessages.isNotEmpty) {
+        _anchorTime ??= _latestMessages.first.timestamp;
+      }
+      _messageLimit += _pageSize;
+    });
+  }
+
+  /// Yuklu sayfada olmayan bir yanit hedefini bir kez getirir.
+  LocalMessage? _replyTarget(String id) {
+    if (_replyTargets.containsKey(id)) return _replyTargets[id];
+    if (_replyTargetsLoading.add(id)) {
+      final repo = AppContainerScope.of(context).conversations;
+      unawaited(
+        repo.getMessage(id).then((message) {
+          if (!mounted) return;
+          setState(() => _replyTargets[id] = message);
+        }, onError: (Object _) => _replyTargets[id] = null),
+      );
+    }
+    return null;
   }
 
   List<_TimelineItem> _timelineItems(
@@ -988,6 +1111,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final items = <_TimelineItem>[
       _TimelineItem(
         const ValueKey('chat-encryption-pill'),
+        null,
         () => const Padding(
           key: ValueKey('chat-encryption-pill'),
           padding: EdgeInsets.symmetric(horizontal: 32, vertical: 8),
@@ -1006,6 +1130,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         items.add(
           _TimelineItem(
             key,
+            // Gun ayiricisi gece yarisina baglanir: o gunun eski mesajlari
+            // sonradan yuklense de ayirici cizginin ayni tarafinda kalir.
+            DateTime(local.year, local.month, local.day),
             () => KeyedSubtree(key: key, child: _ChatDateSeparator(label)),
           ),
         );
@@ -1017,6 +1144,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         items.add(
           _TimelineItem(
             key,
+            call.timestamp,
             () => KeyedSubtree(key: key, child: _CallActivityCard(call)),
           ),
         );
@@ -1027,11 +1155,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       items.add(
         _TimelineItem(
           key,
+          message.timestamp,
           () => KeyedSubtree(
             key: key,
             child: message.contentType == MessageContentType.system
                 ? _SystemMessageBanner(message)
-                : _messageRow(message, replyById[message.replyToId]),
+                : _messageRow(
+                    message,
+                    message.replyToId == null
+                        ? null
+                        : replyById[message.replyToId] ??
+                              _replyTarget(message.replyToId!),
+                  ),
           ),
         ),
       );
@@ -1223,13 +1358,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       // Hedef henuz cizilmemis. Sirasindan kaba bir konum tahmin edip oraya
       // atliyoruz; bir sonraki karede oge olusunca kesin hizalama yapilir.
       // Tahmin tutmazsa birkac kez daha yaklasilir, sonra sessizce birakilir.
-      if (attempt >= 4 || !_messageScroll.hasClients) return;
+      if (!_messageScroll.hasClients) return;
       final index = _messageOrder.indexOf(messageId);
-      if (index < 0 || _messageOrder.length < 2) return;
+      if (index < 0) {
+        // Hedef yuklu sayfada degil: daha eski sayfalar acilir. Sohbetin
+        // basina ulasildiysa (sayfa dolmadi) mesaj bu sohbette yok.
+        if (attempt >= 200 || _reachedStart) return;
+        if (!_pageLoading) setState(() => _messageLimit += _pageSize);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _scrollToMessage(
+            messageId,
+            transient: transient,
+            attempt: attempt + 1,
+          );
+        });
+        return;
+      }
+      if (attempt >= 204 || _messageOrder.length < 2) return;
       final position = _messageScroll.position;
+      final span = position.maxScrollExtent - position.minScrollExtent;
       final estimate =
-          position.maxScrollExtent * (index / (_messageOrder.length - 1));
-      _messageScroll.jumpTo(estimate.clamp(0.0, position.maxScrollExtent));
+          position.minScrollExtent +
+          span * (index / (_messageOrder.length - 1));
+      _messageScroll.jumpTo(
+        estimate.clamp(position.minScrollExtent, position.maxScrollExtent),
+      );
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _scrollToMessage(messageId, transient: transient, attempt: attempt + 1);
@@ -2302,6 +2456,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       setState(() {
         _showSearch = true;
         _showAttachments = false;
+        // Sohbet ici arama tum gecmiste yapilir; yalniz bu acik eylemde
+        // butun mesajlar yuklenir.
+        _messageLimit = 1 << 30;
       });
       return;
     }
@@ -2434,8 +2591,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
 /// Sohbet zaman cizgisinde bir oge; widget yalniz ekrana gelince kurulur.
 class _TimelineItem {
-  const _TimelineItem(this.key, this.build);
+  const _TimelineItem(this.key, this.at, this.build);
 
   final Key key;
+
+  /// Liste bu zamana gore cizginin ustune ya da altina yerlesir; `null`
+  /// (sifreleme notu) her zaman en ustte.
+  final DateTime? at;
   final Widget Function() build;
 }
