@@ -1,5 +1,9 @@
 package com.securechat.signaling
 
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
+
 /**
  * Padded ve onbelleklenmis private-directory snapshot'i.
  *
@@ -34,7 +38,17 @@ object DirectorySnapshotCache {
         val version: Long,
         val keyId: String,
         val builtAtMillis: Long,
+        val etag: String,
     )
+
+    /** Isteyen hesabin alacagi liste ve (paylasilan listeyse) ETag'i. */
+    class SnapshotView(val entries: List<PrivateDirectoryEntry>, val etag: String?)
+
+    /**
+     * ETag'e katilir; sunucu yeniden baslayinca surum sayaci sifirlandigi
+     * icin eski bir ETag yeni bir listeyle cakisamaz.
+     */
+    private val instanceNonce = ByteArray(16).also(SecureRandom()::nextBytes)
 
     @Volatile
     private var cached: Built? = null
@@ -60,9 +74,34 @@ object DirectorySnapshotCache {
         oprf: PrivateDirectoryOprf = PrivateDirectory.oprf,
         nowMillis: Long = System.currentTimeMillis(),
         keylessUsers: () -> Set<String>? = OlmPreKeyStore::keylessUsers,
-    ): List<PrivateDirectoryEntry> {
+    ): List<PrivateDirectoryEntry> =
+        snapshotFor(requesterId, registry, oprf, nowMillis, keylessUsers).entries
+
+    /**
+     * [entriesFor] ile ayni liste ve ETag.
+     *
+     * Liste her yeniden kurulusta (en gec [TTL_MILLIS]) rastgele nonce ile
+     * yeniden muhurlenir; baytlar degisir ama anlami degismez. ETag bu
+     * yuzden baytlardan degil anlamdan uretilir (anahtar, uyelik surumu,
+     * gizlenen hesaplar): ayniysa istemcinin elindeki eski kopya ayni
+     * etiketleri ve ayni kimlikleri acar, yeniden indirmesi gerekmez.
+     * Kendi kaydi eklenen (anahtarsiz) hesap ETag almaz.
+     */
+    fun snapshotFor(
+        requesterId: String,
+        registry: UserRegistry,
+        oprf: PrivateDirectoryOprf = PrivateDirectory.oprf,
+        nowMillis: Long = System.currentTimeMillis(),
+        keylessUsers: () -> Set<String>? = OlmPreKeyStore::keylessUsers,
+    ): SnapshotView {
         val built = built(registry, oprf, nowMillis, keylessUsers)
-        return withOwnEntry(built.entries, built.hidden, registry.directoryEntryOf(requesterId), oprf)
+        val entries = withOwnEntry(
+            built.entries,
+            built.hidden,
+            registry.directoryEntryOf(requesterId),
+            oprf,
+        )
+        return SnapshotView(entries, if (entries === built.entries) built.etag else null)
     }
 
     internal fun withOwnEntry(
@@ -88,10 +127,30 @@ object DirectorySnapshotCache {
         synchronized(lock) {
             cached?.takeIf { it.isFresh(version, oprf.keyId, nowMillis) }?.let { return it }
             val hidden = keylessUsers()
-            val built = Built(build(registry, oprf, hidden), hidden, version, oprf.keyId, nowMillis)
+            val built = Built(
+                entries = build(registry, oprf, hidden),
+                hidden = hidden,
+                version = version,
+                keyId = oprf.keyId,
+                builtAtMillis = nowMillis,
+                etag = etagOf(oprf.keyId, version, hidden),
+            )
             cached = built
             return built
         }
+    }
+
+    private fun etagOf(keyId: String, version: Long, hidden: Set<String>?): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(instanceNonce)
+        digest.update("$keyId\u0000$version\u0000".toByteArray())
+        if (hidden == null) {
+            digest.update("*".toByteArray())
+        } else {
+            for (userId in hidden.sorted()) digest.update("$userId\u0000".toByteArray())
+        }
+        val tag = Base64.getUrlEncoder().withoutPadding().encodeToString(digest.digest())
+        return "\"${tag.take(27)}\""
     }
 
     private fun Built.isFresh(version: Long, keyId: String, nowMillis: Long): Boolean =

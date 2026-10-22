@@ -230,6 +230,34 @@ class PrivateDirectoryRegistryIntegrationTest {
         DirectorySnapshotCache.invalidate()
     }
 
+    @Test
+    fun `the snapshot etag follows meaning, not the sealed bytes`() {
+        val readyId = UUID.randomUUID().toString()
+        val keylessId = UUID.randomUUID().toString()
+        val token = directory.tokenForPhoneHash(sha256Hex("+905558888888"))
+        registry.registerUser(readyId)
+        setIdentityColumns(readyId, libsignal = false, olm = true)
+        DirectorySnapshotCache.invalidate()
+
+        val first = DirectorySnapshotCache.snapshotFor(readyId, registry, directory)
+        DirectorySnapshotCache.invalidate()
+        val rebuilt = DirectorySnapshotCache.snapshotFor(readyId, registry, directory)
+        assertTrue(first.etag != null)
+        assertEquals(first.etag, rebuilt.etag)
+
+        // Yeni bir numara rehbere girince ETag degisir.
+        registry.registerUser(keylessId)
+        registry.updateOwnDirectoryToken(keylessId, token)
+        val changed = DirectorySnapshotCache.snapshotFor(readyId, registry, directory)
+        assertNotEquals(first.etag, changed.etag)
+        // Kendi kaydi eklenen anahtarsiz hesap paylasilan ETag'i almaz.
+        assertEquals(
+            null,
+            DirectorySnapshotCache.snapshotFor(keylessId, registry, directory).etag,
+        )
+        DirectorySnapshotCache.invalidate()
+    }
+
     private fun snapshotLabels(requesterId: String): Set<String> =
         DirectorySnapshotCache.entriesFor(requesterId, registry, directory)
             .map { it.label }

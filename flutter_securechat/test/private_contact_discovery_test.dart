@@ -53,6 +53,39 @@ void main() {
   );
 
   test(
+    'an unchanged snapshot is reused after a 304',
+    () async {
+      final fixture = await _PrivateDirectoryFixture.start();
+      addTearDown(fixture.close);
+      fixture.etag = '"v1"';
+      final api = PrivateContactDiscoveryApi(
+        baseUrl: fixture.baseUrl,
+        client: HttpClient(),
+        random: Random(31),
+      );
+      final aliceHash = await hashPhoneNumber('+905551234567');
+
+      final first = await api.checkUsers([aliceHash], 'access-token');
+      final second = await api.checkUsers([aliceHash], 'access-token');
+
+      expect(first.single.userId, _aliceUserId);
+      expect(second.single.userId, _aliceUserId);
+      expect(fixture.ifNoneMatch, [null, '"v1"']);
+      expect(fixture.notModifiedResponses, 1);
+
+      // Liste degisince sunucu yeni ETag ile tam listeyi gonderir.
+      fixture.etag = '"v2"';
+      await api.checkUsers([aliceHash], 'access-token');
+      expect(fixture.ifNoneMatch.last, '"v1"');
+      expect(fixture.notModifiedResponses, 1);
+      await api.checkUsers([aliceHash], 'access-token');
+      expect(fixture.ifNoneMatch.last, '"v2"');
+      expect(fixture.notModifiedResponses, 2);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test(
     'invalid directory key identifier fails closed before evaluation',
     () async {
       final fixture = await _PrivateDirectoryFixture.start(
@@ -131,6 +164,11 @@ class _PrivateDirectoryFixture {
   Map<String, Object?>? directoryUpdateBody;
   bool ownEnrolled = false;
 
+  /// Bos degilse liste bu ETag ile sunulur; ayni ETag sorulursa 304 doner.
+  String? etag;
+  int notModifiedResponses = 0;
+  final ifNoneMatch = <String?>[];
+
   String get baseUrl => 'http://${server.address.address}:${server.port}';
 
   static Future<_PrivateDirectoryFixture> start({
@@ -194,6 +232,17 @@ class _PrivateDirectoryFixture {
           break;
         case 'GET /api/v1/directory/snapshot':
           snapshotRequests++;
+          final asked = request.headers.value(HttpHeaders.ifNoneMatchHeader);
+          ifNoneMatch.add(asked);
+          final current = etag;
+          if (current != null) {
+            request.response.headers.set(HttpHeaders.etagHeader, current);
+            if (asked == current) {
+              notModifiedResponses++;
+              request.response.statusCode = HttpStatus.notModified;
+              break;
+            }
+          }
           final entries = <Map<String, String>>[
             await _entry(await hashPhoneNumber('+905551234567'), _aliceUserId),
             if (ownEnrolled)

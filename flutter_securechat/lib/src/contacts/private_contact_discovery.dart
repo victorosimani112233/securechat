@@ -267,6 +267,10 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
   final AesGcm _aead = AesGcm.with256bits();
   PrivateDirectoryConfig? _cachedConfig;
 
+  /// Son indirilen liste. Sunucu liste degismediyse 304 doner; o zaman bu
+  /// kopya kullanilir. Yalniz bellekte durur.
+  _CachedSnapshot? _cachedSnapshot;
+
   @override
   Future<List<RegisteredUserMatch>> checkUsers(
     List<String> phoneHashes,
@@ -476,12 +480,19 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
     String accessToken,
     PrivateDirectoryConfig config,
   ) async {
+    final cached = _cachedSnapshot?.keyId == config.keyId
+        ? _cachedSnapshot
+        : null;
     final response = await _requestJson(
       method: 'GET',
       path: '/api/v1/directory/snapshot',
       bearerToken: accessToken,
       maximumBytes: _maximumSnapshotBytes,
+      headers: {if (cached != null) HttpHeaders.ifNoneMatchHeader: cached.etag},
     );
+    if (response.statusCode == HttpStatus.notModified && cached != null) {
+      return cached.entries;
+    }
     if (response.statusCode != HttpStatus.ok) {
       throw PrivateDirectoryException(
         'Private directory snapshot failed.',
@@ -516,6 +527,14 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
       }
       entries.add(_SnapshotEntry(label, sealedUserId));
     }
+    final etag = response.etag;
+    _cachedSnapshot = etag == null
+        ? null
+        : _CachedSnapshot(
+            keyId: config.keyId,
+            etag: etag,
+            entries: List.unmodifiable(entries),
+          );
     return entries;
   }
 
@@ -604,11 +623,13 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
     required int maximumBytes,
     String? bearerToken,
     Object? body,
+    Map<String, String> headers = const {},
   }) async {
     final request = await _client
         .openUrl(method, _base.resolve(path))
         .timeout(const Duration(seconds: 15));
     request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+    headers.forEach(request.headers.set);
     if (bearerToken != null) {
       request.headers.set(
         HttpHeaders.authorizationHeader,
@@ -639,7 +660,11 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
       }
       json = decoded.cast<String, Object?>();
     }
-    return _JsonResponse(response.statusCode, json);
+    return _JsonResponse(
+      response.statusCode,
+      json,
+      etag: response.headers.value(HttpHeaders.etagHeader),
+    );
   }
 
   List<String> _validatedUniqueHashes(List<String> hashes) {
@@ -679,10 +704,23 @@ class _SnapshotEntry {
 }
 
 class _JsonResponse {
-  const _JsonResponse(this.statusCode, this.json);
+  const _JsonResponse(this.statusCode, this.json, {this.etag});
 
   final int statusCode;
   final Map<String, Object?> json;
+  final String? etag;
+}
+
+class _CachedSnapshot {
+  const _CachedSnapshot({
+    required this.keyId,
+    required this.etag,
+    required this.entries,
+  });
+
+  final String keyId;
+  final String etag;
+  final List<_SnapshotEntry> entries;
 }
 
 BigInt _bytesToBigInt(List<int> bytes) {

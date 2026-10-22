@@ -10,6 +10,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
@@ -269,6 +270,33 @@ class EndToEndServerTest {
         // Ham hesap kimligi hicbir kayitta gorunmez.
         assertFalse(response.bodyAsText().contains(alice))
         assertFalse(response.bodyAsText().contains(bob))
+    }
+
+    @Test
+    fun `an unchanged snapshot is answered with 304 even after a rebuild`() = e2e {
+        val first = client.get("/api/v1/directory/snapshot") {
+            header("Authorization", "Bearer $aliceToken")
+        }
+        assertEquals(HttpStatusCode.OK, first.status)
+        val etag = first.headers[HttpHeaders.ETag]
+        assertTrue(etag != null && etag.startsWith("\"") && etag.endsWith("\""))
+
+        // Yeniden kurulus kayitlari yeni nonce ile muhurler; anlam ayni
+        // oldugu icin ETag degismez ve istemci elindekini kullanir.
+        DirectorySnapshotCache.invalidate()
+        val again = client.get("/api/v1/directory/snapshot") {
+            header("Authorization", "Bearer $aliceToken")
+            header(HttpHeaders.IfNoneMatch, etag!!)
+        }
+        assertEquals(HttpStatusCode.NotModified, again.status)
+        assertEquals(etag, again.headers[HttpHeaders.ETag])
+        assertEquals("", again.bodyAsText())
+
+        val stale = client.get("/api/v1/directory/snapshot") {
+            header("Authorization", "Bearer $aliceToken")
+            header(HttpHeaders.IfNoneMatch, "\"eski\"")
+        }
+        assertEquals(HttpStatusCode.OK, stale.status)
     }
 
     @Test

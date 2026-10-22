@@ -532,7 +532,17 @@ fun Application.configureRoutes(
                 )
                 return@get
             }
-            val entries = DirectorySnapshotCache.entriesFor(authedUserId, userRegistry).map { entry ->
+            val view = DirectorySnapshotCache.snapshotFor(authedUserId, userRegistry)
+            view.etag?.let { etag ->
+                call.response.header(HttpHeaders.ETag, etag)
+                // Liste degismediyse istemci elindekini kullanir; buyuk
+                // yaniti yeniden indirmez.
+                if (call.request.headers[HttpHeaders.IfNoneMatch] == etag) {
+                    call.respond(HttpStatusCode.NotModified)
+                    return@get
+                }
+            }
+            val entries = view.entries.map { entry ->
                 DirectorySnapshotEntryResponse(entry.label, entry.sealedUserId)
             }
             call.respond(DirectorySnapshotResponse(PrivateDirectory.oprf.keyId, entries))
