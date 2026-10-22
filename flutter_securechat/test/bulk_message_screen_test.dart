@@ -104,6 +104,10 @@ void main() {
     expect(find.text('“Ekip” listesi kaydedildi'), findsOneWidget);
     final saved = (await lists.watch().first).single;
     expect(saved.memberIds, hasLength(1));
+    // Ilk kayittan sonra secici acik kalir, secim kaybolmaz.
+    expect(find.byKey(const ValueKey('recipient-search')), findsOneWidget);
+    expect(find.byType(InputChip), findsOneWidget);
+    expect(find.byKey(const ValueKey('bulk-new-selection')), findsNothing);
 
     // Ikinci acilista once kayitli listeler gosterilir.
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();

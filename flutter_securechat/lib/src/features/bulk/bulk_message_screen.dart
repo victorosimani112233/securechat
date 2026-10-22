@@ -181,7 +181,16 @@ class _BulkMessageScreenState extends State<BulkMessageScreen> {
     final l10n = context.l10n;
     try {
       final saved = await store.save(name, selected.map((item) => item.id));
-      if (mounted) setState(() => _fromList = saved);
+      // Ilk liste kaydedilince ekran secicide kalmali; aksi halde listeler
+      // ekranina gecip secimi kaybettiriyordu. Secici yeni adla, ayni
+      // secimle yeniden kurulur.
+      if (mounted) {
+        setState(() {
+          _fromList = saved;
+          _initial = selected;
+          _picking = true;
+        });
+      }
       messenger.showSnackBar(
         SnackBar(content: Text(l10n.bulk_list_saved(saved.name))),
       );
