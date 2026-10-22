@@ -320,7 +320,16 @@ class _AuthScreenState extends State<AuthScreen> {
       }
       if (mounted) {
         setState(() {
-          if (error is ExistingAccountLoginRequired) {
+          if (error is ExistingAccountLoginRequired &&
+              error.reason == ExistingAccountReason.phoneRegistered) {
+            // Numara baska bir hesapta: kullanici numarayi degistirebilsin ya
+            // da o hesaba girebilsin diye ilk adima doner; aciklama numara
+            // alaninin altinda durur.
+            _step = _AuthStep.details;
+            _otp.clear();
+            _error = null;
+            _phoneError = _presentAuthError(error, verifying: true);
+          } else if (error is ExistingAccountLoginRequired) {
             _step = _AuthStep.email;
             _otp.clear();
             _error = _presentAuthError(error, verifying: true);

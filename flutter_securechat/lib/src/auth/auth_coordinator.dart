@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math';
 
 import '../contacts/contact_discovery_api.dart';
+import '../contacts/private_contact_discovery.dart'
+    show DirectoryOwnershipException;
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import 'auth_api.dart';
@@ -93,12 +95,26 @@ class AuthCoordinator {
       throw const AuthApiException.invalidResponse();
     }
 
-    await _privateDirectory?.checkUsers(
-      const [],
-      result.accessToken,
-      ownPhoneHash: await hashPhoneNumber(normalized),
-      ownUserId: result.userId,
-    );
+    try {
+      await _privateDirectory?.checkUsers(
+        const [],
+        result.accessToken,
+        ownPhoneHash: await hashPhoneNumber(normalized),
+        ownUserId: result.userId,
+      );
+    } catch (error) {
+      // Az once acilan hesap numarasiz ve anahtarsiz kalirdi; sunucuda iz
+      // birakmasin diye silinir (en iyi caba: ag yoksa silme de olmaz, kayit
+      // yine ayni hatayla biter). Yeni deneme zaten yeni e-posta kodu ister.
+      try {
+        await _api.deleteAccount(accessToken: result.accessToken);
+      } catch (_) {}
+      // Numara anahtari olan baska bir hesapta: kullaniciya acik soylenir.
+      if (error is DirectoryOwnershipException) {
+        throw const ExistingAccountLoginRequired();
+      }
+      rethrow;
+    }
 
     // Directory rejection must not establish a local session. Once it succeeds,
     // retain credentials before fallible key setup so upload errors cannot

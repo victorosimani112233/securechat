@@ -6,6 +6,7 @@ import 'package:flutter_securechat/src/auth/auth_api.dart';
 import 'package:flutter_securechat/src/auth/auth_coordinator.dart';
 import 'package:flutter_securechat/src/auth/phone_privacy.dart';
 import 'package:flutter_securechat/src/contacts/contact_discovery_api.dart';
+import 'package:flutter_securechat/src/contacts/private_contact_discovery.dart';
 import 'package:flutter_securechat/src/services/crypto_service.dart';
 import 'package:flutter_securechat/src/services/session_store.dart';
 import 'package:flutter_securechat/src/services/signaling_service.dart';
@@ -580,6 +581,48 @@ void main() {
       if (scenario.contains('response') || scenario == 'restored identity') {
         expect(directory.accessToken, isNull);
       }
+      // Rehber reddederse az once acilan bos hesap sunucuda birakilmaz.
+      expect(
+        api.deletedWith,
+        scenario == 'directory rejection' ? ['access'] : isEmpty,
+      );
+    });
+  }
+
+  for (final failDelete in [false, true]) {
+    test('a number owned by another account removes the new account '
+        '(delete fails: $failDelete)', () async {
+      final keys = _RecordingOlmKeyPublisher();
+      final session = SessionStore();
+      final api = _RegistrationApi('accepted')..failDelete = failDelete;
+      final signaling = InMemorySignalingService();
+      final coordinator = AuthCoordinator(
+        api: api,
+        session: session,
+        olmPreKeys: keys,
+        signaling: signaling,
+        signalingUrl: 'ws://local',
+        privateDirectory: _OwnedNumberDirectoryApi(),
+      );
+
+      await expectLater(
+        coordinator.registerAndLogin(
+          displayName: 'Osman',
+          phoneNumber: '+905432112345',
+          registrationToken: 'otp-grant',
+        ),
+        throwsA(
+          isA<ExistingAccountLoginRequired>().having(
+            (error) => error.reason,
+            'reason',
+            ExistingAccountReason.phoneRegistered,
+          ),
+        ),
+      );
+      expect(api.deletedWith, ['access']);
+      expect(session.isLoggedIn, isFalse);
+      expect(keys.calls, 0);
+      expect(signaling.currentStatus.isConnected, isFalse);
     });
   }
 
@@ -660,6 +703,14 @@ class _RegistrationApi extends AuthApi {
 
   final String scenario;
   int registerCalls = 0;
+  final deletedWith = <String>[];
+  bool failDelete = false;
+
+  @override
+  Future<void> deleteAccount({required String accessToken}) async {
+    deletedWith.add(accessToken);
+    if (failDelete) throw const AuthApiException('offline');
+  }
 
   @override
   Future<RegisterResult> register({
@@ -730,6 +781,16 @@ class _RecordingDirectoryApi implements ContactDiscoveryApi {
 }
 
 /// Kayit akisi testleri anahtar yayinini degil kayit mantigini olcuyor.
+class _OwnedNumberDirectoryApi implements ContactDiscoveryApi {
+  @override
+  Future<List<RegisteredUserMatch>> checkUsers(
+    List<String> phoneHashes,
+    String accessToken, {
+    String? ownPhoneHash,
+    String? ownUserId,
+  }) => throw const DirectoryOwnershipException();
+}
+
 class _RecordingOlmKeyPublisher implements RecoveryIdentity {
   int calls = 0;
   int clears = 0;

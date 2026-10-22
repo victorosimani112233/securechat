@@ -84,7 +84,7 @@ void main() {
   });
 
   for (final locale in ['en', 'tr', 'de', 'ar']) {
-    testWidgets('existing-account rejection stays inline in $locale', (
+    testWidgets('a number owned elsewhere returns to the number in $locale', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(320, 720);
@@ -146,14 +146,24 @@ void main() {
       final strings = AppLocalizations.of(
         tester.element(find.byType(AuthScreen)),
       );
+      // Numara baska bir hesapta: kullanici numarayi degistirebilsin diye
+      // ilk adima doner; aciklama numara alaninin altinda durur.
       expect(find.text(strings.recovery_registration_existing), findsOneWidget);
-      expect(find.byKey(const ValueKey('auth-email')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('auth-details-continue')),
+        findsOneWidget,
+      );
       expect(find.byKey(const ValueKey('auth-otp')), findsNothing);
       expect(find.byType(AuthScreen), findsOneWidget);
       expect(find.byIcon(Icons.login), findsOneWidget);
+      final details = find.byType(TextField);
       expect(
-        tester.widget<TextField>(find.byType(TextField)).controller!.text,
-        'user@example.com',
+        tester.widget<TextField>(details.at(2)).controller!.text,
+        '5551234567',
+      );
+      expect(
+        tester.widget<TextField>(details.at(2)).decoration!.errorText,
+        strings.recovery_registration_existing,
       );
       expect(auth.events, ['request', 'verify', 'register']);
       expect(tester.takeException(), isNull);
