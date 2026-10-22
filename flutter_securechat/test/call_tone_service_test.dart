@@ -41,16 +41,17 @@ void main() {
     expect(player.disposed, isTrue);
   });
 
-  test('all call PCM assets are packaged for Flutter and native apps', () {
+  test('all call tone assets are packaged for Flutter and native apps', () {
     for (final name in const [
-      'elcim_ringback.wav',
-      'elcim_call_connected.wav',
-      'elcim_call_ended.wav',
+      'elcim_ringback',
+      'elcim_call_connected',
+      'elcim_call_ended',
     ]) {
+      // Flutter AAC, Android OGG Vorbis; iOS bildirim icin WAV kalir.
       for (final path in [
-        'assets/sounds/$name',
-        'android/app/src/main/res/raw/$name',
-        'ios/Runner/Sounds/$name',
+        'assets/sounds/$name.m4a',
+        'android/app/src/main/res/raw/$name.ogg',
+        'ios/Runner/Sounds/$name.wav',
       ]) {
         final asset = File(path);
         expect(asset.existsSync(), isTrue, reason: '$path is missing');

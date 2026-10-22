@@ -17,9 +17,11 @@ enum AppLanguagePreference { system, tr, en, de, ar }
 
 /// Bildirim sesi secenegi.
 ///
-/// `asset` paketlenmis ses dosyasinin adi (uzantisiz). Ayni dosya iki
-/// platformda da kullaniliyor: iOS `ios/Runner/Sounds/<asset>.wav`,
-/// Android `res/raw/<asset>.wav`.
+/// `asset` paketlenmis ses dosyasinin adi (uzantisiz). Ayni ses uc yerde
+/// paketli: iOS bildirimi `ios/Runner/Sounds/<asset>.wav` (iOS bildirim
+/// sesi OGG desteklemez), Android bildirimi `res/raw/<asset>.ogg`, uygulama
+/// ici onizleme `assets/sounds/<asset>.m4a`. Sikistirilmis bicimler APK'yi
+/// yaklasik 2 MB kuculttu.
 ///
 /// `silent` ve `system` disa bir dosya tasimaz: birincisi ses calmaz,
 /// ikincisi cihazin varsayilan bildirim sesini kullanir.

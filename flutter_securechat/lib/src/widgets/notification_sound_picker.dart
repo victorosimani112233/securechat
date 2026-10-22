@@ -52,7 +52,7 @@ class _NotificationSoundPickerState extends State<NotificationSoundPicker> {
     if (asset == null) return;
     try {
       await _player.stop();
-      await _player.setAsset('assets/sounds/$asset.wav');
+      await _player.setAsset('assets/sounds/$asset.m4a');
       await _player.play();
     } catch (_) {
       // Onizleme calmazsa secim yine de yapilabilmeli; bu bir kolaylik,

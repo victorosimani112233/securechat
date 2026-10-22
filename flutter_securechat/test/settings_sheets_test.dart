@@ -69,7 +69,7 @@ void main() {
       'melody', 'flow', 'sparkle', 'beep', 'ding',
     ]) {
       expect(
-        File('assets/sounds/elcim_$sound.wav').existsSync(),
+        File('assets/sounds/elcim_$sound.m4a').existsSync(),
         isTrue,
         reason: 'onizleme dosyasi eksik: $sound',
       );
@@ -79,7 +79,7 @@ void main() {
         reason: 'iOS ses dosyasi eksik: $sound',
       );
       expect(
-        File('android/app/src/main/res/raw/elcim_$sound.wav').existsSync(),
+        File('android/app/src/main/res/raw/elcim_$sound.ogg').existsSync(),
         isTrue,
         reason: 'Android ses dosyasi eksik: $sound',
       );

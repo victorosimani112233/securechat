@@ -26,7 +26,7 @@ class JustAudioCallTonePlayer implements CallTonePlayer {
     if (_disposed) return;
     await _player.stop();
     await _player.setLoopMode(LoopMode.one);
-    await _player.setAsset('assets/sounds/elcim_ringback.wav');
+    await _player.setAsset('assets/sounds/elcim_ringback.m4a');
     unawaited(_player.play().catchError((_) {}));
   }
 
@@ -38,11 +38,11 @@ class JustAudioCallTonePlayer implements CallTonePlayer {
 
   @override
   Future<void> playConnectedCue() =>
-      _playOnce('assets/sounds/elcim_call_connected.wav');
+      _playOnce('assets/sounds/elcim_call_connected.m4a');
 
   @override
   Future<void> playEndedCue() =>
-      _playOnce('assets/sounds/elcim_call_ended.wav');
+      _playOnce('assets/sounds/elcim_call_ended.m4a');
 
   Future<void> _playOnce(String asset) async {
     if (_disposed) return;
