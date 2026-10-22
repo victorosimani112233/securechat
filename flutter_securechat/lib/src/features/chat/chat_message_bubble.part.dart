@@ -13,7 +13,12 @@ class _MessageBubble extends StatelessWidget {
     this.highlighted = false,
     this.searchQuery = '',
     this.showReactionCounts = false,
+    this.mentionLabels,
   });
+
+  /// Grup sohbetinde bahsetme vurgusu icin bilinen adlar; birebir sohbette
+  /// null (vurgu yok).
+  final List<String>? mentionLabels;
 
   final LocalMessage message;
   final LocalMessage? replyMessage;
@@ -160,6 +165,10 @@ class _MessageBubble extends StatelessWidget {
                             key: ValueKey('message-text-${message.id}'),
                             text: message.previewText,
                             query: searchQuery,
+                            mentionLabels: mentionLabels,
+                            // Giden balonun zemini renkli; yazi rengi korunur,
+                            // bahsetme yalniz kalinlasir.
+                            mentionColor: outgoing ? null : scheme.primary,
                           ),
                         const SizedBox(height: 3),
                         Row(
@@ -384,10 +393,14 @@ class _HighlightedMessageText extends StatefulWidget {
     super.key,
     required this.text,
     required this.query,
+    this.mentionLabels,
+    this.mentionColor,
   });
 
   final String text;
   final String query;
+  final List<String>? mentionLabels;
+  final Color? mentionColor;
 
   @override
   State<_HighlightedMessageText> createState() =>
@@ -408,7 +421,7 @@ class _HighlightedMessageTextState extends State<_HighlightedMessageText> {
   @override
   Widget build(BuildContext context) {
     final clean = query.trim();
-    if (clean.isEmpty) return _collapsible(context, TextSpan(text: text));
+    if (clean.isEmpty) return _collapsible(context, _mentionSpan());
     final lower = text.toLowerCase();
     final needle = clean.toLowerCase();
     final spans = <InlineSpan>[];
@@ -435,6 +448,29 @@ class _HighlightedMessageTextState extends State<_HighlightedMessageText> {
       cursor = match + needle.length;
     }
     return _collapsible(context, TextSpan(children: spans));
+  }
+
+  /// Arama yokken bahsetmeler kalin (gelen balonda vurgu renginde) cizilir.
+  TextSpan _mentionSpan() {
+    final labels = widget.mentionLabels;
+    if (labels == null || !text.contains('@')) return TextSpan(text: text);
+    final ranges = findMentionRanges(text, labels);
+    if (ranges.isEmpty) return TextSpan(text: text);
+    final style = TextStyle(
+      fontWeight: FontWeight.w700,
+      color: widget.mentionColor,
+    );
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    for (final range in ranges) {
+      if (range.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, range.start)));
+      }
+      spans.add(TextSpan(text: range.textInside(text), style: style));
+      cursor = range.end;
+    }
+    if (cursor < text.length) spans.add(TextSpan(text: text.substring(cursor)));
+    return TextSpan(children: spans);
   }
 
   Widget _collapsible(BuildContext context, TextSpan span) {

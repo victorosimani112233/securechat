@@ -186,6 +186,50 @@ void main() {
     await _closeWhilePumping(tester, f);
   });
 
+  testWidgets('a mention in a group message is drawn in bold', (tester) async {
+    final f = (await tester.runAsync(_Fixture.open))!;
+    addTearDown(f.close);
+    final repo = InMemoryConversationRepository(
+      conversations: [_group],
+      messages: {
+        _group.id: [
+          LocalMessage(
+            id: 'mention',
+            conversationId: _group.id,
+            senderId: _shared,
+            peerId: _group.id,
+            content: 'Selam @Saved Name, yarın görüşelim',
+            contentType: MessageContentType.text,
+            timestamp: DateTime.now(),
+            status: MessageStatus.delivered,
+            isOutgoing: false,
+          ),
+        ],
+      },
+      session: f.session,
+    );
+    await tester.pumpWidget(f.app(const ChatScreen(), repository: repo));
+    await tester.pumpAndSettle();
+
+    final text = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const ValueKey('message-text-mention')),
+        matching: find.byType(Text),
+      ),
+    );
+    final bold = <String>[];
+    text.textSpan!.visitChildren((span) {
+      if (span is TextSpan && span.style?.fontWeight == FontWeight.w700) {
+        bold.add(span.text!);
+      }
+      return true;
+    });
+    expect(bold, ['@Saved Name']);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('departed group hides leave and stale admin actions', (
     tester,
   ) async {

@@ -68,4 +68,34 @@ void main() {
     expect(resolveMentionedUserIds('@Ayşe Yılmaz gel', picked), ['u-ayse']);
     expect(resolveMentionedUserIds('kimse yok', picked), isEmpty);
   });
+
+  test('known names are highlighted whole, others by their first word', () {
+    String marked(String text, List<String> labels) {
+      final buffer = StringBuffer();
+      var cursor = 0;
+      for (final range in findMentionRanges(text, labels)) {
+        buffer
+          ..write(text.substring(cursor, range.start))
+          ..write('[${range.textInside(text)}]');
+        cursor = range.end;
+      }
+      return (buffer..write(text.substring(cursor))).toString();
+    }
+
+    const labels = ['Ayşe Yılmaz', 'Ayşe', '+905432112345'];
+    // En uzun bilinen ad tamamen alinir; harf buyuklugu onemsiz.
+    expect(
+      marked('Selam @ayşe yılmaz, nasılsın', labels),
+      'Selam [@ayşe yılmaz], nasılsın',
+    );
+    expect(marked('@+905432112345 gel', labels), '[@+905432112345] gel');
+    // Bilinmeyen ad: ilk kelime, sondaki noktalama haric.
+    expect(marked('Tamam @Mehmet!', labels), 'Tamam [@Mehmet]!');
+    // Kelime icindeki "@" (e-posta) bahsetme degil.
+    expect(marked('ali@ornek.com yaz', labels), 'ali@ornek.com yaz');
+    // Ad bir kelimenin basiysa tam ad sayilmaz.
+    expect(marked('@Ayşegül geldi', labels), '[@Ayşegül] geldi');
+    expect(marked('tek @ isaret', labels), 'tek @ isaret');
+    expect(marked('@A ve @B', const []), '[@A] ve [@B]');
+  });
 }

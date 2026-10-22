@@ -1045,6 +1045,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final bubble = _MessageBubble(
       message: message,
       showReactionCounts: _conversation!.isGroup,
+      mentionLabels: _conversation!.isGroup ? _mentionHighlightLabels() : null,
       senderLabel: _conversation!.isGroup && !message.isOutgoing
           ? _senderLabel(message)
           : null,
@@ -1342,6 +1343,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           MentionCandidate(userId: id, label: _memberLabel(id)),
     ];
     return filterMentionCandidates(candidates, query.text);
+  }
+
+  /// Grup mesajlarinda vurgulanacak adlar: uyelerin bu cihazdaki adlari ve
+  /// numaralari ile kendi adim ve numaram.
+  List<String> _mentionHighlightLabels() {
+    final session = AppContainerScope.of(context).session;
+    return [
+      for (final identity in _groupIdentities.values) ...[
+        identity.displayName,
+        identity.phoneNumber,
+      ],
+      ?session.displayName,
+      ?session.phoneNumber,
+    ];
   }
 
   void _pickMention(MentionCandidate candidate) {
