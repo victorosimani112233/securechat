@@ -1749,6 +1749,14 @@ class CryptoStateDao {
     for (final entry in _db._snapshot.cryptoState.entries)
       if (entry.key.startsWith(prefix)) entry.key: entry.value,
   };
+
+  /// [prefix] ile baslayan kayitlari her degisiklikte yeniden yayinlar.
+  Stream<Map<String, String>> watchByPrefix(String prefix) => _db._watch(
+    (s) => {
+      for (final entry in s.cryptoState.entries)
+        if (entry.key.startsWith(prefix)) entry.key: entry.value,
+    },
+  );
 }
 
 class PendingSignalDao {

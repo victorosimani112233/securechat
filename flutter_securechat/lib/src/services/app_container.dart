@@ -12,6 +12,7 @@ import '../background/background_scheduler.dart';
 import '../background/background_tasks.dart';
 import '../background/scheduled_message_service.dart';
 import '../backup/backup_service.dart';
+import '../bulk/broadcast_lists.dart';
 import '../bulk/bulk_message_service.dart';
 import '../calls/call_history_service.dart';
 import '../calls/call_readiness_service.dart';
@@ -1002,6 +1003,7 @@ class AppContainer {
             database: database,
             sender: messageSender,
           ),
+          lists: StorageBroadcastListStore(database),
         ),
         lifecycleRuntime: lifecycle,
         settingsRuntime: AppSettingsRuntime(service: settingsService),
@@ -1247,8 +1249,11 @@ class AppOnboardingRuntime {
 }
 
 class AppBulkRuntime {
-  const AppBulkRuntime({required this.service});
+  const AppBulkRuntime({required this.service, this.lists});
   final BulkMessageSender service;
+
+  /// Kayitli alici listeleri; yoksa listeler gizlenir.
+  final BroadcastListStore? lists;
 }
 
 class AppSettingsRuntime {

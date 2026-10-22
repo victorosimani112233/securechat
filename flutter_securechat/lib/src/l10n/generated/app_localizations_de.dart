@@ -2513,4 +2513,45 @@ class AppLocalizationsDe extends AppLocalizations {
   String conversation_draft_preview(String text) {
     return 'Entwurf: $text';
   }
+
+  @override
+  String get bulk_choose_recipients => 'Empfänger auswählen';
+
+  @override
+  String get bulk_new_selection => 'Personen einzeln auswählen';
+
+  @override
+  String get bulk_saved_lists => 'Gespeicherte Listen';
+
+  @override
+  String bulk_list_members(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Empfänger',
+      one: '1 Empfänger',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get bulk_list_save => 'Als Liste speichern';
+
+  @override
+  String get bulk_list_name => 'Listenname';
+
+  @override
+  String bulk_list_saved(String name) {
+    return 'Liste „$name“ gespeichert';
+  }
+
+  @override
+  String get bulk_list_delete => 'Liste löschen';
+
+  @override
+  String get bulk_list_error_name => 'Der Listenname darf nicht leer sein.';
+
+  @override
+  String get bulk_list_error_limit =>
+      'Bis zu 50 Listen mit jeweils bis zu 256 Empfängern sind möglich.';
 }

@@ -2470,4 +2470,45 @@ class AppLocalizationsAr extends AppLocalizations {
   String conversation_draft_preview(String text) {
     return 'مسودة: $text';
   }
+
+  @override
+  String get bulk_choose_recipients => 'اختيار المستلمين';
+
+  @override
+  String get bulk_new_selection => 'اختيار الأشخاص واحدًا تلو الآخر';
+
+  @override
+  String get bulk_saved_lists => 'القوائم المحفوظة';
+
+  @override
+  String bulk_list_members(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count مستلمين',
+      one: 'مستلم واحد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get bulk_list_save => 'حفظ كقائمة';
+
+  @override
+  String get bulk_list_name => 'اسم القائمة';
+
+  @override
+  String bulk_list_saved(String name) {
+    return 'تم حفظ القائمة «$name»';
+  }
+
+  @override
+  String get bulk_list_delete => 'حذف القائمة';
+
+  @override
+  String get bulk_list_error_name => 'لا يمكن أن يكون اسم القائمة فارغًا.';
+
+  @override
+  String get bulk_list_error_limit =>
+      'يمكنك الاحتفاظ بما يصل إلى 50 قائمة، في كل منها حتى 256 مستلمًا.';
 }

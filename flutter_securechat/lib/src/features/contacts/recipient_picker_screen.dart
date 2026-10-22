@@ -19,6 +19,18 @@ class RecipientChoice {
   final bool isGroup;
 }
 
+/// Secili alicilarla yapilan ek islem (ornegin listeyi kaydetmek).
+class RecipientSelectionAction {
+  const RecipientSelectionAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+  final IconData icon;
+  final String tooltip;
+  final Future<void> Function(List<RecipientChoice> selected) onPressed;
+}
+
 /// Selection is local to this route; cancelling never changes the caller's draft.
 class RecipientPickerScreen extends StatefulWidget {
   const RecipientPickerScreen({
@@ -30,7 +42,11 @@ class RecipientPickerScreen extends StatefulWidget {
     this.allowEmpty = false,
     this.onConfirm,
     this.emptyText,
+    this.selectionAction,
   });
+
+  /// Secim bos degilken AppBar'da gosterilen ek islem.
+  final RecipientSelectionAction? selectionAction;
   final String title;
 
   /// Arama eslesmesi yokken gosterilen metin; verilmezse sohbet secici metni.
@@ -73,7 +89,22 @@ class _RecipientPickerScreenState extends State<RecipientPickerScreen> {
     canPop: !_busy,
     child: AzureBackdrop(
       child: Scaffold(
-        appBar: AppBar(title: Text(widget.title)),
+        appBar: AppBar(
+          title: Text(widget.title),
+          actions: [
+            if (widget.selectionAction case final action?)
+              IconButton(
+                key: const ValueKey('recipient-selection-action'),
+                tooltip: action.tooltip,
+                icon: Icon(action.icon),
+                onPressed: _busy || _selected.isEmpty
+                    ? null
+                    : () => action.onPressed(
+                        _selected.values.toList(growable: false),
+                      ),
+              ),
+          ],
+        ),
         body: SafeArea(
           child: Column(
             children: [

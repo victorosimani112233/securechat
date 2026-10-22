@@ -2474,4 +2474,45 @@ class AppLocalizationsEn extends AppLocalizations {
   String conversation_draft_preview(String text) {
     return 'Draft: $text';
   }
+
+  @override
+  String get bulk_choose_recipients => 'Choose recipients';
+
+  @override
+  String get bulk_new_selection => 'Pick people one by one';
+
+  @override
+  String get bulk_saved_lists => 'Saved lists';
+
+  @override
+  String bulk_list_members(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count recipients',
+      one: '1 recipient',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get bulk_list_save => 'Save as list';
+
+  @override
+  String get bulk_list_name => 'List name';
+
+  @override
+  String bulk_list_saved(String name) {
+    return 'List “$name” saved';
+  }
+
+  @override
+  String get bulk_list_delete => 'Delete list';
+
+  @override
+  String get bulk_list_error_name => 'The list name cannot be empty.';
+
+  @override
+  String get bulk_list_error_limit =>
+      'You can keep up to 50 lists with up to 256 recipients each.';
 }

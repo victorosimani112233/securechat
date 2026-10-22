@@ -1,5 +1,6 @@
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_securechat/src/calls/call_readiness_service.dart';
+import 'package:flutter_securechat/src/bulk/broadcast_lists.dart';
 import 'package:flutter_securechat/src/bulk/bulk_message_service.dart';
 import 'package:flutter_securechat/src/storage/storage_entities.dart';
 import 'package:flutter_securechat/src/core/models.dart';
@@ -45,7 +46,10 @@ AppContainer createWidgetTestContainer({
     // test kabinda kurulamiyor ve ekran "kullanilamiyor" yazisina dusuyordu.
     // Yani ekranin dar telefonda ve %200 metin olceginde bozulup bozulmadigi
     // HIC sinanmiyordu.
-    bulkRuntime: AppBulkRuntime(service: _FakeBulkSender(conversations)),
+    bulkRuntime: AppBulkRuntime(
+      service: _FakeBulkSender(conversations),
+      lists: InMemoryBroadcastListStore(),
+    ),
     callReadinessRuntime: const AppCallReadinessRuntime(
       service: CallReadinessService(
         platform: NotApplicableCallReadinessPlatform(),

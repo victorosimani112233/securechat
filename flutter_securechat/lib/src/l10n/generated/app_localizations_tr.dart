@@ -2463,4 +2463,39 @@ class AppLocalizationsTr extends AppLocalizations {
   String conversation_draft_preview(String text) {
     return 'Taslak: $text';
   }
+
+  @override
+  String get bulk_choose_recipients => 'Alıcıları seç';
+
+  @override
+  String get bulk_new_selection => 'Kişileri tek tek seç';
+
+  @override
+  String get bulk_saved_lists => 'Kayıtlı listeler';
+
+  @override
+  String bulk_list_members(int count) {
+    return '$count alıcı';
+  }
+
+  @override
+  String get bulk_list_save => 'Liste olarak kaydet';
+
+  @override
+  String get bulk_list_name => 'Liste adı';
+
+  @override
+  String bulk_list_saved(String name) {
+    return '“$name” listesi kaydedildi';
+  }
+
+  @override
+  String get bulk_list_delete => 'Listeyi sil';
+
+  @override
+  String get bulk_list_error_name => 'Liste adı boş olamaz.';
+
+  @override
+  String get bulk_list_error_limit =>
+      'En fazla 50 liste, listede en fazla 256 alıcı olabilir.';
 }

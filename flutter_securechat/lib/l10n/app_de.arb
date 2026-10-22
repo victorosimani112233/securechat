@@ -736,5 +736,15 @@
   "group_photo_choose": "Foto auswählen",
   "group_photo_remove": "Foto entfernen",
   "group_photo_change": "Gruppenfoto ändern",
-  "conversation_draft_preview": "Entwurf: {text}"
+  "conversation_draft_preview": "Entwurf: {text}",
+  "bulk_choose_recipients": "Empfänger auswählen",
+  "bulk_new_selection": "Personen einzeln auswählen",
+  "bulk_saved_lists": "Gespeicherte Listen",
+  "bulk_list_members": "{count, plural, =1{1 Empfänger} other{{count} Empfänger}}",
+  "bulk_list_save": "Als Liste speichern",
+  "bulk_list_name": "Listenname",
+  "bulk_list_saved": "Liste „{name}“ gespeichert",
+  "bulk_list_delete": "Liste löschen",
+  "bulk_list_error_name": "Der Listenname darf nicht leer sein.",
+  "bulk_list_error_limit": "Bis zu 50 Listen mit jeweils bis zu 256 Empfängern sind möglich."
 }

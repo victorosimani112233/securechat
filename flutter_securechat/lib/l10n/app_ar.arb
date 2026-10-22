@@ -756,5 +756,15 @@
   "group_photo_choose": "اختيار صورة",
   "group_photo_remove": "إزالة الصورة",
   "group_photo_change": "تغيير صورة المجموعة",
-  "conversation_draft_preview": "مسودة: {text}"
+  "conversation_draft_preview": "مسودة: {text}",
+  "bulk_choose_recipients": "اختيار المستلمين",
+  "bulk_new_selection": "اختيار الأشخاص واحدًا تلو الآخر",
+  "bulk_saved_lists": "القوائم المحفوظة",
+  "bulk_list_members": "{count, plural, =1{مستلم واحد} other{{count} مستلمين}}",
+  "bulk_list_save": "حفظ كقائمة",
+  "bulk_list_name": "اسم القائمة",
+  "bulk_list_saved": "تم حفظ القائمة «{name}»",
+  "bulk_list_delete": "حذف القائمة",
+  "bulk_list_error_name": "لا يمكن أن يكون اسم القائمة فارغًا.",
+  "bulk_list_error_limit": "يمكنك الاحتفاظ بما يصل إلى 50 قائمة، في كل منها حتى 256 مستلمًا."
 }

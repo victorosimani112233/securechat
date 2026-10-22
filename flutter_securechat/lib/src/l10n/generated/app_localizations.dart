@@ -4523,6 +4523,66 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Draft: {text}'**
   String conversation_draft_preview(String text);
+
+  /// Title of the step that offers saved broadcast lists.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose recipients'**
+  String get bulk_choose_recipients;
+
+  /// Starts a fresh recipient selection instead of a saved list.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick people one by one'**
+  String get bulk_new_selection;
+
+  /// Section header above saved broadcast lists.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved lists'**
+  String get bulk_saved_lists;
+
+  /// Number of recipients in a saved broadcast list.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 recipient} other{{count} recipients}}'**
+  String bulk_list_members(int count);
+
+  /// Action that saves the current recipient selection as a list.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as list'**
+  String get bulk_list_save;
+
+  /// Label of the list name field.
+  ///
+  /// In en, this message translates to:
+  /// **'List name'**
+  String get bulk_list_name;
+
+  /// Confirmation after saving a broadcast list.
+  ///
+  /// In en, this message translates to:
+  /// **'List “{name}” saved'**
+  String bulk_list_saved(String name);
+
+  /// Tooltip of the delete button of a saved list.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete list'**
+  String get bulk_list_delete;
+
+  /// Error when the list name is blank.
+  ///
+  /// In en, this message translates to:
+  /// **'The list name cannot be empty.'**
+  String get bulk_list_error_name;
+
+  /// Error when the list or member limit is reached.
+  ///
+  /// In en, this message translates to:
+  /// **'You can keep up to 50 lists with up to 256 recipients each.'**
+  String get bulk_list_error_limit;
 }
 
 class _AppLocalizationsDelegate
