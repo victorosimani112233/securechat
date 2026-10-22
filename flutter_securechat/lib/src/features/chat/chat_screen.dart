@@ -86,6 +86,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// `ListView` gorunur araligin disindaki ogeleri olusturmadigi icin
   /// `GlobalKey.currentContext` uzaktaki mesajlarda null doner.
   List<String> _messageOrder = const [];
+
+  /// Akislar sohbet basina bir kez kurulur. `build` icinde her seferinde
+  /// yeni akis vermek her setState'te aboneligi yenileyip veritabanindaki
+  /// tum mesajlari yeniden suzup siraliyordu.
+  String? _streamsConversationId;
+  Stream<List<LocalMessage>>? _messagesStream;
+  Stream<List<CallHistoryEntry>>? _callsStream;
   Timer? _highlightTimer;
   Timer? _composerScrollTimer;
   Timer? _messageExpiryTimer;
@@ -551,7 +558,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
             Expanded(
               child: StreamBuilder<List<LocalMessage>>(
-                stream: repo.watchMessages(conversation.id),
+                stream: _messagesFor(repo, container, conversation),
                 builder: (context, snapshot) {
                   final allMessages =
                       (snapshot.data ?? const <LocalMessage>[]).toList(
@@ -580,7 +587,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     );
                   }
                   return StreamBuilder<List<CallHistoryEntry>>(
-                    stream: history.watchPeer(conversation.peerId),
+                    stream: _callsStream ??= _relisten(
+                      () => history.watchPeer(conversation.peerId),
+                    ),
                     builder: (context, callSnapshot) {
                       if (callSnapshot.connectionState ==
                               ConnectionState.waiting &&
@@ -735,14 +744,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         Expanded(
           child: Stack(
             children: [
-              ListView(
-                key: const ValueKey('chat-message-list'),
-                controller: _messageScroll,
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
-                children: _messageListChildren(context, messages, calls),
-              ),
+              _buildMessageList(messages, calls),
               PositionedDirectional(
                 end: 16,
                 bottom: 16,
@@ -803,6 +805,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (nearBottom) _unseenCount = 0;
     });
   }
+
+  Stream<List<LocalMessage>> _messagesFor(
+    ConversationRepository repo,
+    AppContainer container,
+    Conversation conversation,
+  ) {
+    if (_streamsConversationId != conversation.id || _messagesStream == null) {
+      _streamsConversationId = conversation.id;
+      _messagesStream = _relisten(() => repo.watchMessages(conversation.id));
+      _callsStream = null;
+    }
+    return _messagesStream!;
+  }
+
+  /// Ayni nesne kalir ama her dinleyici kaynagi yeniden acar. Agac yeniden
+  /// kurulunca StreamBuilder ayni akisi tekrar dinleyebilir; tek dinleyicili
+  /// kaynaklar (bellek deposu) ikinci dinlemede hata verirdi.
+  static Stream<T> _relisten<T>(Stream<T> Function() open) =>
+      Stream<T>.multi((controller) {
+        final subscription = open().listen(
+          controller.addSync,
+          onError: controller.addErrorSync,
+          onDone: controller.closeSync,
+        );
+        controller
+          ..onCancel = subscription.cancel
+          ..onPause = subscription.pause
+          ..onResume = subscription.resume;
+      });
 
   void _handleTimelineSnapshot(List<LocalMessage> messages, int callCount) {
     final ids = {for (final message in messages) message.id};
@@ -930,8 +961,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
-  List<Widget> _messageListChildren(
-    BuildContext context,
+  /// Yalniz ekrandaki ogeler kurulur. Onceden her cizimde tum gecmis icin
+  /// balon nesneleri olusturuluyordu; uzun sohbette her setState gecmisin
+  /// boyuyla buyuyordu.
+  Widget _buildMessageList(
+    List<LocalMessage> messages,
+    List<CallHistoryEntry> calls,
+  ) {
+    final items = _timelineItems(messages, calls);
+    final indexByKey = <Key, int>{
+      for (var index = 0; index < items.length; index++)
+        items[index].key: index,
+    };
+    return ListView.builder(
+      key: const ValueKey('chat-message-list'),
+      controller: _messageScroll,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
+      itemCount: items.length,
+      // Yeni mesaj eklenince ya da silinince kurulu ogeler (ses oynatici,
+      // acilmis uzun metin) yerini kaybetmez.
+      findChildIndexCallback: (key) => indexByKey[key],
+      itemBuilder: (context, index) => items[index].build(),
+    );
+  }
+
+  List<_TimelineItem> _timelineItems(
     List<LocalMessage> messages,
     List<CallHistoryEntry> calls,
   ) {
@@ -944,41 +999,58 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           for (final call in calls)
             (timestamp: call.timestamp, message: null, call: call),
         ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    final children = <Widget>[
-      const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 32, vertical: 8),
-        child: Center(child: _EncryptionInfoPill()),
+    final items = <_TimelineItem>[
+      _TimelineItem(
+        const ValueKey('chat-encryption-pill'),
+        () => const Padding(
+          key: ValueKey('chat-encryption-pill'),
+          padding: EdgeInsets.symmetric(horizontal: 32, vertical: 8),
+          child: Center(child: _EncryptionInfoPill()),
+        ),
       ),
     ];
     DateTime? previousDay;
     for (final entry in timeline) {
       final local = entry.timestamp.toLocal();
       if (previousDay == null || !_sameCalendarDay(previousDay, local)) {
-        children.add(_ChatDateSeparator(_dateLabel(local)));
+        final label = _dateLabel(local);
+        final key = ValueKey(
+          'chat-date-${local.year}-${local.month}-${local.day}',
+        );
+        items.add(
+          _TimelineItem(
+            key,
+            () => KeyedSubtree(key: key, child: _ChatDateSeparator(label)),
+          ),
+        );
         previousDay = local;
       }
       final call = entry.call;
       if (call != null) {
-        children.add(
-          KeyedSubtree(
-            key: ValueKey('chat-call-${call.id}'),
-            child: _CallActivityCard(call),
+        final key = ValueKey('chat-call-${call.id}');
+        items.add(
+          _TimelineItem(
+            key,
+            () => KeyedSubtree(key: key, child: _CallActivityCard(call)),
           ),
         );
         continue;
       }
       final message = entry.message!;
       final key = _messageKeys.putIfAbsent(message.id, GlobalKey.new);
-      children.add(
-        KeyedSubtree(
-          key: key,
-          child: message.contentType == MessageContentType.system
-              ? _SystemMessageBanner(message)
-              : _messageRow(message, replyById[message.replyToId]),
+      items.add(
+        _TimelineItem(
+          key,
+          () => KeyedSubtree(
+            key: key,
+            child: message.contentType == MessageContentType.system
+                ? _SystemMessageBanner(message)
+                : _messageRow(message, replyById[message.replyToId]),
+          ),
         ),
       );
     }
-    return children;
+    return items;
   }
 
   Widget _messageRow(LocalMessage message, LocalMessage? replyMessage) {
@@ -2356,4 +2428,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       });
     }
   }
+}
+
+/// Sohbet zaman cizgisinde bir oge; widget yalniz ekrana gelince kurulur.
+class _TimelineItem {
+  const _TimelineItem(this.key, this.build);
+
+  final Key key;
+  final Widget Function() build;
 }

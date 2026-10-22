@@ -115,4 +115,65 @@ void main() {
     await tester.pumpAndSettle();
     expect(await repository.loadDraft('peer-ayse'), isNull);
   });
+
+  testWidgets('rebuilding the chat does not resubscribe to its messages', (
+    tester,
+  ) async {
+    final base = createWidgetTestContainer();
+    final counting = _CountingRepository(
+      conversations: [
+        const Conversation(
+          id: 'peer-ayse',
+          peerId: 'peer-ayse',
+          peerName: 'Ayse Demir',
+          peerPhone: '',
+        ),
+      ],
+      messages: {'peer-ayse': history('peer-ayse')},
+    );
+    final container = AppContainer.testing(
+      session: base.session,
+      conversations: counting,
+      crypto: base.crypto,
+      signaling: base.signaling,
+      chatAccessRuntime: base.chatAccessRuntime,
+      callReadinessRuntime: base.callReadinessRuntime,
+    );
+    await tester.pumpWidget(
+      AppContainerScope(
+        container: container,
+        child: const MaterialApp(
+          locale: Locale('tr'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ChatScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(counting.messageWatches, 1);
+    // Kaydirma "en alta in" dugmesini, yazmak gonder dugmesini degistirir;
+    // ikisi de ekrani yeniden cizer.
+    await tester.drag(
+      find.byKey(const ValueKey('chat-message-list')),
+      const Offset(0, 1500),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'yeniden çiz');
+    await tester.pumpAndSettle();
+    expect(counting.messageWatches, 1);
+    await tester.pumpWidget(const SizedBox());
+  });
+}
+
+class _CountingRepository extends InMemoryConversationRepository {
+  _CountingRepository({required super.conversations, required super.messages});
+
+  var messageWatches = 0;
+
+  @override
+  Stream<List<LocalMessage>> watchMessages(String conversationId) {
+    messageWatches++;
+    return super.watchMessages(conversationId);
+  }
 }
