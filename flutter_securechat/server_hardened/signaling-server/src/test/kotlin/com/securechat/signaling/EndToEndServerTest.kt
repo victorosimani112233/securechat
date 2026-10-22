@@ -10,6 +10,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.readBytes
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
@@ -67,6 +68,10 @@ class EndToEndServerTest {
     private lateinit var userRegistry: UserRegistry
     private lateinit var fcmTokenStore: FcmTokenStore
     private lateinit var fcmPushSender: FcmPushSender
+    private val attachmentStore = AttachmentStore(
+        java.nio.file.Files.createTempDirectory("e2e-attachments"),
+        ttlMillis = 60 * 60 * 1000L,
+    )
 
     private val metricsToken = "test-only-metrics-bearer-token-32-characters"
     private val json = Json { ignoreUnknownKeys = true }
@@ -131,7 +136,9 @@ class EndToEndServerTest {
             .joinToString("") { "%02x".format(it) }
 
     private fun ApplicationTestBuilder.configureServer() {
-        application { signalingModule(connectionManager, userRegistry, fcmTokenStore, fcmPushSender) }
+        application {
+            signalingModule(connectionManager, userRegistry, fcmTokenStore, fcmPushSender, attachmentStore)
+        }
     }
 
     private fun e2e(block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
@@ -270,6 +277,47 @@ class EndToEndServerTest {
         // Ham hesap kimligi hicbir kayitta gorunmez.
         assertFalse(response.bodyAsText().contains(alice))
         assertFalse(response.bodyAsText().contains(bob))
+    }
+
+    @Test
+    fun `an encrypted attachment is uploaded once and fetched by another account`() = e2e {
+        val ciphertext = ByteArray(300_000) { (it * 7 % 256).toByte() }
+        val upload = client.post("/api/v1/attachments") {
+            header("Authorization", "Bearer $aliceToken")
+            setBody(ciphertext)
+        }
+        assertEquals(HttpStatusCode.Created, upload.status)
+        val body = json.parseToJsonElement(upload.bodyAsText()) as JsonObject
+        val id = body["id"]!!.jsonPrimitive.content
+        assertEquals(43, id.length)
+
+        val download = client.get("/api/v1/attachments/$id") {
+            header("Authorization", "Bearer $bobToken")
+        }
+        assertEquals(HttpStatusCode.OK, download.status)
+        assertEquals("no-store", download.headers[HttpHeaders.CacheControl])
+        assertTrue(ciphertext.contentEquals(download.readBytes()))
+    }
+
+    @Test
+    fun `attachments require an account and an existing id`() = e2e {
+        assertEquals(
+            HttpStatusCode.Unauthorized,
+            client.post("/api/v1/attachments") { setBody(ByteArray(10)) }.status,
+        )
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/attachments/${"a".repeat(43)}").status)
+        assertEquals(
+            HttpStatusCode.NotFound,
+            client.get("/api/v1/attachments/${"a".repeat(43)}") {
+                header("Authorization", "Bearer $aliceToken")
+            }.status,
+        )
+        assertEquals(
+            HttpStatusCode.NotFound,
+            client.get("/api/v1/attachments/not-an-id") {
+                header("Authorization", "Bearer $aliceToken")
+            }.status,
+        )
     }
 
     @Test

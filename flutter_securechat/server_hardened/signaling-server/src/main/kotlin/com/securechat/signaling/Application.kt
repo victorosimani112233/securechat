@@ -116,6 +116,19 @@ fun main() {
     PrivacyRetentionWorker.start(fcmTokenStore) {
         connectionManager.closeAllConnections()
     }
+    val attachmentStore = AttachmentStore.fromEnvironment()
+    // Suresi dolan sifreli ekler saatte bir silinir.
+    java.util.Timer("attachment-retention", true).scheduleAtFixedRate(
+        object : java.util.TimerTask() {
+            override fun run() {
+                runCatching { attachmentStore.purgeExpired() }.onFailure {
+                    log.error("[Attachment] Retention cleanup failed: {}", it.javaClass.simpleName)
+                }
+            }
+        },
+        0L,
+        60 * 60 * 1000L,
+    )
 
     val server = embeddedServer(
         Netty,
@@ -133,7 +146,7 @@ fun main() {
             responseWriteTimeoutSeconds = 30
         },
     ) {
-        signalingModule(connectionManager, userRegistry, fcmTokenStore, fcmPushSender)
+        signalingModule(connectionManager, userRegistry, fcmTokenStore, fcmPushSender, attachmentStore)
 
         // Graceful shutdown hook
         Runtime.getRuntime().addShutdownHook(Thread {
@@ -176,6 +189,7 @@ fun Application.signalingModule(
     userRegistry: UserRegistry,
     fcmTokenStore: FcmTokenStore,
     fcmPushSender: FcmPushSender,
+    attachmentStore: AttachmentStore? = null,
 ) {
     // Bloklayan PostgreSQL/Redis cagrilari Netty event-loop'unda calisirsa
     // es zamanlilik cekirdek sayisiyla sinirlanir ve ayni thread'leri
@@ -227,5 +241,5 @@ fun Application.signalingModule(
     }
 
     configureWebSocket(connectionManager, userRegistry)
-    configureRoutes(connectionManager, userRegistry, fcmTokenStore, fcmPushSender)
+    configureRoutes(connectionManager, userRegistry, fcmTokenStore, fcmPushSender, attachmentStore)
 }

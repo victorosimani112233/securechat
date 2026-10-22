@@ -129,6 +129,21 @@ LISTEN_PLACEHOLDER
         proxy_send_timeout 3600s;
     }
 
+    # Sifreli ekler: buyuk govde (100 MB dosya + sifreleme payi); istek
+    # nginx'te arabelleklenmeden uygulamaya akar, uygulama diske yazar.
+    location /api/v1/attachments {
+        client_max_body_size 110m;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_pass http://127.0.0.1:$upstream_port;
+        proxy_http_version 1.1;
+        proxy_set_header Authorization \$http_authorization;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:$upstream_port;
         proxy_http_version 1.1;

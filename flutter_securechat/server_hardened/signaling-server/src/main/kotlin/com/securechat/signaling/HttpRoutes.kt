@@ -365,9 +365,11 @@ fun Application.configureRoutes(
     userRegistry: UserRegistry,
     fcmTokenStore: FcmTokenStore? = null,
     fcmPushSender: FcmPushSender? = null,
+    attachmentStore: AttachmentStore? = null,
 ) {
     routing {
         recoveryAuthRoutes()
+        attachmentStore?.let { store -> attachmentRoutes(store, ::requireAuth) }
         intercept(ApplicationCallPipeline.Plugins) {
             if (!PrivacyRetentionWorker.isHealthy() && call.request.path() != "/health") {
                 call.respond(

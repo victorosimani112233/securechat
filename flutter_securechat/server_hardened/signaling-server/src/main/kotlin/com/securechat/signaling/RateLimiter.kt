@@ -47,6 +47,10 @@ object RateLimiter {
         "otp_request" to RateLimit(5, 600),           // 5 req/10dk per IP (OTP istegi)
         "otp_verify" to RateLimit(20, 600),        // 20 req/10dk per IP (brute force korumasi zaten OTP servisinde)
         "presence_subscribe" to RateLimit(120, 60),
+        // Sifreli ekler: yukleme sayisi, gunluk bayt kotasi ve indirme.
+        "attachment_upload" to RateLimit(200, 3600),
+        "attachment_upload_bytes" to RateLimit(1_610_612_736, 86_400),
+        "attachment_download" to RateLimit(2000, 3600),
         // Kotuye kullanim bildirimi: gercek kullanim gunde birkac adettir;
         // sinir, bir hesabin inceleme kuyrugunu doldurmasini engeller.
         AbuseReports.SUBMIT_RATE_BUCKET to RateLimit(20, 86_400),

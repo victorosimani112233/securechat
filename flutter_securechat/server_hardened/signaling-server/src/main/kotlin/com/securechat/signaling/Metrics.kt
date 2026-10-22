@@ -85,6 +85,10 @@ object Metrics {
         .tag("result", "queue_full")
         .register(registry)
 
+    val attachmentUploads: Counter = Counter.builder("securechat_attachment_uploads_total")
+        .description("Yuklenen sifreli ek sayisi")
+        .register(registry)
+
     val groupFanouts: Counter = Counter.builder("securechat_group_fanouts_total")
         .description("Grup mesaj fanout sayisi")
         .register(registry)
