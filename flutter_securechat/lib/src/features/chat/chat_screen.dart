@@ -32,6 +32,7 @@ import '../../services/app_container.dart';
 import '../../services/conversation_repository.dart';
 import '../../services/peer_activity_source.dart';
 import '../../widgets/avatar.dart';
+import '../../widgets/local_image_view.dart';
 import '../../widgets/local_video_thumbnail.dart';
 import '../../widgets/view_once_screen_protection.dart';
 import '../../widgets/azure_backdrop.dart';

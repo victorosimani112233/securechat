@@ -92,10 +92,15 @@ class _MediaMessageContent extends StatelessWidget {
                     );
                     final localPath = snapshot.data;
                     if (localPath == null) return fallback;
+                    // Balon en fazla 240x360; fotograf tam cozunurlukte
+                    // cozulmez (12 MP = ~48 MB bellek).
                     return isImage
-                        ? Image.file(
-                            File(localPath),
+                        ? LocalImageView(
+                            path: localPath,
                             fit: BoxFit.contain,
+                            maxDecodeSize:
+                                (360 * MediaQuery.devicePixelRatioOf(context))
+                                    .round(),
                             errorBuilder: (_, _, _) => fallback,
                           )
                         : LocalVideoThumbnail(

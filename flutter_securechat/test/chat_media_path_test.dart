@@ -43,11 +43,11 @@ void main() {
             await tester.pump();
           }
           final image = find.byWidgetPredicate(
-            (widget) => widget is Image && widget.image is FileImage,
+            (widget) => widget is Image && _fileImage(widget) != null,
           );
           expect(image, findsOneWidget);
           expect(
-            (tester.widget<Image>(image).image as FileImage).file.path,
+            _fileImage(tester.widget<Image>(image))!.file.path,
             photo.path,
           );
           final decoded = tester
@@ -79,7 +79,7 @@ void main() {
       expect(find.byIcon(Icons.image_not_supported_outlined), findsOneWidget);
       expect(
         find.byWidgetPredicate(
-          (widget) => widget is Image && widget.image is FileImage,
+          (widget) => widget is Image && _fileImage(widget) != null,
         ),
         findsNothing,
       );
@@ -104,7 +104,7 @@ void main() {
         expect(paths.requests, isEmpty);
         expect(
           find.byWidgetPredicate(
-            (widget) => widget is Image && widget.image is FileImage,
+            (widget) => widget is Image && _fileImage(widget) != null,
           ),
           findsNothing,
         );
@@ -234,3 +234,11 @@ class _Files implements LocalFileActions {
     required String fileName,
   }) async => shared.add(path);
 }
+
+/// Sohbet balonu resmi boyut sinirli (`ResizeImage`) cozer; goruntuleyici
+/// dogrudan `FileImage` kullanir. Ikisi de ayni yerel dosyayi gosterir.
+FileImage? _fileImage(Image widget) => switch (widget.image) {
+  final FileImage file => file,
+  ResizeImage(imageProvider: final FileImage file) => file,
+  _ => null,
+};

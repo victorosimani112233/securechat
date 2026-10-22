@@ -67,15 +67,30 @@ class PluginMediaSelectionService implements MediaSelectionService {
 
   final ImagePicker _imagePicker;
 
+  /// Sohbete gonderilen fotograflar bu boyuta ve kaliteye indirilir. 12 MP
+  /// bir fotograf 3-5 MB iken 1600 px / %80 JPEG genelde 200-400 KB olur;
+  /// her parca ayri sifrelenip gonderildigi icin veri ve pil kazanci buyuk.
+  /// Ozgun dosyayi gondermek isteyen "Belge" olarak secer.
+  static const sentPhotoMaxDimension = 1600.0;
+  static const sentPhotoQuality = 80;
+
   @override
   Future<List<MediaAttachment>> pickGallery() async => _fromXFiles(
-    await _imagePicker.pickMultiImage(requestFullMetadata: false),
+    await _imagePicker.pickMultiImage(
+      maxWidth: sentPhotoMaxDimension,
+      maxHeight: sentPhotoMaxDimension,
+      imageQuality: sentPhotoQuality,
+      requestFullMetadata: false,
+    ),
   );
 
   @override
   Future<List<MediaAttachment>> takePhoto() async {
     final selected = await _imagePicker.pickImage(
       source: ImageSource.camera,
+      maxWidth: sentPhotoMaxDimension,
+      maxHeight: sentPhotoMaxDimension,
+      imageQuality: sentPhotoQuality,
       requestFullMetadata: false,
       preferredCameraDevice: CameraDevice.rear,
     );
