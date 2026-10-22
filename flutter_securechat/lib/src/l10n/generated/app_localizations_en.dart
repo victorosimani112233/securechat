@@ -2451,4 +2451,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get profile_complete_check_failed =>
       'Your number could not be checked. Check your connection and try again.';
+
+  @override
+  String get mention_suggestions_label => 'Members you can mention';
 }

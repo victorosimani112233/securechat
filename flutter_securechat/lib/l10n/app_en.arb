@@ -1126,5 +1126,7 @@
   "profile_complete_later": "Not now",
   "profile_complete_phone_mismatch": "This number does not match your account. Enter the number you registered with.",
   "profile_complete_phone_taken": "This number belongs to another account.",
-  "profile_complete_check_failed": "Your number could not be checked. Check your connection and try again."
+  "profile_complete_check_failed": "Your number could not be checked. Check your connection and try again.",
+  "mention_suggestions_label": "Members you can mention",
+  "@mention_suggestions_label": {"description": "Screen reader label for the @mention member suggestions above the group chat composer."}
 }

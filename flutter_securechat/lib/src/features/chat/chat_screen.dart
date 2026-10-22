@@ -16,6 +16,7 @@ import '../../contacts/contact_service.dart';
 import '../../l10n/l10n.dart';
 import '../../widgets/text_controller_scope.dart';
 import '../../chat/disappearing_timer_notice.dart';
+import '../../chat/mention_composer.dart';
 import '../../chat/poll_service.dart';
 import '../../chat/message_forwarding_service.dart';
 import '../../chat/message_interaction_service.dart';
@@ -109,6 +110,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   StreamSubscription<List<Conversation>>? _conversationSubscription;
   StreamSubscription<Map<String, ContactIdentity>>? _groupIdentitySubscription;
   Map<String, ContactIdentity> _groupIdentities = const {};
+  MentionQuery? _mentionQuery;
+
+  /// Secilen bahsetmeler: kullanici kimligi -> metne yazilan ad.
+  final Map<String, String> _pickedMentions = {};
   bool _accessGranted = false;
   bool _accessChecking = false;
   bool _markedRead = false;
@@ -162,6 +167,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _peerUnknown = false;
       _unknownBannerDismissed = false;
       _composerViewOnce.value = false;
+      _mentionQuery = null;
+      _pickedMentions.clear();
       if (!routeConversation.isGroup) {
         unawaited(_refreshBlocked(container));
         unawaited(_refreshKnownContact(container));
@@ -638,6 +645,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   },
                 ),
               ),
+            if (_forwardSelection.isEmpty &&
+                !_peerBlocked &&
+                !conversation.hasLeftGroup(container.session.userId))
+              if (_mentionSuggestions(container, conversation)
+                  case final suggestions when suggestions.isNotEmpty)
+                _MentionSuggestions(
+                  candidates: suggestions,
+                  onSelected: _pickMention,
+                ),
             if (_forwardSelection.isEmpty &&
                 !_peerBlocked &&
                 !conversation.hasLeftGroup(container.session.userId))
@@ -1187,10 +1203,47 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         selection: TextSelection.collapsed(offset: clean.length),
       );
     }
+    _updateMentionQuery(conversation);
     final activity = AppContainerScope.of(context).chatInfoRuntime?.activity;
     if (activity != null) {
       unawaited(activity.updateTyping(conversation, clean.trim().isNotEmpty));
     }
+  }
+
+  void _updateMentionQuery(Conversation conversation) {
+    final query = conversation.isGroup
+        ? activeMentionQuery(_input.value)
+        : null;
+    if (query?.start == _mentionQuery?.start &&
+        query?.text == _mentionQuery?.text) {
+      return;
+    }
+    setState(() => _mentionQuery = query);
+  }
+
+  List<MentionCandidate> _mentionSuggestions(
+    AppContainer container,
+    Conversation conversation,
+  ) {
+    final query = _mentionQuery;
+    if (query == null || !conversation.isGroup) return const [];
+    final unknown = context.l10n.group_unknown_member;
+    final candidates = [
+      for (final id in conversation.groupMembers)
+        if (id != container.session.userId && _memberLabel(id) != unknown)
+          MentionCandidate(userId: id, label: _memberLabel(id)),
+    ];
+    return filterMentionCandidates(candidates, query.text);
+  }
+
+  void _pickMention(MentionCandidate candidate) {
+    final query = _mentionQuery;
+    if (query == null) return;
+    _input.value = insertMention(_input.value, query, candidate);
+    setState(() {
+      _pickedMentions[candidate.userId] = candidate.label;
+      _mentionQuery = null;
+    });
   }
 
   Future<void> _sendComposerText(
@@ -1202,10 +1255,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (text.isEmpty) return;
     unawaited(SecureChatHaptics.light());
     final replyToId = _replying?.id;
+    final mentionedUserIds = conversation.isGroup
+        ? resolveMentionedUserIds(text, _pickedMentions)
+        : const <String>[];
     _input.clear();
     setState(() {
       _replying = null;
       _showAttachments = false;
+      _mentionQuery = null;
+      _pickedMentions.clear();
     });
     await AppContainerScope.of(context).chatInfoRuntime?.activity.stopTyping();
     await repo.sendText(
@@ -1213,6 +1271,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       text,
       replyToId: replyToId,
       isViewOnce: isViewOnce,
+      mentionedUserIds: mentionedUserIds,
     );
   }
 

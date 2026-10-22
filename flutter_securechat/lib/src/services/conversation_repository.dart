@@ -15,6 +15,7 @@ abstract interface class ConversationRepository {
     String text, {
     String? replyToId,
     bool isViewOnce = false,
+    List<String> mentionedUserIds = const [],
   });
   Future<void> markConversationRead(String conversationId);
   Future<void> setArchived(String conversationId, bool archived);
@@ -84,6 +85,7 @@ class InMemoryConversationRepository implements ConversationRepository {
     String text, {
     String? replyToId,
     bool isViewOnce = false,
+    List<String> mentionedUserIds = const [],
   }) async {
     final message = LocalMessage(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -302,6 +304,7 @@ class StorageConversationRepository implements ConversationRepository {
     String text, {
     String? replyToId,
     bool isViewOnce = false,
+    List<String> mentionedUserIds = const [],
   }) async {
     await _sender(
       SendMessageRequest(
@@ -309,6 +312,7 @@ class StorageConversationRepository implements ConversationRepository {
         content: text,
         replyToId: replyToId,
         isViewOnce: isViewOnce,
+        mentionedUserIds: mentionedUserIds,
       ),
     );
   }

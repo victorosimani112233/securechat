@@ -339,6 +339,49 @@ class _CallActivityCard extends StatelessWidget {
   }
 }
 
+/// Grupta "@" yazilinca uye onerileri; secilen ad metne yazilir.
+class _MentionSuggestions extends StatelessWidget {
+  const _MentionSuggestions({
+    required this.candidates,
+    required this.onSelected,
+  });
+
+  final List<MentionCandidate> candidates;
+  final ValueChanged<MentionCandidate> onSelected;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
+    child: AzureGlassPanel(
+      key: const ValueKey('mention-suggestions'),
+      radius: 16,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Semantics(
+        label: context.l10n.mention_suggestions_label,
+        container: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final candidate in candidates)
+              ListTile(
+                key: ValueKey('mention-option-${candidate.userId}'),
+                dense: true,
+                visualDensity: VisualDensity.compact,
+                leading: GeneratedAvatar(name: candidate.label, size: 30),
+                title: Text(
+                  candidate.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => onSelected(candidate),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _ReplyComposerPreview extends StatelessWidget {
   const _ReplyComposerPreview({
     required this.message,

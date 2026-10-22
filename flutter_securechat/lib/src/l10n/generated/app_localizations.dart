@@ -4481,6 +4481,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your number could not be checked. Check your connection and try again.'**
   String get profile_complete_check_failed;
+
+  /// Screen reader label for the @mention member suggestions above the group chat composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Members you can mention'**
+  String get mention_suggestions_label;
 }
 
 class _AppLocalizationsDelegate

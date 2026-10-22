@@ -749,5 +749,6 @@
   "profile_complete_later": "ليس الآن",
   "profile_complete_phone_mismatch": "هذا الرقم لا يطابق حسابك. أدخل الرقم الذي سجلت به.",
   "profile_complete_phone_taken": "هذا الرقم يخص حسابًا آخر.",
-  "profile_complete_check_failed": "تعذر التحقق من رقمك. تحقق من اتصالك وحاول مرة أخرى."
+  "profile_complete_check_failed": "تعذر التحقق من رقمك. تحقق من اتصالك وحاول مرة أخرى.",
+  "mention_suggestions_label": "الأعضاء الذين يمكنك الإشارة إليهم"
 }

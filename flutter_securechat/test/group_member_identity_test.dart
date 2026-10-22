@@ -75,6 +75,55 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('typing @ in a group offers members and sends the mention', (
+    tester,
+  ) async {
+    final f = (await tester.runAsync(_Fixture.open))!;
+    addTearDown(f.close);
+    final repo = _MentionRecordingRepository(
+      conversations: [_group],
+      messages: {},
+      session: f.session,
+    );
+    await tester.pumpWidget(f.app(const ChatScreen(), repository: repo));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Merhaba @sav');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mention-suggestions')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('mention-option-$_saved')),
+      findsOneWidget,
+    );
+    // Kendisi ve adi bilinmeyen uye onerilmez; sorguya uymayan da.
+    expect(find.byKey(const ValueKey('mention-option-me')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('mention-option-$_unknown')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('mention-option-$_shared')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('mention-option-$_saved')));
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.controller!.text, 'Merhaba @Saved Name ');
+    expect(find.byKey(const ValueKey('mention-suggestions')), findsNothing);
+
+    await tester.enterText(
+      find.byType(TextField),
+      '${field.controller!.text}nasılsın',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.send).last);
+    await tester.pumpAndSettle();
+    expect(repo.sent, hasLength(1));
+    expect(repo.sent.single.$1, 'Merhaba @Saved Name nasılsın');
+    expect(repo.sent.single.$2, [_saved]);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('departed group hides leave and stale admin actions', (
     tester,
   ) async {
@@ -365,6 +414,27 @@ Future<void> _until(bool Function() predicate) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   fail('Local identity stream did not update');
+}
+
+class _MentionRecordingRepository extends InMemoryConversationRepository {
+  _MentionRecordingRepository({
+    required super.conversations,
+    required super.messages,
+    super.session,
+  });
+
+  final sent = <(String, List<String>)>[];
+
+  @override
+  Future<void> sendText(
+    String conversationId,
+    String text, {
+    String? replyToId,
+    bool isViewOnce = false,
+    List<String> mentionedUserIds = const [],
+  }) async {
+    sent.add((text, mentionedUserIds));
+  }
 }
 
 class _Fixture {

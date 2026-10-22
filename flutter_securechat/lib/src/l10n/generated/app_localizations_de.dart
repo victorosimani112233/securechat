@@ -2490,4 +2490,7 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get profile_complete_check_failed =>
       'Deine Nummer konnte nicht geprüft werden. Prüfe deine Verbindung und versuche es erneut.';
+
+  @override
+  String get mention_suggestions_label => 'Mitglieder, die du erwähnen kannst';
 }

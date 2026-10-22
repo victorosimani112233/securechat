@@ -1100,5 +1100,6 @@
   "profile_complete_later": "Şimdi değil",
   "profile_complete_phone_mismatch": "Bu numara hesabınla eşleşmiyor. Kayıt olurken kullandığın numarayı gir.",
   "profile_complete_phone_taken": "Bu numara başka bir hesaba ait.",
-  "profile_complete_check_failed": "Numaran kontrol edilemedi. Bağlantını kontrol edip tekrar dene."
+  "profile_complete_check_failed": "Numaran kontrol edilemedi. Bağlantını kontrol edip tekrar dene.",
+  "mention_suggestions_label": "Bahsedilebilecek üyeler"
 }

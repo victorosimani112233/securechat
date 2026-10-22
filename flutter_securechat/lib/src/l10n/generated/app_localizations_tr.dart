@@ -2440,4 +2440,7 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get profile_complete_check_failed =>
       'Numaran kontrol edilemedi. Bağlantını kontrol edip tekrar dene.';
+
+  @override
+  String get mention_suggestions_label => 'Bahsedilebilecek üyeler';
 }

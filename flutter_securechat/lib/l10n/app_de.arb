@@ -729,5 +729,6 @@
   "profile_complete_later": "Nicht jetzt",
   "profile_complete_phone_mismatch": "Diese Nummer passt nicht zu deinem Konto. Gib die Nummer ein, mit der du dich registriert hast.",
   "profile_complete_phone_taken": "Diese Nummer gehört zu einem anderen Konto.",
-  "profile_complete_check_failed": "Deine Nummer konnte nicht geprüft werden. Prüfe deine Verbindung und versuche es erneut."
+  "profile_complete_check_failed": "Deine Nummer konnte nicht geprüft werden. Prüfe deine Verbindung und versuche es erneut.",
+  "mention_suggestions_label": "Mitglieder, die du erwähnen kannst"
 }

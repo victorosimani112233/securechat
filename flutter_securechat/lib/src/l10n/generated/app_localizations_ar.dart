@@ -2447,4 +2447,7 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get profile_complete_check_failed =>
       'تعذر التحقق من رقمك. تحقق من اتصالك وحاول مرة أخرى.';
+
+  @override
+  String get mention_suggestions_label => 'الأعضاء الذين يمكنك الإشارة إليهم';
 }
