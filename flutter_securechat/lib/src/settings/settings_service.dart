@@ -76,17 +76,22 @@ enum BackdropPreference {
   static const _retiredPlainColors = {'blue', 'green', 'purple', 'gray'};
 
   /// Yeni kurulumlarin ve taninmayan kayitlarin varsayilani.
-  static const defaultBackdrop = drifting;
+  ///
+  /// Sabit desen: kayan desen ekran acik kaldikca saniyede 60-120 kare
+  /// cizdirir ve uygulamayi hic dinlendirmez. Kayan deseni isteyen ayardan
+  /// secer.
+  static const defaultBackdrop = still;
 
   bool get hasPattern => this == drifting || this == still;
 
-  /// Kayit yoksa eski acik/kapali desen ayarindan turetilir: acik = kayan
-  /// desen, kapali = varsayilan duz zemin.
+  /// Kayit yoksa eski acik/kapali desen ayarindan turetilir: acik =
+  /// varsayilan desen, kapali = duz zemin. Hic secim yapmamis kullanici da
+  /// bu yoldan gelir; kayan desen yalniz acikca secilirse kalir.
   static BackdropPreference fromStorage(
     String? value, {
     required bool legacyPattern,
   }) {
-    if (value == null) return legacyPattern ? drifting : plain;
+    if (value == null) return legacyPattern ? defaultBackdrop : plain;
     for (final option in values) {
       if (option.name == value) return option;
     }
@@ -262,7 +267,7 @@ class SettingsService {
 
   /// Eski acik/kapali anahtar: acik = kayan desen, kapali = duz zemin.
   Future<void> setUseDoodleBackground(bool value) => setBackdrop(
-    value ? BackdropPreference.drifting : BackdropPreference.plain,
+    value ? BackdropPreference.defaultBackdrop : BackdropPreference.plain,
   );
 
   Future<void> setBackdrop(BackdropPreference value) async {

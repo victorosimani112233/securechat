@@ -308,8 +308,9 @@ void main() {
       ..backdrop = null
       ..useDoodleBackground = false;
     expect(fixture.settings.current.backdrop, BackdropPreference.plain);
+    // Hic secim yapmamis kullanici pil dostu sabit desende baslar.
     fixture.session.useDoodleBackground = true;
-    expect(fixture.settings.current.backdrop, BackdropPreference.drifting);
+    expect(fixture.settings.current.backdrop, BackdropPreference.still);
 
     await fixture.settings.setBackdrop(BackdropPreference.still);
     expect(fixture.session.backdrop, 'still');
@@ -327,6 +328,9 @@ void main() {
     }
 
     await fixture.settings.setUseDoodleBackground(true);
+    expect(fixture.settings.current.backdrop, BackdropPreference.still);
+    // Kayan desen acikca secildiyse korunur.
+    await fixture.settings.setBackdrop(BackdropPreference.drifting);
     expect(fixture.settings.current.backdrop, BackdropPreference.drifting);
     fixture.session.backdrop = 'artik-yok';
     expect(

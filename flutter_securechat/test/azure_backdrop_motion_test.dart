@@ -28,7 +28,19 @@ void main() {
     return transform.transform.getTranslation().x;
   }
 
+  /// Kayan desen artik varsayilan degil; kullanici secince calisir.
   Future<void> pumpBackdrop(WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: AzureBackdropLayer(
+          backdrop: BackdropPreference.drifting,
+          child: SizedBox.expand(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> pumpDefaultBackdrop(WidgetTester tester) async {
     await tester.pumpWidget(
       AppContainerScope(
         container: createWidgetTestContainer(),
@@ -36,6 +48,21 @@ void main() {
       ),
     );
   }
+
+  testWidgets('varsayilan desen sabittir, kare cizdirmez', (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures();
+    addTearDown(() {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+    });
+
+    await pumpDefaultBackdrop(tester);
+    await tester.pump();
+    expect(doodleLayer(), findsOneWidget, reason: 'desen gorunur kalmali');
+    // Sonsuz animasyon olsaydi yeni kare istenirdi.
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
 
   testWidgets('desen yavasca kayar', (tester) async {
     tester.platformDispatcher.accessibilityFeaturesTestValue =
