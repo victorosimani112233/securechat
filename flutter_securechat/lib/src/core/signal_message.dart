@@ -552,21 +552,34 @@ class DeliveryReceiptSignal extends SignalMessage {
     required super.timestamp,
     required this.messageId,
     required this.status,
+    this.capabilities = const [],
   });
 
   final String messageId;
   final String status;
 
+  /// Makbuzu gonderen surumun yetenekleri (ornegin HTTP ile ek alma).
+  /// Eski surumler bu alani gondermez ve bilinmeyen alani yok sayar.
+  final List<String> capabilities;
+
   @override
   String get type => 'delivery_receipt';
 
   factory DeliveryReceiptSignal.fromJson(Map<String, Object?> json) {
+    final rawCapabilities = json['capabilities'];
     return DeliveryReceiptSignal(
       senderId: json['senderId'] as String? ?? '',
       recipientId: json['recipientId'] as String? ?? '',
       timestamp: _dt(json['timestamp']),
       messageId: json['messageId'] as String? ?? '',
       status: json['status'] as String? ?? '',
+      capabilities: rawCapabilities is List
+          ? rawCapabilities
+                .whereType<String>()
+                .where((value) => value.isNotEmpty && value.length <= 32)
+                .take(8)
+                .toList(growable: false)
+          : const [],
     );
   }
 
@@ -575,6 +588,7 @@ class DeliveryReceiptSignal extends SignalMessage {
     ..._base(this),
     'messageId': messageId,
     'status': status,
+    if (capabilities.isNotEmpty) 'capabilities': capabilities,
   };
 }
 

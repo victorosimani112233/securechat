@@ -99,6 +99,36 @@ class MediaVault {
     return Isolate.run(() => _sealPaths(key, sources, output, sealed: true));
   }
 
+  /// Baska bir anahtarla muhurlenmis bir kabi (alinan ek) bu kasanin
+  /// anahtariyla yeniden muhurler. Kayitlar akis halinde cozulup yeniden
+  /// sifrelenir; duz metin diske yazilmaz. Kap dogrulanamazsa (yanlis
+  /// anahtar, kesilmis ya da degistirilmis dosya) hedef olusmaz.
+  Future<void> resealFrom(File foreign, List<int> foreignKey, File target) {
+    final own = _keyBytes;
+    final other = List<int>.of(foreignKey);
+    final source = foreign.path;
+    final output = target.path;
+    return Isolate.run(() => _resealPath(other, own, source, output));
+  }
+
+  /// [plaintext] dosyasini verilen anahtarla kaba yazar (giden ek).
+  static Future<void> sealWithKey(List<int> key, File plaintext, File target) {
+    final keyBytes = List<int>.of(key);
+    final source = plaintext.path;
+    final output = target.path;
+    return Isolate.run(
+      () => _sealPaths(keyBytes, [source], output, sealed: false),
+    );
+  }
+
+  /// Verilen anahtarla muhurlu kabi duz dosyaya acar (kasa yokken).
+  static Future<void> openWithKey(List<int> key, File sealed, File target) {
+    final keyBytes = List<int>.of(key);
+    final source = sealed.path;
+    final output = target.path;
+    return Isolate.run(() => _openPath(keyBytes, source, output));
+  }
+
   /// Dosya duzse yerinde sifreler (eski surumden kalan dosyalar). Zaten
   /// sifreliyse dokunmaz.
   Future<bool> sealInPlace(File file) async {
@@ -340,6 +370,28 @@ Future<void> _sealPaths(
         }
       }
     }
+    await writer.close();
+    await sink.flush();
+  } catch (_) {
+    await sink.close();
+    if (await temporary.exists()) await temporary.delete();
+    rethrow;
+  }
+  await sink.close();
+  await temporary.rename(output);
+}
+
+Future<void> _resealPath(
+  List<int> foreignKey,
+  List<int> ownKey,
+  String source,
+  String output,
+) async {
+  final temporary = File('$output.sealing');
+  final sink = await temporary.open(mode: FileMode.writeOnly);
+  try {
+    final writer = _SealWriter(SecretKey(ownKey), sink);
+    await _readSealed(SecretKey(foreignKey), File(source), writer.add);
     await writer.close();
     await sink.flush();
   } catch (_) {

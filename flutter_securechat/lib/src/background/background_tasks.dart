@@ -48,6 +48,7 @@ import '../storage/storage_entities.dart';
 import '../storage/storage_management_service.dart';
 import 'background_scheduler.dart';
 import 'scheduled_message_service.dart';
+import '../media/attachment_transport.dart';
 
 typedef BackgroundTaskExecutor =
     Future<bool> Function(String task, Map<String, dynamic>? input);
@@ -272,6 +273,12 @@ class SecureChatBackgroundRuntime {
         onAsyncFailure: (operation, error, stackTrace) async {
           _logBackgroundFailure('BG-MEDIA', operation, error, stackTrace);
         },
+        attachments: HttpAttachmentTransport(
+          baseUri: Uri.parse(config.apiBaseUrl),
+          client: httpClients.create(),
+          accessToken: () async => session.accessToken,
+          refreshAccessToken: refreshAccessToken,
+        ),
       );
       resources.register('background-media-receiver', mediaReceiver.close);
       final notificationPresenter = PluginLocalNotificationPresenter();
@@ -523,6 +530,7 @@ class BackgroundMediaReceiver {
     ContactIdentityResolver? identityResolver,
     ServiceStrings? strings,
     AsyncOperationFailureHandler? onAsyncFailure,
+    AttachmentTransport? attachments,
   }) {
     // On planla ayni anahtar: arka planda alinan dosya da diske sifreli
     // yazilir (QA 2026-10-12 Bulgu 11).
@@ -538,6 +546,9 @@ class BackgroundMediaReceiver {
       beforeReceive: beforeReceive,
       onAsyncFailure: onAsyncFailure,
       vault: vault,
+      // Arka planda yalniz alma: push ile uyanan surec HTTP ile gelen eki
+      // indirir.
+      attachments: attachments,
     );
     messages = MediaMessageService(
       database: database,

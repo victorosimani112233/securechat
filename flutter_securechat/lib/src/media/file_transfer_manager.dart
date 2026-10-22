@@ -13,6 +13,7 @@ import '../groups/private_group_route.dart';
 import '../services/crypto_service.dart';
 import '../services/async_operation_tracker.dart';
 import '../services/signaling_service.dart';
+import 'attachment_transport.dart';
 import 'media_vault.dart';
 
 sealed class FileTransferResult {
@@ -100,8 +101,17 @@ class FileTransferManager {
     Future<void> Function()? beforeReceive,
     AsyncOperationFailureHandler? onAsyncFailure,
     MediaVault? vault,
+    AttachmentTransport? attachments,
+    Future<bool> Function(Set<String> recipients)? canReceiveBlobs,
+    this.blobDownloadDelays = const [
+      Duration.zero,
+      Duration(seconds: 2),
+      Duration(seconds: 8),
+    ],
   }) : _signaling = signaling,
        _vault = vault,
+       _attachments = attachments,
+       _canReceiveBlobs = canReceiveBlobs,
        _crypto = crypto,
        _filesDirectory = filesDirectory,
        _groupRoutingResolver = groupRoutingResolver,
@@ -113,7 +123,26 @@ class FileTransferManager {
         .where((event) => event is FileTransferSignal)
         .cast<FileTransferSignal>()
         .listen(_receiveFromSocket);
+    // Indirilemeyen ekler baglanti her kuruldugunda yeniden denenir.
+    if (attachments != null) {
+      _statusSubscription = signaling.statuses.listen((status) {
+        if (status.isConnected && !_closing && !_disposed) {
+          _operations.run('file-transfer.retry-blobs', retryPendingBlobs());
+        }
+      });
+    }
   }
+
+  /// Sifreli eklerin HTTP tasiyicisi; yoksa yalniz parcali yol kullanilir.
+  final AttachmentTransport? _attachments;
+
+  /// Bir indirme denemesinden once beklenen sureler (deneme sayisi = uzunluk).
+  final List<Duration> blobDownloadDelays;
+
+  /// Butun alicilar HTTP ile ek alabiliyor mu (makbuzla bildirilen yetenek).
+  final Future<bool> Function(Set<String> recipients)? _canReceiveBlobs;
+  StreamSubscription<SignalingStatus>? _statusSubscription;
+  Future<void>? _blobRetry;
 
   final SignalingService _signaling;
   final CryptoService _crypto;
@@ -162,6 +191,16 @@ class FileTransferManager {
   // room for the last chunk's encrypted manifest, including a full caption.
   static const maximumGroupChunkSize = 48 * 1024;
   static const groupWireVersion = 'flutter-file-v5-group';
+
+  /// Dosya istemcide rastgele bir anahtarla BIR KEZ muhurlenip sunucuya
+  /// yuklenir; alicilara yalniz uctan uca sifreli isaretci (ek kimligi,
+  /// anahtar, boyut, dosya bilgisi) gider. Parcali yolda dosya telde ~1,8
+  /// kat buyuyor ve grupta her uye icin tekrarlaniyordu.
+  static const blobWireVersion = 'flutter-file-v6-blob';
+
+  /// Grup isaretcisi uyeye ozel yonlendirme sarmaliyla gelir; birebir ve
+  /// grup isaretcileri birbirinin yerine gecemesin diye ayri surum.
+  static const blobGroupWireVersion = 'flutter-file-v6-blob-group';
 
   static bool _isRawEnvelopeWire(String? encryption) =>
       encryption != null &&
@@ -263,6 +302,21 @@ class FileTransferManager {
     DateTime? absoluteExpiresAt,
   }) async {
     final size = await file.length();
+    final blob = await _trySendBlob(
+      localUserId: localUserId,
+      recipientId: recipientId,
+      file: file,
+      fileSize: size,
+      fileName: fileName ?? file.uri.pathSegments.last,
+      mimeType: mimeType,
+      isGroup: isGroup,
+      groupMembers: groupMembers,
+      caption: caption,
+      isViewOnce: isViewOnce,
+      originalMessageId: originalMessageId,
+      absoluteExpiresAt: absoluteExpiresAt,
+    );
+    if (blob != null) return blob;
     return sendStream(
       localUserId: localUserId,
       recipientId: recipientId,
@@ -500,6 +554,10 @@ class FileTransferManager {
     FileTransferSignal signal,
     String transferId,
   ) async {
+    if (signal.encryption == blobWireVersion ||
+        signal.encryption == blobGroupWireVersion) {
+      return _receiveBlob(signal, transferId);
+    }
     final privateWire =
         signal.encryption?.startsWith('flutter-file-v2-') == true ||
         signal.encryption?.startsWith('flutter-file-v3-') == true ||
@@ -806,6 +864,379 @@ class FileTransferManager {
     }
   }
 
+  /// HTTP ile ek gonderir. Kosullar uymazsa ya da yukleme olmazsa (eski
+  /// sunucu, ag) `null` doner ve cagiran parcali yola gecer; o noktaya kadar
+  /// hicbir aliciya bir sey gitmemistir. Isaretci gonderimi baslayinca sonuc
+  /// kesindir (yinelenen mesaj olusmasin diye geri donulmez).
+  Future<FileTransferResult?> _trySendBlob({
+    required String localUserId,
+    required String recipientId,
+    required File file,
+    required int fileSize,
+    required String fileName,
+    required String mimeType,
+    required bool isGroup,
+    required List<String> groupMembers,
+    required String? caption,
+    required bool isViewOnce,
+    required String? originalMessageId,
+    required DateTime? absoluteExpiresAt,
+  }) async {
+    final transport = _attachments;
+    final capable = _canReceiveBlobs;
+    if (transport == null || capable == null || _closing || _disposed) {
+      return null;
+    }
+    if (fileSize <= 0 || fileSize > maximumFileSize) return null;
+    if (isGroup &&
+        (!groupMembers.contains(localUserId) ||
+            groupMembers.toSet().length < 2)) {
+      return null;
+    }
+    final recipients = isGroup
+        ? groupMembers.where((id) => id != localUserId).toSet()
+        : {recipientId};
+    if (recipients.isEmpty || !await capable(recipients)) return null;
+    if (!await _signaling.ensureConnected(
+      timeout: const Duration(seconds: 8),
+    )) {
+      return null;
+    }
+    final transferId = _newId();
+    final key = List<int>.generate(32, (_) => _random.nextInt(256));
+    final staging = Directory('${_filesDirectory.path}/outgoing_blobs');
+    final sealed = File('${staging.path}/$transferId.blob');
+    _sendingCount++;
+    _publishActivity();
+    try {
+      final String id;
+      final int sealedSize;
+      try {
+        await staging.create(recursive: true);
+        await MediaVault.sealWithKey(key, file, sealed);
+        sealedSize = await sealed.length();
+        id = await transport.upload(sealed);
+      } catch (error, stackTrace) {
+        await _reportFailure('file-transfer.blob-upload', error, stackTrace);
+        return null;
+      }
+      final safeFileName = sanitizeFileName(fileName);
+      final safeMimeType = _normalizeMimeType(mimeType);
+      final pointer = jsonEncode(<String, Object?>{
+        'v': 1,
+        'id': id,
+        'key': base64Encode(key),
+        'size': sealedSize,
+        'manifest': _PrivateFileManifest(
+          fileName: safeFileName,
+          mimeType: safeMimeType,
+          fileSize: fileSize,
+          caption: caption,
+          isViewOnce: isViewOnce,
+          originalMessageId: originalMessageId,
+          absoluteExpiresAt: absoluteExpiresAt,
+        ).toJson(),
+      });
+      if (isGroup) {
+        await distributeGroupSenderKey(
+          crypto: _crypto,
+          senderId: localUserId,
+          groupId: recipientId,
+          members: groupMembers,
+          timestamp: DateTime.now(),
+          send: _signaling.send,
+        );
+      }
+      // Grupta isaretci bir kez grup oturumuyla sifrelenir; her uyeye
+      // yalniz yonlendirme sarmali ayri sifrelenir.
+      final groupEnvelope = isGroup
+          ? await _crypto.encryptGroup(
+              senderId: localUserId,
+              groupId: recipientId,
+              plaintext: pointer,
+            )
+          : null;
+      var allSent = true;
+      for (final target in recipients) {
+        final envelope = groupEnvelope != null
+            ? await _crypto.encryptDirect(
+                recipientId: target,
+                plaintext: encodePrivateGroupRoute(
+                  groupId: recipientId,
+                  groupEnvelope: groupEnvelope,
+                ),
+              )
+            : await _crypto.encryptDirect(
+                recipientId: target,
+                plaintext: pointer,
+              );
+        final signal = FileTransferSignal(
+          senderId: localUserId,
+          recipientId: target,
+          timestamp: DateTime.now(),
+          fileName: 'attachment.bin',
+          mimeType: 'application/octet-stream',
+          // Boyut ve ad sifreli isaretcide; telde bilgi tasinmaz.
+          fileSize: 0,
+          data: envelope,
+          transferId: transferId,
+          chunkIndex: 0,
+          totalChunks: 1,
+          encryption: isGroup ? blobGroupWireVersion : blobWireVersion,
+        );
+        if (!await _sendWithRetry(signal)) allSent = false;
+      }
+      if (!allSent) {
+        return const FileTransferFailure('Dosya gonderilemedi');
+      }
+      _progress.add(
+        TransferProgress(
+          transferId: transferId,
+          chunksTransferred: 1,
+          totalChunks: 1,
+          bytesTransferred: fileSize,
+          totalBytes: fileSize,
+          incoming: false,
+        ),
+      );
+      _trace('tx-blob group=$isGroup');
+      return FileTransferSuccess(
+        transferId: transferId,
+        fileName: safeFileName,
+        mimeType: safeMimeType,
+        fileSize: fileSize,
+      );
+    } catch (error, stackTrace) {
+      await _reportFailure('file-transfer.blob-send', error, stackTrace);
+      return FileTransferFailure('Sifreli dosya aktarimi basarisiz: $error');
+    } finally {
+      try {
+        if (await sealed.exists()) await sealed.delete();
+        if (!_progress.isClosed) _progress.add(null);
+      } finally {
+        _sendingCount--;
+        _publishActivity();
+      }
+    }
+  }
+
+  /// HTTP ile gelen ekin isaretcisini cozer, eki indirir ve yerel kapla
+  /// yeniden muhurler. Indirme olmazsa isaretci sifreli olarak saklanir ve
+  /// baglanti kurulunca yeniden denenir.
+  Future<ReceivedFile?> _receiveBlob(
+    FileTransferSignal signal,
+    String transferId,
+  ) async {
+    final transport = _attachments;
+    if (transport == null ||
+        signal.totalChunks != 1 ||
+        signal.chunkIndex != 0) {
+      return null;
+    }
+    _touchReceivingActivity(transferId);
+    final staging = Directory('${_filesDirectory.path}/incoming_blobs');
+    final pending = File('${staging.path}/$transferId.pending');
+    final sealed = File('${staging.path}/$transferId.blob');
+    try {
+      await staging.create(recursive: true);
+      String? groupId;
+      final String pointerPlaintext;
+      if (signal.encryption == blobGroupWireVersion) {
+        final route = await decodePrivateGroupRoute(
+          await _crypto.decryptDirect(
+            senderId: directDecryptionPeer(
+              envelope: signal.data,
+              authenticatedSenderId: signal.senderId,
+              localRecipientId: signal.recipientId,
+            ),
+            envelope: signal.data,
+          ),
+        );
+        groupId = route.groupId;
+        pointerPlaintext = await _crypto.decryptGroup(
+          senderId: signal.senderId,
+          groupId: route.groupId,
+          envelope: route.groupEnvelope,
+        );
+      } else {
+        pointerPlaintext = await _crypto.decryptDirect(
+          senderId: signal.senderId,
+          envelope: signal.data,
+        );
+        if (isPrivateGroupRoute(pointerPlaintext)) {
+          throw const FormatException('Group pointer on a direct wire');
+        }
+      }
+      final pointer = _BlobPointer.fromJson(
+        (jsonDecode(pointerPlaintext) as Map).cast<String, Object?>(),
+        maximumFileSize: maximumFileSize,
+      );
+      // Cozulmus isaretci (anahtar dahil) diske duz yazilmaz.
+      await pending.writeAsString(
+        await _metadataCrypto.encryptStorageJson(
+          jsonEncode({
+            'pointer': pointer.toJson(),
+            'senderId': signal.senderId,
+            'groupId': groupId,
+          }),
+        ),
+        flush: true,
+      );
+      return await _completeBlob(
+        transport: transport,
+        transferId: transferId,
+        pointer: pointer,
+        senderId: signal.senderId,
+        groupId: groupId,
+        sealed: sealed,
+        pending: pending,
+      );
+    } catch (error, stackTrace) {
+      await _reportFailure('file-transfer.blob-receive', error, stackTrace);
+      if (!await pending.exists()) _endReceivingActivity(transferId);
+      return null;
+    }
+  }
+
+  Future<ReceivedFile?> _completeBlob({
+    required AttachmentTransport transport,
+    required String transferId,
+    required _BlobPointer pointer,
+    required String senderId,
+    required String? groupId,
+    required File sealed,
+    required File pending,
+  }) async {
+    try {
+      Object? lastError;
+      for (final delay in blobDownloadDelays) {
+        if (delay > Duration.zero) await Future<void>.delayed(delay);
+        if (_closing || _disposed) return null;
+        try {
+          await transport.download(
+            pointer.id,
+            sealed,
+            maxBytes: pointer.sealedSize,
+          );
+          lastError = null;
+          break;
+        } on AttachmentTransportException catch (error) {
+          lastError = error;
+          // Silinmis ya da suresi dolmus ek yeniden denenmez.
+          if (error.statusCode == HttpStatus.notFound) break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (lastError != null) {
+        if (lastError is AttachmentTransportException &&
+            lastError.statusCode == HttpStatus.notFound) {
+          await pending.delete();
+        }
+        throw lastError;
+      }
+      if (await sealed.length() != pointer.sealedSize) {
+        throw const FormatException('Attachment size does not match');
+      }
+      final manifest = pointer.manifest;
+      final receivedDirectory = Directory(
+        '${_filesDirectory.path}/received_files',
+      );
+      await receivedDirectory.create(recursive: true);
+      final output = File(
+        '${receivedDirectory.path}/'
+        '${DateTime.now().millisecondsSinceEpoch}_${manifest.fileName}',
+      );
+      final vault = _vault;
+      // Kap dogrulanamazsa (yanlis anahtar, degistirilmis dosya) hata atilir
+      // ve cikti olusmaz. Bu kalici bir hatadir; yeniden denenmez.
+      try {
+        if (vault != null) {
+          await vault.resealFrom(sealed, pointer.key, output);
+        } else {
+          await MediaVault.openWithKey(pointer.key, sealed, output);
+        }
+      } catch (_) {
+        if (await pending.exists()) await pending.delete();
+        rethrow;
+      }
+      final length = await output.length();
+      final plaintextLength = vault == null
+          ? length
+          : MediaVault.plaintextLength(length);
+      if (plaintextLength != manifest.fileSize) {
+        await output.delete();
+        await pending.delete();
+        throw const FormatException('Attachment content size mismatch');
+      }
+      await pending.delete();
+      final received = ReceivedFile(
+        transferId: transferId,
+        file: output,
+        fileName: manifest.fileName,
+        mimeType: manifest.mimeType,
+        senderId: senderId,
+        fileSize: manifest.fileSize,
+        caption: manifest.caption,
+        isViewOnce: manifest.isViewOnce,
+        originalMessageId: manifest.originalMessageId,
+        absoluteExpiresAt: manifest.absoluteExpiresAt,
+        groupId: groupId,
+      );
+      if (_disposed) return received;
+      _trace('rx-blob-complete group=${groupId != null}');
+      _receivedFiles.add(received);
+      return received;
+    } finally {
+      if (await sealed.exists()) await sealed.delete();
+      _endReceivingActivity(transferId);
+    }
+  }
+
+  /// Daha once indirilemeyen ekleri yeniden dener.
+  Future<void> retryPendingBlobs() =>
+      _blobRetry ??= _retryPendingBlobs().whenComplete(() => _blobRetry = null);
+
+  Future<void> _retryPendingBlobs() async {
+    final transport = _attachments;
+    if (transport == null || _closing || _disposed) return;
+    final staging = Directory('${_filesDirectory.path}/incoming_blobs');
+    if (!await staging.exists()) return;
+    await for (final entry in staging.list()) {
+      if (entry is! File || !entry.path.endsWith('.pending')) continue;
+      if (_closing || _disposed) return;
+      final name = entry.uri.pathSegments.last;
+      final transferId = name.substring(0, name.length - '.pending'.length);
+      if (_receiveTails.containsKey(transferId)) continue;
+      try {
+        final stored =
+            (jsonDecode(
+                      await _metadataCrypto.decryptStorageJson(
+                        await entry.readAsString(),
+                      ),
+                    )
+                    as Map)
+                .cast<String, Object?>();
+        final pointer = _BlobPointer.fromJson(
+          (stored['pointer'] as Map).cast<String, Object?>(),
+          maximumFileSize: maximumFileSize,
+        );
+        _touchReceivingActivity(transferId);
+        await _completeBlob(
+          transport: transport,
+          transferId: transferId,
+          pointer: pointer,
+          senderId: stored['senderId'] as String,
+          groupId: stored['groupId'] as String?,
+          sealed: File('${staging.path}/$transferId.blob'),
+          pending: entry,
+        );
+      } catch (error, stackTrace) {
+        await _reportFailure('file-transfer.blob-retry', error, stackTrace);
+      }
+    }
+  }
+
   Future<void> _reportFailure(
     String operation,
     Object error,
@@ -930,6 +1361,7 @@ class FileTransferManager {
 
   Future<void> _dispose() async {
     await _subscription.cancel();
+    await _statusSubscription?.cancel();
     await _operations.close();
     while (_receiveTails.isNotEmpty) {
       await Future.wait(_receiveTails.values.toList(growable: false));
@@ -1189,4 +1621,67 @@ class _PrivateFileManifest {
         'expiresAt': absoluteExpiresAt!.millisecondsSinceEpoch,
     };
   }
+}
+
+/// HTTP ile gonderilen ekin uctan uca sifreli isaretcisi.
+class _BlobPointer {
+  const _BlobPointer({
+    required this.id,
+    required this.key,
+    required this.sealedSize,
+    required this.manifest,
+  });
+
+  final String id;
+  final List<int> key;
+  final int sealedSize;
+  final _PrivateFileManifest manifest;
+
+  factory _BlobPointer.fromJson(
+    Map<String, Object?> json, {
+    required int maximumFileSize,
+  }) {
+    if ((json['v'] as num?)?.toInt() != 1) {
+      throw const FormatException('Unsupported attachment pointer');
+    }
+    final id = json['id'];
+    final rawKey = json['key'];
+    final size = json['size'];
+    final rawManifest = json['manifest'];
+    if (id is! String ||
+        !isAttachmentId(id) ||
+        rawKey is! String ||
+        size is! num ||
+        rawManifest is! Map) {
+      throw const FormatException('Invalid attachment pointer');
+    }
+    final key = base64Decode(rawKey);
+    final manifest = _PrivateFileManifest.fromJson(
+      rawManifest.cast<String, Object?>(),
+    );
+    final sealedSize = size.toInt();
+    // Kap ek yuku: baslik + kayit basina etiket; kaba bir ust sinir yeter.
+    final maximumSealed =
+        maximumFileSize + MediaVault.headerLength + (maximumFileSize ~/ 1024);
+    if (key.length != 32 ||
+        sealedSize <= 0 ||
+        sealedSize > maximumSealed ||
+        manifest.fileSize > maximumFileSize) {
+      throw const FormatException('Invalid attachment pointer');
+    }
+    return _BlobPointer(
+      id: id,
+      key: key,
+      sealedSize: sealedSize,
+      manifest: manifest,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'v': 1,
+    'id': id,
+    'key': base64Encode(key),
+    'size': sealedSize,
+    'manifest': manifest.toJson(),
+  };
 }

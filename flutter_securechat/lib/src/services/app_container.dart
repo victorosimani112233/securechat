@@ -89,6 +89,8 @@ import 'key_material_store.dart';
 import 'peer_activity_source.dart';
 import 'session_store.dart';
 import 'signaling_service.dart';
+import '../media/attachment_transport.dart';
+import '../media/peer_capabilities.dart';
 
 class AppContainer {
   AppContainer._({
@@ -758,6 +760,9 @@ class AppContainer {
         mediaDirectory: mediaDirectory,
         vault: mediaVault,
       );
+      // Oturum yenileme asagida kurulan AuthCoordinator'dan gelir.
+      Future<String?> Function()? refreshForAttachments;
+      final peerCapabilities = PeerCapabilities(database.cryptoState);
       final fileTransfers = FileTransferManager(
         signaling: signaling,
         crypto: crypto,
@@ -767,6 +772,14 @@ class AppContainer {
         beforeReceive: incomingMessages.waitForIdle,
         onAsyncFailure: reportAsyncFailure,
         vault: mediaVault,
+        attachments: HttpAttachmentTransport(
+          baseUri: Uri.parse(config.apiBaseUrl),
+          client: httpClients.create(),
+          accessToken: () async => session.accessToken,
+          refreshAccessToken: () async => refreshForAttachments?.call(),
+        ),
+        canReceiveBlobs: (recipients) =>
+            peerCapabilities.allSupport(recipients, blobAttachmentCapability),
       );
       resources.register('file-transfer-manager', fileTransfers.dispose);
       final mediaMessages = MediaMessageService(
@@ -819,6 +832,7 @@ class AppContainer {
           diagnostics.setUserId(userId);
         },
       );
+      refreshForAttachments = authCoordinator.refreshAccessToken;
       final contacts = ContactService(
         deviceContacts: NativeDeviceContactsGateway(),
         api: privateDirectory,

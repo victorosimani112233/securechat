@@ -14,6 +14,7 @@ import '../contacts/profile_name_sharing_service.dart';
 import '../core/peer_display_name.dart';
 import '../core/signal_message.dart';
 import '../groups/private_group_control.dart';
+import '../media/peer_capabilities.dart';
 import '../groups/private_group_route.dart';
 import '../l10n/service_strings.dart';
 import '../media/call_media_key.dart';
@@ -332,6 +333,7 @@ class IncomingMessageHandler {
         timestamp: DateTime.now(),
         messageId: messageId,
         status: 'DELIVERED',
+        capabilities: localPeerCapabilities,
       ),
     );
   }
@@ -751,6 +753,11 @@ class IncomingMessageHandler {
   Future<void> _receipt(DeliveryReceiptSignal signal) async {
     final localUserId = _session.userId;
     if (localUserId == null) return;
+    // Makbuz uctan uca sifreli ve gonderen kimligi dogrulanmis; bildirdigi
+    // yetenekler (HTTP ile ek alma) kaydedilir.
+    await PeerCapabilities(
+      _database.cryptoState,
+    ).record(signal.senderId, signal.capabilities);
     final next = switch (signal.status.toUpperCase()) {
       'READ' =>
         _session.shareReadReceipts

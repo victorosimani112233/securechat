@@ -7,6 +7,7 @@ import '../services/signaling_service.dart';
 import '../storage/secure_chat_database.dart';
 import '../storage/storage_entities.dart';
 import 'private_chat_control.dart';
+import '../media/peer_capabilities.dart';
 
 class ReadReceiptService {
   ReadReceiptService({
@@ -93,6 +94,7 @@ class ReadReceiptService {
           timestamp: DateTime.now(),
           messageId: message.id,
           status: 'READ',
+          capabilities: localPeerCapabilities,
         ),
       )) {
         sentCount++;
