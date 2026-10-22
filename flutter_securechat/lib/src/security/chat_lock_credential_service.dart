@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 
 import '../storage/secure_chat_database.dart';
+import 'pbkdf2_isolate.dart';
 
 abstract interface class ChatLockCredentialStore {
   Future<String?> read(String key);
@@ -41,11 +42,6 @@ class ChatLockCredentialService {
 
   final ChatLockCredentialStore _store;
   final Random _random;
-  final Pbkdf2 _kdf = Pbkdf2(
-    macAlgorithm: Hmac.sha256(),
-    iterations: _iterations,
-    bits: 256,
-  );
 
   Future<bool> hasCredential(String conversationId) async =>
       await _store.read(await _key(conversationId)) != null;
@@ -97,11 +93,8 @@ class ChatLockCredentialService {
     return '$_keyPrefix${base64UrlEncode(digest.bytes)}';
   }
 
-  Future<List<int>> _derive(String password, List<int> salt) async =>
-      (await _kdf.deriveKey(
-        secretKey: SecretKey(utf8.encode(password)),
-        nonce: salt,
-      )).extractBytes();
+  Future<List<int>> _derive(String password, List<int> salt) =>
+      pbkdf2Sha256(password: password, salt: salt, iterations: _iterations);
 
   static bool _constantTimeEquals(List<int> expected, List<int> actual) {
     if (expected.length != actual.length) return false;

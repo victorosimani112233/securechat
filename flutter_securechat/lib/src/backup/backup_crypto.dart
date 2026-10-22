@@ -1,8 +1,9 @@
-import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+
+import '../security/pbkdf2_isolate.dart';
 
 /// Kotlin BackupCrypto-compatible AES-256-GCM container:
 /// [32-byte salt][12-byte IV][ciphertext][16-byte GCM tag].
@@ -16,11 +17,6 @@ class BackupCrypto {
 
   final Random _random;
   final AesGcm _cipher = AesGcm.with256bits();
-  final Pbkdf2 _kdf = Pbkdf2(
-    macAlgorithm: Hmac.sha256(),
-    iterations: iterations,
-    bits: 256,
-  );
 
   Future<Uint8List> encrypt(List<int> plaintext, String password) async {
     final salt = _bytes(saltLength);
@@ -57,8 +53,9 @@ class BackupCrypto {
     }
   }
 
-  Future<SecretKey> _derive(String password, List<int> salt) =>
-      _kdf.deriveKey(secretKey: SecretKey(utf8.encode(password)), nonce: salt);
+  Future<SecretKey> _derive(String password, List<int> salt) async => SecretKey(
+    await pbkdf2Sha256(password: password, salt: salt, iterations: iterations),
+  );
 
   List<int> _bytes(int length) =>
       List<int>.generate(length, (_) => _random.nextInt(256));
