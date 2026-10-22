@@ -190,6 +190,52 @@ void main() {
     },
   );
 
+  test(
+    'automatic sync is skipped until the interval or phonebook changes',
+    () async {
+      final fixture = await _openFixture();
+      addTearDown(fixture.close);
+      final aliceHash = await hashPhoneNumber('05551234567');
+      final api = _CountingDiscoveryApi([
+        RegisteredUserMatch(userId: 'alice-id', phoneHash: aliceHash),
+      ]);
+      final phonebook = [
+        const DeviceContact(
+          displayName: 'Alice',
+          phoneNumber: '0555 123 45 67',
+        ),
+      ];
+      var now = DateTime(2026, 10, 22, 12);
+      final service = ContactService(
+        deviceContacts: _FakeGateway(phonebook),
+        api: api,
+        database: fixture.database,
+        session: SessionStore(userId: 'me', accessToken: 'access'),
+        now: () => now,
+      );
+
+      expect((await service.importAndDiscover()).single.id, 'alice-id');
+      expect(api.calls, 1);
+      // Rehber ekranini yeniden acmak sunucuya gitmez; sonuc ayni kalir.
+      now = now.add(const Duration(minutes: 5));
+      expect((await service.importAndDiscover()).single.id, 'alice-id');
+      expect(api.calls, 1);
+      // Elle yenileme her zaman gider.
+      await service.importAndDiscover(force: true);
+      expect(api.calls, 2);
+      // Rehbere kisi eklendiyse aralik beklenmez.
+      phonebook.add(
+        const DeviceContact(displayName: 'Bob', phoneNumber: '0532 000 00 00'),
+      );
+      await service.importAndDiscover();
+      expect(api.calls, 3);
+      // Aralik dolunca yeniden eslenir.
+      now = now.add(ContactService.discoveryInterval);
+      await service.importAndDiscover();
+      expect(api.calls, 4);
+    },
+  );
+
   test('contact sync removes entries no longer present on device', () async {
     final fixture = await _openFixture();
     addTearDown(fixture.close);
@@ -702,6 +748,28 @@ class _FakeDiscoveryApi implements ContactDiscoveryApi {
     receivedHashes = List.of(hashes);
     receivedOwnHash = ownPhoneHash;
     return matches.where((m) => hashes.contains(m.phoneHash)).toList();
+  }
+}
+
+class _CountingDiscoveryApi extends _FakeDiscoveryApi {
+  _CountingDiscoveryApi(super.matches);
+
+  var calls = 0;
+
+  @override
+  Future<List<RegisteredUserMatch>> checkUsers(
+    List<String> hashes,
+    String accessToken, {
+    String? ownPhoneHash,
+    String? ownUserId,
+  }) {
+    calls++;
+    return super.checkUsers(
+      hashes,
+      accessToken,
+      ownPhoneHash: ownPhoneHash,
+      ownUserId: ownUserId,
+    );
   }
 }
 

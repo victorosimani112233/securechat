@@ -175,5 +175,6 @@ class _Contacts extends Fake implements ContactService {
   Stream<List<ContactEntity>> watchRegistered() => Stream.value(contacts);
 
   @override
-  Future<List<ContactEntity>> importAndDiscover() async => contacts;
+  Future<List<ContactEntity>> importAndDiscover({bool force = false}) async =>
+      contacts;
 }

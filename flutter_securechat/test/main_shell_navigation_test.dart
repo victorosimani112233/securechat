@@ -374,7 +374,9 @@ class _NavigationContacts extends Fake implements ContactService {
       Stream.value([_contact]);
 
   @override
-  Future<List<ContactEntity>> importAndDiscover() async => [_contact];
+  Future<List<ContactEntity>> importAndDiscover({bool force = false}) async => [
+    _contact,
+  ];
 
   @override
   Future<ConversationEntity> createGroup(

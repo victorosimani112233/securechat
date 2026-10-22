@@ -184,12 +184,20 @@ class ContactService {
     required SessionStore session,
     PrivateGroupControlSender? groupControls,
     OfflineMessageQueue? offlineQueue,
+    DateTime Function() now = DateTime.now,
   }) : _deviceContacts = deviceContacts,
        _api = api,
        _database = database,
        _session = session,
        _groupControls = groupControls,
-       _offlineQueue = offlineQueue;
+       _offlineQueue = offlineQueue,
+       _now = now;
+
+  /// Otomatik eslemenin en sik araligi. Rehber ekrani her acildiginda tum
+  /// rehber listesi sunucudan yeniden indiriliyor ve her numara icin
+  /// sunucuda RSA islemi yapiliyordu. Rehber degistiyse ya da kullanici
+  /// elle yenilediyse aralik beklenmez.
+  static const discoveryInterval = Duration(minutes: 10);
 
   final DeviceContactsGateway _deviceContacts;
   final ContactDiscoveryApi _api;
@@ -197,6 +205,10 @@ class ContactService {
   final SessionStore _session;
   final PrivateGroupControlSender? _groupControls;
   final OfflineMessageQueue? _offlineQueue;
+  final DateTime Function() _now;
+  DateTime? _lastDiscoveryAt;
+  Set<String> _lastDiscoveryHashes = const {};
+  String? _lastDiscoveryUser;
 
   Stream<List<ContactEntity>> watchRegistered() =>
       _database.contacts.getRegistered();
@@ -260,7 +272,9 @@ class ContactService {
     return invitable;
   }
 
-  Future<List<ContactEntity>> importAndDiscover() async {
+  /// [force] olmadan, ayni hesapla [discoveryInterval] icinde ve rehber
+  /// degismeden yapilan cagri sunucuya gitmez; son eslesme kullanilir.
+  Future<List<ContactEntity>> importAndDiscover({bool force = false}) async {
     if (!await _deviceContacts.requestPermission()) {
       throw StateError('Rehber izni verilmedi');
     }
@@ -273,6 +287,22 @@ class ContactService {
     for (final contact in contacts) {
       final hash = await hashPhoneNumber(contact.phoneNumber);
       byHash[hash] = contact;
+    }
+    final hashes = byHash.keys.toSet();
+    final last = _lastDiscoveryAt;
+    if (!force &&
+        last != null &&
+        _lastDiscoveryUser == _session.userId &&
+        _now().difference(last) < discoveryInterval &&
+        hashes.length == _lastDiscoveryHashes.length &&
+        hashes.containsAll(_lastDiscoveryHashes)) {
+      return [
+        for (final contact in await _database.contacts.getAllOnce())
+          if (contact.isRegistered &&
+              !contact.addedManually &&
+              hashes.contains(contact.phoneHash))
+            contact,
+      ];
     }
     final matches = await _discover(byHash.keys.toList(), token);
     final registered = matches
@@ -332,6 +362,9 @@ class ContactService {
         await _database.contacts.delete(existing.id);
       }
     }
+    _lastDiscoveryAt = _now();
+    _lastDiscoveryHashes = hashes;
+    _lastDiscoveryUser = _session.userId;
     return registered;
   }
 

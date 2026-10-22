@@ -71,7 +71,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
               tooltip: context.l10n.contacts_invite_friends,
             ),
             IconButton(
-              onPressed: _syncing ? null : _syncContacts,
+              onPressed: _syncing ? null : () => _syncContacts(force: true),
               icon: const Icon(Icons.sync),
               tooltip: context.l10n.contacts_sync,
             ),
@@ -171,7 +171,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                                     TextButton.icon(
                                       onPressed: _syncing
                                           ? null
-                                          : _syncContacts,
+                                          : () => _syncContacts(force: true),
                                       icon: const Icon(Icons.refresh, size: 18),
                                       label: Text(context.l10n.action_retry),
                                     ),
@@ -256,7 +256,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  Future<void> _syncContacts() async {
+  /// Ekran acilisinda [force] yok: kisa surede ve rehber degismeden
+  /// tekrarlanan eslesme sunucuya gitmez. Yenile dugmesi her zaman gider.
+  Future<void> _syncContacts({bool force = false}) async {
     final service = AppContainerScope.of(context).contacts;
     if (service == null || _syncing) return;
     setState(() {
@@ -264,7 +266,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       _failure = null;
     });
     try {
-      await service.importAndDiscover();
+      await service.importAndDiscover(force: force);
     } catch (error) {
       if (mounted) setState(() => _failure = _presentFailure(error));
     }

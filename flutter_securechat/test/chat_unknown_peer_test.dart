@@ -143,7 +143,7 @@ class _Contacts implements ContactService {
   }
 
   @override
-  Future<List<ContactEntity>> importAndDiscover() async {
+  Future<List<ContactEntity>> importAndDiscover({bool force = false}) async {
     imports++;
     known = true;
     return const [];

@@ -1528,7 +1528,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// kart kendiliginden kalkar; vazgectiyse kart yerinde kalir.
   Future<void> _syncAfterContactAdd(AppContainer container) async {
     try {
-      await container.contacts?.importAndDiscover();
+      // Kisi az once eklendi; aralik beklenmeden eslenmeli.
+      await container.contacts?.importAndDiscover(force: true);
     } catch (_) {
       // Izin verilmedi ya da ag yok; kart yerinde kalir, yeniden denenebilir.
     }
