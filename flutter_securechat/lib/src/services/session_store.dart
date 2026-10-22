@@ -55,6 +55,12 @@ class SessionStore {
   bool fullscreenMode;
   bool scheduledMessagesEnabled;
 
+  /// Son basarili push kaydinin ozeti (hesap, jeton ve ipucu anahtari) ve
+  /// zamani (ms). Ayni kayit gun icinde yeniden gonderilmez. Yalniz ozet
+  /// tutulur; jeton ve anahtar burada yoktur.
+  String? pushRegistrationFingerprint;
+  int? pushRegisteredAt;
+
   /// Sunucu refresh token'i kalici olarak reddetti (QA 2026-10-12 R1).
   ///
   /// Hesap ve profil cihazda kalir; yalniz tokenlar silinir. Giris ekrani
@@ -112,6 +118,8 @@ class SessionStore {
     fullscreenMode = false;
     scheduledMessagesEnabled = true;
     credentialsExpired = false;
+    pushRegistrationFingerprint = null;
+    pushRegisteredAt = null;
   }
 
   Future<void> loginAndPersist({
@@ -197,6 +205,9 @@ class SessionStore {
     'fullscreenMode': fullscreenMode,
     'scheduledMessagesEnabled': scheduledMessagesEnabled,
     'credentialsExpired': credentialsExpired,
+    if (pushRegistrationFingerprint != null)
+      'pushRegistrationFingerprint': pushRegistrationFingerprint,
+    if (pushRegisteredAt != null) 'pushRegisteredAt': pushRegisteredAt,
   };
 
   void loadJson(Map<String, Object?> json) {
@@ -235,6 +246,9 @@ class SessionStore {
     scheduledMessagesEnabled =
         json['scheduledMessagesEnabled'] as bool? ?? true;
     credentialsExpired = json['credentialsExpired'] as bool? ?? false;
+    pushRegistrationFingerprint =
+        json['pushRegistrationFingerprint'] as String?;
+    pushRegisteredAt = (json['pushRegisteredAt'] as num?)?.toInt();
   }
 }
 

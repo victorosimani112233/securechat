@@ -577,8 +577,15 @@ class AppContainer {
               signaling: signaling,
               onAsyncFailure: reportAsyncFailure,
             );
-      await pushCoordinator?.initialize();
       if (pushCoordinator != null) {
+        // Dinleyiciler hemen kurulur; jeton alma ve sunucu kaydi ilk ekrani
+        // bekletmez. Hata kendi kanalindan raporlanir.
+        unawaited(
+          pushCoordinator.initialize().catchError(
+            (Object error, StackTrace stackTrace) =>
+                reportAsyncFailure('push.initialize', error, stackTrace),
+          ),
+        );
         resources.register('push-coordinator', pushCoordinator.close);
       }
       final mediaEngine = WebRtcMediaEngine();

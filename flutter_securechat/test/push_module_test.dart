@@ -65,10 +65,11 @@ void main() {
 
       expect(await coordinator.requestPermissionAndRegister(), isTrue);
       expect(transport.permissionRequested, isTrue);
-      expect(requests, hasLength(2));
+      // Ayni hesap, jeton ve anahtar: kayit gun icinde yeniden gitmez.
+      expect(requests, hasLength(1));
 
       transport.refresh('token-2');
-      await _eventually(() => requests.length == 3);
+      await _eventually(() => requests.length == 2);
       expect(session.pushToken, 'token-2');
 
       transport.wake(const PushWakeEvent(type: 'securechat_wake_v2'));
@@ -80,6 +81,57 @@ void main() {
       expect(requests.last.path, '/api/v1/fcm/unregister');
     },
   );
+
+  test('an unchanged registration is sent at most once a day', () async {
+    var registrations = 0;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((request) async {
+      await utf8.decoder.bind(request).join();
+      if (request.uri.path == '/api/v1/fcm/register') registrations++;
+      request.response.statusCode = HttpStatus.ok;
+      await request.response.close();
+    });
+    var now = DateTime(2026, 10, 22, 9);
+    final session = SessionStore(userId: 'me', accessToken: 'access');
+    final transport = _FakePushTransport('token-1');
+    final coordinator = PushCoordinator(
+      transport: transport,
+      api: PushTokenApi(
+        baseUrl: 'http://${server.address.host}:${server.port}',
+      ),
+      session: session,
+      signaling: InMemorySignalingService(),
+      pushHintKeys: const _FakePushHintKeyProvider('device-hint-key'),
+      now: () => now,
+    );
+    addTearDown(coordinator.close);
+
+    await coordinator.refreshRegistration();
+    expect(registrations, 1);
+    expect(session.pushRegistrationFingerprint, isNot(contains('token-1')));
+    // Her acilis ve on plana donus artik sunucuya gitmez.
+    now = now.add(const Duration(hours: 5));
+    await coordinator.refreshRegistration();
+    expect(registrations, 1);
+    // Gunluk yenileme sunucudaki kaydi canli tutar.
+    now = now.add(PushCoordinator.registrationRefreshInterval);
+    await coordinator.refreshRegistration();
+    expect(registrations, 2);
+    // Baska hesap ya da yeni jeton hemen kaydolur.
+    session.userId = 'other';
+    await coordinator.refreshRegistration();
+    expect(registrations, 3);
+    transport.token = 'token-2';
+    await coordinator.refreshRegistration();
+    expect(registrations, 4);
+    // Kayit silinince ozet de silinir; sonraki kayit hemen gider.
+    expect(await coordinator.unregister(), isTrue);
+    expect(session.pushRegistrationFingerprint, isNull);
+    transport.token = 'token-2';
+    await coordinator.refreshRegistration();
+    expect(registrations, 5);
+  });
 
   test(
     'push registration failures reach the owned diagnostics callback',

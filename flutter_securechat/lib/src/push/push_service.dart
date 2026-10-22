@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -202,13 +203,23 @@ class PushCoordinator {
     required SignalingService signaling,
     PushHintKeyProvider? pushHintKeys,
     AsyncOperationFailureHandler? onAsyncFailure,
+    DateTime Function() now = DateTime.now,
   }) : _transport = transport,
        _api = api,
        _session = session,
        _signaling = signaling,
        _pushHintKeys = pushHintKeys ?? const PlatformPushHintKeyProvider(),
        _onAsyncFailure = onAsyncFailure,
+       _now = now,
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
+
+  /// Ayni kayit bu sure icinde yeniden gonderilmez. Kayit her acilista ve
+  /// her on plana donuste sunucuya gidiyordu. Sunucu kaydi son
+  /// guncellemeden gunler sonra siler; gunluk yenileme onu canli tutar.
+  /// Jeton, hesap ya da ipucu anahtari degisince hemen yeniden kaydolunur.
+  static const registrationRefreshInterval = Duration(hours: 24);
+
+  final DateTime Function() _now;
 
   final PushTransport _transport;
   final PushTokenApi _api;
@@ -250,12 +261,30 @@ class PushCoordinator {
     if (userId == null || accessToken == null || accessToken.isEmpty)
       return false;
     final pushHintKey = await _pushHintKeys.getOrCreateKey();
+    final fingerprint = crypto.sha256
+        .convert(utf8.encode('$userId\u0000$token\u0000${pushHintKey ?? ''}'))
+        .toString();
+    final last = _session.pushRegisteredAt;
+    if (_session.pushRegistrationFingerprint == fingerprint &&
+        last != null &&
+        _now().difference(DateTime.fromMillisecondsSinceEpoch(last)) <
+            registrationRefreshInterval) {
+      return true;
+    }
     final registered = await _api.register(
       userId: userId,
       token: token,
       accessToken: accessToken,
       pushHintKey: pushHintKey,
     );
+    if (registered) {
+      _session
+        ..pushRegistrationFingerprint = fingerprint
+        ..pushRegisteredAt = _now().millisecondsSinceEpoch;
+      if (_session is PersistentSessionStore) {
+        await _session.persist();
+      }
+    }
     if (!kIsWeb && Platform.isAndroid) {
       debugPrint(
         registered
@@ -297,7 +326,10 @@ class PushCoordinator {
     );
     if (removed) {
       await _transport.deleteToken();
-      _session.pushToken = null;
+      _session
+        ..pushToken = null
+        ..pushRegistrationFingerprint = null
+        ..pushRegisteredAt = null;
       if (_session is PersistentSessionStore) {
         await _session.persist();
       }
