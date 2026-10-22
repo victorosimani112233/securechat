@@ -179,6 +179,62 @@ void main() {
     );
   }
 
+  test('an unacknowledged message is resent with growing gaps', () async {
+    final fixture = await _Fixture.open();
+    addTearDown(fixture.close);
+    var now = DateTime(2026, 10, 22, 12);
+    final queue = OfflineMessageQueue(
+      database: fixture.database,
+      signaling: fixture.signaling,
+      now: () => now,
+    );
+    addTearDown(queue.close);
+    final deliveryId = 'd' * 43;
+    // Soket "gonderildi" demis, makbuz gelmemis bir kayit.
+    await fixture.database.pendingSignals.put(
+      PendingSignalEntity(
+        id: deliveryId,
+        encodedSignal: EncryptedSignalMessage(
+          senderId: 'me',
+          recipientId: 'alice',
+          timestamp: now,
+          envelope: 'ciphertext',
+          deliveryId: deliveryId,
+        ).encode(),
+        createdAt: now.millisecondsSinceEpoch,
+        messageId: 'm1',
+        recipientId: 'alice',
+        retainUntilReceipt: true,
+        sendCount: 1,
+        lastSentAt: now.millisecondsSinceEpoch,
+      ),
+    );
+
+    // Ilk yeniden gonderim beklemez: sunucu almamis olabilir.
+    expect((await queue.flushQueue()).sent, 1);
+    // Sonrakiler 1, 2, 4 ... dakika arayla gider; arada gonderim yok.
+    expect((await queue.flushQueue()).sent, 0);
+    now = now.add(const Duration(minutes: 1));
+    expect((await queue.flushQueue()).sent, 1);
+    now = now.add(const Duration(minutes: 1));
+    expect((await queue.flushQueue()).sent, 0);
+    now = now.add(const Duration(minutes: 1));
+    expect((await queue.flushQueue()).sent, 1);
+    final stored = (await fixture.database.pendingSignals.getAll()).single;
+    expect(stored.sendCount, 4);
+    expect(stored.lastSentAt, now.millisecondsSinceEpoch);
+    // Kayit makbuz gelene kadar durur.
+    expect((await queue.flushQueue()).remaining, 1);
+  });
+
+  test('the resend gap is capped at six hours', () {
+    expect(OfflineMessageQueue.resendDelay(0), Duration.zero);
+    expect(OfflineMessageQueue.resendDelay(1), Duration.zero);
+    expect(OfflineMessageQueue.resendDelay(2), const Duration(minutes: 1));
+    expect(OfflineMessageQueue.resendDelay(5), const Duration(minutes: 8));
+    expect(OfflineMessageQueue.resendDelay(40), const Duration(hours: 6));
+  });
+
   test('late matching receipt clears reopened scheduled outbox only', () async {
     final fixture = await _Fixture.open();
     addTearDown(fixture.close);

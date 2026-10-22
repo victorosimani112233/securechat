@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'background_run_guard.dart';
+import '../auth/access_token_expiry.dart';
 import '../auth/auth_api.dart';
 import '../auth/session_token_refresher.dart';
 import '../chat/private_chat_control.dart';
@@ -406,6 +407,8 @@ class SecureChatBackgroundRuntime {
   /// token'i `session.accessToken` uzerinden okur.
   Future<void> _ensureFreshAccessToken() async {
     if (!session.isLoggedIn) return;
+    // Jeton daha uzun sure gecerliyse ag istegi ve refresh donmesi olmaz.
+    if (!accessTokenNeedsRefresh(session.accessToken)) return;
     try {
       await refreshAccessToken();
     } catch (error, stackTrace) {
@@ -437,11 +440,15 @@ class SecureChatBackgroundRuntime {
   }
 
   Future<void> _drainOutgoing() async {
-    await outbox.flushEnqueuedSignals();
-    final pending = await waitForBackgroundOutboxReceipts(
-      outbox: outbox,
-      signaling: signaling,
-    );
+    final flushed = await outbox.flushEnqueuedSignals();
+    // Makbuz yalniz bu turda bir sey gonderildiyse beklenir. Hic makbuz
+    // vermeyen eski kayitlar her calismada 5 saniye bekletiyordu.
+    final pending = flushed.sent == 0
+        ? await outbox.getPendingCount()
+        : await waitForBackgroundOutboxReceipts(
+            outbox: outbox,
+            signaling: signaling,
+          );
     await incomingMessages.waitForIdle();
     await mediaReceiver.messages.waitForIdle();
     await notifications.waitForIdle();

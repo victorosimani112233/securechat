@@ -1081,6 +1081,8 @@ class PendingSignalEntity {
     this.messageId,
     this.recipientId,
     this.retainUntilReceipt = false,
+    this.sendCount = 0,
+    this.lastSentAt,
   });
 
   final String id;
@@ -1091,7 +1093,17 @@ class PendingSignalEntity {
   final String? recipientId;
   final bool retainUntilReceipt;
 
-  PendingSignalEntity copyWith({int? attempts}) => PendingSignalEntity(
+  /// Makbuz bekleyen kaydin sunucuya kac kez basariyla yazildigi.
+  final int sendCount;
+
+  /// Son basarili gonderim (ms); yeniden gonderim araligi buradan sayilir.
+  final int? lastSentAt;
+
+  PendingSignalEntity copyWith({
+    int? attempts,
+    int? sendCount,
+    int? lastSentAt,
+  }) => PendingSignalEntity(
     id: id,
     encodedSignal: encodedSignal,
     createdAt: createdAt,
@@ -1099,6 +1111,8 @@ class PendingSignalEntity {
     messageId: messageId,
     recipientId: recipientId,
     retainUntilReceipt: retainUntilReceipt,
+    sendCount: sendCount ?? this.sendCount,
+    lastSentAt: lastSentAt ?? this.lastSentAt,
   );
 
   factory PendingSignalEntity.fromJson(Map<String, Object?> json) =>
@@ -1110,6 +1124,8 @@ class PendingSignalEntity {
         messageId: json['messageId'] as String?,
         recipientId: json['recipientId'] as String?,
         retainUntilReceipt: json['retainUntilReceipt'] as bool? ?? false,
+        sendCount: (json['sendCount'] as num?)?.toInt() ?? 0,
+        lastSentAt: (json['lastSentAt'] as num?)?.toInt(),
       );
 
   Map<String, Object?> toJson() => {
@@ -1120,6 +1136,8 @@ class PendingSignalEntity {
     if (messageId != null) 'messageId': messageId,
     if (recipientId != null) 'recipientId': recipientId,
     'retainUntilReceipt': retainUntilReceipt,
+    if (sendCount != 0) 'sendCount': sendCount,
+    if (lastSentAt != null) 'lastSentAt': lastSentAt,
   };
 }
 

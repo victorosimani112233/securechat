@@ -1791,6 +1791,18 @@ class PendingSignalDao {
       (_, signal) => signal.messageId == messageId,
     ),
   );
+
+  /// Makbuz bekleyen kaydin basariyla gonderildigini isaretler.
+  Future<void> markSent(String id, int sentAtMillis) => _db._write((snapshot) {
+    final current = snapshot.pendingSignals[id];
+    if (current != null) {
+      snapshot.pendingSignals[id] = current.copyWith(
+        sendCount: current.sendCount + 1,
+        lastSentAt: sentAtMillis,
+      );
+    }
+  });
+
   Future<void> incrementAttempts(String id) => _db._write((snapshot) {
     final current = snapshot.pendingSignals[id];
     if (current != null) {

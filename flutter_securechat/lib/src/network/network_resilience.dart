@@ -20,10 +20,14 @@ class OfflineMessageQueue {
     required SecureChatDatabase database,
     required SignalingService signaling,
     AsyncOperationFailureHandler? onAsyncFailure,
+    DateTime Function() now = DateTime.now,
   }) : _database = database,
        _signaling = signaling,
        _onAsyncFailure = onAsyncFailure,
+       _now = now,
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
+
+  final DateTime Function() _now;
 
   final SecureChatDatabase _database;
   final SignalingService _signaling;
@@ -97,7 +101,14 @@ class OfflineMessageQueue {
       ),
     );
     final sent = await _sendSafely('reliable-outbox.send', encryptedSignal);
-    if (!sent) await _database.pendingSignals.incrementAttempts(deliveryId);
+    if (sent) {
+      await _database.pendingSignals.markSent(
+        deliveryId,
+        _now().millisecondsSinceEpoch,
+      );
+    } else {
+      await _database.pendingSignals.incrementAttempts(deliveryId);
+    }
     // Yerel sifreli outbox'a atomik olarak kabul edilmesi mesaj kaybi
     // olmadan kullanici akisinin devam etmesi icin yeterlidir.
     return true;
@@ -125,7 +136,8 @@ class OfflineMessageQueue {
   Future<QueueFlushResult> _flush() async {
     var sent = 0;
     final snapshot = await _database.pendingSignals.getAll();
-    final retentionCutoff = DateTime.now()
+    final now = _now();
+    final retentionCutoff = now
         .subtract(reliableOutboxRetention)
         .millisecondsSinceEpoch;
     for (final pending in snapshot) {
@@ -137,9 +149,15 @@ class OfflineMessageQueue {
         }
         continue;
       }
+      if (!_resendDue(pending, now)) continue;
       final signal = SignalMessage.decode(pending.encodedSignal);
       if (await _sendSafely('offline-queue.flush-send', signal)) {
-        if (!pending.retainUntilReceipt) {
+        if (pending.retainUntilReceipt) {
+          await _database.pendingSignals.markSent(
+            pending.id,
+            now.millisecondsSinceEpoch,
+          );
+        } else {
           await _database.pendingSignals.delete(pending.id);
         }
         sent++;
@@ -155,6 +173,31 @@ class OfflineMessageQueue {
   }
 
   static const reliableOutboxRetention = Duration(days: 30);
+
+  /// Gonderilmis ama makbuzu gelmemis kaydin yeniden gonderim araligi.
+  ///
+  /// Ilk yeniden gonderim beklemez: soketin "gonderildi" demesi sunucunun
+  /// aldigi anlamina gelmez (kapanan surec, arka plan isci soketi); kayit
+  /// bir sonraki baglantida hemen yeniden gider. Sonrakiler 1, 2, 4 ...
+  /// dakika arayla, en cok 6 saatte bir gider. Onceden her baglantida ve
+  /// her 15 dakikalik arka plan calismasinda yeniden gonderiliyordu; hic
+  /// makbuz vermeyen bir aliciya (silinmis ya da eski hesap) giden mesajlar
+  /// 30 gun boyunca veri ve pil harcadi. Kayit silinmez: sunucu kuyrugu
+  /// kaybolsa da (yeniden baslatma) mesaj yine ulasir.
+  static Duration resendDelay(int sendCount) {
+    if (sendCount <= 1) return Duration.zero;
+    final minutes = 1 << (sendCount - 2).clamp(0, 9);
+    return Duration(minutes: minutes.clamp(1, 360));
+  }
+
+  static bool _resendDue(PendingSignalEntity pending, DateTime now) {
+    final last = pending.lastSentAt;
+    if (!pending.retainUntilReceipt || last == null) return true;
+    final dueAt = DateTime.fromMillisecondsSinceEpoch(
+      last,
+    ).add(resendDelay(pending.sendCount));
+    return !now.isBefore(dueAt);
+  }
 
   Future<void> clearQueue() => _database.pendingSignals.clear();
 
