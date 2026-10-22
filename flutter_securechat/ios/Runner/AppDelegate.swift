@@ -968,7 +968,7 @@ final class SecureChatCallKitIntegration: NSObject, CXProviderDelegate {
   }
 }
 
-/// Yeni kisi ekrani kaydedilince ya da vazgecilince kendini kapatir.
+/// Davet mesaji gonderilince ya da vazgecilince mesaj ekranini kapatir.
 final class SecureChatMessageComposeDelegate: NSObject, MFMessageComposeViewControllerDelegate {
   func messageComposeViewController(
     _ controller: MFMessageComposeViewController,
@@ -978,6 +978,7 @@ final class SecureChatMessageComposeDelegate: NSObject, MFMessageComposeViewCont
   }
 }
 
+/// Yeni kisi ekrani kaydedilince ya da vazgecilince kendini kapatir.
 final class SecureChatContactEditorDelegate: NSObject, CNContactViewControllerDelegate {
   func contactViewController(
     _ viewController: CNContactViewController,
