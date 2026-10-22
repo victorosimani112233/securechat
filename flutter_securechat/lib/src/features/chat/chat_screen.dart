@@ -12,6 +12,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/models.dart';
+import '../../core/relisten_stream.dart';
 import '../../contacts/contact_service.dart';
 import '../../l10n/l10n.dart';
 import '../../widgets/text_controller_scope.dart';
@@ -587,7 +588,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     );
                   }
                   return StreamBuilder<List<CallHistoryEntry>>(
-                    stream: _callsStream ??= _relisten(
+                    stream: _callsStream ??= relistenable(
                       () => history.watchPeer(conversation.peerId),
                     ),
                     builder: (context, callSnapshot) {
@@ -813,27 +814,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   ) {
     if (_streamsConversationId != conversation.id || _messagesStream == null) {
       _streamsConversationId = conversation.id;
-      _messagesStream = _relisten(() => repo.watchMessages(conversation.id));
+      _messagesStream = relistenable(() => repo.watchMessages(conversation.id));
       _callsStream = null;
     }
     return _messagesStream!;
   }
-
-  /// Ayni nesne kalir ama her dinleyici kaynagi yeniden acar. Agac yeniden
-  /// kurulunca StreamBuilder ayni akisi tekrar dinleyebilir; tek dinleyicili
-  /// kaynaklar (bellek deposu) ikinci dinlemede hata verirdi.
-  static Stream<T> _relisten<T>(Stream<T> Function() open) =>
-      Stream<T>.multi((controller) {
-        final subscription = open().listen(
-          controller.addSync,
-          onError: controller.addErrorSync,
-          onDone: controller.closeSync,
-        );
-        controller
-          ..onCancel = subscription.cancel
-          ..onPause = subscription.pause
-          ..onResume = subscription.resume;
-      });
 
   void _handleTimelineSnapshot(List<LocalMessage> messages, int callCount) {
     final ids = {for (final message in messages) message.id};

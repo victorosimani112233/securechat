@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../calls/call_readiness_service.dart';
 import '../../chat/conversation_preview.dart';
 import '../../core/models.dart';
+import '../../core/relisten_stream.dart';
 import '../../l10n/l10n.dart';
 import '../../services/app_container.dart';
 import '../../services/app_connection_status.dart';
@@ -77,13 +78,35 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     super.dispose();
   }
 
+  /// Akislar ekran basina bir kez kurulur; `build` icinde her seferinde
+  /// yeni akis vermek her setState'te (arama, filtre) aboneligi yeniliyor ve
+  /// sohbet listesini bastan hesaplatiyordu.
+  AppContainer? _streamsOwner;
+  late Stream<AppConnectionStatus> _statusStream;
+  late Stream<List<Conversation>> _conversationStream;
+  Stream<Map<String, bool>>? _typingStream;
+
+  void _ensureStreams(AppContainer container) {
+    if (identical(_streamsOwner, container)) return;
+    _streamsOwner = container;
+    _statusStream = relistenable(() => container.connectionStatus.statuses);
+    _conversationStream = relistenable(
+      container.conversations.watchConversations,
+    );
+    final typing = container.networkRuntime?.incomingMessages;
+    _typingStream = typing == null
+        ? null
+        : relistenable(() => typing.typingStates);
+  }
+
   @override
   Widget build(BuildContext context) {
     final container = AppContainerScope.of(context);
     final repo = container.conversations;
     final connectionStatus = container.connectionStatus;
+    _ensureStreams(container);
     return StreamBuilder<AppConnectionStatus>(
-      stream: connectionStatus.statuses,
+      stream: _statusStream,
       initialData: connectionStatus.current,
       builder: (context, statusSnapshot) {
         final status = statusSnapshot.data ?? connectionStatus.current;
@@ -161,7 +184,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               ],
             ),
             body: StreamBuilder<List<Conversation>>(
-              stream: repo.watchConversations(),
+              stream: _conversationStream,
               builder: (context, conversationSnapshot) {
                 final all = conversationSnapshot.data ?? const <Conversation>[];
                 final active = all
@@ -172,10 +195,8 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     .toList(growable: false);
                 final source = _showArchived ? archived : active;
                 final filtered = _applyFilter(source);
-                final typingStream =
-                    container.networkRuntime?.incomingMessages.typingStates;
                 return StreamBuilder<Map<String, bool>>(
-                  stream: typingStream,
+                  stream: _typingStream,
                   initialData: const {},
                   builder: (context, typingSnapshot) => _content(
                     container: container,

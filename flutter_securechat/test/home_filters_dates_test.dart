@@ -131,6 +131,55 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('rebuilding the chat list keeps one conversation stream', (
+    tester,
+  ) async {
+    final base = createWidgetTestContainer();
+    final repo = _CountingConversations(
+      conversations: [
+        const Conversation(
+          id: 'a',
+          peerId: 'a',
+          peerName: 'Ayşe',
+          peerPhone: '',
+          lastMessage: 'selam',
+        ),
+      ],
+      messages: {},
+    );
+    final container = AppContainer.testing(
+      session: base.session,
+      conversations: repo,
+      crypto: base.crypto,
+      signaling: base.signaling,
+      chatAccessRuntime: base.chatAccessRuntime,
+      callReadinessRuntime: base.callReadinessRuntime,
+    );
+    await tester.pumpWidget(
+      AppContainerScope(
+        container: container,
+        child: const MaterialApp(
+          locale: Locale('tr'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ConversationsScreen(embedded: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(repo.watches, 1);
+    // Aramayi acip kapatmak ekrani yeniden cizer.
+    for (var i = 0; i < 2; i++) {
+      await tester.tap(
+        find.byKey(const ValueKey('conversation-search-toggle')),
+      );
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Ayşe'), findsOneWidget);
+    expect(repo.watches, 1);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   setUpAll(() async {
     for (final font in {
       'Inter': 'assets/fonts/inter_regular.ttf',
@@ -268,4 +317,19 @@ Future<void> _capture(WidgetTester tester, String name) async {
     await File('$path/$name.png').writeAsBytes(bytes!.buffer.asUint8List());
     image.dispose();
   });
+}
+
+class _CountingConversations extends InMemoryConversationRepository {
+  _CountingConversations({
+    required super.conversations,
+    required super.messages,
+  });
+
+  var watches = 0;
+
+  @override
+  Stream<List<Conversation>> watchConversations() {
+    watches++;
+    return super.watchConversations();
+  }
 }
