@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
@@ -76,11 +77,7 @@ void main() {
       ),
     );
     await handler.waitForIdle();
-    expect(
-      notified,
-      ['peer'],
-      reason: 'dusen mesaj sessiz kalmamali',
-    );
+    expect(notified, ['peer'], reason: 'dusen mesaj sessiz kalmamali');
   });
 
   // QA 2026-10-13 T16: kalici olarak cozulemeyen mesaj sunucuya
@@ -150,23 +147,26 @@ void main() {
     );
   });
 
-  test('sistem mesaji sohbette gorunur ve gun basina bir kez yazilir', () async {
-    final notices = SecurityNoticeService(database: database);
-    final day = DateTime(2026, 9, 14, 10);
-    await notices.messageUnreadable('peer', at: day);
-    await notices.messageUnreadable(
-      'peer',
-      at: day.add(const Duration(minutes: 30)),
-    );
+  test(
+    'sistem mesaji sohbette gorunur ve gun basina bir kez yazilir',
+    () async {
+      final notices = SecurityNoticeService(database: database);
+      final day = DateTime(2026, 9, 14, 10);
+      await notices.messageUnreadable('peer', at: day);
+      await notices.messageUnreadable(
+        'peer',
+        at: day.add(const Duration(minutes: 30)),
+      );
 
-    final messages = await database.messages.getMessagesImmediate('peer');
-    expect(messages, hasLength(1), reason: 'sohbet doldurulmamali');
-    expect(messages.single.contentType, StorageMessageContentType.system);
-    expect(messages.single.senderId, 'SYSTEM');
+      final messages = await database.messages.getMessagesImmediate('peer');
+      expect(messages, hasLength(1), reason: 'sohbet doldurulmamali');
+      expect(messages.single.contentType, StorageMessageContentType.system);
+      expect(messages.single.senderId, 'SYSTEM');
 
-    final conversation = await database.conversations.getById('peer');
-    expect(conversation!.unreadCount, 1, reason: 'dikkat cekmeli');
-  });
+      final conversation = await database.conversations.getById('peer');
+      expect(conversation!.unreadCount, 1, reason: 'dikkat cekmeli');
+    },
+  );
 
   test('bozuk sender key dagitimi sessizce yutulmaz', () async {
     final failures = <String>[];
@@ -178,6 +178,17 @@ void main() {
       onAsyncFailure: (operation, _, _) => failures.add(operation),
     )..start();
     addTearDown(reporting.close);
+    // Anahtar yalniz bilinen grupta, gonderen ve biz uyeyken islenir.
+    await database.conversations.insert(
+      const ConversationEntity(
+        id: 'group-1',
+        peerId: 'group-1',
+        peerName: 'Grup',
+        peerPhone: '',
+        isGroup: true,
+        groupMembers: 'me,peer',
+      ),
+    );
 
     final envelope = await crypto.encryptDirect(
       recipientId: 'me',
@@ -198,6 +209,54 @@ void main() {
       isTrue,
       reason: 'grup anahtari kurulamadi, teshis izi kalmali: $failures',
     );
+  });
+
+  test('grupta olmayan birinin grup anahtari kabul edilmez', () async {
+    await database.conversations.insert(
+      const ConversationEntity(
+        id: 'group-2',
+        peerId: 'group-2',
+        peerName: 'Grup',
+        peerPhone: '',
+        isGroup: true,
+        groupMembers: 'me,friend',
+      ),
+    );
+    final key = List<int>.generate(32, (i) => i);
+    for (final (sender, group) in [
+      ('outsider', 'group-2'),
+      ('friend', 'unknown-group'),
+    ]) {
+      signaling.addIncoming(
+        EncryptedSignalMessage(
+          senderId: sender,
+          recipientId: 'me',
+          timestamp: DateTime.now(),
+          envelope: await crypto.encryptDirect(
+            recipientId: 'me',
+            plaintext: 'SKDM:$group:${base64Encode(key)}',
+          ),
+        ),
+      );
+    }
+    signaling.addIncoming(
+      EncryptedSignalMessage(
+        senderId: 'friend',
+        recipientId: 'me',
+        timestamp: DateTime.now(),
+        envelope: await crypto.encryptDirect(
+          recipientId: 'me',
+          plaintext: 'SKDM:group-2:${base64Encode(key)}',
+        ),
+      ),
+    );
+    await handler.waitForIdle();
+    expect(await database.senderKeys.exists('group-2', 'outsider', 1), isFalse);
+    expect(
+      await database.senderKeys.exists('unknown-group', 'friend', 1),
+      isFalse,
+    );
+    expect(await database.senderKeys.exists('group-2', 'friend', 1), isTrue);
   });
 }
 

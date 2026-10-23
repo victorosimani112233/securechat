@@ -7,6 +7,7 @@ import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import '../storage/secure_chat_database.dart';
 import '../storage/storage_entities.dart';
+import 'group_removals.dart';
 import 'private_group_control.dart';
 
 class GroupManagementException implements Exception {
@@ -29,6 +30,7 @@ class GroupManagementService {
   }) : _database = database,
        _session = session,
        _signaling = signaling,
+       _crypto = crypto,
        _controls = PrivateGroupControlSender(
          crypto: crypto,
          signaling: signaling,
@@ -38,6 +40,7 @@ class GroupManagementService {
   final SecureChatDatabase _database;
   final SessionStore _session;
   final SignalingService _signaling;
+  final CryptoService _crypto;
   final PrivateGroupControlSender _controls;
   final _leaving = <String, Future<void>>{};
 
@@ -92,6 +95,10 @@ class GroupManagementService {
       groupId,
       updated.join(','),
     );
+    final removals = GroupRemovals(_database.cryptoState);
+    for (final member in additions) {
+      await removals.clear(groupId, member);
+    }
     for (final newMember in additions) {
       // A new member has no local group record yet, so bootstrap it with an
       // authenticated private CREATE envelope. Existing members receive the
@@ -136,6 +143,12 @@ class GroupManagementService {
         groupId,
         state.admins.where((id) => id != memberId).join(','),
       );
+    }
+    await GroupRemovals(_database.cryptoState).record(groupId, memberId);
+    // Cikarilan uye eski anahtarla yeni mesajlari cozemesin: sonraki mesaj
+    // yeni oturumla gider ve anahtar yalniz kalan uyelere dagitilir.
+    if (_crypto case final GroupCryptoService group) {
+      await group.resetLocalSenderKey(groupId, state.userId);
     }
     await _fanout(
       state.group,

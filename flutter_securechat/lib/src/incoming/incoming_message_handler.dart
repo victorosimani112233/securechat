@@ -13,6 +13,7 @@ import '../contacts/phone_number_sharing_service.dart';
 import '../contacts/profile_name_sharing_service.dart';
 import '../core/peer_display_name.dart';
 import '../core/signal_message.dart';
+import '../groups/group_removals.dart';
 import '../groups/private_group_control.dart';
 import '../media/attachment_transport.dart';
 import '../media/peer_capabilities.dart';
@@ -1136,9 +1137,16 @@ class IncomingMessageHandler {
             ? <String>{members.first}
             : storedAdmins;
         if (!admins.contains(signal.senderId)) return;
+        // Cikarilan uye eski listeyle geri eklenmez (bkz. GroupRemovals).
+        final removed = await GroupRemovals(
+          _database.cryptoState,
+        ).removedFrom(signal.groupId);
         await _database.conversations.updateGroupMembers(
           signal.groupId,
-          {..._csv(group.groupMembers), ...signal.groupMembers}.join(','),
+          {
+            ..._csv(group.groupMembers),
+            ...signal.groupMembers.where((id) => !removed.contains(id)),
+          }.join(','),
         );
         // Yeniden eklenen uye ayrildigi surede degisen bilgiyi de alir.
         if (signal.description != null) {
@@ -1179,9 +1187,12 @@ class IncomingMessageHandler {
     final target = signal.targetMemberId;
     switch (signal.action) {
       case 'ADD_MEMBER':
+        final removals = GroupRemovals(_database.cryptoState);
+        if (target != null) await removals.clear(signal.groupId, target);
+        final removed = await removals.removedFrom(signal.groupId);
         await _database.conversations.updateGroupMembers(
           signal.groupId,
-          signal.groupMembers.join(','),
+          signal.groupMembers.where((id) => !removed.contains(id)).join(','),
         );
         if (target != null) {
           await _systemMessage(
@@ -1212,6 +1223,10 @@ class IncomingMessageHandler {
             '${await _groupMemberName(target)} adlı kişiyi gruptan çıkardı',
           );
           await _database.senderKeys.deleteAllForGroup(signal.groupId);
+          await GroupRemovals(
+            _database.cryptoState,
+          ).record(signal.groupId, target);
+          await _rotateOwnGroupKey(signal.groupId);
         }
       case 'LEAVE_GROUP':
         if (!members.contains(signal.senderId)) return;
@@ -1225,6 +1240,10 @@ class IncomingMessageHandler {
           admins.where((id) => id != signal.senderId).join(','),
         );
         await _database.senderKeys.deleteAllForGroup(signal.groupId);
+        await GroupRemovals(
+          _database.cryptoState,
+        ).record(signal.groupId, signal.senderId);
+        await _rotateOwnGroupKey(signal.groupId);
         await _systemMessage(
           signal,
           '${await _groupMemberName(signal.senderId)} gruptan ayrıldı',
@@ -1430,7 +1449,39 @@ class IncomingMessageHandler {
     );
   }
 
+  /// Uye ayrildiginda ya da cikarildiginda kendi giden grup oturumumuz
+  /// yenilenir: sonraki mesaj yeni anahtarla gider ve yeni anahtar yalniz
+  /// kalan uyelere dagitilir. Eski oturum silinmezse ayrilan uye eski
+  /// anahtarla yeni mesajlari cozmeye devam ederdi.
+  Future<void> _rotateOwnGroupKey(String groupId) async {
+    final localUserId = _session.userId;
+    if (localUserId == null) return;
+    if (_crypto case final GroupCryptoService group) {
+      await group.resetLocalSenderKey(groupId, localUserId);
+    }
+  }
+
+  /// Grup anahtari yalniz yerelde bilinen bir grupta, gonderen ve biz uye
+  /// iken kabul edilir. Aksi halde grupta olmayan biri (ya da cikarilmis bir
+  /// uye) kendi anahtarini dagitip mesajlarini gruba sokabilirdi.
+  Future<bool> _senderKeyAllowed(String senderId, String plaintext) async {
+    const prefixes = ['SKDM:v2:', 'SKDM:'];
+    final prefix = prefixes.firstWhere(plaintext.startsWith, orElse: () => '');
+    if (prefix.isEmpty) return false;
+    final rest = plaintext.substring(prefix.length);
+    final separator = rest.indexOf(':');
+    if (separator < 1) return false;
+    final group = await _database.conversations.getById(
+      rest.substring(0, separator),
+    );
+    final localUserId = _session.userId;
+    if (group == null || !group.isGroup || localUserId == null) return false;
+    final members = _csv(group.groupMembers);
+    return members.contains(senderId) && members.contains(localUserId);
+  }
+
   Future<void> _acceptSenderKey(String senderId, String plaintext) async {
+    if (!await _senderKeyAllowed(senderId, plaintext)) return;
     final signalCrypto = _crypto;
     if (signalCrypto is GroupCryptoService) {
       try {
