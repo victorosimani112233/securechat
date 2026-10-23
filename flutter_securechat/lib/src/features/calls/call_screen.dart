@@ -11,6 +11,7 @@ import '../../media/call_models.dart';
 import '../../services/app_container.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/haptics.dart';
+import '../../widgets/screen_awake.dart';
 import '../../widgets/video_stream_view.dart';
 import 'call_quality_indicator.dart';
 
@@ -91,14 +92,25 @@ class _CallScreenState extends State<CallScreen> {
       // Uygulamanin varsayilan yon ayarina donulur.
       unawaited(SystemChrome.setPreferredOrientations(const []));
     }
+    if (_keepScreenOn) unawaited(ScreenAwake.set(false));
     super.dispose();
   }
 
   bool _portraitLocked = false;
+  bool _keepScreenOn = false;
 
   /// Sesli aramada ekran donmez: telefon kulaga goturulurken yatay
   /// yerlesime gecip dugmeleri kaydirmasin.
   void _applyWindowPolicy(CallSession? session) {
+    // Goruntulu arama surerken ekran kararmaz; arama bitince birakilir.
+    final keepOn =
+        session != null &&
+        session.callType == CallType.video &&
+        !session.isTerminal;
+    if (keepOn != _keepScreenOn) {
+      _keepScreenOn = keepOn;
+      unawaited(ScreenAwake.set(keepOn));
+    }
     if (session == null) return;
     final lockPortrait = session.callType == CallType.voice;
     if (lockPortrait == _portraitLocked) return;

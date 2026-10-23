@@ -102,6 +102,12 @@ class NativeBridge {
     () => _methods.invokeMethod<void>('releaseForcedScreenProtection'),
   );
 
+  /// Uygulama penceresi acikken ekranin kararmasini engeller ya da serbest
+  /// birakir. Cihazin ekran zaman asimi ayari degismez.
+  Future<void> setKeepScreenOn(bool on) => _optional(
+    () => _methods.invokeMethod<void>('setKeepScreenOn', {'on': on}),
+  );
+
   Future<void> _optional(Future<void> Function() call) async {
     try {
       await call();

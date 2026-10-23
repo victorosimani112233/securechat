@@ -497,6 +497,40 @@ void main() {
     );
   }
 
+  testWidgets('video calls keep the screen on until the call ends', (
+    tester,
+  ) async {
+    const native = MethodChannel('com.securechat/native');
+    final requests = <Object?>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(native, (
+      call,
+    ) async {
+      if (call.method == 'setKeepScreenOn') requests.add(call.arguments);
+      return null;
+    });
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        native,
+        null,
+      ),
+    );
+    final calls = await _mount(tester, _video);
+    expect(requests, [
+      {'on': true},
+    ]);
+    await tester.tap(find.byIcon(Icons.call_end));
+    await tester.pump();
+    expect(calls.currentSession!.isTerminal, isTrue);
+    expect(requests.last, {'on': false});
+
+    requests.clear();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _mount(tester, _voice);
+    await tester.pumpWidget(const SizedBox.shrink());
+    // Sesli aramada ekran yakinlik sensoruyle kapanir; bayrak kullanilmaz.
+    expect(requests, isEmpty);
+  });
+
   testWidgets(
     'video view replaces the waiting state as renderer frames arrive',
     (tester) async {

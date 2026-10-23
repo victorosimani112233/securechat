@@ -103,6 +103,11 @@ enum SecureChatContactsAccess {
       case "releaseForcedScreenProtection":
         // iOS'ta debug istisnasi yok; koruma kalici kalir.
         result(nil)
+      case "setKeepScreenOn":
+        // Uygulama acikken ekranin kararmasini engeller; sistem ayari degismez.
+        let on = (call.arguments as? [String: Any])?["on"] as? Bool ?? false
+        UIApplication.shared.isIdleTimerDisabled = on
+        result(nil)
       case "registerCallIntegration":
         self?.callIntegration.initialize()
         result(nil)

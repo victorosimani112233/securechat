@@ -81,6 +81,17 @@ class MainActivity : FlutterFragmentActivity() {
                         applyScreenProtectionPolicy()
                         result.success(null)
                     }
+                    "setKeepScreenOn" -> {
+                        // Yalniz bu pencere icin; cihazin ekran zaman asimi
+                        // ayarina dokunulmaz.
+                        val on = (call.arguments as? Map<*, *>)?.get("on") == true
+                        if (on) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                        result.success(null)
+                    }
                     "registerCallIntegration" -> registerCallIntegration(result)
                     "getOrCreatePushHintKey" -> getOrCreatePushHintKey(result)
                     "reportIncomingCall" -> reportIncomingCall(call.arguments, result)
