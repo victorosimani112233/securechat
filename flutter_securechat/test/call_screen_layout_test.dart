@@ -461,6 +461,42 @@ void main() {
     }
   });
 
+  for (final type in CallType.values) {
+    testWidgets(
+      '${type.name} call ${type == CallType.voice ? 'locks' : 'keeps'} '
+      'the screen orientation',
+      (tester) async {
+        final orientations = <Object?>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async {
+            if (call.method == 'SystemChrome.setPreferredOrientations') {
+              orientations.add(call.arguments);
+            }
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        await _mount(tester, type == CallType.voice ? _voice : _video);
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(
+          orientations,
+          type == CallType.voice
+              ? [
+                  ['DeviceOrientation.portraitUp'],
+                  <Object?>[],
+                ]
+              : isEmpty,
+        );
+      },
+    );
+  }
+
   testWidgets(
     'video view replaces the waiting state as renderer frames arrive',
     (tester) async {

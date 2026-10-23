@@ -52,9 +52,11 @@ class _CallScreenState extends State<CallScreen> {
     final calls = AppContainerScope.of(context).mediaRuntime?.calls;
     if (calls == null) return;
     _session = calls.currentSession;
+    _applyWindowPolicy(_session);
     _subscription = calls.sessions.listen((session) {
       if (!mounted) return;
       setState(() => _session = session);
+      _applyWindowPolicy(session);
       if (session == null && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
@@ -85,7 +87,27 @@ class _CallScreenState extends State<CallScreen> {
   void dispose() {
     _subscription?.cancel();
     _ticker?.cancel();
+    if (_portraitLocked) {
+      // Uygulamanin varsayilan yon ayarina donulur.
+      unawaited(SystemChrome.setPreferredOrientations(const []));
+    }
     super.dispose();
+  }
+
+  bool _portraitLocked = false;
+
+  /// Sesli aramada ekran donmez: telefon kulaga goturulurken yatay
+  /// yerlesime gecip dugmeleri kaydirmasin.
+  void _applyWindowPolicy(CallSession? session) {
+    if (session == null) return;
+    final lockPortrait = session.callType == CallType.voice;
+    if (lockPortrait == _portraitLocked) return;
+    _portraitLocked = lockPortrait;
+    unawaited(
+      SystemChrome.setPreferredOrientations(
+        lockPortrait ? const [DeviceOrientation.portraitUp] : const [],
+      ),
+    );
   }
 
   @override
