@@ -290,6 +290,8 @@ class RecoveryAuthIntegrationTest {
         assertNull(AuthService.verifyToken(oldAccess))
         assertNull(AuthService.verifyRefreshToken(oldRefresh))
         assertEquals(result, service.complete(request))
+        // Ayni cihazda kimlik korunarak yapilan kurtarma bildirim gondermez.
+        assertFalse(codes.containsKey("$RECOVERED_NOTICE:${f.email}"))
         assertNull(service.complete(request.copy(completionId = RecoveryRecordCipher.opaque())))
         CredentialState.rotateCredentialEpoch(f.user)
         assertNull(service.complete(request))
@@ -329,8 +331,15 @@ class RecoveryAuthIntegrationTest {
         PreKeyStore.uploadBundle(f.user, libsignalIdentity, 1234,
             PreKeyStore.SignedPreKey(1, ByteArray(33), ByteArray(64)), listOf(PreKeyStore.OneTimePreKey(1, ByteArray(33))))
         val next = ed25519()
-        val response = service.complete(completion(f, grant(f), next, "replace", "olm"))!!
+        val request = completion(f, grant(f), next, "replace", "olm")
+        val response = service.complete(request)!!
         assertTrue(response.identityReplaced)
+        // Hesap sahibi yeni cihazda kurtarmadan e-postayla haberdar edilir;
+        // ayni istegin tekrari ikinci bildirim gondermez.
+        assertTrue(codes.containsKey("$RECOVERED_NOTICE:${f.email}"))
+        codes.remove("$RECOVERED_NOTICE:${f.email}")
+        assertEquals(response, service.complete(request))
+        assertFalse(codes.containsKey("$RECOVERED_NOTICE:${f.email}"))
         assertNull(PreKeyStore.fetchBundle(f.user))
         assertEquals(0, PreKeyStore.unconsumedCount(f.user))
         assertThrows(IllegalStateException::class.java) {

@@ -20,6 +20,11 @@ internal object AccountRecovery {
         RecoveryRecordCipher.configured()?.let { cipher ->
             RecoveryAuthService(cipher) { email, otp, purpose ->
                 mail.execute {
+                    if (purpose == RECOVERED_NOTICE) {
+                        val notice = EmailTemplates.recoveredOnNewDevice()
+                        EmailService.sendMail(email, notice.subject, notice.html, notice.text)
+                        return@execute
+                    }
                     val template = if (purpose == "enroll") {
                         EmailTemplates.Purpose.RECOVERY_ENROLLMENT
                     } else {

@@ -29,6 +29,23 @@ internal object EmailTemplates {
 
     data class Mail(val subject: String, val html: String, val text: String)
 
+    /** Hesap yeni bir cihazda kurtarildiginda giden kodsuz bildirim. */
+    fun recoveredOnNewDevice(): Mail {
+        val heading = "SecureChat Hesap Kurtarıldı"
+        val body = "Hesabınız bu e-posta adresiyle yeni bir cihazda kurtarıldı. " +
+            "Önceki cihazınızdaki oturum kapatıldı."
+        val warning = "Bunu siz yapmadıysanız hesabınızı hemen yeniden kurtarın ve " +
+            "kurtarma e-postanızın parolasını değiştirin."
+        val html = """
+            <html><body style="font-family:Arial,sans-serif">
+              <h2 style="color:#1a73e8">$heading</h2>
+              <p>$body</p>
+              <p style="color:#b3261e">$warning</p>
+            </body></html>
+        """.trimIndent()
+        return Mail("SecureChat — Hesabınız yeni bir cihazda kurtarıldı", html, "$heading\n\n$body\n\n$warning")
+    }
+
     fun code(purpose: Purpose, code: String): Mail {
         // Kod sunucuda uretilir (6 rakam); yine de HTML'e yalniz rakam girer.
         val safe = code.filter(Char::isDigit)

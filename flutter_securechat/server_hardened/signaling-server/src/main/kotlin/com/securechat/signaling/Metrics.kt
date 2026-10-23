@@ -85,6 +85,11 @@ object Metrics {
         .tag("result", "queue_full")
         .register(registry)
 
+    /** Yeni cihaza kimlik degistirerek yapilan hesap kurtarmalari (kimliksiz sayac). */
+    val recoveryReplacements: Counter = Counter.builder("securechat_recovery_replacements_total")
+        .description("Account recoveries that replaced the device identity")
+        .register(registry)
+
     val attachmentUploads: Counter = Counter.builder("securechat_attachment_uploads_total")
         .description("Yuklenen sifreli ek sayisi")
         .register(registry)

@@ -28,6 +28,9 @@ import kotlinx.serialization.json.Json
 )
 
 /** All durable transitions serialize on the account before consuming a challenge. */
+/** Kodsuz bildirim e-postasinin amaci. */
+internal const val RECOVERED_NOTICE = "recovered"
+
 internal class RecoveryAuthService(
     private val cipher: RecoveryRecordCipher,
     private val send: (String, String, String) -> Unit,
@@ -164,6 +167,8 @@ internal class RecoveryAuthService(
 
     fun complete(request: RecoveryComplete): RecoveryCredentials? {
         if (!request.completionId.matches(Regex("[A-Za-z0-9_-]{43}"))) return null
+        // Yalniz ilk (makbuzdan donmeyen) kimlik degistiren tamamlamada dolar.
+        var notifyEmail: String? = null
         val result = transaction { connection ->
             val preview = read(connection, request.recoveryToken, "complete")
             if (preview == null) return@transaction receipt(connection, request)
@@ -181,6 +186,7 @@ internal class RecoveryAuthService(
             if (request.mode == "preserve" && (request.identityProtocol != account.protocol ||
                     !key.contentEquals(account.key) || request.registrationId != account.registrationId)) return@transaction null
             if (request.mode == "replace") {
+                notifyEmail = context.email
                 // Olm tablolari da BURADA temizlenmeli. Kimlik rotasyonunda
                 // eski prekey'lerin ayakta kalmasi bu projede 2026-06-09'da
                 // P0 uretti: istemci yeni kimlikle oturum kurmaya calisirken
@@ -240,6 +246,14 @@ internal class RecoveryAuthService(
             response
         }
         result?.let { CredentialState.invalidateEverywhere(it.userId) }
+        val recoveredEmail = notifyEmail
+        if (result != null && recoveredEmail != null) {
+            // Hesap sahibi, kendisi yapmadiysa haberdar olsun: eski cihaz
+            // yalniz "oturum sona erdi" goruyordu. Islem commit edildikten
+            // sonra gider; e-posta hatasi kurtarmayi geri almaz.
+            Metrics.recoveryReplacements.increment()
+            send(recoveredEmail, "", RECOVERED_NOTICE)
+        }
         return result
     }
 
