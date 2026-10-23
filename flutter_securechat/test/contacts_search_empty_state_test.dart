@@ -115,6 +115,64 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('contacts are grouped by letter and the index jumps to them', (
+    tester,
+  ) async {
+    final names = [
+      for (final letter in ['A', 'B', 'Ç', 'D', 'E', 'G', 'K', 'M', 'Ş', 'Z'])
+        for (var i = 1; i <= 3; i++) '$letter$i kişi',
+    ];
+    final l10n = await _openContacts(
+      tester,
+      [
+        for (final (index, name) in names.reversed.indexed)
+          ContactEntity(
+            id: 'peer-$index',
+            displayName: name,
+            phoneNumber: '+9053200001${index.toString().padLeft(2, '0')}',
+            phoneHash: 'test-$index',
+            isRegistered: true,
+          ),
+      ],
+      invitable: const [
+        DeviceContact(displayName: 'Yusuf', phoneNumber: '+90 533 000 00 02'),
+        DeviceContact(displayName: 'Ayla', phoneNumber: '+90 533 000 00 01'),
+      ],
+    );
+    // Davet bolumunun aciklamasi gosterilmez.
+    expect(find.text(l10n.contacts_invite_section_body), findsNothing);
+    final rail = find.byKey(const Key('contacts-index-rail'));
+    expect(rail, findsOneWidget);
+    for (final letter in ['A', 'Ç', 'Ş', 'Y', 'Z']) {
+      expect(find.byKey(ValueKey('contacts-index-$letter')), findsOneWidget);
+    }
+    // Liste Turkce alfabe sirasinda: C'den sonra Ç, S'den sonra Ş.
+    double top(String text) => tester.getTopLeft(find.text(text)).dy;
+    expect(top('A1 kişi'), lessThan(top('B1 kişi')));
+    expect(top('B3 kişi'), lessThan(top('Ç1 kişi')));
+    expect(top('M3 kişi'), lessThan(top('Ş1 kişi')));
+    expect(top('Ş3 kişi'), lessThan(top('Z1 kişi')));
+    // Davet listesi ayri ve kendi icinde alfabetik.
+    expect(top('Z3 kişi'), lessThan(top('Ayla')));
+    expect(top('Ayla'), lessThan(top('Yusuf')));
+
+    final scroll = find.byKey(const Key('contacts-scroll'));
+    expect(find.text('Z1 kişi').hitTestable(), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('contacts-index-Z')));
+    await tester.pumpAndSettle();
+    expect(find.text('Z1 kişi').hitTestable(), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Z1 kişi')).dy,
+      lessThan(tester.getCenter(scroll).dy),
+    );
+
+    // Arama sirasinda harf cubugu gizlenir.
+    await tester.enterText(find.byType(TextField), 'kişi');
+    await tester.pumpAndSettle();
+    expect(rail, findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('empty contacts directory retains its existing empty state', (
     tester,
   ) async {

@@ -12,6 +12,7 @@ import '../storage/secure_chat_database.dart';
 import 'profile_name_sharing_service.dart';
 import '../storage/storage_entities.dart';
 import 'contact_discovery_api.dart';
+import 'contact_index.dart';
 
 export 'contact_discovery_api.dart';
 
@@ -265,9 +266,7 @@ class ContactService {
       invitable.add(contact);
     }
     invitable.sort(
-      (left, right) => left.displayName.toLowerCase().compareTo(
-        right.displayName.toLowerCase(),
-      ),
+      (left, right) => compareContactNames(left.displayName, right.displayName),
     );
     return invitable;
   }
