@@ -52,13 +52,6 @@ void main() {
   Future<File> picked(Uint8List data) async =>
       File('${root.path}/picked.bin')..writeAsBytesSync(data);
 
-  FileTransferSignal asReceived(FileTransferSignal signal) =>
-      FileTransferSignal.fromJson({
-        ...signal.toJson(),
-        'senderId': 'peer',
-        'recipientId': 'me',
-      });
-
   Future<FileTransferManager> manager(
     SignalingService signaling,
     String directory, {
