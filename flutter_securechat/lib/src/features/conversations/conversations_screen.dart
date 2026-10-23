@@ -895,51 +895,67 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               textScaler: MediaQuery.textScalerOf(context),
               maxLines: 1,
             )..layout();
-            final width = (painter.width + 18).clamp(48.0, double.infinity);
+            // Etiket + ic bosluk + kenar.
+            final width = (painter.width + 20).clamp(48.0, double.infinity);
             painter.dispose();
             return width;
           }).toList();
+          const gap = 8.0;
           // Keep one row at large accessibility sizes without shrinking text.
           final compact =
-              widths.fold<double>(0, (sum, width) => sum + width) + 16 >
+              widths.fold<double>(0, (sum, width) => sum + width) +
+                  gap * (widths.length - 1) +
+                  // Yalniz secili sekmede cikan tik isareti.
+                  24 >
               constraints.maxWidth;
-          return Row(
-            key: const ValueKey('conversation-filters'),
-            children: [
-              for (var i = 0; i < filters.length; i++)
-                Expanded(
-                  flex: compact ? 1 : widths[i].ceil(),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
-                    child: Tooltip(
-                      message: filters[i].$1,
-                      child: FilterChip(
-                        key: ValueKey(
-                          'conversation-filter-${filters[i].$2.name}',
-                        ),
-                        padding: EdgeInsets.zero,
-                        labelPadding: const EdgeInsets.symmetric(horizontal: 8),
-                        label: compact
-                            ? Icon(
-                                filters[i].$3,
-                                size: 20,
-                                semanticLabel: filters[i].$1,
-                              )
-                            : Text(
-                                filters[i].$1,
-                                maxLines: 1,
-                                softWrap: false,
-                                style: style,
-                              ),
-                        selected: _filter == filters[i].$2,
-                        showCheckmark: false,
-                        onSelected: (_) =>
-                            setState(() => _filter = filters[i].$2),
-                      ),
+          Widget chip(int i) => Tooltip(
+            message: filters[i].$1,
+            child: FilterChip(
+              key: ValueKey('conversation-filter-${filters[i].$2.name}'),
+              padding: EdgeInsets.zero,
+              labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+              label: compact
+                  ? Icon(filters[i].$3, size: 20, semanticLabel: filters[i].$1)
+                  : Text(
+                      filters[i].$1,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: style,
+                    ),
+              selected: _filter == filters[i].$2,
+              // Dar ekranda yalniz simge sigar; tik yalniz etiketle gosterilir.
+              showCheckmark: !compact,
+              onSelected: (_) => setState(() => _filter = filters[i].$2),
+            ),
+          );
+          if (compact) {
+            return Row(
+              key: const ValueKey('conversation-filters'),
+              children: [
+                for (var i = 0; i < filters.length; i++)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: chip(i),
                     ),
                   ),
-                ),
-            ],
+              ],
+            );
+          }
+          // Sekmeler dogal genisliginde, aralarinda sabit bosluk ve basa
+          // yasli durur; satiri doldurmak icin yayilmaz.
+          return Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Row(
+              key: const ValueKey('conversation-filters'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < filters.length; i++) ...[
+                  if (i > 0) const SizedBox(width: gap),
+                  chip(i),
+                ],
+              ],
+            ),
           );
         },
       ),

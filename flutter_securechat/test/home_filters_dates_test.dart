@@ -281,7 +281,8 @@ void main() {
             expect(bounds.right, lessThanOrEqualTo(width));
           }
           expect(centers.toSet().length, 1);
-          if (scale == 1 && locale == 'tr') {
+          // 320 px'te tikli dort etiket tek satira sigmaz; simgeye gecilir.
+          if (scale == 1 && locale == 'tr' && width >= 360) {
             for (final label in ['Tümü', 'Okunmamış', 'Gruplar', 'Favoriler']) {
               expect(
                 find.descendant(of: bar, matching: find.text(label)),
@@ -295,6 +296,12 @@ void main() {
             await tester.tap(chip);
             await tester.pumpAndSettle();
             expect(tester.widget<FilterChip>(chip).selected, isTrue);
+            // Etiketli sekmelerde secili olan tik isaretiyle gosterilir.
+            final labeled = tester.widget<FilterChip>(chip).label is Text;
+            expect(tester.widget<FilterChip>(chip).showCheckmark, labeled);
+            if (width >= 360 && scale == 1 && locale != 'ar') {
+              expect(labeled, isTrue);
+            }
             expect(tester.takeException(), isNull);
           }
           await tester.pumpWidget(const SizedBox());
