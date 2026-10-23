@@ -5,9 +5,11 @@ import '../crypto/vodozemac/olm_pre_key_publisher.dart';
 import '../services/session_store.dart';
 import '../services/signaling_service.dart';
 import 'account_recovery_coordinator.dart';
+import 'registration_lock.dart';
 import 'auth_api.dart';
 
-class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
+class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator
+    implements RegistrationLockSettings {
   SecureAccountRecoveryCoordinator({
     required AuthApi api,
     required SessionStore session,
@@ -171,13 +173,51 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
       identityProtocol: protocol,
       registrationId: reg,
       expiresAt: _expiry(json, 300),
+      requiresRegistrationLock: json['registrationLock'] == true,
     );
+  });
+
+  @override
+  Future<bool> registrationLockEnabled() async {
+    final json = await _api.recoveryRequest(
+      '/api/v1/account/registration-lock/status',
+      {},
+      accessToken: _access,
+    );
+    if (json['enabled'] is! bool)
+      throw const AuthApiException.invalidResponse();
+    return json['enabled'] as bool;
+  }
+
+  @override
+  Future<void> enableRegistrationLock(String pin) => _exclusive(() async {
+    final access = _access;
+    final userId = _session.userId!;
+    final json = await _api.recoveryRequest(
+      '/api/v1/account/registration-lock',
+      {'proof': await registrationLockProof(pin: pin, userId: userId)},
+      accessToken: access,
+    );
+    if (json['enabled'] != true) throw const AuthApiException.invalidResponse();
+  });
+
+  @override
+  Future<void> disableRegistrationLock() => _exclusive(() async {
+    final json = await _api.recoveryRequest(
+      '/api/v1/account/registration-lock/clear',
+      {},
+      accessToken: _access,
+    );
+    if (json['enabled'] != false) {
+      throw const AuthApiException.invalidResponse();
+    }
   });
 
   @override
   Future<void> completeLogin(
     RecoveryLoginApproval approval, {
     required bool acceptIdentityReplacement,
+    String? registrationLockPin,
   }) => _exclusive(() async {
     if (_session.isLoggedIn)
       throw const AuthApiException('recovery_already_logged_in');
@@ -187,6 +227,14 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     _unexpired(approval.expiresAt);
     if (approval.requiresIdentityReplacement && !acceptIdentityReplacement) {
       throw const AuthApiException('recovery_identity_confirmation_required');
+    }
+    final lockRequired =
+        approval.requiresIdentityReplacement &&
+        approval.requiresRegistrationLock;
+    if (lockRequired &&
+        (registrationLockPin == null ||
+            !validRegistrationLockPin(registrationLockPin))) {
+      throw const AuthApiException('registration_lock_required');
     }
     // Kurtarma kimligi cihazin MEVCUT Olm Ed25519 anahtari; ayri bir kimlik
     // uretilmez. "preserve" = sunucunun pinledigiyle ayni anahtar, "replace"
@@ -226,12 +274,27 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
         'identityPublicKey': identity,
         'registrationId': approval.registrationId,
         'signature': signature,
+        if (lockRequired)
+          'lockProof': await registrationLockProof(
+            pin: registrationLockPin!,
+            userId: approval.userId,
+          ),
       },
       'displayName': _session.displayName ?? '',
       'phoneNumber': _session.phoneNumber ?? '',
     };
     await _recovery.writePendingRecovery(jsonEncode(pending));
-    await _resume();
+    try {
+      await _resume();
+    } on AuthApiException catch (error) {
+      // Sunucu PIN'i reddetti; izin tuketilmedi. Bekleyen kayit silinir ki
+      // kullanici ayni izinle PIN'i yeniden girebilsin.
+      if (error.message == 'registration_lock' ||
+          error.message == 'registration_lock_locked') {
+        await _recovery.clearPendingRecovery();
+      }
+      rethrow;
+    }
   });
 
   @override
@@ -270,7 +333,8 @@ class SecureAccountRecoveryCoordinator extends AccountRecoveryCoordinator {
     final pending = _map(jsonDecode(raw));
     // Schema 1 libsignal kimligiyle imzalanmisti; temiz kirilmadan sonra
     // tamamlanamaz. Kullanici restartPendingLogin ile yeniden baslar.
-    if (pending['schema'] != 2) throw const AuthApiException('recovery_expired');
+    if (pending['schema'] != 2)
+      throw const AuthApiException('recovery_expired');
     final userId = _uuid(pending, 'userId');
     _checkOwner(userId);
     final request = _map(pending['request']);

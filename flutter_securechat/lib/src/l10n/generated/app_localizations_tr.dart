@@ -2498,4 +2498,69 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get bulk_list_error_limit =>
       'En fazla 50 liste, listede en fazla 256 alıcı olabilir.';
+
+  @override
+  String get registration_lock_title => 'Kayıt kilidi';
+
+  @override
+  String get registration_lock_on => 'Açık';
+
+  @override
+  String get registration_lock_off => 'Kapalı';
+
+  @override
+  String get registration_lock_explain =>
+      'Hesabın başka bir cihazda kurtarılırken e-posta kodunun yanında bu PIN de istenir. E-postana erişen biri hesabını PIN olmadan başka cihaza taşıyamaz.';
+
+  @override
+  String get registration_lock_forget_warning =>
+      'PIN\'i unutursan hesabını yeni bir cihazda kurtaramazsın. Güvenli bir yere not et.';
+
+  @override
+  String get registration_lock_pin_label => 'PIN (6-12 rakam)';
+
+  @override
+  String get registration_lock_pin_repeat => 'PIN\'i tekrar gir';
+
+  @override
+  String get registration_lock_pin_mismatch => 'PIN\'ler aynı değil.';
+
+  @override
+  String get registration_lock_pin_invalid => 'PIN 6-12 rakam olmalı.';
+
+  @override
+  String get registration_lock_enable => 'Kayıt kilidini aç';
+
+  @override
+  String get registration_lock_disable => 'Kayıt kilidini kapat';
+
+  @override
+  String get registration_lock_disable_confirm =>
+      'Kayıt kilidi kapatılsın mı? Hesabın yalnızca e-posta koduyla yeni bir cihaza taşınabilir.';
+
+  @override
+  String get registration_lock_enabled_done => 'Kayıt kilidi açıldı.';
+
+  @override
+  String get registration_lock_disabled_done => 'Kayıt kilidi kapatıldı.';
+
+  @override
+  String get registration_lock_failed =>
+      'Kayıt kilidi değiştirilemedi. Bağlantını kontrol edip tekrar dene.';
+
+  @override
+  String get registration_lock_status_failed =>
+      'Kayıt kilidinin durumu alınamadı.';
+
+  @override
+  String get registration_lock_enter_pin =>
+      'Bu hesapta kayıt kilidi açık. Devam etmek için PIN\'i gir.';
+
+  @override
+  String get registration_lock_wrong_pin =>
+      'PIN yanlış. Çok fazla yanlış denemede kurtarma 24 saat kilitlenir.';
+
+  @override
+  String get registration_lock_locked =>
+      'Çok fazla yanlış PIN denemesi. Kurtarma 24 saat kilitlendi.';
 }

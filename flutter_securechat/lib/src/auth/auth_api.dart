@@ -298,6 +298,9 @@ class AuthApi {
       '/api/v1/auth/login/request',
       '/api/v1/auth/login/verify',
       '/api/v1/auth/login/complete',
+      '/api/v1/account/registration-lock/status',
+      '/api/v1/account/registration-lock',
+      '/api/v1/account/registration-lock/clear',
     }.contains(endpoint)) {
       throw ArgumentError.value(endpoint, 'endpoint');
     }

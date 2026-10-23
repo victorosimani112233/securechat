@@ -2515,4 +2515,69 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get bulk_list_error_limit =>
       'You can keep up to 50 lists with up to 256 recipients each.';
+
+  @override
+  String get registration_lock_title => 'Registration lock';
+
+  @override
+  String get registration_lock_on => 'On';
+
+  @override
+  String get registration_lock_off => 'Off';
+
+  @override
+  String get registration_lock_explain =>
+      'When your account is recovered on another device, this PIN is required in addition to the email code. Someone with access to your email cannot move your account without it.';
+
+  @override
+  String get registration_lock_forget_warning =>
+      'If you forget the PIN you cannot recover your account on a new device. Keep it somewhere safe.';
+
+  @override
+  String get registration_lock_pin_label => 'PIN (6-12 digits)';
+
+  @override
+  String get registration_lock_pin_repeat => 'Enter the PIN again';
+
+  @override
+  String get registration_lock_pin_mismatch => 'The PINs do not match.';
+
+  @override
+  String get registration_lock_pin_invalid => 'The PIN must be 6-12 digits.';
+
+  @override
+  String get registration_lock_enable => 'Turn on registration lock';
+
+  @override
+  String get registration_lock_disable => 'Turn off registration lock';
+
+  @override
+  String get registration_lock_disable_confirm =>
+      'Turn off registration lock? Your account could then be moved to a new device with the email code alone.';
+
+  @override
+  String get registration_lock_enabled_done => 'Registration lock is on.';
+
+  @override
+  String get registration_lock_disabled_done => 'Registration lock is off.';
+
+  @override
+  String get registration_lock_failed =>
+      'Registration lock could not be changed. Check your connection and try again.';
+
+  @override
+  String get registration_lock_status_failed =>
+      'Could not load the registration lock status.';
+
+  @override
+  String get registration_lock_enter_pin =>
+      'This account has registration lock on. Enter the PIN to continue.';
+
+  @override
+  String get registration_lock_wrong_pin =>
+      'Wrong PIN. Too many wrong attempts lock recovery for 24 hours.';
+
+  @override
+  String get registration_lock_locked =>
+      'Too many wrong PIN attempts. Recovery is locked for 24 hours.';
 }

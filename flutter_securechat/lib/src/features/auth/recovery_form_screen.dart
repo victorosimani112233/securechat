@@ -22,6 +22,12 @@ String recoveryError(BuildContext context, Object error) {
         return l10n.email_otp_invalid_email;
       case 'recovery_invalid_code':
         return l10n.email_otp_incomplete;
+      case 'registration_lock_required':
+        return l10n.registration_lock_enter_pin;
+      case 'registration_lock':
+        return l10n.registration_lock_wrong_pin;
+      case 'registration_lock_locked':
+        return l10n.registration_lock_locked;
     }
     if (error.kind == AuthApiFailureKind.network) {
       return l10n.connection_failed;

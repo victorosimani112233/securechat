@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../auth/account_recovery_coordinator.dart';
 import '../../auth/auth_api.dart';
@@ -23,6 +24,7 @@ class RecoveryLoginScreen extends StatefulWidget {
 class _RecoveryLoginScreenState extends State<RecoveryLoginScreen> {
   final _email = TextEditingController();
   final _code = TextEditingController();
+  final _lockPin = TextEditingController();
   AccountRecoveryCoordinator? _recovery;
   RecoveryChallenge? _challenge;
   RecoveryLoginApproval? _approval;
@@ -46,8 +48,13 @@ class _RecoveryLoginScreenState extends State<RecoveryLoginScreen> {
   void dispose() {
     _email.dispose();
     _code.dispose();
+    _lockPin.dispose();
     super.dispose();
   }
+
+  /// Yeni cihaza tasima ve hesapta kayit kilidi acik.
+  static bool _needsLockPin(RecoveryLoginApproval approval) =>
+      approval.requiresIdentityReplacement && approval.requiresRegistrationLock;
 
   Future<void> _run(
     Future<void> Function(AccountRecoveryCoordinator) task,
@@ -179,6 +186,7 @@ class _RecoveryLoginScreenState extends State<RecoveryLoginScreen> {
         await recovery.completeLogin(
           approval,
           acceptIdentityReplacement: approval.requiresIdentityReplacement,
+          registrationLockPin: _needsLockPin(approval) ? _lockPin.text : null,
         );
       } catch (_) {
         // Bekleyen kayit yazildiysa her yeniden deneme onun uzerinden gider.
@@ -296,6 +304,26 @@ class _RecoveryLoginScreenState extends State<RecoveryLoginScreen> {
           const SizedBox(height: 16),
           Text(l10n.recovery_history_warning),
           const SizedBox(height: 24),
+          if (_needsLockPin(_approval!)) ...[
+            Text(l10n.registration_lock_enter_pin),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('recovery-registration-lock-pin'),
+              controller: _lockPin,
+              enabled: !_busy,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              maxLength: 12,
+              autocorrect: false,
+              enableSuggestions: false,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(
+                labelText: l10n.registration_lock_pin_label,
+                counterText: '',
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           CheckboxListTile(
             key: const ValueKey('recovery-accept'),
             contentPadding: EdgeInsets.zero,

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_securechat/src/auth/account_recovery_coordinator.dart';
 import 'package:flutter_securechat/src/auth/auth_api.dart';
+import 'package:flutter_securechat/src/auth/registration_lock.dart';
 import 'package:flutter_securechat/src/auth/secure_account_recovery_coordinator.dart';
 import 'package:flutter_securechat/src/crypto/vodozemac/olm_pre_key_publisher.dart';
 import 'package:flutter_securechat/src/crypto/vodozemac/securechat_crypto_ffi.dart';
@@ -146,6 +147,61 @@ void main() {
     );
   });
 
+  group('registration lock', () {
+    setUp(() async {
+      api.lockProof = await registrationLockProof(
+        pin: '246810',
+        userId: account,
+      );
+    });
+
+    test('a new device must give the PIN before anything is sent', () async {
+      final grant = await approval();
+      expect(grant.requiresRegistrationLock, isTrue);
+      await expectLater(
+        recovery.completeLogin(grant, acceptIdentityReplacement: true),
+        throwsA(
+          isA<AuthApiException>().having(
+            (error) => error.message,
+            'message',
+            'registration_lock_required',
+          ),
+        ),
+      );
+      expect(api.completions, isEmpty);
+      expect(await recovery.hasPendingLogin(), isFalse);
+    });
+
+    test('a wrong PIN can be corrected with the same approval', () async {
+      final grant = await approval();
+      await expectLater(
+        recovery.completeLogin(
+          grant,
+          acceptIdentityReplacement: true,
+          registrationLockPin: '111111',
+        ),
+        throwsA(
+          isA<AuthApiException>().having(
+            (error) => error.message,
+            'message',
+            'registration_lock',
+          ),
+        ),
+      );
+      // Bekleyen kayit silinir; ayni izinle yeniden denenir.
+      expect(await recovery.hasPendingLogin(), isFalse);
+      await recovery.completeLogin(
+        grant,
+        acceptIdentityReplacement: true,
+        registrationLockPin: '246810',
+      );
+      expect(session.isLoggedIn, isTrue);
+      // PIN sunucuya gitmez, yalniz turetilmis kanit gider.
+      expect(jsonEncode(api.completions), isNot(contains('246810')));
+      expect(api.completions.last['lockProof'], api.lockProof);
+    });
+  });
+
   // QA 2026-10-13 T10: cikis Olm hesabini siler; uygulama yeniden
   // baslamadan kurtarma "recovery_trusted_device_required" ile dusuyordu.
   test('recovery right after logout creates the device identity', () async {
@@ -232,13 +288,19 @@ void main() {
     },
   );
 
-  test('server key in another encoding is rejected, not silently adopted', () async {
-    // Sunucu daima kanonik dolgulu base64 doner. Dolgusuz bir deger ayni
-    // anahtar olsa bile reddedilmeli; aksi halde istemci karsilastirmasi
-    // ile sunucunun `b64(key) == request` kontrolu birbirinden ayrisir.
-    api.pinned = (await store.recoverySigningPublicKey())!.replaceAll('=', '');
-    await expectLater(approval(), throwsA(isA<AuthApiException>()));
-  });
+  test(
+    'server key in another encoding is rejected, not silently adopted',
+    () async {
+      // Sunucu daima kanonik dolgulu base64 doner. Dolgusuz bir deger ayni
+      // anahtar olsa bile reddedilmeli; aksi halde istemci karsilastirmasi
+      // ile sunucunun `b64(key) == request` kontrolu birbirinden ayrisir.
+      api.pinned = (await store.recoverySigningPublicKey())!.replaceAll(
+        '=',
+        '',
+      );
+      await expectLater(approval(), throwsA(isA<AuthApiException>()));
+    },
+  );
 
   test(
     'lost completion response retries exact saved signature and key',
@@ -294,29 +356,23 @@ void main() {
     },
   );
 
-  test(
-    'identity change between approval and resume fails closed',
-    () async {
-      api.loseResponse = true;
-      await expectLater(
-        recovery.completeLogin(
-          await approval(),
-          acceptIdentityReplacement: true,
-        ),
-        throwsA(isA<AuthApiException>()),
-      );
-      // Hesap arada yeniden yaratildi: kanittaki anahtar artik bu cihazin
-      // degil. Yanlis kimligi oturuma baglamak yerine durmali.
-      await database.vodozemacAccount.delete();
-      await store.withAccount((_) async {});
-      coordinator();
-      await expectLater(
-        recovery.resumePendingLogin(),
-        throwsA(isA<AuthApiException>()),
-      );
-      expect(session.isLoggedIn, isFalse);
-    },
-  );
+  test('identity change between approval and resume fails closed', () async {
+    api.loseResponse = true;
+    await expectLater(
+      recovery.completeLogin(await approval(), acceptIdentityReplacement: true),
+      throwsA(isA<AuthApiException>()),
+    );
+    // Hesap arada yeniden yaratildi: kanittaki anahtar artik bu cihazin
+    // degil. Yanlis kimligi oturuma baglamak yerine durmali.
+    await database.vodozemacAccount.delete();
+    await store.withAccount((_) async {});
+    coordinator();
+    await expectLater(
+      recovery.resumePendingLogin(),
+      throwsA(isA<AuthApiException>()),
+    );
+    expect(session.isLoggedIn, isFalse);
+  });
 
   test(
     'expired confirmed completion restarts and the next approval preserves',
@@ -338,17 +394,20 @@ void main() {
     },
   );
 
-  test('libsignal-era pending record cannot resume and is restartable', () async {
-    await keys.writePendingRecovery(
-      jsonEncode({'schema': 1, 'userId': account, 'request': {}}),
-    );
-    await expectLater(
-      recovery.resumePendingLogin(),
-      throwsA(isA<AuthApiException>()),
-    );
-    await recovery.restartPendingLogin();
-    expect(await recovery.hasPendingLogin(), isFalse);
-  });
+  test(
+    'libsignal-era pending record cannot resume and is restartable',
+    () async {
+      await keys.writePendingRecovery(
+        jsonEncode({'schema': 1, 'userId': account, 'request': {}}),
+      );
+      await expectLater(
+        recovery.resumePendingLogin(),
+        throwsA(isA<AuthApiException>()),
+      );
+      await recovery.restartPendingLogin();
+      expect(await recovery.hasPendingLogin(), isFalse);
+    },
+  );
 
   test('expiry and malformed server fields fail closed', () async {
     final grant = await approval();
@@ -458,6 +517,9 @@ class _Api extends AuthApi {
   bool loseResponseAfterCommit = false;
   bool malformed = false;
 
+  /// Hesapta kayit kilidi acik; sunucu bu kaniti bekler.
+  String? lockProof;
+
   @override
   Future<Map<String, Object?>> recoveryRequest(
     String endpoint,
@@ -486,9 +548,15 @@ class _Api extends AuthApi {
         'identityPublicKey': pinned,
         'registrationId': registrationId,
         'expiresIn': 300,
+        if (lockProof != null) 'registrationLock': true,
       };
     if (endpoint.endsWith('/login/complete')) {
       completions.add(Map.of(body));
+      if (lockProof != null &&
+          body['mode'] == 'replace' &&
+          body['lockProof'] != lockProof) {
+        throw const AuthApiException('registration_lock', statusCode: 423);
+      }
       final key = body['identityPublicKey'] as String;
       // RecoveryAuthService.complete ile ayni kontroller.
       expect(body['identityProtocol'], 'olm');

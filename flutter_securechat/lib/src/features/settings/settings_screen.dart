@@ -17,6 +17,7 @@ import '../../widgets/azure_surface.dart';
 import '../auth/recovery_enrollment_screen.dart';
 import '../../auth/account_recovery_coordinator.dart';
 import '../safety/safety_ui.dart';
+import 'registration_lock_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.embedded = false});
@@ -160,6 +161,16 @@ class SettingsScreen extends StatelessWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => const RecoveryEnrollmentScreen(),
+                ),
+              ),
+            ),
+            _tile(
+              Icons.pin_outlined,
+              l10n.registration_lock_title,
+              l10n.registration_lock_explain,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const RegistrationLockScreen(),
                 ),
               ),
             ),

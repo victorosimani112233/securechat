@@ -4583,6 +4583,120 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You can keep up to 50 lists with up to 256 recipients each.'**
   String get bulk_list_error_limit;
+
+  /// No description provided for @registration_lock_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Registration lock'**
+  String get registration_lock_title;
+
+  /// No description provided for @registration_lock_on.
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get registration_lock_on;
+
+  /// No description provided for @registration_lock_off.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get registration_lock_off;
+
+  /// No description provided for @registration_lock_explain.
+  ///
+  /// In en, this message translates to:
+  /// **'When your account is recovered on another device, this PIN is required in addition to the email code. Someone with access to your email cannot move your account without it.'**
+  String get registration_lock_explain;
+
+  /// No description provided for @registration_lock_forget_warning.
+  ///
+  /// In en, this message translates to:
+  /// **'If you forget the PIN you cannot recover your account on a new device. Keep it somewhere safe.'**
+  String get registration_lock_forget_warning;
+
+  /// No description provided for @registration_lock_pin_label.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN (6-12 digits)'**
+  String get registration_lock_pin_label;
+
+  /// No description provided for @registration_lock_pin_repeat.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the PIN again'**
+  String get registration_lock_pin_repeat;
+
+  /// No description provided for @registration_lock_pin_mismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The PINs do not match.'**
+  String get registration_lock_pin_mismatch;
+
+  /// No description provided for @registration_lock_pin_invalid.
+  ///
+  /// In en, this message translates to:
+  /// **'The PIN must be 6-12 digits.'**
+  String get registration_lock_pin_invalid;
+
+  /// No description provided for @registration_lock_enable.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on registration lock'**
+  String get registration_lock_enable;
+
+  /// No description provided for @registration_lock_disable.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off registration lock'**
+  String get registration_lock_disable;
+
+  /// No description provided for @registration_lock_disable_confirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off registration lock? Your account could then be moved to a new device with the email code alone.'**
+  String get registration_lock_disable_confirm;
+
+  /// No description provided for @registration_lock_enabled_done.
+  ///
+  /// In en, this message translates to:
+  /// **'Registration lock is on.'**
+  String get registration_lock_enabled_done;
+
+  /// No description provided for @registration_lock_disabled_done.
+  ///
+  /// In en, this message translates to:
+  /// **'Registration lock is off.'**
+  String get registration_lock_disabled_done;
+
+  /// No description provided for @registration_lock_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Registration lock could not be changed. Check your connection and try again.'**
+  String get registration_lock_failed;
+
+  /// No description provided for @registration_lock_status_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load the registration lock status.'**
+  String get registration_lock_status_failed;
+
+  /// No description provided for @registration_lock_enter_pin.
+  ///
+  /// In en, this message translates to:
+  /// **'This account has registration lock on. Enter the PIN to continue.'**
+  String get registration_lock_enter_pin;
+
+  /// No description provided for @registration_lock_wrong_pin.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong PIN. Too many wrong attempts lock recovery for 24 hours.'**
+  String get registration_lock_wrong_pin;
+
+  /// No description provided for @registration_lock_locked.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong PIN attempts. Recovery is locked for 24 hours.'**
+  String get registration_lock_locked;
 }
 
 class _AppLocalizationsDelegate

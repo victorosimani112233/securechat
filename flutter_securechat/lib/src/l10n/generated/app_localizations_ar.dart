@@ -2511,4 +2511,69 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get bulk_list_error_limit =>
       'يمكنك الاحتفاظ بما يصل إلى 50 قائمة، في كل منها حتى 256 مستلمًا.';
+
+  @override
+  String get registration_lock_title => 'قفل التسجيل';
+
+  @override
+  String get registration_lock_on => 'مفعّل';
+
+  @override
+  String get registration_lock_off => 'معطّل';
+
+  @override
+  String get registration_lock_explain =>
+      'عند استعادة حسابك على جهاز آخر يُطلب هذا الرمز بالإضافة إلى رمز البريد الإلكتروني. لا يستطيع من يصل إلى بريدك نقل حسابك بدونه.';
+
+  @override
+  String get registration_lock_forget_warning =>
+      'إذا نسيت الرمز فلن تتمكن من استعادة حسابك على جهاز جديد. احفظه في مكان آمن.';
+
+  @override
+  String get registration_lock_pin_label => 'الرمز (6-12 رقمًا)';
+
+  @override
+  String get registration_lock_pin_repeat => 'أدخل الرمز مرة أخرى';
+
+  @override
+  String get registration_lock_pin_mismatch => 'الرمزان غير متطابقين.';
+
+  @override
+  String get registration_lock_pin_invalid =>
+      'يجب أن يتكون الرمز من 6 إلى 12 رقمًا.';
+
+  @override
+  String get registration_lock_enable => 'تفعيل قفل التسجيل';
+
+  @override
+  String get registration_lock_disable => 'تعطيل قفل التسجيل';
+
+  @override
+  String get registration_lock_disable_confirm =>
+      'هل تريد تعطيل قفل التسجيل؟ يمكن حينها نقل حسابك إلى جهاز جديد برمز البريد الإلكتروني وحده.';
+
+  @override
+  String get registration_lock_enabled_done => 'تم تفعيل قفل التسجيل.';
+
+  @override
+  String get registration_lock_disabled_done => 'تم تعطيل قفل التسجيل.';
+
+  @override
+  String get registration_lock_failed =>
+      'تعذر تغيير قفل التسجيل. تحقق من اتصالك وحاول مرة أخرى.';
+
+  @override
+  String get registration_lock_status_failed => 'تعذر تحميل حالة قفل التسجيل.';
+
+  @override
+  String get registration_lock_enter_pin =>
+      'قفل التسجيل مفعّل لهذا الحساب. أدخل الرمز للمتابعة.';
+
+  @override
+  String get registration_lock_wrong_pin =>
+      'رمز خاطئ. كثرة المحاولات الخاطئة تقفل الاستعادة لمدة 24 ساعة.';
+
+  @override
+  String get registration_lock_locked =>
+      'محاولات خاطئة كثيرة. الاستعادة مقفلة لمدة 24 ساعة.';
 }

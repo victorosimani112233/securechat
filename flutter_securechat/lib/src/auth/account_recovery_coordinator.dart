@@ -9,9 +9,13 @@ abstract class AccountRecoveryCoordinator {
     RecoveryChallenge challenge,
     String code,
   );
+
+  /// Kayit kilidi acik hesapta yeni cihaza tasima [registrationLockPin]
+  /// ister ([RecoveryLoginApproval.requiresRegistrationLock]).
   Future<void> completeLogin(
     RecoveryLoginApproval approval, {
     required bool acceptIdentityReplacement,
+    String? registrationLockPin,
   });
   Future<bool> hasPendingLogin();
   Future<bool> resumePendingLogin();
@@ -46,6 +50,7 @@ class RecoveryLoginApproval {
     required this.expiresAt,
     this.identityProtocol = 'v1',
     this.registrationId,
+    this.requiresRegistrationLock = false,
   });
   final String userId;
   final bool requiresIdentityReplacement;
@@ -54,4 +59,14 @@ class RecoveryLoginApproval {
   final DateTime expiresAt;
   final String identityProtocol;
   final int? registrationId;
+
+  /// Hesapta kayit kilidi acik; yeni cihaza tasima PIN ister.
+  final bool requiresRegistrationLock;
+}
+
+/// Kayit kilidi PIN'ini acip kapatan oturum islemleri.
+abstract class RegistrationLockSettings {
+  Future<bool> registrationLockEnabled();
+  Future<void> enableRegistrationLock(String pin);
+  Future<void> disableRegistrationLock();
 }

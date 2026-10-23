@@ -155,6 +155,7 @@ void main() {
         [
           l10n.settings_privacy,
           l10n.recovery_email_title,
+          l10n.registration_lock_title,
           l10n.settings_auto_download,
           l10n.settings_call_readiness,
         ],

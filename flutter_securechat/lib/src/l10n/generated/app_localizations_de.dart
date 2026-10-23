@@ -2554,4 +2554,73 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get bulk_list_error_limit =>
       'Bis zu 50 Listen mit jeweils bis zu 256 Empfängern sind möglich.';
+
+  @override
+  String get registration_lock_title => 'Registrierungssperre';
+
+  @override
+  String get registration_lock_on => 'Ein';
+
+  @override
+  String get registration_lock_off => 'Aus';
+
+  @override
+  String get registration_lock_explain =>
+      'Wenn dein Konto auf einem anderen Gerät wiederhergestellt wird, ist zusätzlich zum E-Mail-Code diese PIN nötig. Wer Zugriff auf deine E-Mail hat, kann dein Konto ohne sie nicht übertragen.';
+
+  @override
+  String get registration_lock_forget_warning =>
+      'Wenn du die PIN vergisst, kannst du dein Konto auf einem neuen Gerät nicht wiederherstellen. Bewahre sie sicher auf.';
+
+  @override
+  String get registration_lock_pin_label => 'PIN (6-12 Ziffern)';
+
+  @override
+  String get registration_lock_pin_repeat => 'PIN erneut eingeben';
+
+  @override
+  String get registration_lock_pin_mismatch =>
+      'Die PINs stimmen nicht überein.';
+
+  @override
+  String get registration_lock_pin_invalid =>
+      'Die PIN muss 6-12 Ziffern haben.';
+
+  @override
+  String get registration_lock_enable => 'Registrierungssperre einschalten';
+
+  @override
+  String get registration_lock_disable => 'Registrierungssperre ausschalten';
+
+  @override
+  String get registration_lock_disable_confirm =>
+      'Registrierungssperre ausschalten? Dein Konto könnte dann allein mit dem E-Mail-Code auf ein neues Gerät übertragen werden.';
+
+  @override
+  String get registration_lock_enabled_done =>
+      'Registrierungssperre ist eingeschaltet.';
+
+  @override
+  String get registration_lock_disabled_done =>
+      'Registrierungssperre ist ausgeschaltet.';
+
+  @override
+  String get registration_lock_failed =>
+      'Die Registrierungssperre konnte nicht geändert werden. Prüfe deine Verbindung und versuche es erneut.';
+
+  @override
+  String get registration_lock_status_failed =>
+      'Der Status der Registrierungssperre konnte nicht geladen werden.';
+
+  @override
+  String get registration_lock_enter_pin =>
+      'Für dieses Konto ist die Registrierungssperre aktiv. Gib die PIN ein, um fortzufahren.';
+
+  @override
+  String get registration_lock_wrong_pin =>
+      'Falsche PIN. Zu viele Fehlversuche sperren die Wiederherstellung für 24 Stunden.';
+
+  @override
+  String get registration_lock_locked =>
+      'Zu viele falsche PIN-Versuche. Die Wiederherstellung ist für 24 Stunden gesperrt.';
 }
