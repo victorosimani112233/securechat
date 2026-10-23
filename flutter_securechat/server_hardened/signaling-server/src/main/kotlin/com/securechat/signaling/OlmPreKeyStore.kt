@@ -123,17 +123,31 @@ object OlmPreKeyStore {
         requireKey("signingKey", signingKey)
         transaction(userId) { conn ->
             val existing = conn.prepareStatement(
-                "SELECT olm_identity_key, signing_public_key FROM users " +
+                "SELECT olm_identity_key, signing_public_key, " +
+                    "recovery_identity_pin, recovery_identity_protocol FROM users " +
                     "WHERE user_id = ?::uuid FOR UPDATE",
             ).use { statement ->
                 statement.setString(1, userId)
                 statement.executeQuery().use { rows ->
                     check(rows.next()) { "Unknown account" }
-                    rows.getBytes(1) to rows.getBytes(2)
+                    listOf(rows.getBytes(1), rows.getBytes(2), rows.getBytes(3)) to
+                        rows.getString(4)
                 }
             }
             PreKeyIdentityGuard.check(conn, userId, expectedEpoch = expectedEpoch)
-            val (oldIdentity, oldSigning) = existing
+            val (keys, pinProtocol) = existing
+            val (oldIdentity, oldSigning, recoveryPin) = keys
+            // Kurtarma (replace) Olm kimlik kolonlarini bosaltir ve yeni
+            // cihazin Ed25519 imza anahtarini `recovery_identity_pin`'e yazar.
+            // Ilk yukleme bu pine baglanmazsa kurtarma tokenine sahip biri
+            // kurtarmada imzaladigindan BASKA bir imza anahtari yazabilirdi.
+            // Eski v1/v2 pinleri (libsignal bicimi) Olm anahtariyla
+            // karsilastirilamaz; onlar burada engel olmaz.
+            if (pinProtocol == "olm" && recoveryPin != null &&
+                !recoveryPin.contentEquals(signingKey)
+            ) {
+                throw IdentityRecoveryRequiredException()
+            }
             if (oldIdentity != null && !oldIdentity.contentEquals(identityKey)) {
                 throw IdentityRecoveryRequiredException()
             }

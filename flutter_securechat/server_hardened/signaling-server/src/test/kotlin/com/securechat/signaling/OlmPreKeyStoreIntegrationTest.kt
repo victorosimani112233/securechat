@@ -128,6 +128,38 @@ class OlmPreKeyStoreIntegrationTest {
         }
     }
 
+    private fun recovered(pin: ByteArray, protocol: String): String = account().also {
+        Database.getConnection().use { connection ->
+            connection.prepareStatement(
+                "UPDATE users SET recovery_identity_pin = ?, " +
+                    "recovery_identity_protocol = ? WHERE user_id = ?::uuid",
+            ).use { statement ->
+                statement.setBytes(1, pin)
+                statement.setString(2, protocol)
+                statement.setString(3, it)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    @Test
+    fun `after recovery only the signing key signed for in recovery is accepted`() {
+        val userId = recovered(key(40), "olm")
+        assertThrows(OlmPreKeyStore.IdentityRecoveryRequiredException::class.java) {
+            OlmPreKeyStore.setIdentity(userId, key(1), key(41))
+        }
+        assertFalse(OlmPreKeyStore.hasIdentity(userId))
+        OlmPreKeyStore.setIdentity(userId, key(1), key(40))
+        assertTrue(OlmPreKeyStore.hasIdentity(userId))
+    }
+
+    @Test
+    fun `a legacy libsignal recovery pin does not block the first Olm upload`() {
+        val userId = recovered(ByteArray(33) { 5 }, "v1")
+        OlmPreKeyStore.setIdentity(userId, key(1), key(2))
+        assertTrue(OlmPreKeyStore.hasIdentity(userId))
+    }
+
     @Test
     fun `a libsignal type-prefixed key is refused instead of being trimmed`() {
         // 33 bayt libsignal'in tur onekli kodlamasi. Oneki kirpip kabul
