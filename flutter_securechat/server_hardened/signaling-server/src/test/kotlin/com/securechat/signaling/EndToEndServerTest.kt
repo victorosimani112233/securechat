@@ -9,6 +9,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.readBytes
 import io.ktor.http.HttpHeaders
@@ -688,68 +689,46 @@ class EndToEndServerTest {
 
     @Test
     fun `a prekey upload with too many one time keys is refused`() = e2e {
-        val entries = (1..MAX_ONE_TIME_PREKEYS + 1).joinToString(",") {
-            """{"keyId":$it,"publicKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"""
-        }
-        val response = client.post("/api/v1/prekeys/upload") {
-            header("Authorization", "Bearer $aliceToken")
-            header("Content-Type", "application/json")
-            setBody(
-                """{"identityPublicKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",""" +
-                    """"registrationId":1234,"signedPreKeyId":1,""" +
-                    """"signedPreKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",""" +
-                    """"signedPreKeySignature":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",""" +
-                    """"oneTimePreKeys":[$entries]}""",
-            )
-        }
+        clearRateLimits()
+        val response = uploadOlmBundle(aliceToken, otpkCount = MAX_ONE_TIME_PREKEYS + 1)
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertTrue(response.bodyAsText().contains("invalid_prekey_material"))
     }
 
     @Test
-    fun `a v1 one time key reused with different material is a 409 not a silent 200`() = e2e {
-        // Eskiden ayni keyId farkli materyalle geldiginde sunucu eskisini
-        // SESSIZCE tutup 200 donuyordu; istemci yukledigini sandigi anahtarin
-        // karsi tarafa hic gitmedigini bilemezdi. Olm havuzuyla ayni kural:
-        // catisma 409, ayni materyal idempotent.
+    fun `libsignal uploads and the refresh route are retired`() = e2e {
+        // libsignal (v1) prekey yuzeyi 2026-10-23'te kaldirildi (V31). Eski
+        // govde Olm kimligi tasimadigi icin reddedilir; refresh yolu yoktur.
         clearRateLimits()
         val (_, token) = newAccount()
-        val encoder = java.util.Base64.getEncoder()
-        fun b64(seed: Int, size: Int) = encoder.encodeToString(ByteArray(size) { (seed + it).toByte() })
-        val original = b64(10, 33)
-        val upload = client.post("/api/v1/prekeys/upload") {
+        val key = java.util.Base64.getEncoder().encodeToString(ByteArray(33) { 5 })
+        val sig = java.util.Base64.getEncoder().encodeToString(ByteArray(64) { 6 })
+        val legacy = client.post("/api/v1/prekeys/upload") {
             header("Authorization", "Bearer $token")
             header("Content-Type", "application/json")
             setBody(
-                """{"identityPublicKey":"${b64(1, 33)}","registrationId":1234,""" +
-                    """"signedPreKeyId":1,"signedPreKey":"${b64(2, 33)}",""" +
-                    """"signedPreKeySignature":"${b64(3, 64)}",""" +
-                    """"oneTimePreKeys":[{"keyId":1,"publicKey":"$original"}]}""",
+                """{"identityPublicKey":"$key","registrationId":555,"signedPreKeyId":1,""" +
+                    """"signedPreKey":"$key","signedPreKeySignature":"$sig",""" +
+                    """"oneTimePreKeys":[{"keyId":1,"publicKey":"$key"}]}""",
             )
         }
-        assertEquals(HttpStatusCode.OK, upload.status, upload.bodyAsText())
+        assertEquals(HttpStatusCode.BadRequest, legacy.status)
+        assertTrue(legacy.bodyAsText().contains("invalid_prekey_material"))
 
-        suspend fun refresh(material: String) = client.post("/api/v1/prekeys/refresh") {
+        val refresh = client.post("/api/v1/prekeys/refresh") {
             header("Authorization", "Bearer $token")
             header("Content-Type", "application/json")
-            setBody("""[{"keyId":1,"publicKey":"$material"}]""")
+            setBody("""[{"keyId":1,"publicKey":"$key"}]""")
         }
-
-        val conflicting = refresh(b64(20, 33))
-        assertEquals(HttpStatusCode.Conflict, conflicting.status, conflicting.bodyAsText())
-        assertTrue(conflicting.bodyAsText().contains("prekey_conflict"))
-
-        val retry = refresh(original)
-        assertEquals(HttpStatusCode.OK, retry.status, retry.bodyAsText())
+        assertEquals(HttpStatusCode.NotFound, refresh.status)
     }
 
     @Test
     fun `a prekey upload without a credential is refused`() = e2e {
         val response = client.post("/api/v1/prekeys/upload") {
             header("Content-Type", "application/json")
-            setBody("""{"identityPublicKey":"AA","registrationId":1,"signedPreKeyId":1,""" +
-                """"signedPreKey":"AA","signedPreKeySignature":"AA","oneTimePreKeys":[]}""")
+            setBody("""{"olmIdentityKey":"AA","olmSigningKey":"AA","olmOneTimeKeys":[]}""")
         }
 
         assertEquals(HttpStatusCode.Unauthorized, response.status)
@@ -1087,48 +1066,26 @@ class EndToEndServerTest {
     // ---------------- Anahtar dagitimi ----------------
 
     @Test
-    fun `a legacy bundle is uploaded and served alongside the Olm shape`() = e2e {
-        // Bu test eskiden 403 bekliyordu ve gerekcesi suydu: bir istemci
-        // baska bir istemciyi post-quantum olmayan ve Sealed Sender
-        // tasimayan bir oturuma dusurmesin, bu yuzden v1 fetch yalniz servis
-        // assertion'i ile acilsin.
-        //
-        // O gerekcenin iki dayanagi da artik yok: PQXDH yolu (v2) hicbir
-        // istemci kullanmadigi icin kaldirildi ve Sealed Sender mimarisi
-        // emekli oldu. Geriye tek prekey yolu kaldi, dolayisiyla kullanici
-        // token'ini reddetmek "downgrade koruma" degil, oturum kurmayi
-        // tumuyle engellemek anlamina gelirdi.
+    fun `the served bundle carries only the Olm shape`() = e2e {
+        // Kullanici token'iyla acik: tek prekey yolu bu ve peer bundle'i
+        // cekemeyen istemci oturum kuramaz. libsignal alanlari V31 ile
+        // kalkti; yanitta eski kimlik yuzeyi bulunmamali.
+        clearRateLimits()
         val (owner, ownerToken) = newAccount()
         val (_, peerToken) = newAccount()
-        val key = java.util.Base64.getEncoder().encodeToString(ByteArray(33) { 5 })
-        val signature = java.util.Base64.getEncoder().encodeToString(ByteArray(64) { 6 })
-
-        val upload = client.post("/api/v1/prekeys/upload") {
-            header("Authorization", "Bearer $ownerToken")
-            header("Content-Type", "application/json")
-            setBody(
-                """{"identityPublicKey":"$key","registrationId":777,"signedPreKeyId":3,""" +
-                    """"signedPreKey":"$key","signedPreKeySignature":"$signature",""" +
-                    """"oneTimePreKeys":[{"keyId":1,"publicKey":"$key"}]}""",
-            )
-        }
-        assertEquals(HttpStatusCode.OK, upload.status)
+        assertEquals(HttpStatusCode.OK, uploadOlmBundle(ownerToken).status)
 
         val fetched = client.get("/api/v1/users/$owner/prekeys") {
             header("Authorization", "Bearer $peerToken")
         }
 
         assertEquals(HttpStatusCode.OK, fetched.status)
-        // Eski istemci alanlari yerinde kalmali: canli istemci hala
-        // libsignal konusuyor ve cevabin seklini degistirmek onu aninda
-        // bozardi.
-        assertTrue(fetched.bodyAsText().contains("777"))
-        assertTrue(fetched.bodyAsText().contains(key))
-        // Peer Olm materyali yuklemedigi icin Olm alanlari bos; yeni
-        // istemci bu bundle'i KULLANMAZ ve bu dogru davranis.
         val body = Json.parseToJsonElement(fetched.bodyAsText()).jsonObject
-        assertTrue(body["signingKey"] == null || body["signingKey"] is JsonNull)
-        assertTrue(body["identityKey"] == null || body["identityKey"] is JsonNull)
+        for (field in listOf("identityPublicKey", "registrationId", "signedPreKey", "oneTimePreKey")) {
+            assertFalse(body.containsKey(field), "$field hala servis ediliyor")
+        }
+        assertTrue(body.containsKey("identityKey"))
+        assertTrue(body.containsKey("oneTimeKey"))
     }
 
     @Test
@@ -1512,34 +1469,20 @@ class EndToEndServerTest {
 
     // ---------------- Prekey rate limit + validation (whitebox bulgu) ----------------
 
-    private suspend fun ApplicationTestBuilder.uploadBundle(token: String, otpkCount: Int = 5) {
-        val key = java.util.Base64.getEncoder().encodeToString(ByteArray(33) { 5 })
-        val sig = java.util.Base64.getEncoder().encodeToString(ByteArray(64) { 6 })
-        val otpks = (1..otpkCount).joinToString(",") { """{"keyId":$it,"publicKey":"$key"}""" }
-        client.post("/api/v1/prekeys/upload") {
-            header("Authorization", "Bearer $token")
-            header("Content-Type", "application/json")
-            setBody(
-                """{"identityPublicKey":"$key","registrationId":555,"signedPreKeyId":1,""" +
-                    """"signedPreKey":"$key","signedPreKeySignature":"$sig",""" +
-                    """"oneTimePreKeys":[$otpks]}""",
-            )
-        }
-    }
-
     private suspend fun ApplicationTestBuilder.uploadOlmBundle(
         token: String,
         otpkCount: Int = 5,
-    ) {
+        firstKeyId: Int = 1,
+    ): HttpResponse {
         val encoder = java.util.Base64.getEncoder()
         val identity = encoder.encodeToString(ByteArray(32) { 5 })
         val signing = encoder.encodeToString(ByteArray(32) { 6 })
         val fallback = encoder.encodeToString(ByteArray(32) { 8 })
         val signature = encoder.encodeToString(ByteArray(64) { 7 })
-        val otpks = (1..otpkCount).joinToString(",") {
+        val otpks = (firstKeyId until firstKeyId + otpkCount).joinToString(",") {
             """{"keyId":"k$it","publicKey":"$identity"}"""
         }
-        client.post("/api/v1/prekeys/upload") {
+        return client.post("/api/v1/prekeys/upload") {
             header("Authorization", "Bearer $token")
             header("Content-Type", "application/json")
             setBody(
@@ -1638,39 +1581,13 @@ class EndToEndServerTest {
     }
 
     @Test
-    fun `prekey refresh validates key material`() = e2e {
-        clearRateLimits()
-        val (_, token) = newAccount()
-
-        // Tekrarli keyId ve bozuk anahtar reddedilmeli (refresh onceden atliyordu).
-        val dup = client.post("/api/v1/prekeys/refresh") {
-            header("Authorization", "Bearer $token")
-            header("Content-Type", "application/json")
-            setBody("""[{"keyId":1,"publicKey":"AAAA"},{"keyId":1,"publicKey":"AAAA"}]""")
-        }
-        assertEquals(HttpStatusCode.BadRequest, dup.status)
-
-        val badKey = client.post("/api/v1/prekeys/refresh") {
-            header("Authorization", "Bearer $token")
-            header("Content-Type", "application/json")
-            setBody("""[{"keyId":2,"publicKey":"!!!not-base64!!!"}]""")
-        }
-        assertEquals(HttpStatusCode.BadRequest, badKey.status)
-    }
-
-    @Test
     fun `prekey writes are rate limited`() = e2e {
         clearRateLimits()
         val (_, token) = newAccount()
-        val key = java.util.Base64.getEncoder().encodeToString(ByteArray(33) { 7 })
 
         var got429 = false
         for (i in 1..40) {
-            val r = client.post("/api/v1/prekeys/refresh") {
-                header("Authorization", "Bearer $token")
-                header("Content-Type", "application/json")
-                setBody("""[{"keyId":$i,"publicKey":"$key"}]""")
-            }
+            val r = uploadOlmBundle(token, otpkCount = 1, firstKeyId = i)
             if (r.status == HttpStatusCode.TooManyRequests) { got429 = true; break }
         }
         assertTrue(got429, "prekey yazma sinirsiz")
@@ -1680,25 +1597,16 @@ class EndToEndServerTest {
     fun `the stored one-time prekey pool is capped per account`() = e2e {
         clearRateLimits()
         val (_, token) = newAccount()
-        val key = java.util.Base64.getEncoder().encodeToString(ByteArray(33) { 8 })
-        // Tavanin uzerinde tek batch: Conflict donmeli.
-        val over = (1..MAX_STORED_ONE_TIME_PREKEYS + 1).joinToString(",") {
-            """{"keyId":$it,"publicKey":"$key"}"""
-        }
-        // Once gecerli sayida (MAX_ONE_TIME_PREKEYS) yukle, sonra tavani zorla.
-        // Tek istekte MAX_ONE_TIME_PREKEYS sinirini asamayiz; birden fazla refresh ile doldur.
+        // Tek istekte MAX_ONE_TIME_PREKEYS sinirini asamayiz; 100'luk
+        // yuklemelerle havuz tavanini zorla.
         var poolFull = false
         for (batch in 0 until 12) {
-            val start = batch * 100 + 1
-            val entries = (start until start + 100).joinToString(",") {
-                """{"keyId":$it,"publicKey":"$key"}"""
+            val r = uploadOlmBundle(token, otpkCount = 100, firstKeyId = batch * 100 + 1)
+            if (r.status == HttpStatusCode.Conflict) {
+                assertTrue(r.bodyAsText().contains("prekey_pool_full"))
+                poolFull = true
+                break
             }
-            val r = client.post("/api/v1/prekeys/refresh") {
-                header("Authorization", "Bearer $token")
-                header("Content-Type", "application/json")
-                setBody("[$entries]")
-            }
-            if (r.status == HttpStatusCode.Conflict) { poolFull = true; break }
         }
         assertTrue(poolFull, "havuz tavani yok")
     }

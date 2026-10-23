@@ -208,8 +208,8 @@ class RecoveryAuthIntegrationTest {
                                 "delete" -> AccountDeletion.deleteDurableState(claims.userId, claims.epoch)
                                 "logout" -> AuthService.revokeAllTokens(claims.userId, claims.epoch)
                                 else -> {
-                                    PreKeyStore.addOneTimePreKeys(claims.userId,
-                                        listOf(PreKeyStore.OneTimePreKey(991, ByteArray(33))), claims.epoch)
+                                    OlmPreKeyStore.addOneTimeKeys(claims.userId,
+                                        listOf(OlmPreKeyStore.OneTimeKey("k991", ByteArray(32))), claims.epoch)
                                     true
                                 }
                             }
@@ -236,7 +236,7 @@ class RecoveryAuthIntegrationTest {
                     assertFalse(oldRequest.get(5, java.util.concurrent.TimeUnit.SECONDS), operation)
                 }
                 assertEquals(newEpoch, CredentialState.snapshot(f.user)!!.credentialEpoch)
-                assertEquals(0, PreKeyStore.unconsumedCount(f.user))
+                assertEquals(0, OlmPreKeyStore.unconsumedCount(f.user))
             } finally { pool.shutdownNow() }
         }
     }
@@ -354,11 +354,8 @@ class RecoveryAuthIntegrationTest {
     // anahtarlarini geri diker.
     @Test fun `replacement clears the pin and superseded uploads fail`() {
         val f = fixture(); bind(f)
-        // libsignal bundle yolu kurtarma anahtarindan ayri bir 33 bayt kimlik
-        // kullanir (fixture'in `identity_public_key` seed'iyle ayni).
-        val libsignalIdentity = ByteArray(33) { it.toByte() }
-        PreKeyStore.uploadBundle(f.user, libsignalIdentity, 1234,
-            PreKeyStore.SignedPreKey(1, ByteArray(33), ByteArray(64)), listOf(PreKeyStore.OneTimePreKey(1, ByteArray(33))))
+        OlmPreKeyStore.addOneTimeKeys(f.user, listOf(OlmPreKeyStore.OneTimeKey("k0", ByteArray(32))))
+        OlmPreKeyStore.setFallbackKey(f.user, OlmPreKeyStore.FallbackKey(ByteArray(32), ByteArray(64)))
         val next = ed25519()
         val request = completion(f, grant(f), next, "replace", "olm")
         val response = service.complete(request)!!
@@ -369,15 +366,9 @@ class RecoveryAuthIntegrationTest {
         codes.remove("$RECOVERED_NOTICE:${f.email}")
         assertEquals(response, service.complete(request))
         assertFalse(codes.containsKey("$RECOVERED_NOTICE:${f.email}"))
-        assertNull(PreKeyStore.fetchBundle(f.user))
-        assertEquals(0, PreKeyStore.unconsumedCount(f.user))
-        assertThrows(IllegalStateException::class.java) {
-            PreKeyStore.setIdentityKey(f.user, libsignalIdentity, 1234)
-        }
-        assertThrows(IllegalStateException::class.java) {
-            PreKeyStore.addOneTimePreKeys(f.user, listOf(PreKeyStore.OneTimePreKey(2, ByteArray(33))), f.epoch)
-        }
-        // Olm yolu da ayni cerceveye tabi olmali.
+        assertNull(OlmPreKeyStore.fetchBundle(f.user))
+        assertEquals(0, OlmPreKeyStore.unconsumedCount(f.user))
+        // Eski epoch ile gelen yazma reddedilmeli.
         assertThrows(IllegalStateException::class.java) {
             OlmPreKeyStore.addOneTimeKeys(
                 f.user,

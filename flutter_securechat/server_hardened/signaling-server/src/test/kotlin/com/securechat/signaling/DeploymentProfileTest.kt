@@ -57,22 +57,6 @@ class DeploymentProfileTest {
     }
 
     @Test
-    fun `legacy prekey fetch needs both the profile and an explicit opt-in`() {
-        // Bayrak tek basina yetmez: production'da deger ne olursa olsun
-        // klasik paket kullanici token'iyla verilmez.
-        val optIn = mapOf("ALLOW_LEGACY_V1_PREKEY_FETCH" to "true")
-
-        assertFalse(DeploymentProfile.allowsLegacyPreKeyFetch(optIn))
-        assertFalse(DeploymentProfile.allowsLegacyPreKeyFetch(development))
-        assertTrue(DeploymentProfile.allowsLegacyPreKeyFetch(development + optIn))
-        assertFalse(
-            DeploymentProfile.allowsLegacyPreKeyFetch(
-                mapOf("PRIVACY_PRODUCTION_MODE" to "true") + optIn,
-            ),
-        )
-    }
-
-    @Test
     fun `production remains fully gated`() {
         val production = mapOf(
             "PRIVACY_PRODUCTION_MODE" to "true",

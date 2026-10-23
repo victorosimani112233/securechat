@@ -35,8 +35,8 @@ object RateLimiter {
         // X3DH forward-secrecy'yi dusurebiliyordu (whitebox bulgu).
         "prekey_fetch" to RateLimit(120, 3600),       // 120 bundle fetch/saat per caller
         "prekey_capability" to RateLimit(240, 3600),  // grup gecis kontrolu, anahtar tuketmez
-        // Upload + refresh yazma yolu; sinirsizken tek hesap one_time_prekeys
-        // tablosunu sinirsiz buyutebiliyordu.
+        // Prekey upload yazma yolu; sinirsizken tek hesap
+        // olm_one_time_prekeys tablosunu sinirsiz buyutebiliyordu.
         "prekey_write" to RateLimit(30, 3600),        // 30 yazma/saat per account
         // 50 msg/sn ortalama, 20 sn pencerede. 1 sn pencere grup mesajinin
         // her uyeye ayri giden cercevelerini (255 uye: ~765 cerceve) ayni anda

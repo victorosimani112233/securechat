@@ -331,8 +331,6 @@ class PrivateDirectoryRegistryIntegrationTest {
                 setOf(
                     "users",
                     "fcm_tokens",
-                    "signed_prekeys",
-                    "one_time_prekeys",
                     "registration_grant_use",
                     "directory_quota",
                     "olm_one_time_prekeys",
@@ -409,14 +407,6 @@ class PrivateDirectoryRegistryIntegrationTest {
                 setOf("id", "user_index", "token", "registered_on"),
                 columns(connection, "fcm_tokens"),
             )
-            assertEquals(
-                setOf("user_id", "key_id", "public_key", "signature"),
-                columns(connection, "signed_prekeys"),
-            )
-            assertEquals(
-                setOf("id", "user_id", "key_id", "public_key"),
-                columns(connection, "one_time_prekeys"),
-            )
             // Tek kullanimlik grant isareti: hesap/e-posta/telefon referansi
             // tasimaz, yalniz blind index ve replay penceresi.
             assertEquals(
@@ -451,6 +441,9 @@ class PrivateDirectoryRegistryIntegrationTest {
             assertTrue("modern_prekey_bundles" !in tables)
             assertTrue("modern_one_time_prekeys" !in tables)
             assertTrue("modern_last_resort_kyber_prekeys" !in tables)
+            // V31: libsignal prekey tablolari kaldirildi.
+            assertTrue("signed_prekeys" !in tables)
+            assertTrue("one_time_prekeys" !in tables)
             assertTrue("group_members" !in tables)
             assertTrue("audit_log" !in tables)
             // Bot API kaldirildi (V29); tablolari geri gelmemeli.

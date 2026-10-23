@@ -61,21 +61,6 @@ object DeploymentProfile {
         }
     }
 
-    /**
-     * Klasik (PQXDH olmayan) prekey paketinin kullanici token'iyla
-     * verilmesine izin verilip verilmedigi.
-     *
-     * V2'ye henuz gecmemis bir istemciyle calisabilmek icin gerekir: v1 fetch
-     * kapaliyken eski istemci hic Signal oturumu kuramaz. Fakat acik olmasi,
-     * bir istemcinin karsi tarafi post-quantum olmayan ve Sealed Sender
-     * tasimayan bir oturuma dusurmesine izin verir. Bu yuzden yalniz
-     * gelistirme profilinde ve ayrica acikca istenmisse gecerlidir;
-     * production'da deger ne olursa olsun yok sayilir.
-     */
-    fun allowsLegacyPreKeyFetch(environment: Map<String, String> = System.getenv()): Boolean =
-        isDevelopment(environment) &&
-            environment["ALLOW_LEGACY_V1_PREKEY_FETCH"]?.equals("true", ignoreCase = true) == true
-
     /** Baslangicta bir kez, karistirilmayacak bicimde yazilir. */
     fun describe(environment: Map<String, String> = System.getenv()): String =
         if (isDevelopment(environment)) {

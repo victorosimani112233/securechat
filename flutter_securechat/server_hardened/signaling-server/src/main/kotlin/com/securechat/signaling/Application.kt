@@ -43,14 +43,6 @@ fun main() {
     // bir gelistirme profilinin yanlislikla disari acilmasi ancak boyle fark
     // edilir.
     log.info("[Profile] {}", DeploymentProfile.describe())
-    if (DeploymentProfile.allowsLegacyPreKeyFetch()) {
-        // Sessizce acik kalmasi, post-quantum gecisinin yapildigi sanilirken
-        // yapilmamis olmasi demektir.
-        log.warn(
-            "[Profile] Klasik V1 prekey fetch acik — istemciler post-quantum " +
-                "olmayan oturuma dusebilir. Yalniz gelistirme icindir.",
-        )
-    }
 
     // Fail before opening a socket if privacy keys or retention bounds are
     // absent/unsafe. Logging uses the same mandatory redaction boundary.

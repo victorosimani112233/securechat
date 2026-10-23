@@ -6,11 +6,11 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Prekey yuklemesinin alan sinirlari.
+ * Olm prekey yuklemesinin alan sinirlari.
  *
- * Onceki akista one-time prekey sayisi ve anahtar boyutlari sinirsizdi:
- * tek bir istek binlerce satir yazdirabiliyor ya da cok buyuk alanlarla
- * depolamayi sisirebiliyordu. Ayni keyId'nin tekrari da engellenmiyordu.
+ * Onceki akista one-time key sayisi ve anahtar boyutlari sinirsizdi: tek bir
+ * istek binlerce satir yazdirabiliyor ya da cok buyuk alanlarla depolamayi
+ * sisirebiliyordu. Ayni keyId'nin tekrari da engellenmiyordu.
  */
 class PreKeyUploadBoundsTest {
 
@@ -18,19 +18,17 @@ class PreKeyUploadBoundsTest {
         Base64.getEncoder().encodeToString(ByteArray(size) { 7 })
 
     private fun request(
-        identity: String = b64(33),
-        registrationId: Int = 1234,
-        signedPreKeyId: Int = 7,
-        signedPreKey: String = b64(33),
-        signature: String = b64(64),
-        oneTimePreKeys: List<PreKeyEntry> = listOf(PreKeyEntry(1, b64(33))),
+        identity: String? = b64(32),
+        signing: String? = b64(32),
+        oneTimeKeys: List<OlmPreKeyEntry> = listOf(OlmPreKeyEntry("k1", b64(32))),
+        fallback: String? = b64(32),
+        fallbackSignature: String? = b64(64),
     ) = PreKeyUploadRequest(
-        identityPublicKey = identity,
-        registrationId = registrationId,
-        signedPreKeyId = signedPreKeyId,
-        signedPreKey = signedPreKey,
-        signedPreKeySignature = signature,
-        oneTimePreKeys = oneTimePreKeys,
+        olmIdentityKey = identity,
+        olmSigningKey = signing,
+        olmOneTimeKeys = oneTimeKeys,
+        olmFallbackKey = fallback,
+        olmFallbackKeySignature = fallbackSignature,
     )
 
     @Test
@@ -39,67 +37,58 @@ class PreKeyUploadBoundsTest {
     }
 
     @Test
-    fun `the one time prekey count is capped`() {
-        val atCap = (1..MAX_ONE_TIME_PREKEYS).map { PreKeyEntry(it, b64(33)) }
-        val overCap = (1..MAX_ONE_TIME_PREKEYS + 1).map { PreKeyEntry(it, b64(33)) }
+    fun `an upload without an olm identity is refused`() {
+        // libsignal alanlari kaldirildi; eski govde artik kimliksiz sayilir.
+        assertFalse(request(identity = null, oneTimeKeys = emptyList(), fallback = null, fallbackSignature = null).hasSaneKeyMaterial())
+        assertFalse(request(signing = null).hasSaneKeyMaterial())
+    }
 
-        assertTrue(request(oneTimePreKeys = atCap).hasSaneKeyMaterial())
-        assertFalse(request(oneTimePreKeys = overCap).hasSaneKeyMaterial())
+    @Test
+    fun `the one time key count is capped`() {
+        val atCap = (1..MAX_ONE_TIME_PREKEYS).map { OlmPreKeyEntry("k$it", b64(32)) }
+        val overCap = (1..MAX_ONE_TIME_PREKEYS + 1).map { OlmPreKeyEntry("k$it", b64(32)) }
+
+        assertTrue(request(oneTimeKeys = atCap).hasSaneKeyMaterial())
+        assertFalse(request(oneTimeKeys = overCap).hasSaneKeyMaterial())
     }
 
     @Test
     fun `duplicate key ids are refused`() {
-        val duplicated = listOf(PreKeyEntry(5, b64(33)), PreKeyEntry(5, b64(33)))
+        val duplicated = listOf(OlmPreKeyEntry("k5", b64(32)), OlmPreKeyEntry("k5", b64(32)))
 
-        assertFalse(request(oneTimePreKeys = duplicated).hasSaneKeyMaterial())
+        assertFalse(request(oneTimeKeys = duplicated).hasSaneKeyMaterial())
     }
 
     @Test
-    fun `oversized key material is refused`() {
-        assertFalse(request(identity = b64(MAX_KEY_MATERIAL_BYTES + 1)).hasSaneKeyMaterial())
-        assertFalse(request(signedPreKey = b64(MAX_KEY_MATERIAL_BYTES + 1)).hasSaneKeyMaterial())
-        assertFalse(request(signature = b64(MAX_KEY_MATERIAL_BYTES + 1)).hasSaneKeyMaterial())
-        assertFalse(
-            request(oneTimePreKeys = listOf(PreKeyEntry(1, b64(MAX_KEY_MATERIAL_BYTES + 1))))
-                .hasSaneKeyMaterial(),
-        )
-    }
-
-    @Test
-    fun `empty key material is refused`() {
-        assertFalse(request(identity = "").hasSaneKeyMaterial())
-        assertFalse(request(signedPreKey = "").hasSaneKeyMaterial())
-        assertFalse(request(signature = "").hasSaneKeyMaterial())
+    fun `keys must be exactly 32 bytes`() {
+        assertFalse(request(identity = b64(33)).hasSaneKeyMaterial())
+        assertFalse(request(signing = b64(31)).hasSaneKeyMaterial())
+        assertFalse(request(fallback = b64(33)).hasSaneKeyMaterial())
+        assertFalse(request(fallbackSignature = b64(63)).hasSaneKeyMaterial())
+        assertFalse(request(oneTimeKeys = listOf(OlmPreKeyEntry("k1", b64(33)))).hasSaneKeyMaterial())
     }
 
     @Test
     fun `non base64 key material is refused instead of throwing`() {
         assertFalse(request(identity = "!!!not base64!!!").hasSaneKeyMaterial())
-        assertFalse(
-            request(oneTimePreKeys = listOf(PreKeyEntry(1, "%%%"))).hasSaneKeyMaterial(),
-        )
+        assertFalse(request(oneTimeKeys = listOf(OlmPreKeyEntry("k1", "%%%"))).hasSaneKeyMaterial())
     }
 
     @Test
-    fun `registration id stays inside the signal protocol range`() {
-        assertFalse(request(registrationId = 0).hasSaneKeyMaterial())
-        assertFalse(request(registrationId = -1).hasSaneKeyMaterial())
-        assertFalse(request(registrationId = 16_384).hasSaneKeyMaterial())
-        assertTrue(request(registrationId = 16_383).hasSaneKeyMaterial())
+    fun `key ids stay inside the declared length`() {
+        assertFalse(request(oneTimeKeys = listOf(OlmPreKeyEntry("", b64(32)))).hasSaneKeyMaterial())
+        assertFalse(request(oneTimeKeys = listOf(OlmPreKeyEntry("k".repeat(65), b64(32)))).hasSaneKeyMaterial())
     }
 
     @Test
-    fun `key ids stay inside the declared range`() {
-        assertFalse(request(signedPreKeyId = -1).hasSaneKeyMaterial())
-        assertFalse(request(signedPreKeyId = 0x1_000_000).hasSaneKeyMaterial())
-        assertFalse(
-            request(oneTimePreKeys = listOf(PreKeyEntry(-1, b64(33)))).hasSaneKeyMaterial(),
-        )
+    fun `fallback key and signature come together`() {
+        assertFalse(request(fallbackSignature = null).hasSaneKeyMaterial())
+        assertFalse(request(fallback = null).hasSaneKeyMaterial())
+        assertTrue(request(fallback = null, fallbackSignature = null).hasSaneKeyMaterial())
     }
 
     @Test
-    fun `an empty one time prekey list is still a valid upload`() {
-        // Yalniz identity/signed prekey yenileyen bir istemci gecerlidir.
-        assertTrue(request(oneTimePreKeys = emptyList()).hasSaneKeyMaterial())
+    fun `an empty one time key list is still a valid upload`() {
+        assertTrue(request(oneTimeKeys = emptyList()).hasSaneKeyMaterial())
     }
 }

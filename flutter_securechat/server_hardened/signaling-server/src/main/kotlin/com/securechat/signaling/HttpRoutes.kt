@@ -29,21 +29,13 @@ private const val DIRECTORY_SELF_UPDATE_BODY_LIMIT = 2 * 1024
 private const val SMALL_BODY_LIMIT = 8 * 1024
 
 /**
- * Prekey bundle govdesi. 100 one-time prekey * ~44 byte base64 + identity ve
- * signed prekey alanlari rahatlikla sigar; bunun otesi protokol disidir.
+ * Prekey bundle govdesi. 200 Olm one-time key + kimlik ve fallback alanlari
+ * rahatlikla sigar; bunun otesi protokol disidir.
  */
 private const val PREKEY_BODY_LIMIT = 64 * 1024
 
-/** PQ Kyber public keys make a 100-key v2 upload roughly 220 KiB. */
-private const val MODERN_PREKEY_BODY_LIMIT = 512 * 1024
-
-/** Sealed Sender ciphertext plus bounded JSON/Base64 overhead. */
-
 /** Tek yuklemede kabul edilen en fazla one-time prekey sayisi. */
 internal const val MAX_ONE_TIME_PREKEYS = 200
-
-/** Curve25519 public key 33, imza 64 byte; ust sinir bunun uzerinde tutuldu. */
-internal const val MAX_KEY_MATERIAL_BYTES = 128
 
 /** Hesap basina saklanabilecek tuketilmemis one-time prekey ust siniri. */
 internal const val MAX_STORED_ONE_TIME_PREKEYS = 1_000
@@ -131,25 +123,14 @@ data class RefreshTokenRequest(val refreshToken: String)
 @Serializable
 data class RefreshTokenResponse(val accessToken: String, val refreshToken: String)
 
-// PreKey bundle — Signal Protocol
+// Olm (vodozemac) prekey yuklemesi.
+//
+// libsignal alanlari (identityPublicKey, signedPreKey, oneTimePreKeys...)
+// 2026-10-23'te kaldirildi: hicbir istemci gondermiyordu ve servis edilen
+// eski bundle, Olm kimligine bagli olmayan ikinci bir kimlik yuzeyiydi.
+// Bilinmeyen alanlar yok sayilir; eski bir govde Olm kimligi yoksa 400 alir.
 @Serializable
 data class PreKeyUploadRequest(
-    // --- libsignal (eski istemci) ---
-    //
-    // Hepsi opsiyonel oldu. Vodozemac'a gecmis bir istemcide bu alanlarin
-    // karsiligi YOK: `registrationId` Olm'da olmayan bir kavram, signed
-    // prekey'in yerini imzali fallback anahtari aliyor. Zorunlu
-    // birakilsalardi yeni istemci kendi anahtarlarini yukleyebilmek icin
-    // uydurma libsignal degerleri gondermek zorunda kalirdi.
-    val identityPublicKey: String? = null,
-    val registrationId: Int? = null,
-    val signedPreKeyId: Int? = null,
-    val signedPreKey: String? = null,
-    val signedPreKeySignature: String? = null,
-    val oneTimePreKeys: List<PreKeyEntry> = emptyList(),
-
-    // --- Olm (vodozemac) ---
-    //
     // Kimlik IKI anahtardan olusur ve istemci ikisini birlikte pinler;
     // biri olmadan digeri kabul edilmez.
     val olmIdentityKey: String? = null,
@@ -161,52 +142,18 @@ data class PreKeyUploadRequest(
     val olmFallbackKey: String? = null,
     val olmFallbackKeySignature: String? = null,
 ) {
-    /** Tam bir libsignal bundle'i var mi. */
-    val hasLibsignalBundle: Boolean
-        get() = identityPublicKey != null && registrationId != null &&
-            signedPreKeyId != null && signedPreKey != null &&
-            signedPreKeySignature != null
-
     /** Tam bir Olm kimligi var mi. */
     val hasOlmIdentity: Boolean
         get() = olmIdentityKey != null && olmSigningKey != null
 }
 
-@Serializable
-data class PreKeyEntry(val keyId: Int, val publicKey: String) // publicKey base64
-
 /**
  * Olm tek kullanimlik anahtar girdisi.
  *
- * [PreKeyEntry]'den ayri olmasinin tek sebebi `keyId`'nin dize olmasi:
- * Olm anahtar kimligi vodozemac tarafindan uretilir ve base64'tur,
- * libsignal'daki gibi tamsayi degildir.
+ * Olm anahtar kimligi vodozemac tarafindan uretilir ve base64'tur.
  */
 @Serializable
 data class OlmPreKeyEntry(val keyId: String, val publicKey: String)
-
-/**
- * Prekey yuklemesinin alan bazinda makul olup olmadigi.
- *
- * Onceki akista one-time prekey sayisi ve anahtar boyutlari sinirsizdi;
- * tek bir istek binlerce satir veya cok buyuk alanlar yazdirabiliyordu.
- */
-/**
- * Refresh yolundaki one-time prekey listesinin alan bazinda gecerliligi.
- *
- * `/prekeys/refresh` daha once `hasSaneKeyMaterial()`'i atliyordu: keyId
- * araligi, anahtar boyutu, sayi tavani ve tekrar kontrolu yoktu; bir hesap
- * her istekte farkli keyId'lerle sinirsiz satir ekleyebiliyordu.
- */
-internal fun List<PreKeyEntry>.hasSaneOneTimeKeys(): Boolean {
-    if (size > MAX_ONE_TIME_PREKEYS) return false
-    if (distinctBy { it.keyId }.size != size) return false
-    return all { entry ->
-        entry.keyId in 0..0xFFFFFF &&
-            (runCatching { java.util.Base64.getDecoder().decode(entry.publicKey).size }
-                .getOrDefault(0)) in 1..MAX_KEY_MATERIAL_BYTES
-    }
-}
 
 private fun decodedSize(value: String): Int? = try {
     java.util.Base64.getDecoder().decode(value).size
@@ -217,40 +164,13 @@ private fun decodedSize(value: String): Int? = try {
 /**
  * Yuklemenin alan bazinda makul olup olmadigi.
  *
- * Iki sekil kabul edilir: libsignal bundle'i, Olm bundle'i ya da ikisi
- * birden. Ama **en az biri TAM olmak zorunda**. Yarim bir sekil kabul
- * edilirse, hesap kismi bir kimlikle kayitli kalir ve karsi taraf oturum
- * kuramaz; bos donen bir bundle'dan daha kotu bir durum, cunku hatanin
- * yuklemede oldugu gorunmez.
+ * Olm kimligi TAM olmak zorunda. Yarim bir kimlik kabul edilirse hesap
+ * kismi bir kimlikle kayitli kalir ve karsi taraf oturum kuramaz; bos
+ * donen bir bundle'dan daha kotu bir durum, cunku hatanin yuklemede
+ * oldugu gorunmez.
  */
-internal fun PreKeyUploadRequest.hasSaneKeyMaterial(): Boolean {
-    if (!hasLibsignalBundle && !hasOlmIdentity) return false
-    if (hasLibsignalBundle && !hasSaneLibsignalMaterial()) return false
-    if (hasOlmIdentity && !hasSaneOlmMaterial()) return false
-    // Olm kimligi olmadan Olm anahtari gondermek anlamsiz: anahtarlarin
-    // bagli olacagi bir kimlik yok.
-    if (!hasOlmIdentity &&
-        (olmOneTimeKeys.isNotEmpty() || olmFallbackKey != null)
-    ) {
-        return false
-    }
-    return true
-}
-
-private fun PreKeyUploadRequest.hasSaneLibsignalMaterial(): Boolean {
-    if (registrationId !in 1..16_383) return false
-    if (signedPreKeyId !in 0..0xFFFFFF) return false
-    if (oneTimePreKeys.size > MAX_ONE_TIME_PREKEYS) return false
-    if (oneTimePreKeys.distinctBy { it.keyId }.size != oneTimePreKeys.size) return false
-    for (value in listOf(identityPublicKey, signedPreKey, signedPreKeySignature)) {
-        val size = decodedSize(value ?: return false) ?: return false
-        if (size !in 1..MAX_KEY_MATERIAL_BYTES) return false
-    }
-    return oneTimePreKeys.all { entry ->
-        entry.keyId in 0..0xFFFFFF &&
-            (decodedSize(entry.publicKey) ?: 0) in 1..MAX_KEY_MATERIAL_BYTES
-    }
-}
+internal fun PreKeyUploadRequest.hasSaneKeyMaterial(): Boolean =
+    hasOlmIdentity && hasSaneOlmMaterial()
 
 private fun PreKeyUploadRequest.hasSaneOlmMaterial(): Boolean {
     // Olm anahtarlari TAM 32 bayt. Ust sinir yerine tam uzunluk
@@ -285,9 +205,7 @@ private fun PreKeyUploadRequest.hasSaneOlmMaterial(): Boolean {
 @Serializable
 data class PreKeyBundleResponse(
     val userId: String,
-    // Istemcinin konustugu bundle surumu. Olm alanlari yoksa yeni istemci
-    // bu bundle'i KULLANMAZ ve bu dogru davranis: o peer henuz goc
-    // etmemis, onunla Olm oturumu kurulamaz.
+    // Istemcinin konustugu bundle surumu.
     //
     // VARSAYILAN DEGER YOK, bilerek. kotlinx.serialization'da
     // `encodeDefaults` varsayilan olarak false; varsayilanina esit bir alan
@@ -295,18 +213,8 @@ data class PreKeyBundleResponse(
     // kabloya hic cikmiyordu ve istemci bundle'i "surum yok" diye
     // reddediyordu.
     val protocolVersion: Int,
-
-    // --- libsignal (eski istemci) ---
-    val identityPublicKey: String? = null,
-    val registrationId: Int? = null,
-    val signedPreKeyId: Int? = null,
-    val signedPreKey: String? = null,
-    val signedPreKeySignature: String? = null,
-    val oneTimePreKey: PreKeyEntry? = null,
-
-    // --- Olm (vodozemac) ---
-    val identityKey: String? = null,
-    val signingKey: String? = null,
+    val identityKey: String,
+    val signingKey: String,
     val oneTimeKey: String? = null,
     val fallbackKey: String? = null,
     val fallbackKeySignature: String? = null,
@@ -921,10 +829,10 @@ fun Application.configureRoutes(
         }
 
         // ========================================================
-        // Signal Protocol PreKey Bundle endpoint'leri — AUTH GEREKLI
+        // Olm prekey endpoint'leri — AUTH GEREKLI
         // ========================================================
 
-        // Client kayit sonrasi identity_key + signed_prekey + one_time_prekeys upload eder
+        // Istemci Olm kimligi + imzali fallback + one-time key'lerini yukler
         post("/api/v1/prekeys/upload") {
             val authedUserId = requireAuth(call) ?: return@post
             val expectedEpoch = call.prekeyWriteEpoch()
@@ -944,75 +852,42 @@ fun Application.configureRoutes(
                 return@post
             }
             // Hesap basina depolama tavani: identity ayni kalirken gelen
-            // one-time prekey'ler mevcut havuza eklenir; sinirsizken tek hesap
-            // tabloyu sinirsiz buyutebiliyordu. Iki havuz AYRI sayilir,
-            // cunku ayri tablolarda duruyorlar.
-            if (PreKeyStore.unconsumedCount(authedUserId) + req.oneTimePreKeys.size >
-                MAX_STORED_ONE_TIME_PREKEYS ||
-                OlmPreKeyStore.unconsumedCount(authedUserId) + req.olmOneTimeKeys.size >
+            // one-time key'ler mevcut havuza eklenir; sinirsizken tek hesap
+            // tabloyu sinirsiz buyutebiliyordu.
+            if (OlmPreKeyStore.unconsumedCount(authedUserId) + req.olmOneTimeKeys.size >
                 MAX_STORED_ONE_TIME_PREKEYS
             ) {
                 call.respond(HttpStatusCode.Conflict, mapOf("error" to "prekey_pool_full"))
                 return@post
             }
             try {
-                if (req.hasLibsignalBundle) {
-                    // Identity, signed prekey ve one-time prekey'ler tek
-                    // transaction'da yazilir; yarim bir bundle olusamaz.
-                    PreKeyStore.uploadBundle(
+                OlmPreKeyStore.setIdentity(
+                    userId = authedUserId,
+                    identityKey = decoder.decode(req.olmIdentityKey!!),
+                    signingKey = decoder.decode(req.olmSigningKey!!),
+                    expectedEpoch = expectedEpoch,
+                )
+                if (req.olmFallbackKey != null) {
+                    OlmPreKeyStore.setFallbackKey(
                         userId = authedUserId,
-                        expectedEpoch = expectedEpoch,
-                        identityPublicKey = decoder.decode(req.identityPublicKey!!),
-                        registrationId = req.registrationId!!,
-                        signedPreKey = PreKeyStore.SignedPreKey(
-                            req.signedPreKeyId!!,
-                            decoder.decode(req.signedPreKey!!),
-                            decoder.decode(req.signedPreKeySignature!!)
+                        key = OlmPreKeyStore.FallbackKey(
+                            decoder.decode(req.olmFallbackKey),
+                            decoder.decode(req.olmFallbackKeySignature!!),
                         ),
-                        oneTimePreKeys = req.oneTimePreKeys.map {
-                            PreKeyStore.OneTimePreKey(it.keyId, decoder.decode(it.publicKey))
-                        },
+                        expectedEpoch = expectedEpoch,
                     )
                 }
-                if (req.hasOlmIdentity) {
-                    OlmPreKeyStore.setIdentity(
+                if (req.olmOneTimeKeys.isNotEmpty()) {
+                    OlmPreKeyStore.addOneTimeKeys(
                         userId = authedUserId,
-                        identityKey = decoder.decode(req.olmIdentityKey!!),
-                        signingKey = decoder.decode(req.olmSigningKey!!),
+                        keys = req.olmOneTimeKeys.map {
+                            OlmPreKeyStore.OneTimeKey(it.keyId, decoder.decode(it.publicKey))
+                        },
                         expectedEpoch = expectedEpoch,
                     )
-                    if (req.olmFallbackKey != null) {
-                        OlmPreKeyStore.setFallbackKey(
-                            userId = authedUserId,
-                            key = OlmPreKeyStore.FallbackKey(
-                                decoder.decode(req.olmFallbackKey),
-                                decoder.decode(req.olmFallbackKeySignature!!),
-                            ),
-                            expectedEpoch = expectedEpoch,
-                        )
-                    }
-                    if (req.olmOneTimeKeys.isNotEmpty()) {
-                        OlmPreKeyStore.addOneTimeKeys(
-                            userId = authedUserId,
-                            keys = req.olmOneTimeKeys.map {
-                                OlmPreKeyStore.OneTimeKey(it.keyId, decoder.decode(it.publicKey))
-                            },
-                            expectedEpoch = expectedEpoch,
-                        )
-                    }
                 }
                 call.respond(HttpStatusCode.OK, mapOf("status" to "ok",
-                    "remaining" to PreKeyStore.unconsumedCount(authedUserId).toString(),
                     "olmRemaining" to OlmPreKeyStore.unconsumedCount(authedUserId).toString()))
-            } catch (conflict: PreKeyStore.KeyConflictException) {
-                // v1 havuzu da Olm ile ayni kurala tabi: ayni keyId farkli
-                // materyalle gelirse 409. Eskiden sessizce eskisi tutulup
-                // 200 donuyordu.
-                logger.warn("[PreKey] v1 key catismasi: keyId={}", conflict.keyId)
-                call.respond(
-                    HttpStatusCode.Conflict,
-                    mapOf("error" to "prekey_conflict", "keyId" to conflict.keyId.toString()),
-                )
             } catch (_: OlmPreKeyStore.IdentityRecoveryRequiredException) {
                 // Cihazin kimligi hesaptakinden farkli: istemci kullaniciyi
                 // e-postayla kurtarmaya yonlendirir. Eskiden genel 400 donuyor
@@ -1038,61 +913,10 @@ fun Application.configureRoutes(
             }
         }
 
-        // One-time prekey havuzunu yenile (rotation)
+        // Tuketilmemis Olm one-time key sayisi
         get("/api/v1/prekeys/status") {
             val authedUserId = requireAuth(call) ?: return@get
-            // Iki havuz ayri sayilir. Tek bir sayi dondurmek, goc etmis bir
-            // istemcinin bos Olm havuzunu dolu libsignal havuzu arkasinda
-            // gizlerdi ve tamamlama hic tetiklenmezdi.
-            call.respond(
-                mapOf(
-                    "remaining" to PreKeyStore.unconsumedCount(authedUserId),
-                    "olmRemaining" to OlmPreKeyStore.unconsumedCount(authedUserId),
-                ),
-            )
-        }
-
-        // One-time prekey havuzunu yenile (rotation)
-        post("/api/v1/prekeys/refresh") {
-            val authedUserId = requireAuth(call) ?: return@post
-            val expectedEpoch = call.attributes[authenticatedEpochKey]
-            if (!RateLimiter.allow("prekey_write", authedUserId)) {
-                val retry = RateLimiter.retryAfter("prekey_write", authedUserId)
-                call.response.header("Retry-After", retry.toString())
-                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit asildi", "retryAfter" to retry.toString()))
-                return@post
-            }
-            val keys = call.receiveBounded<List<PreKeyEntry>>(PREKEY_BODY_LIMIT) ?: return@post
-            // Upload ile ayni alan kontrolleri; refresh bunlari atliyordu.
-            if (!keys.hasSaneOneTimeKeys()) {
-                AuditLog.log(eventType = "PREKEY_UPLOAD_REJECTED", ipAddress = call.clientAddress())
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid_prekey_material"))
-                return@post
-            }
-            if (PreKeyStore.unconsumedCount(authedUserId) + keys.size >
-                MAX_STORED_ONE_TIME_PREKEYS
-            ) {
-                call.respond(HttpStatusCode.Conflict, mapOf("error" to "prekey_pool_full"))
-                return@post
-            }
-            val decoder = java.util.Base64.getDecoder()
-            try {
-                PreKeyStore.addOneTimePreKeys(
-                    authedUserId,
-                    keys.map { PreKeyStore.OneTimePreKey(it.keyId, decoder.decode(it.publicKey)) },
-                    expectedEpoch = expectedEpoch,
-                )
-                call.respond(HttpStatusCode.OK, mapOf("status" to "ok",
-                    "remaining" to PreKeyStore.unconsumedCount(authedUserId).toString()))
-            } catch (conflict: PreKeyStore.KeyConflictException) {
-                logger.warn("[PreKey] v1 key catismasi: keyId={}", conflict.keyId)
-                call.respond(
-                    HttpStatusCode.Conflict,
-                    mapOf("error" to "prekey_conflict", "keyId" to conflict.keyId.toString()),
-                )
-            } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Gecersiz prekey"))
-            }
+            call.respond(mapOf("olmRemaining" to OlmPreKeyStore.unconsumedCount(authedUserId)))
         }
 
         // Diger client baska bir kullanicinin prekey bundle'ini ister.
@@ -1128,13 +952,8 @@ fun Application.configureRoutes(
                     call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Gecersiz userId"))
                     return@get
                 }
-            // IKI sekil de servis edilir. Hangisinin bulunacagi peer'in
-            // goc edip etmedigine bagli, ve 404 kosulu bu yuzden
-            // "libsignal bundle'i yok" DEGIL "hicbiri yok" olmali: goc
-            // etmis bir peer'in libsignal bundle'i hic bulunmaz.
-            val legacy = PreKeyStore.fetchBundle(targetUserId)
             val olm = OlmPreKeyStore.fetchBundle(targetUserId)
-            if (legacy == null && olm == null) {
+            if (olm == null) {
                 call.respond(HttpStatusCode.NotFound, mapOf("error" to "Bundle bulunamadi (kullanici prekey upload etmemis olabilir)"))
                 return@get
             }
@@ -1142,21 +961,11 @@ fun Application.configureRoutes(
             call.respond(PreKeyBundleResponse(
                 userId = targetUserId,
                 protocolVersion = OLM_BUNDLE_PROTOCOL_VERSION,
-                identityPublicKey = legacy?.let { encoder.encodeToString(it.identityKey.publicKey) },
-                registrationId = legacy?.identityKey?.registrationId,
-                signedPreKeyId = legacy?.signedPreKey?.keyId,
-                signedPreKey = legacy?.let { encoder.encodeToString(it.signedPreKey.publicKey) },
-                signedPreKeySignature = legacy?.let {
-                    encoder.encodeToString(it.signedPreKey.signature)
-                },
-                oneTimePreKey = legacy?.oneTimePreKey?.let {
-                    PreKeyEntry(it.keyId, encoder.encodeToString(it.publicKey))
-                },
-                identityKey = olm?.let { encoder.encodeToString(it.identityKey) },
-                signingKey = olm?.let { encoder.encodeToString(it.signingKey) },
-                oneTimeKey = olm?.oneTimeKey?.let { encoder.encodeToString(it) },
-                fallbackKey = olm?.fallbackKey?.let { encoder.encodeToString(it.publicKey) },
-                fallbackKeySignature = olm?.fallbackKey?.let {
+                identityKey = encoder.encodeToString(olm.identityKey),
+                signingKey = encoder.encodeToString(olm.signingKey),
+                oneTimeKey = olm.oneTimeKey?.let { encoder.encodeToString(it) },
+                fallbackKey = olm.fallbackKey?.let { encoder.encodeToString(it.publicKey) },
+                fallbackKeySignature = olm.fallbackKey?.let {
                     encoder.encodeToString(it.signature)
                 },
             ))

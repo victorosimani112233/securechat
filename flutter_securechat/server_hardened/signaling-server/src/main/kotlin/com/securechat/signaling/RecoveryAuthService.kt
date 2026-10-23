@@ -215,8 +215,6 @@ internal class RecoveryAuthService(
                 // sunucu eski kimlige bagli anahtarlari servis ediyordu ve
                 // X3DH uyusmazligi "No valid sessions" dongusune donuyordu.
                 for (table in listOf(
-                    "one_time_prekeys",
-                    "signed_prekeys",
                     "olm_one_time_prekeys",
                     "olm_fallback_keys",
                 )) {

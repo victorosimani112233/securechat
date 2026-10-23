@@ -109,8 +109,7 @@ object OlmPreKeyStore {
     /**
      * Kimligi ve imza anahtarini kurar ya da korur.
      *
-     * [PreKeyStore.setIdentityKey] ile ayni kural: ilk yazma kimligi kurar,
-     * sonraki yazmalar ayni olmak zorunda. Kimlik degisimi yalniz acik
+     * Ilk yazma kimligi kurar, sonraki yazmalar ayni olmak zorunda. Kimlik degisimi yalniz acik
      * kurtarma yoluyla olur; burada reddedilir.
      */
     fun setIdentity(
