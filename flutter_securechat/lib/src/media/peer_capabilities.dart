@@ -8,10 +8,14 @@ const blobAttachmentCapability = 'blob-v2';
 /// Bu surum o cerceveleri hala alir; gonderimde artik kullanilmaz.
 const legacyBlobAttachmentCapability = 'blob-v1';
 
+/// Birebir aramanin SDP ve ICE sinyallerini uctan uca sifreli tasima.
+const callSignalEncryptionCapability = 'call-e2ee-v1';
+
 /// Bu surumun karsi tarafa bildirdigi yetenekler (teslim makbuzunda).
 const localPeerCapabilities = <String>[
   legacyBlobAttachmentCapability,
   blobAttachmentCapability,
+  callSignalEncryptionCapability,
 ];
 
 /// Karsi taraflarin bildirdigi yetenekler.
@@ -41,6 +45,14 @@ class PeerCapabilities {
         await _state.delete(key);
       }
     }
+  }
+
+  /// Karsi tarafin dogrulanmis bir mesajindan anlasilan tek bir yetenegi
+  /// kaydeder (makbuzu beklemeden).
+  Future<void> recordOne(String userId, String capability) async {
+    if (userId.isEmpty) return;
+    final key = _key(capability, userId);
+    if (await _state.get(key) == null) await _state.put(key, '1');
   }
 
   Future<bool> allSupport(Iterable<String> userIds, String capability) async {

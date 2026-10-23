@@ -190,10 +190,14 @@ class SdpOfferSignal extends SignalMessage {
     required super.timestamp,
     required this.sdp,
     required this.callType,
+    this.e2ee,
   });
 
   final String sdp;
   final String callType;
+
+  /// Uctan uca sifreli cagri sinyali; varsa [sdp] bostur.
+  final String? e2ee;
 
   @override
   String get type => 'sdp_offer';
@@ -204,6 +208,7 @@ class SdpOfferSignal extends SignalMessage {
     timestamp: _dt(json['timestamp']),
     sdp: json['sdp'] as String? ?? '',
     callType: json['callType'] as String? ?? 'VOICE',
+    e2ee: json['e2ee'] as String?,
   );
 
   @override
@@ -211,6 +216,7 @@ class SdpOfferSignal extends SignalMessage {
     ..._base(this),
     'sdp': sdp,
     'callType': callType,
+    if (e2ee != null) 'e2ee': e2ee,
   };
 }
 
@@ -220,9 +226,13 @@ class SdpAnswerSignal extends SignalMessage {
     required super.recipientId,
     required super.timestamp,
     required this.sdp,
+    this.e2ee,
   });
 
   final String sdp;
+
+  /// Uctan uca sifreli cagri sinyali; varsa [sdp] bostur.
+  final String? e2ee;
 
   @override
   String get type => 'sdp_answer';
@@ -233,10 +243,15 @@ class SdpAnswerSignal extends SignalMessage {
         recipientId: json['recipientId'] as String? ?? '',
         timestamp: _dt(json['timestamp']),
         sdp: json['sdp'] as String? ?? '',
+        e2ee: json['e2ee'] as String?,
       );
 
   @override
-  Map<String, Object?> toJson() => {..._base(this), 'sdp': sdp};
+  Map<String, Object?> toJson() => {
+    ..._base(this),
+    'sdp': sdp,
+    if (e2ee != null) 'e2ee': e2ee,
+  };
 }
 
 class IceCandidateSignal extends SignalMessage {
@@ -247,11 +262,15 @@ class IceCandidateSignal extends SignalMessage {
     required this.candidate,
     this.sdpMid,
     required this.sdpMLineIndex,
+    this.e2ee,
   });
 
   final String candidate;
   final String? sdpMid;
   final int sdpMLineIndex;
+
+  /// Uctan uca sifreli cagri sinyali; varsa aday alanlari bostur.
+  final String? e2ee;
 
   @override
   String get type => 'ice_candidate';
@@ -264,6 +283,7 @@ class IceCandidateSignal extends SignalMessage {
         candidate: json['candidate'] as String? ?? '',
         sdpMid: json['sdpMid'] as String?,
         sdpMLineIndex: (json['sdpMLineIndex'] as num?)?.toInt() ?? 0,
+        e2ee: json['e2ee'] as String?,
       );
 
   @override
@@ -272,6 +292,7 @@ class IceCandidateSignal extends SignalMessage {
     'candidate': candidate,
     'sdpMid': sdpMid,
     'sdpMLineIndex': sdpMLineIndex,
+    if (e2ee != null) 'e2ee': e2ee,
   };
 }
 

@@ -50,6 +50,7 @@ import '../incoming/incoming_message_handler.dart';
 import '../l10n/service_strings.dart';
 import '../media/call_manager.dart';
 import '../media/call_tone_service.dart';
+import '../media/encrypted_call_signaling.dart';
 import '../media/file_transfer_manager.dart';
 import '../media/group_media_engine.dart';
 import '../media/ice_server_fetcher.dart';
@@ -718,9 +719,17 @@ class AppContainer {
         }
       }
 
+      // Birebir aramanin SDP/ICE sinyalleri uctan uca sifreli tasinir.
+      final callSignaling = EncryptedCallSignaling(
+        inner: signaling,
+        crypto: crypto,
+        cryptoState: database.cryptoState,
+        onFailure: reportAsyncFailure,
+      );
+      resources.register('encrypted-call-signaling', callSignaling.dispose);
       callManager = CallManager(
         session: session,
-        signaling: signaling,
+        signaling: callSignaling,
         media: mediaEngine,
         groupMedia: WebRtcGroupMediaEngine(),
         iceServers: HttpIceServerProvider(
