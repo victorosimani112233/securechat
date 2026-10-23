@@ -91,10 +91,7 @@ void main() {
     // Anahtar donusunun calisabilmesi icin yedek pin gercekten gecerli
     // olmali; yalniz birincil pin kabul edilseydi donus her kurulumu
     // koparirdi.
-    final socket = await connectorWith([
-      _otherPin,
-      correctPin,
-    ]).connect(wsUri);
+    final socket = await connectorWith([_otherPin, correctPin]).connect(wsUri);
 
     expect(socket.readyState, WebSocket.open);
     await socket.close();
@@ -124,20 +121,42 @@ void main() {
   test('pin gerektiren host icin sifresiz ws reddedilir', () async {
     // Pinli bir endpointe sifresiz baglanmak pinlemeyi tumuyle atlardi.
     await expectLater(
-      connectorWith([correctPin, _otherPin]).connect(
-        Uri.parse('ws://127.0.0.1:${server.port}/ws'),
-      ),
+      connectorWith([
+        correctPin,
+        _otherPin,
+      ]).connect(Uri.parse('ws://127.0.0.1:${server.port}/ws')),
       throwsA(isA<TlsPinException>()),
     );
+  });
+
+  test('pin tanimsiz host icin guvenli ws hic acilmaz', () async {
+    // Pin tanimsiz hostta dogrulama her sertifikayi kabul ederdi ve kok
+    // deposu bos oldugu icin CA dogrulamasi da yoktur: tam MITM.
+    var connected = false;
+    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(probe.close);
+    probe.listen((socket) {
+      connected = true;
+      socket.destroy();
+    });
+    await expectLater(
+      PinnedWebSocketConnector(
+        TlsPinPolicy({
+          'example.invalid': [correctPin, _otherPin],
+        }),
+      ).connect(Uri.parse('wss://127.0.0.1:${probe.port}/ws')),
+      throwsA(isA<TlsPinException>()),
+    );
+    expect(connected, isFalse);
   });
 
   test('baslik degerine satir sonu sizdirilamaz', () async {
     // CRLF tasiyan bir deger isteğe yeni baslik ya da govde ekleyebilirdi.
     await expectLater(
-      connectorWith([correctPin, _otherPin]).connect(
-        wsUri,
-        headers: {'X-Test': 'deger\r\nX-Enjekte: evet'},
-      ),
+      connectorWith([
+        correctPin,
+        _otherPin,
+      ]).connect(wsUri, headers: {'X-Test': 'deger\r\nX-Enjekte: evet'}),
       throwsA(isA<WebSocketException>()),
     );
   });

@@ -57,6 +57,15 @@ class PinnedWebSocketConnector {
         'Pin gerektiren ${uri.host} icin sifresiz WebSocket acilamaz.',
       );
     }
+    if (secure && !policy.requiresPin(uri.host)) {
+      // Kok deposu bos oldugu icin guven yalniz pinden gelir. Pin tanimsiz
+      // bir hostta `verifyDer` her sertifikayi kabul eder; baglanti kurulsa
+      // CA dogrulamasi da olmayacagi icin araya giren herkes kabul edilirdi.
+      // HTTP yolu bu hostlari CA ile dogrular; WebSocket yolu hic acmaz.
+      throw TlsPinException(
+        'Pin tanimsiz ${uri.host} icin guvenli WebSocket acilamaz.',
+      );
+    }
     final port = uri.hasPort ? uri.port : (secure ? 443 : 80);
 
     final socket = secure
@@ -148,10 +157,7 @@ class PinnedWebSocketConnector {
         if (headerEnd < 0) return;
         try {
           _verify(
-            utf8.decode(
-              collected.sublist(0, headerEnd),
-              allowMalformed: true,
-            ),
+            utf8.decode(collected.sublist(0, headerEnd), allowMalformed: true),
             key,
           );
         } catch (error) {
