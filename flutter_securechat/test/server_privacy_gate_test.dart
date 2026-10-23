@@ -372,13 +372,29 @@ void main() {
     );
     expect(groupMigration, contains('DROP TABLE IF EXISTS group_members'));
 
+    // Tek kullanimlik anahtar silinerek tuketilir; tuketim zamani yazilmaz.
+    // libsignal tablolari V31 ile kalkti.
     final preKeyStore = source(
       'server_hardened/signaling-server/src/main/kotlin/'
-      'com/securechat/signaling/PreKeyStore.kt',
+      'com/securechat/signaling/OlmPreKeyStore.kt',
     );
-    expect(preKeyStore, contains('DELETE FROM one_time_prekeys'));
-    expect(preKeyStore, contains('RETURNING one_time_prekeys.key_id'));
-    expect(preKeyStore, isNot(contains('SET consumed_at = NOW()')));
+    expect(preKeyStore, contains('DELETE FROM olm_one_time_prekeys'));
+    expect(preKeyStore, contains('RETURNING olm_one_time_prekeys.public_key'));
+    expect(preKeyStore, isNot(contains('consumed_at')));
+    expect(
+      File(
+        '${Directory.current.path}/server_hardened/signaling-server/src/main/'
+        'kotlin/com/securechat/signaling/PreKeyStore.kt',
+      ).existsSync(),
+      isFalse,
+    );
+    expect(
+      source(
+        'server_hardened/signaling-server/src/main/resources/db/migration/'
+        'V31__retire_libsignal_prekeys.sql',
+      ),
+      contains('DROP TABLE IF EXISTS one_time_prekeys'),
+    );
     final preKeyMigration = source(
       'server_hardened/signaling-server/src/main/resources/db/migration/'
       'V11__remove_user_prekey_timeline.sql',

@@ -8,13 +8,15 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 
 | Server route | Guard | Durum | Flutter kaniti | Karar |
 |---|---|---|---|---|
+| `DELETE /api/v1/attachments/{id}` | `auth` | COVERED | `flutter_securechat/lib/src/media/attachment_transport.dart` | 1:1 alici eki dogrulayinca silme jetonuyla siler; yanlis jeton ve olmayan ek ayni 404. |
 | `GET /` | `public` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Servis karsilama yolu; sabit cevap, kimlik tasimaz. |
 | `GET /api/v1/admin/reports` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyon listesi; istemci cagirmaz, kullanici token'i gecmez. |
+| `GET /api/v1/attachments/{id}` | `auth` | COVERED | `flutter_securechat/lib/src/media/attachment_transport.dart` | Sifreli ek indirme; kimlik yalniz E2EE isaretcide paylasilir. |
 | `GET /api/v1/directory/config` | `public` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Pinlenmis blind-RSA OPRF acik yapilandirmasi; kayit oncesi gerektigi icin public. |
 | `GET /api/v1/directory/snapshot` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Token-etiketli ve token-sealed uyelik anlik goruntusu. |
 | `GET /api/v1/ice/config` | `auth` | COVERED | `flutter_securechat/lib/src/media/ice_server_fetcher.dart` | Kisa omurlu TURN yapilandirmasi. |
 | `GET /api/v1/latest-version` | `public` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Magaza/surum politikasi yolu; Flutter istemcisinde cagiran yok. |
-| `GET /api/v1/prekeys/status` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. Kaldirma, libsignal kolonlarini dusuren migration ile birlikte. |
+| `GET /api/v1/prekeys/status` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Olm havuz sayaci (olmRemaining). Istemci yayinlanmis anahtar sayisini yerelde tuttugu icin cagirmiyor. |
 | `GET /api/v1/users/{userId}/prekeys` | `auth` | COVERED | `flutter_securechat/lib/src/crypto/vodozemac/olm_pre_key_bundle_api.dart` | Peer bundle cekimi. Guard `requireServicePrincipal` IDI ve o haliyle kullanici token'ini kabul etmiyordu, yani hicbir istemci peer bundle'i cekemiyordu; tek prekey yolu haline gelince bu, oturum kurmayi tumuyle imkansiz kilardi. Kaldirilan v2 esdegeri zaten requirePrincipal kullaniyordu. Bot API kaldirilinca servis principal'i da kalkti; artik yalniz kullanici token'i. Numaralandirmanin siniri rate limit (120/saat), erisimi kapatmak degil. |
 | `GET /api/v1/version` | `bearerToken` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | Build kimligi operator bilgisidir; surum/commit anonim sizdirilmaz. |
 | `GET /health` | `public` | COVERED | `flutter_securechat/lib/src/network/socket_diagnostics.dart` | Redakte edilmis uyumluluk yoklamasi; anonim cagrilabilir olmasi kasitli, stack ayrintisi dondurmez. |
@@ -24,8 +26,12 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | `POST /api/v1/account/recovery-email/request` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kurtarma e-postasi kaydi baslatir; hesap sahibi olmak gerekir. |
 | `POST /api/v1/account/recovery-email/status` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Yalniz cagiranin KENDI hesabi icin bagli/bagli degil doner. Guard sart: guard'siz olsaydi hangi hesabin kurtarma e-postasi oldugunu soyleyen bir numaralandirma kehaneti olurdu. |
 | `POST /api/v1/account/recovery-email/verify` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kurtarma e-postasi kaydini dogrular. |
+| `POST /api/v1/account/registration-lock` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Argon2id PIN kanitini kaydeder; sunucu yalniz blind index tutar. |
+| `POST /api/v1/account/registration-lock/clear` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kayit kilidini kapatir. |
+| `POST /api/v1/account/registration-lock/status` | `recoveryPrincipal` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kayit kilidinin acik olup olmadigi. |
 | `POST /api/v1/admin/accounts/{userId}/remove` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyonla hesap kaldirma; kullanici silme yoluyla ayni temizlik. |
 | `POST /api/v1/admin/reports/{reportId}/close` | `adminToken` | SERVER_ONLY | `flutter_securechat/server_hardened/docs/ABUSE_REPORTS.md` | Moderasyon karari kaydi. |
+| `POST /api/v1/attachments` | `auth` | COVERED | `flutter_securechat/lib/src/media/attachment_transport.dart` | Istemcide muhurlenmis ek yuklemesi; sunucu rastgele kimlik ve tek seferlik silme jetonu doner, jetonun yalniz ozetini tutar. |
 | `POST /api/v1/auth/device/challenge` | `public` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | R3-3: refresh zinciri kaybolan cihaz, cihaz anahtariyla imzalayacagi tek kullanimlik bir meydan okuma alir. Token istemez; meydan okuma tek basina hicbir yetki vermez. |
 | `POST /api/v1/auth/device/verify` | `public` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Meydan okumanin cihaz anahtariyla imzasini dogrular ve yeni oturum verir. Kayitli cihaz anahtari olmadan gecilemez. |
 | `POST /api/v1/auth/login/complete` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Dogrulanmis giristen sonra access+refresh basar. |
@@ -38,8 +44,7 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 | `POST /api/v1/fcm/unregister` | `auth` | COVERED | `flutter_securechat/lib/src/push/push_service.dart` | Tasima tokeni silme. |
 | `POST /api/v1/otp/request` | `public` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | OTP istegi; henuz hesap yok, bu yuzden guard yok. Kotuye kullanim siniri rate limit ile. |
 | `POST /api/v1/otp/verify` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | OTP tuketir ve kayit tokeni basar. Guard yerine gecen sey OTP'nin kendisidir. |
-| `POST /api/v1/prekeys/refresh` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. Kaldirma, libsignal kolonlarini dusuren migration ile birlikte. |
-| `POST /api/v1/prekeys/upload` | `auth` | SERVER_ONLY | `flutter_securechat/server_hardened/signaling-server/src/main/kotlin/com/securechat/signaling/HttpRoutes.kt` | libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. Kaldirma, libsignal kolonlarini dusuren migration ile birlikte. |
+| `POST /api/v1/prekeys/upload` | `auth` | COVERED | `flutter_securechat/lib/src/crypto/vodozemac/olm_pre_key_publisher.dart` | Olm kimligi, imzali fallback ve one-time key yuklemesi. libsignal govdesi V31 ile reddedilir; /prekeys/refresh kaldirildi. |
 | `POST /api/v1/reports` | `auth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kotuye kullanim bildirimi; icerik tasimaz, bilinmeyen alan reddedilir. Anonim yazma yolu olmasin diye kimlik zorunlu. |
 | `POST /api/v1/users/directory-token` | `auth` | COVERED | `flutter_securechat/lib/src/contacts/private_contact_discovery.dart` | Hesap sahibinin dizin anahtari gocu. |
 | `POST /api/v1/users/register` | `preAuth` | COVERED | `flutter_securechat/lib/src/auth/auth_api.dart` | Kayit tokeni tuketir, access+refresh basar. Telefon yalniz geri cevrilemez ozet olarak girer. |
@@ -65,7 +70,7 @@ Otorite sunucudur. Her route icin **kodda calisan guard** ayristirilir ve tablod
 
 ## Sonuc
 
-- Route: 36/36 eslenmis
+- Route: 41/41 eslenmis
 - Eslenmemis: yok
 - Guard uyusmazligi: yok
 

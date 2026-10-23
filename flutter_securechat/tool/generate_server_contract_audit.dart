@@ -251,31 +251,61 @@ const _routeContracts = <String, RouteContract>{
     note: 'Kisa omurlu TURN yapilandirmasi.',
   ),
   'POST /api/v1/prekeys/upload': (
-    status: 'SERVER_ONLY',
+    status: 'COVERED',
     guard: Guard.auth,
-    evidence: _serverRoot,
+    evidence:
+        'flutter_securechat/lib/src/crypto/vodozemac/olm_pre_key_publisher.dart',
     note:
-        'libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve '
-        'kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. '
-        'Kaldirma, libsignal kolonlarini dusuren migration ile birlikte.',
+        'Olm kimligi, imzali fallback ve one-time key yuklemesi. libsignal '
+        'govdesi V31 ile reddedilir; /prekeys/refresh kaldirildi.',
   ),
-  'POST /api/v1/prekeys/refresh': (
-    status: 'SERVER_ONLY',
+  'POST /api/v1/attachments': (
+    status: 'COVERED',
     guard: Guard.auth,
-    evidence: _serverRoot,
+    evidence: 'flutter_securechat/lib/src/media/attachment_transport.dart',
     note:
-        'libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve '
-        'kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. '
-        'Kaldirma, libsignal kolonlarini dusuren migration ile birlikte.',
+        'Istemcide muhurlenmis ek yuklemesi; sunucu rastgele kimlik ve tek '
+        'seferlik silme jetonu doner, jetonun yalniz ozetini tutar.',
+  ),
+  'GET /api/v1/attachments/{id}': (
+    status: 'COVERED',
+    guard: Guard.auth,
+    evidence: 'flutter_securechat/lib/src/media/attachment_transport.dart',
+    note: 'Sifreli ek indirme; kimlik yalniz E2EE isaretcide paylasilir.',
+  ),
+  'DELETE /api/v1/attachments/{id}': (
+    status: 'COVERED',
+    guard: Guard.auth,
+    evidence: 'flutter_securechat/lib/src/media/attachment_transport.dart',
+    note:
+        '1:1 alici eki dogrulayinca silme jetonuyla siler; yanlis jeton ve '
+        'olmayan ek ayni 404.',
+  ),
+  'POST /api/v1/account/registration-lock/status': (
+    status: 'COVERED',
+    guard: Guard.recoveryPrincipal,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note: 'Kayit kilidinin acik olup olmadigi.',
+  ),
+  'POST /api/v1/account/registration-lock': (
+    status: 'COVERED',
+    guard: Guard.recoveryPrincipal,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note: 'Argon2id PIN kanitini kaydeder; sunucu yalniz blind index tutar.',
+  ),
+  'POST /api/v1/account/registration-lock/clear': (
+    status: 'COVERED',
+    guard: Guard.recoveryPrincipal,
+    evidence: 'flutter_securechat/lib/src/auth/auth_api.dart',
+    note: 'Kayit kilidini kapatir.',
   ),
   'GET /api/v1/prekeys/status': (
     status: 'SERVER_ONLY',
     guard: Guard.auth,
     evidence: _serverRoot,
     note:
-        'libsignal v1 prekey yolu. Istemci fa0320c ile birakti (mesaj ve '
-        'kurtarma Olm kullanir); route eski istemciler icin sunucuda acik. '
-        'Kaldirma, libsignal kolonlarini dusuren migration ile birlikte.',
+        'Olm havuz sayaci (olmRemaining). Istemci yayinlanmis anahtar '
+        'sayisini yerelde tuttugu icin cagirmiyor.',
   ),
   'GET /api/v1/users/{userId}/prekeys': (
     status: 'COVERED',
