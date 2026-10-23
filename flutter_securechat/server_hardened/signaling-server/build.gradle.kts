@@ -183,6 +183,9 @@ val runDummyServer by tasks.registering(JavaExec::class) {
     environment("METRICS_BEARER_TOKEN", "dummy-lab-metrics-bearer-token-32-characters")
     environment("TURN_SECRET", "dummy-lab-turn-shared-secret-with-32-bytes")
     environment("TURN_HOST", "turn.lab.invalid")
+    // Sunucuyu varsayilan ayarla baslatan testler ekleri depoya degil
+    // build altina yazar.
+    environment("ATTACHMENT_DIR", layout.buildDirectory.dir("tmp/test-attachments").get().asFile.absolutePath)
     environment(
         "DIRECTORY_OPRF_PRIVATE_KEY_FILE",
         testDirectoryOprfKey.get().asFile.absolutePath,
