@@ -34,7 +34,9 @@ class AppConfig {
         .toSet();
     if (tlsHosts.isEmpty) return;
     final host = certificatePinHost.trim().toLowerCase();
-    if (host.isEmpty || certificatePins.length < 2) {
+    // Ayni deger iki kez verilirse yedek pin yoktur: aktif anahtar degisince
+    // butun kurulumlar sunucuya baglanamaz.
+    if (host.isEmpty || certificatePins.toSet().length < 2) {
       throw StateError(
         'TLS endpointleri için birincil ve yedek SPKI pin zorunludur.',
       );

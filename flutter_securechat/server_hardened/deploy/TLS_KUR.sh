@@ -60,7 +60,13 @@ else
   info "aktif sertifika korunuyor"
 fi
 
-if [[ ! -f "$cert_dir/backup.crt" ]]; then
+if [[ -n "${BACKUP_SPKI_SHA256:-}" ]]; then
+  # Onerilen yol: yedek anahtar sunucu disinda (cevrimdisi) uretilir, bu
+  # hosta yalniz SPKI ozeti girer. Ayni hostta duran yedek anahtar, aktif
+  # anahtarla birlikte ele gecebilir.
+  info "yedek pin disaridan verildi; bu hostta yedek anahtar uretilmedi"
+elif [[ ! -f "$cert_dir/backup.crt" ]]; then
+  info "UYARI: yedek anahtar bu hostta uretiliyor; BACKUP_SPKI_SHA256 ile cevrimdisi uretilmis bir pin verin"
   openssl req -x509 -newkey rsa:2048 -nodes -days 1825 \
     -subj "/CN=$public_host-backup" -addext "subjectAltName=$san" \
     -keyout "$cert_dir/backup.key" -out "$cert_dir/backup.crt" 2>/dev/null
@@ -144,6 +150,12 @@ LISTEN_PLACEHOLDER
         proxy_send_timeout 300s;
     }
 
+    # Operasyonel yuzeyler public degildir (reverse-proxy.conf ile ayni).
+    location /metrics        { return 404; }
+    location = /ready        { return 404; }
+    location /api/v1/version { return 404; }
+    location /admin          { return 404; }
+
     location / {
         proxy_pass http://127.0.0.1:$upstream_port;
         proxy_http_version 1.1;
@@ -191,7 +203,8 @@ health="$(curl -fsSk --max-time 5 "https://$public_host/health" 2>/dev/null || t
 [[ -n "$health" ]] || die "https://$public_host/health yanit vermedi. KUR.sh calisiyor mu? SECURECHAT_BIND_HOST=127.0.0.1 olmali ve nginx ayni makinede."
 
 primary="$(spki_pin "$cert_dir/server.crt")"
-backup="$(spki_pin "$cert_dir/backup.crt")"
+backup="${BACKUP_SPKI_SHA256:-$(spki_pin "$cert_dir/backup.crt")}"
+[[ "$backup" != "$primary" ]] || die "yedek pin aktif pinle ayni olamaz"
 
 cat <<SUMMARY
 
