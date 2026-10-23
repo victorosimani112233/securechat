@@ -87,15 +87,20 @@ class GeneratedAvatar extends StatelessWidget {
   static bool showsPersonIcon(String name) =>
       isOpaquePeerName(name) || !RegExp(r'\p{L}', unicode: true).hasMatch(name);
 
-  @override
-  Widget build(BuildContext context) {
+  /// Ada gore secilen avatar rengi; arama ekrani arka planinda da kullanilir.
+  static Color colorFor(BuildContext context, String name) {
     final colors = [
       Theme.of(context).colorScheme.primary,
       const Color(0xFF6B737D),
       const Color(0xFF22C55E),
       const Color(0xFFFFB800),
     ];
-    final color = colors[name.hashCode.abs() % colors.length];
+    return colors[name.hashCode.abs() % colors.length];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = colorFor(context, name);
     final initials = initialsOf(name);
     final encoded = photo;
     final image = encoded == null || encoded.isEmpty

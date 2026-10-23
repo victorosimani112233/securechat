@@ -253,25 +253,24 @@ void main() {
             .widget<Text>(find.byKey(const ValueKey('call-peer-name')))
             .style!
             .fontSize,
-        20,
+        28,
       );
       expect(
         tester
             .widget<Text>(find.byKey(const ValueKey('call-status')))
             .style!
             .fontSize,
-        14,
+        16,
       );
-      expect(
-        tester.getSize(find.widgetWithText(FilledButton, 'End')),
-        const Size(144, 48),
-      );
-      final controls = tester.getSize(
+      // Bitir ayri bir cubuk degil, panelin icinde yuvarlak dugme.
+      final end = tester.getRect(find.byTooltip('End'));
+      final controls = tester.getRect(
         find.byKey(const ValueKey('call-controls')),
       );
-      expect(controls.width, lessThanOrEqualTo(300));
+      expect(controls.contains(end.center), isTrue);
+      expect(controls.width, lessThanOrEqualTo(360));
       expect(controls.height, lessThanOrEqualTo(180));
-      for (final label in ['Mute', 'Speaker']) {
+      for (final label in ['Mute', 'Speaker', 'End']) {
         final target = tester.getSize(find.byTooltip(label));
         expect(target.width, greaterThanOrEqualTo(48));
         expect(target.height, greaterThanOrEqualTo(48));
@@ -343,9 +342,7 @@ void main() {
             lessThanOrEqualTo(viewport.size.height - 34),
           );
           expect(initialStatus.overlaps(controls), isFalse);
-          final endButton = tester.getRect(
-            find.widgetWithText(FilledButton, 'Bitir'),
-          );
+          final endButton = tester.getRect(find.text('Bitir'));
           expect(
             endButton.bottom,
             lessThanOrEqualTo(viewport.size.height - 34),
