@@ -943,13 +943,13 @@ class FileTransferManager {
     _sendingCount++;
     _publishActivity();
     try {
-      final String id;
+      final UploadedAttachment uploaded;
       final int sealedSize;
       try {
         await staging.create(recursive: true);
         await MediaVault.sealWithKey(key, file, sealed);
         sealedSize = await sealed.length();
-        id = await transport.upload(sealed);
+        uploaded = await transport.upload(sealed);
       } catch (error, stackTrace) {
         await _reportFailure('file-transfer.blob-upload', error, stackTrace);
         return null;
@@ -960,9 +960,14 @@ class FileTransferManager {
           blobPointerPrefix +
           jsonEncode(<String, Object?>{
             'v': 1,
-            'id': id,
+            'id': uploaded.id,
             'key': base64Encode(key),
             'size': sealedSize,
+            // Silme jetonu yalniz 1:1'de verilir: tek alici indirip
+            // dogrulayinca eki sunucudan siler. Grupta bir uye digerleri
+            // indirmeden silebilirdi; orada ek TTL ile silinir.
+            if (!isGroup && uploaded.deleteToken != null)
+              'del': uploaded.deleteToken,
             'manifest': _PrivateFileManifest(
               fileName: safeFileName,
               mimeType: safeMimeType,
@@ -1210,6 +1215,14 @@ class FileTransferManager {
         throw const FormatException('Attachment content size mismatch');
       }
       await pending.delete();
+      final deleteToken = pointer.deleteToken;
+      if (groupId == null && deleteToken != null) {
+        // Dosya cihazda dogrulandi; sunucudaki sifreli kopyaya gerek yok.
+        _operations.run(
+          'file-transfer.blob-delete',
+          transport.delete(pointer.id, deleteToken),
+        );
+      }
       final received = ReceivedFile(
         transferId: transferId,
         file: output,
@@ -1762,12 +1775,16 @@ class _BlobPointer {
     required this.key,
     required this.sealedSize,
     required this.manifest,
+    this.deleteToken,
   });
 
   final String id;
   final List<int> key;
   final int sealedSize;
   final _PrivateFileManifest manifest;
+
+  /// Yalniz 1:1 isaretcide; alici indirdikten sonra eki siler.
+  final String? deleteToken;
 
   factory _BlobPointer.fromJson(
     Map<String, Object?> json, {
@@ -1780,6 +1797,11 @@ class _BlobPointer {
     final rawKey = json['key'];
     final size = json['size'];
     final rawManifest = json['manifest'];
+    final deleteToken = json['del'];
+    if (deleteToken != null &&
+        (deleteToken is! String || !isAttachmentId(deleteToken))) {
+      throw const FormatException('Invalid attachment pointer');
+    }
     if (id is! String ||
         !isAttachmentId(id) ||
         rawKey is! String ||
@@ -1806,6 +1828,7 @@ class _BlobPointer {
       key: key,
       sealedSize: sealedSize,
       manifest: manifest,
+      deleteToken: deleteToken as String?,
     );
   }
 
@@ -1815,5 +1838,6 @@ class _BlobPointer {
     'key': base64Encode(key),
     'size': sealedSize,
     'manifest': manifest.toJson(),
+    if (deleteToken != null) 'del': deleteToken,
   };
 }

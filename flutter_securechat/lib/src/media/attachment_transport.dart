@@ -8,10 +8,23 @@ import 'dart:io';
 /// anahtar ve dosya bilgisi uctan uca sifreli isaretcide gider.
 abstract interface class AttachmentTransport {
   /// Muhurlu dosyayi yukler; sunucunun verdigi kimligi dondurur.
-  Future<String> upload(File sealed);
+  Future<UploadedAttachment> upload(File sealed);
 
   /// Eki [target]'a indirir; [maxBytes]'tan buyukse vazgecer.
   Future<void> download(String id, File target, {required int maxBytes});
+
+  /// Eki suresi dolmadan siler. Ek zaten yoksa sessizce biter.
+  Future<void> delete(String id, String deleteToken);
+}
+
+/// Yuklenen ekin kimligi ve erken silme jetonu.
+///
+/// Jetonu eski sunucu vermez; o durumda ek yalniz TTL ile silinir.
+class UploadedAttachment {
+  const UploadedAttachment(this.id, {this.deleteToken});
+
+  final String id;
+  final String? deleteToken;
 }
 
 class AttachmentTransportException implements Exception {
@@ -38,6 +51,9 @@ class AttachmentTransportException implements Exception {
 /// kadar tutar, gonderen teslim makbuzu gelene kadar yeniden gonderir.
 const blobPointerPrefix = 'BLOBPTR:v1:';
 
+/// Erken silme jetonunun tasindigi baslik.
+const attachmentDeleteTokenHeader = 'X-Attachment-Delete-Token';
+
 /// Ek kimligi: sunucunun urettigi 256 bitlik base64url deger.
 bool isAttachmentId(String value) =>
     RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(value);
@@ -61,7 +77,7 @@ class HttpAttachmentTransport implements AttachmentTransport {
   static const _timeout = Duration(seconds: 30);
 
   @override
-  Future<String> upload(File sealed) => _withAuth((token) async {
+  Future<UploadedAttachment> upload(File sealed) => _withAuth((token) async {
     final length = await sealed.length();
     final request = await _client
         .postUrl(_baseUri.resolve('/api/v1/attachments'))
@@ -79,12 +95,44 @@ class HttpAttachmentTransport implements AttachmentTransport {
         statusCode: response.statusCode,
       );
     }
-    final id = (jsonDecode(body) as Map)['id'];
+    final json = jsonDecode(body) as Map;
+    final id = json['id'];
     if (id is! String || !isAttachmentId(id)) {
       throw const AttachmentTransportException('invalid upload response');
     }
-    return id;
+    final deleteToken = json['deleteToken'];
+    return UploadedAttachment(
+      id,
+      deleteToken: deleteToken is String && isAttachmentId(deleteToken)
+          ? deleteToken
+          : null,
+    );
   });
+
+  @override
+  Future<void> delete(String id, String deleteToken) {
+    if (!isAttachmentId(id) || !isAttachmentId(deleteToken)) {
+      throw const AttachmentTransportException('invalid attachment id');
+    }
+    return _withAuth((token) async {
+      final request = await _client
+          .deleteUrl(_baseUri.resolve('/api/v1/attachments/$id'))
+          .timeout(_timeout);
+      request.headers
+        ..set(HttpHeaders.authorizationHeader, 'Bearer $token')
+        ..set(attachmentDeleteTokenHeader, deleteToken);
+      final response = await request.close().timeout(_timeout);
+      await response.drain<void>();
+      // 404: ek zaten silinmis ya da suresi dolmus.
+      if (response.statusCode != HttpStatus.noContent &&
+          response.statusCode != HttpStatus.notFound) {
+        throw AttachmentTransportException(
+          'delete rejected',
+          statusCode: response.statusCode,
+        );
+      }
+    });
+  }
 
   @override
   Future<void> download(String id, File target, {required int maxBytes}) {

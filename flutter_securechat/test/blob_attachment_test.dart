@@ -172,6 +172,104 @@ void main() {
     expect(pendingIn('receiver'), isEmpty);
   });
 
+  Future<(_MemoryTransport, String)> sentPointer({
+    bool issuesDeleteTokens = true,
+  }) async {
+    final server = _MemoryTransport(issuesDeleteTokens: issuesDeleteTokens);
+    final outbox = <(EncryptedSignalMessage, String)>[];
+    final sender = await manager(
+      await socket('me'),
+      'sender',
+      transport: server,
+      outbox: outbox,
+    );
+    await sender.sendFile(
+      localUserId: 'me',
+      recipientId: 'peer',
+      file: await picked(payload(5000)),
+      mimeType: 'image/jpeg',
+      originalMessageId: 'media-del',
+    );
+    return (server, await pointerOf(outbox.single.$1));
+  }
+
+  test('the 1:1 receiver deletes the attachment once it is verified', () async {
+    final (server, pointer) = await sentPointer();
+    expect(jsonDecode(pointer), containsPair('del', isA<String>()));
+    final receiver = await manager(
+      await socket('me'),
+      'receiver',
+      transport: server,
+    );
+    final delivered = receiver.receivedFiles.first;
+    await receiver.acceptBlobPointer(
+      senderId: 'peer',
+      groupId: null,
+      payload: pointer,
+    );
+    await delivered;
+    await receiver.waitForIdle();
+    // Sifreli kopya TTL'i beklemeden sunucudan kalkar.
+    expect(server.blobs, isEmpty);
+  });
+
+  test('a group pointer never deletes the shared attachment', () async {
+    final (server, pointer) = await sentPointer();
+    final receiver = await manager(
+      await socket('me'),
+      'receiver',
+      transport: server,
+    );
+    final delivered = receiver.receivedFiles.first;
+    // Diger uyeler henuz indirmemis olabilir.
+    await receiver.acceptBlobPointer(
+      senderId: 'peer',
+      groupId: 'group-1',
+      payload: pointer,
+    );
+    await delivered;
+    await receiver.waitForIdle();
+    expect(server.deleteAttempts, isEmpty);
+    expect(server.blobs, hasLength(1));
+  });
+
+  test('a server without delete tokens keeps the old pointer', () async {
+    final (server, pointer) = await sentPointer(issuesDeleteTokens: false);
+    expect(jsonDecode(pointer), isNot(contains('del')));
+    final receiver = await manager(
+      await socket('me'),
+      'receiver',
+      transport: server,
+    );
+    final delivered = receiver.receivedFiles.first;
+    await receiver.acceptBlobPointer(
+      senderId: 'peer',
+      groupId: null,
+      payload: pointer,
+    );
+    await delivered;
+    await receiver.waitForIdle();
+    expect(server.deleteAttempts, isEmpty);
+  });
+
+  test('a malformed delete token makes the pointer invalid', () async {
+    final (server, pointer) = await sentPointer();
+    final receiver = await manager(
+      await socket('me'),
+      'receiver',
+      transport: server,
+    );
+    final tampered = (jsonDecode(pointer) as Map)..['del'] = '../x';
+    await expectLater(
+      receiver.acceptBlobPointer(
+        senderId: 'peer',
+        groupId: null,
+        payload: jsonEncode(tampered),
+      ),
+      throwsFormatException,
+    );
+  });
+
   test('the pointer stays in the outbox until the receipt arrives', () async {
     final database = await SecureChatDatabase.open(
       file: File('${root.path}/outbox-db'),
@@ -574,20 +672,38 @@ void main() {
 }
 
 class _MemoryTransport implements AttachmentTransport {
+  _MemoryTransport({this.issuesDeleteTokens = true});
+
+  /// Eski sunucu silme jetonu vermez.
+  final bool issuesDeleteTokens;
   final blobs = <String, Uint8List>{};
+  final _tokens = <String, String>{};
+  final deleteAttempts = <String>[];
   int? rejectUpload;
   bool failDownloads = false;
   var _next = 0;
 
   @override
-  Future<String> upload(File sealed) async {
+  Future<UploadedAttachment> upload(File sealed) async {
     final status = rejectUpload;
     if (status != null) {
       throw AttachmentTransportException('rejected', statusCode: status);
     }
     final id = (_next++).toString().padLeft(43, 'A');
     blobs[id] = sealed.readAsBytesSync();
-    return id;
+    if (!issuesDeleteTokens) return UploadedAttachment(id);
+    final token = id.replaceAll('A', 'T');
+    _tokens[id] = token;
+    return UploadedAttachment(id, deleteToken: token);
+  }
+
+  @override
+  Future<void> delete(String id, String deleteToken) async {
+    deleteAttempts.add(id);
+    if (_tokens[id] == deleteToken) {
+      blobs.remove(id);
+      _tokens.remove(id);
+    }
   }
 
   @override

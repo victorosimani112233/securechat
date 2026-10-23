@@ -5,6 +5,7 @@ import com.securechat.signaling.db.Database
 import com.securechat.signaling.db.RedisManager
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -298,6 +299,38 @@ class EndToEndServerTest {
         assertEquals(HttpStatusCode.OK, download.status)
         assertEquals("no-store", download.headers[HttpHeaders.CacheControl])
         assertTrue(ciphertext.contentEquals(download.readBytes()))
+    }
+
+    @Test
+    fun `an attachment is deleted early only with its delete token`() = e2e {
+        clearRateLimits()
+        val upload = client.post("/api/v1/attachments") {
+            header("Authorization", "Bearer $aliceToken")
+            setBody(ByteArray(1_000) { 3 })
+        }
+        assertEquals(HttpStatusCode.Created, upload.status)
+        assertEquals("no-store", upload.headers[HttpHeaders.CacheControl])
+        val body = json.parseToJsonElement(upload.bodyAsText()) as JsonObject
+        val id = body["id"]!!.jsonPrimitive.content
+        val token = body["deleteToken"]!!.jsonPrimitive.content
+        assertEquals(43, token.length)
+
+        suspend fun delete(value: String?) = client.delete("/api/v1/attachments/$id") {
+            header("Authorization", "Bearer $bobToken")
+            if (value != null) header(ATTACHMENT_DELETE_TOKEN_HEADER, value)
+        }
+        assertEquals(HttpStatusCode.NotFound, delete(null).status)
+        assertEquals(HttpStatusCode.NotFound, delete("a".repeat(43)).status)
+        // Jetonu isaretciden alan alici silebilir.
+        assertEquals(HttpStatusCode.NoContent, delete(token).status)
+        assertEquals(
+            HttpStatusCode.NotFound,
+            client.get("/api/v1/attachments/$id") { header("Authorization", "Bearer $bobToken") }.status,
+        )
+        assertEquals(
+            HttpStatusCode.Unauthorized,
+            client.delete("/api/v1/attachments/$id") { header(ATTACHMENT_DELETE_TOKEN_HEADER, token) }.status,
+        )
     }
 
     @Test

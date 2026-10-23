@@ -10,6 +10,7 @@ import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFilePermissions
+import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +32,11 @@ private val attachmentLog = LoggerFactory.getLogger("AttachmentStore")
  * Sunucu yalniz sifreli baytlari ve rastgele 256 bitlik kimligi gorur; ad,
  * tur, anahtar ve alicilar sifreli isaretcidedir. Dosyalar [ttlMillis] sonra
  * silinir.
+ *
+ * Erken silme icin her yukleme tek bir silme jetonu alir. Sunucu jetonun
+ * yalniz SHA-256 ozetini tutar; yukleyen hesap kaydedilmez. Jeton uctan uca
+ * sifreli isaretciyle alicinin eline gecer, alici eki indirip dogrulayinca
+ * siler ve dosya TTL dolmadan diskten kalkar.
  */
 class AttachmentStore(
     private val directory: Path,
@@ -49,13 +55,17 @@ class AttachmentStore(
 
     fun isValidId(id: String): Boolean = ID_PATTERN.matches(id)
 
+    /** Yuklenen ekin kimligi ve tek seferlik silme jetonu. */
+    data class Stored(val id: String, val deleteToken: String)
+
     /**
      * Govdeyi diske akitarak yazar; tam [declaredLength] bayt gelmezse ya da
      * sinir asilirsa yarim dosya silinir ve [IllegalArgumentException] atilir.
      */
-    suspend fun write(body: ByteReadChannel, declaredLength: Long): String {
+    suspend fun write(body: ByteReadChannel, declaredLength: Long): Stored {
         require(declaredLength in 1..maxBytes) { "Invalid attachment size" }
         val id = newId()
+        val deleteToken = newId()
         val partial = directory.resolve("$id.part")
         try {
             var written = 0L
@@ -75,15 +85,22 @@ class AttachmentStore(
                     }
                 }
                 require(written == declaredLength) { "Attachment is shorter than declared" }
+                Files.write(
+                    directory.resolve("$id.owner"),
+                    tokenDigest(deleteToken),
+                    StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE,
+                )
                 Files.move(
                     partial,
                     directory.resolve("$id.blob"),
                     StandardCopyOption.ATOMIC_MOVE,
                 )
             }
-            return id
+            return Stored(id, deleteToken)
         } catch (error: Throwable) {
             runCatching { Files.deleteIfExists(partial) }
+            runCatching { Files.deleteIfExists(directory.resolve("$id.owner")) }
             throw error
         }
     }
@@ -95,9 +112,25 @@ class AttachmentStore(
         if (!Files.isRegularFile(path)) return null
         if (expired(path)) {
             runCatching { Files.deleteIfExists(path) }
+            runCatching { Files.deleteIfExists(directory.resolve("$id.owner")) }
             return null
         }
         return path
+    }
+
+    /**
+     * Jeton dogruysa eki siler. Yanlis jeton ile olmayan ek ayirt edilmez;
+     * ikisi de `false` doner.
+     */
+    fun delete(id: String, deleteToken: String): Boolean {
+        if (!isValidId(id) || !isValidId(deleteToken)) return false
+        val owner = directory.resolve("$id.owner")
+        val stored = runCatching { Files.readAllBytes(owner) }.getOrNull() ?: return false
+        if (!MessageDigest.isEqual(stored, tokenDigest(deleteToken))) return false
+        val removed = runCatching { Files.deleteIfExists(directory.resolve("$id.blob")) }
+            .getOrDefault(false)
+        runCatching { Files.deleteIfExists(owner) }
+        return removed
     }
 
     /** Suresi dolan ekleri ve yarim kalan yuklemeleri siler. */
@@ -110,6 +143,10 @@ class AttachmentStore(
                     name.endsWith(".blob") -> expired(path)
                     name.endsWith(".part") ->
                         now() - Files.getLastModifiedTime(path).toMillis() > PARTIAL_TTL_MILLIS
+                    // Eki silinmis ya da hic tamamlanmamis jeton ozeti.
+                    name.endsWith(".owner") ->
+                        !Files.exists(directory.resolve(name.removeSuffix(".owner") + ".blob")) &&
+                            now() - Files.getLastModifiedTime(path).toMillis() > PARTIAL_TTL_MILLIS
                     else -> false
                 }
                 if (stale && runCatching { Files.deleteIfExists(path) }.getOrDefault(false)) removed++
@@ -122,6 +159,9 @@ class AttachmentStore(
     fun expiresAt(path: Path): Long = Files.getLastModifiedTime(path).toMillis() + ttlMillis
 
     private fun expired(path: Path): Boolean = now() >= expiresAt(path)
+
+    private fun tokenDigest(token: String): ByteArray =
+        MessageDigest.getInstance("SHA-256").digest(token.toByteArray(Charsets.US_ASCII))
 
     private fun newId(): String {
         val bytes = ByteArray(32).also(random::nextBytes)
