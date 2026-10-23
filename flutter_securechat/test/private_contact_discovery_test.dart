@@ -86,6 +86,46 @@ void main() {
   );
 
   test(
+    'cached tokens skip evaluation and only new contacts are evaluated',
+    () async {
+      final fixture = await _PrivateDirectoryFixture.start();
+      addTearDown(fixture.close);
+      final cache = _MemoryTokenCache();
+      // Rastgelelik verilmez: uretimdeki gibi korleme ayri isolate'te yapilir.
+      PrivateContactDiscoveryApi api() => PrivateContactDiscoveryApi(
+        baseUrl: fixture.baseUrl,
+        client: HttpClient(),
+        tokenCache: cache,
+      );
+      final aliceHash = await hashPhoneNumber('+905551234567');
+      final unknownHash = await hashPhoneNumber('+905550000000');
+
+      final first = await api().checkUsers([aliceHash], 'access-token');
+      expect(first.single.userId, _aliceUserId);
+      expect(fixture.evaluateRequests, 1);
+      expect(cache.saved.values.single, contains(aliceHash));
+
+      // Uygulama yeniden acildiginda (yeni istemci) rehber degismediyse
+      // sunucuya korleme gitmez.
+      final again = await api().checkUsers([aliceHash], 'access-token');
+      expect(again.single.userId, _aliceUserId);
+      expect(fixture.evaluateRequests, 1);
+
+      // Yeni kisi eklenince yalniz o degerlendirilir; parti yine 256'dir.
+      await api().checkUsers([aliceHash, unknownHash], 'access-token');
+      expect(fixture.evaluateRequests, 2);
+      expect(fixture.lastBlindedBatch, hasLength(256));
+      expect(cache.saved.values.single.keys, {aliceHash, unknownHash});
+
+      // Baska anahtarin belirtecleri kullanilmaz.
+      cache.saved = {'other-key': cache.saved.values.single};
+      await api().checkUsers([aliceHash], 'access-token');
+      expect(fixture.evaluateRequests, 3);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test(
     'invalid directory key identifier fails closed before evaluation',
     () async {
       final fixture = await _PrivateDirectoryFixture.start(
@@ -373,3 +413,14 @@ Uint8List _int32(int value) {
 String _encode(List<int> bytes) => base64UrlEncode(bytes).replaceAll('=', '');
 
 List<int> _decode(String value) => base64Url.decode(base64Url.normalize(value));
+
+class _MemoryTokenCache implements DirectoryTokenCache {
+  Map<String, Map<String, String>> saved = {};
+
+  @override
+  Future<Map<String, String>> load(String keyId) async => {...?saved[keyId]};
+
+  @override
+  Future<void> save(String keyId, Map<String, String> tokens) async =>
+      saved = {keyId: Map.of(tokens)};
+}

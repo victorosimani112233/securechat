@@ -16,6 +16,7 @@ import '../chat/private_chat_control.dart';
 import '../config/app_config.dart';
 import '../contacts/contact_service.dart';
 import '../contacts/phone_number_sharing_service.dart';
+import '../contacts/directory_token_cache.dart';
 import '../contacts/private_contact_discovery.dart';
 import '../contacts/profile_name_sharing_service.dart';
 import '../core/signal_message.dart';
@@ -221,6 +222,7 @@ class SecureChatBackgroundRuntime {
         discovery: PrivateContactDiscoveryApi(
           baseUrl: config.apiBaseUrl,
           client: httpClients.create(),
+          tokenCache: StoredDirectoryTokenCache(database.cryptoState),
         ),
         onAsyncFailure: (operation, error, stackTrace) async {
           _logBackgroundFailure('BG-PHONE', operation, error, stackTrace);

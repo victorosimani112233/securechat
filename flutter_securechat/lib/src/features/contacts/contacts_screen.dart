@@ -265,6 +265,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
       _syncing = true;
       _failure = null;
     });
+    if (_invitable.isEmpty) {
+      // Davet listesi yalniz cihazda hesaplanir; sunucu eslemesi beklenmeden
+      // gosterilir, esleme bitince yeniden hesaplanir.
+      try {
+        final local = await service.loadInvitableContacts();
+        if (mounted) setState(() => _invitable = local);
+      } catch (_) {
+        // Rehber okunamadiysa esleme hatasi asagida gosterilir.
+      }
+    }
     try {
       await service.importAndDiscover(force: force);
     } catch (error) {

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -29,6 +30,18 @@ final _tokenDomain = ascii.encode('elcim-directory-token-v1\x00');
 final _labelDomain = ascii.encode('elcim-directory-label-v1\x00');
 final _entryKeyDomain = ascii.encode('elcim-directory-entry-key-v1\x00');
 final _entryAadDomain = ascii.encode('elcim-directory-entry-aad-v1\x00');
+
+/// Dizin anahtarina gore OPRF ciktilarini (telefon ozeti -> dizin
+/// belirteci) cihazda saklar.
+///
+/// Belirtec ayni anahtarla her zaman aynidir. Saklanirsa rehber her
+/// eslendiginde yalniz yeni kisiler sunucuya (koru RSA ile) gonderilir;
+/// eskiden her eslemede butun rehber yeniden degerlendiriliyordu. Kayit
+/// sifreli yerel veritabaninda durur; sunucuya bir sey gitmez.
+abstract interface class DirectoryTokenCache {
+  Future<Map<String, String>> load(String keyId);
+  Future<void> save(String keyId, Map<String, String> tokens);
+}
 
 class PrivateDirectoryException implements Exception {
   const PrivateDirectoryException(this.message, {this.statusCode});
@@ -257,13 +270,22 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
     required String baseUrl,
     required HttpClient client,
     Random? random,
+    DirectoryTokenCache? tokenCache,
   }) : _base = Uri.parse(baseUrl),
        _client = client,
-       _random = random ?? Random.secure();
+       _random = random ?? Random.secure(),
+       // Belirli rastgelelik verilen testler ayni isolate'te hesaplar.
+       _offloadMath = random == null,
+       _tokenCache = tokenCache;
 
   final Uri _base;
   final HttpClient _client;
   final Random _random;
+  final bool _offloadMath;
+  final DirectoryTokenCache? _tokenCache;
+
+  /// Ayni anda sunucuya giden en cok parti sayisi.
+  static const _parallelBatches = 3;
   final AesGcm _aead = AesGcm.with256bits();
   PrivateDirectoryConfig? _cachedConfig;
 
@@ -304,19 +326,11 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
     var config = await _loadConfig();
     late Map<String, String> tokensByHash;
     try {
-      tokensByHash = await _evaluateCandidates(
-        candidates.toList(growable: false),
-        accessToken,
-        config,
-      );
+      tokensByHash = await _tokensFor(candidates, accessToken, config);
     } on DirectoryKeyChangedException {
       _cachedConfig = null;
       config = await _loadConfig();
-      tokensByHash = await _evaluateCandidates(
-        candidates.toList(growable: false),
-        accessToken,
-        config,
-      );
+      tokensByHash = await _tokensFor(candidates, accessToken, config);
     }
 
     var snapshot = await _loadSnapshot(accessToken, config);
@@ -387,83 +401,189 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
     return config;
   }
 
+  /// Saklanan belirtecleri kullanir; yalniz eksik ozetleri degerlendirir.
+  Future<Map<String, String>> _tokensFor(
+    Set<String> candidates,
+    String accessToken,
+    PrivateDirectoryConfig config,
+  ) async {
+    final cache = _tokenCache;
+    final known = cache == null
+        ? const <String, String>{}
+        : await _loadTokens(cache, config.keyId);
+    final result = <String, String>{
+      for (final hash in candidates)
+        if (known[hash] case final token?) hash: token,
+    };
+    final missing = candidates
+        .where((hash) => !result.containsKey(hash))
+        .toList(growable: false);
+    if (missing.isEmpty) return result;
+    final evaluated = await _evaluateCandidates(missing, accessToken, config);
+    result.addAll(evaluated);
+    if (cache != null) {
+      final merged = {...known, ...evaluated};
+      // Sinir asilirsa bu eslemenin ozetleri korunur.
+      if (merged.length > _maximumCandidatesPerDiscovery) {
+        merged.removeWhere((hash, _) => !result.containsKey(hash));
+      }
+      try {
+        await cache.save(config.keyId, merged);
+        _memoryTokens = (keyId: config.keyId, tokens: merged);
+      } catch (_) {
+        // Onbellek yazilamazsa sonraki esleme yeniden degerlendirir.
+      }
+    }
+    return result;
+  }
+
+  ({String keyId, Map<String, String> tokens})? _memoryTokens;
+
+  Future<Map<String, String>> _loadTokens(
+    DirectoryTokenCache cache,
+    String keyId,
+  ) async {
+    final memory = _memoryTokens;
+    if (memory != null && memory.keyId == keyId) return memory.tokens;
+    try {
+      final tokens = await cache.load(keyId);
+      _memoryTokens = (keyId: keyId, tokens: tokens);
+      return tokens;
+    } catch (_) {
+      return const {};
+    }
+  }
+
   Future<Map<String, String>> _evaluateCandidates(
     List<String> hashes,
     String accessToken,
     PrivateDirectoryConfig config,
   ) async {
     final result = <String, String>{};
-    for (var offset = 0; offset < hashes.length; offset += config.batchSize) {
-      final end = min(offset + config.batchSize, hashes.length);
-      final records = <_BlindRecord>[
-        for (final hash in hashes.sublist(offset, end)) _blind(hash, config),
-      ];
-      while (records.length < config.batchSize) {
-        records.add(
-          _BlindRecord(
-            phoneHash: null,
-            encoded: _base64UrlNoPadding(
-              _bigIntToBytes(
-                _randomGroupElement(config.modulus),
-                config.modulusBytes,
-              ),
-            ),
-            inverse: null,
-          ),
-        );
-      }
-      records.shuffle(_random);
-      final response = await _requestJson(
-        method: 'POST',
-        path: '/api/v1/directory/evaluate',
-        bearerToken: accessToken,
-        body: {
-          'keyId': config.keyId,
-          'blinded': records.map((record) => record.encoded).toList(),
-        },
-        maximumBytes: _maximumEvaluateBytes,
+    final batches = [
+      for (var offset = 0; offset < hashes.length; offset += config.batchSize)
+        hashes.sublist(offset, min(offset + config.batchSize, hashes.length)),
+    ];
+    // Partiler sirayla degil, birkaci birlikte gider; buyuk rehberde her
+    // parti sunucuda 256 RSA islemi bekliyordu.
+    for (var start = 0; start < batches.length; start += _parallelBatches) {
+      final group = batches.sublist(
+        start,
+        min(start + _parallelBatches, batches.length),
       );
-      if (response.statusCode == HttpStatus.conflict) {
-        throw const DirectoryKeyChangedException();
-      }
-      if (response.statusCode != HttpStatus.ok) {
-        throw PrivateDirectoryException(
-          'Private directory evaluation failed.',
-          statusCode: response.statusCode,
-        );
-      }
-      if (response.json['keyId'] != config.keyId) {
-        throw const PrivateDirectoryException(
-          'Private directory evaluation key mismatch.',
-        );
-      }
-      final evaluated = response.json['evaluated'];
-      if (evaluated is! List || evaluated.length != config.batchSize) {
-        throw const PrivateDirectoryException(
-          'Private directory returned an invalid batch.',
-        );
-      }
-      for (var index = 0; index < records.length; index++) {
-        final record = records[index];
-        if (record.phoneHash == null) continue;
-        final encoded = evaluated[index];
-        if (encoded is! String) {
-          throw const PrivateDirectoryException(
-            'Private directory returned a malformed group value.',
-          );
-        }
-        result[record.phoneHash!] = DirectoryOprfMath.unblind(
-          encoded: encoded,
-          inverse: record.inverse!,
-          config: config,
-        );
+      for (final tokens in await Future.wait([
+        for (final batch in group) _evaluateBatch(batch, accessToken, config),
+      ])) {
+        result.addAll(tokens);
       }
     }
     return result;
   }
 
-  _BlindRecord _blind(String phoneHash, PrivateDirectoryConfig config) {
-    final factor = _randomGroupElement(config.modulus);
+  Future<Map<String, String>> _evaluateBatch(
+    List<String> hashes,
+    String accessToken,
+    PrivateDirectoryConfig config,
+  ) async {
+    // 3072 bit RSA korleme ve dolgu ornekleri yuzlerce milisaniye surer;
+    // arayuz donmasin diye ayri isolate'te hesaplanir.
+    final records = _offloadMath
+        ? await Isolate.run(() => _blindBatch(hashes, config, Random.secure()))
+        : _blindBatch(hashes, config, _random);
+    final response = await _requestJson(
+      method: 'POST',
+      path: '/api/v1/directory/evaluate',
+      bearerToken: accessToken,
+      body: {
+        'keyId': config.keyId,
+        'blinded': records.map((record) => record.encoded).toList(),
+      },
+      maximumBytes: _maximumEvaluateBytes,
+    );
+    if (response.statusCode == HttpStatus.conflict) {
+      throw const DirectoryKeyChangedException();
+    }
+    if (response.statusCode != HttpStatus.ok) {
+      throw PrivateDirectoryException(
+        'Private directory evaluation failed.',
+        statusCode: response.statusCode,
+      );
+    }
+    if (response.json['keyId'] != config.keyId) {
+      throw const PrivateDirectoryException(
+        'Private directory evaluation key mismatch.',
+      );
+    }
+    final evaluated = response.json['evaluated'];
+    if (evaluated is! List || evaluated.length != config.batchSize) {
+      throw const PrivateDirectoryException(
+        'Private directory returned an invalid batch.',
+      );
+    }
+    final values = <String>[];
+    for (final encoded in evaluated) {
+      if (encoded is! String) {
+        throw const PrivateDirectoryException(
+          'Private directory returned a malformed group value.',
+        );
+      }
+      values.add(encoded);
+    }
+    return _offloadMath
+        ? Isolate.run(() => _unblindBatch(records, values, config))
+        : _unblindBatch(records, values, config);
+  }
+
+  static List<_BlindRecord> _blindBatch(
+    List<String> hashes,
+    PrivateDirectoryConfig config,
+    Random random,
+  ) {
+    final records = <_BlindRecord>[
+      for (final hash in hashes) _blind(hash, config, random),
+    ];
+    while (records.length < config.batchSize) {
+      records.add(
+        _BlindRecord(
+          phoneHash: null,
+          encoded: _base64UrlNoPadding(
+            _bigIntToBytes(
+              DirectoryOprfMath.sampleGroupElement(config.modulus, random),
+              config.modulusBytes,
+            ),
+          ),
+          inverse: null,
+        ),
+      );
+    }
+    records.shuffle(random);
+    return records;
+  }
+
+  static Map<String, String> _unblindBatch(
+    List<_BlindRecord> records,
+    List<String> evaluated,
+    PrivateDirectoryConfig config,
+  ) {
+    final result = <String, String>{};
+    for (var index = 0; index < records.length; index++) {
+      final record = records[index];
+      if (record.phoneHash == null) continue;
+      result[record.phoneHash!] = DirectoryOprfMath.unblind(
+        encoded: evaluated[index],
+        inverse: record.inverse!,
+        config: config,
+      );
+    }
+    return result;
+  }
+
+  static _BlindRecord _blind(
+    String phoneHash,
+    PrivateDirectoryConfig config,
+    Random random,
+  ) {
+    final factor = DirectoryOprfMath.sampleGroupElement(config.modulus, random);
     final blinded = DirectoryOprfMath.blindWithFactor(
       phoneHash: phoneHash,
       config: config,
@@ -677,10 +797,6 @@ class PrivateContactDiscoveryApi implements ContactDiscoveryApi {
       result.add(normalized);
     }
     return result.toList(growable: false);
-  }
-
-  BigInt _randomGroupElement(BigInt modulus) {
-    return DirectoryOprfMath.sampleGroupElement(modulus, _random);
   }
 }
 
