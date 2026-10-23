@@ -32,6 +32,12 @@ class AttachmentTransportException implements Exception {
   String toString() => 'AttachmentTransportException($statusCode): $message';
 }
 
+/// Uctan uca sifreli mesajin icinde giden ek isaretcisinin oneki.
+///
+/// Isaretci metin mesajlariyla ayni yoldan gider: sunucu alici onaylayana
+/// kadar tutar, gonderen teslim makbuzu gelene kadar yeniden gonderir.
+const blobPointerPrefix = 'BLOBPTR:v1:';
+
 /// Ek kimligi: sunucunun urettigi 256 bitlik base64url deger.
 bool isAttachmentId(String value) =>
     RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(value);

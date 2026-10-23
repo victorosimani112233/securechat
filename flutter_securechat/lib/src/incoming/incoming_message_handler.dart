@@ -14,6 +14,7 @@ import '../contacts/profile_name_sharing_service.dart';
 import '../core/peer_display_name.dart';
 import '../core/signal_message.dart';
 import '../groups/private_group_control.dart';
+import '../media/attachment_transport.dart';
 import '../media/peer_capabilities.dart';
 import '../groups/private_group_route.dart';
 import '../l10n/service_strings.dart';
@@ -64,6 +65,15 @@ class IncomingMessageEvent {
 typedef CallMediaKeyReceiver =
     Future<void> Function({required String senderId, required String payload});
 
+/// Ek isaretcisini kaydedip mesaj kimligini doner; su an alinamiyorsa `null`
+/// ([FileTransferManager.acceptBlobPointer]).
+typedef BlobPointerReceiver =
+    Future<String?> Function({
+      required String senderId,
+      required String? groupId,
+      required String payload,
+    });
+
 class _EncryptedProcessingResult {
   const _EncryptedProcessingResult({
     required this.processed,
@@ -104,6 +114,7 @@ class IncomingMessageHandler {
     ProfileNameSharingService? profileNames,
     ServiceStrings? strings,
     CallMediaKeyReceiver? applyCallMediaKey,
+    BlobPointerReceiver? acceptBlobPointer,
     AsyncOperationFailureHandler? onAsyncFailure,
     Future<void> Function(String conversationId)? onUndecryptableMessage,
   }) : _signaling = signaling,
@@ -115,6 +126,7 @@ class IncomingMessageHandler {
        _phoneSharing = phoneSharing,
        _profileNames = profileNames,
        _applyCallMediaKey = applyCallMediaKey,
+       _acceptBlobPointer = acceptBlobPointer,
        _onUndecryptableMessage = onUndecryptableMessage,
        _blockList = BlockList(database.cryptoState),
        _operations = AsyncOperationTracker(onFailure: onAsyncFailure);
@@ -128,6 +140,7 @@ class IncomingMessageHandler {
   final PhoneNumberSharingService? _phoneSharing;
   final ProfileNameSharingService? _profileNames;
   final CallMediaKeyReceiver? _applyCallMediaKey;
+  final BlobPointerReceiver? _acceptBlobPointer;
   final Future<void> Function(String conversationId)? _onUndecryptableMessage;
   final BlockList _blockList;
   final AsyncOperationTracker _operations;
@@ -304,6 +317,35 @@ class IncomingMessageHandler {
         result.messageId == null ||
         await _sendDeliveredReceipt(signal.senderId, result.messageId!);
     if (receiptSent) await _sendTransportAck(token);
+  }
+
+  /// HTTP ile gelen ekin isaretcisi. Isaretci kaydedilince teslim makbuzu
+  /// gider; gonderen yeniden gondermeyi birakir. Kaydedilemezse mesaj
+  /// onaylanmaz ve sunucu sonraki baglantida yeniden teslim eder.
+  Future<_EncryptedProcessingResult> _blobPointer(
+    EncryptedSignalMessage signal,
+    String payload, {
+    required String? groupId,
+  }) async {
+    final receiver = _acceptBlobPointer;
+    if (receiver == null) return const _EncryptedProcessingResult.rejected();
+    final String? messageId;
+    try {
+      messageId = await receiver(
+        senderId: signal.senderId,
+        groupId: groupId,
+        payload: payload,
+      );
+    } on FormatException {
+      // Bozuk isaretci bir daha da cozulemez; islenmis sayilir.
+      return const _EncryptedProcessingResult(processed: true);
+    }
+    if (messageId == null) return const _EncryptedProcessingResult.rejected();
+    return _EncryptedProcessingResult(
+      processed: true,
+      messageId: messageId,
+      deliveryReceiptRequired: true,
+    );
   }
 
   Future<bool> _sendTransportAck(String token) async {
@@ -643,6 +685,13 @@ class IncomingMessageHandler {
     if (plaintext.startsWith('SKDM:')) {
       await _acceptSenderKey(signal.senderId, plaintext);
       return const _EncryptedProcessingResult(processed: true);
+    }
+    if (plaintext.startsWith(blobPointerPrefix)) {
+      return _blobPointer(
+        signal,
+        plaintext.substring(blobPointerPrefix.length),
+        groupId: isGroup ? conversationId : null,
+      );
     }
     final parsed = parseMessageEnvelope(plaintext);
     if (parsed.pollVote != null) {

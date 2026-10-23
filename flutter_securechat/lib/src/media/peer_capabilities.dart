@@ -1,10 +1,18 @@
 import '../storage/secure_chat_database.dart';
 
-/// HTTP uzerinden sifreli ek alabilme yetenegi.
-const blobAttachmentCapability = 'blob-v1';
+/// HTTP uzerinden sifreli ek alabilme yetenegi: isaretci teslim onayli
+/// sifreli mesaj olarak gelir (`BLOBPTR:v1:`).
+const blobAttachmentCapability = 'blob-v2';
+
+/// Isaretciyi dosya parcasi cercevesiyle (5 dakikalik kova) alan ilk surum.
+/// Bu surum o cerceveleri hala alir; gonderimde artik kullanilmaz.
+const legacyBlobAttachmentCapability = 'blob-v1';
 
 /// Bu surumun karsi tarafa bildirdigi yetenekler (teslim makbuzunda).
-const localPeerCapabilities = <String>[blobAttachmentCapability];
+const localPeerCapabilities = <String>[
+  legacyBlobAttachmentCapability,
+  blobAttachmentCapability,
+];
 
 /// Karsi taraflarin bildirdigi yetenekler.
 ///

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
@@ -88,6 +89,14 @@ class ReceivedFile {
 
 typedef GroupRoutingResolver = Future<String?> Function(String routingToken);
 
+/// Sifreli mesaji alicinin teslim makbuzuna kadar saklayip yeniden gonderen
+/// giden kuyruk ([OfflineMessageQueue.sendReliably]).
+typedef ReliableSignalSender =
+    Future<bool> Function(
+      EncryptedSignalMessage signal, {
+      required String messageId,
+    });
+
 class FileTransferManager {
   FileTransferManager({
     required SignalingService signaling,
@@ -103,6 +112,7 @@ class FileTransferManager {
     MediaVault? vault,
     AttachmentTransport? attachments,
     Future<bool> Function(Set<String> recipients)? canReceiveBlobs,
+    ReliableSignalSender? reliableSender,
     this.blobDownloadDelays = const [
       Duration.zero,
       Duration(seconds: 2),
@@ -112,6 +122,7 @@ class FileTransferManager {
        _vault = vault,
        _attachments = attachments,
        _canReceiveBlobs = canReceiveBlobs,
+       _reliableSender = reliableSender,
        _crypto = crypto,
        _filesDirectory = filesDirectory,
        _groupRoutingResolver = groupRoutingResolver,
@@ -141,8 +152,14 @@ class FileTransferManager {
 
   /// Butun alicilar HTTP ile ek alabiliyor mu (makbuzla bildirilen yetenek).
   final Future<bool> Function(Set<String> recipients)? _canReceiveBlobs;
+
+  /// Ek isaretcisini teslim makbuzuna kadar yeniden gonderen kuyruk.
+  final ReliableSignalSender? _reliableSender;
   StreamSubscription<SignalingStatus>? _statusSubscription;
   Future<void>? _blobRetry;
+
+  /// Indirmesi suren ekler; ayni ek iki kez indirilmez.
+  final _blobDownloads = <String>{};
 
   final SignalingService _signaling;
   final CryptoService _crypto;
@@ -196,6 +213,10 @@ class FileTransferManager {
   /// yuklenir; alicilara yalniz uctan uca sifreli isaretci (ek kimligi,
   /// anahtar, boyut, dosya bilgisi) gider. Parcali yolda dosya telde ~1,8
   /// kat buyuyor ve grupta her uye icin tekrarlaniyordu.
+  ///
+  /// Bu iki surum isaretciyi dosya parcasi cercevesiyle tasir (sunucu
+  /// cevrimdisi aliciya 5 dakika tutar). Yalniz alinir; gonderim artik
+  /// [blobPointerPrefix] ile teslim onayli mesaj olarak yapilir.
   static const blobWireVersion = 'flutter-file-v6-blob';
 
   /// Grup isaretcisi uyeye ozel yonlendirme sarmaliyla gelir; birebir ve
@@ -868,6 +889,11 @@ class FileTransferManager {
   /// sunucu, ag) `null` doner ve cagiran parcali yola gecer; o noktaya kadar
   /// hicbir aliciya bir sey gitmemistir. Isaretci gonderimi baslayinca sonuc
   /// kesindir (yinelenen mesaj olusmasin diye geri donulmez).
+  ///
+  /// Isaretci her aliciya teslim onayli sifreli mesaj olarak gider ve
+  /// gonderenin sifreli giden kuyruguna yazilir: alici uzun sure cevrimdisi
+  /// kalsa da makbuz gelene kadar yeniden gonderilir. Mesaj kimligi
+  /// ([originalMessageId]) makbuzu bu kayda baglar; yoksa bu yol kullanilmaz.
   Future<FileTransferResult?> _trySendBlob({
     required String localUserId,
     required String recipientId,
@@ -884,7 +910,15 @@ class FileTransferManager {
   }) async {
     final transport = _attachments;
     final capable = _canReceiveBlobs;
-    if (transport == null || capable == null || _closing || _disposed) {
+    final reliable = _reliableSender;
+    final messageId = originalMessageId?.trim();
+    if (transport == null ||
+        capable == null ||
+        reliable == null ||
+        messageId == null ||
+        messageId.isEmpty ||
+        _closing ||
+        _disposed) {
       return null;
     }
     if (fileSize <= 0 || fileSize > maximumFileSize) return null;
@@ -922,29 +956,44 @@ class FileTransferManager {
       }
       final safeFileName = sanitizeFileName(fileName);
       final safeMimeType = _normalizeMimeType(mimeType);
-      final pointer = jsonEncode(<String, Object?>{
-        'v': 1,
-        'id': id,
-        'key': base64Encode(key),
-        'size': sealedSize,
-        'manifest': _PrivateFileManifest(
-          fileName: safeFileName,
-          mimeType: safeMimeType,
-          fileSize: fileSize,
-          caption: caption,
-          isViewOnce: isViewOnce,
-          originalMessageId: originalMessageId,
-          absoluteExpiresAt: absoluteExpiresAt,
-        ).toJson(),
-      });
+      final pointer =
+          blobPointerPrefix +
+          jsonEncode(<String, Object?>{
+            'v': 1,
+            'id': id,
+            'key': base64Encode(key),
+            'size': sealedSize,
+            'manifest': _PrivateFileManifest(
+              fileName: safeFileName,
+              mimeType: safeMimeType,
+              fileSize: fileSize,
+              caption: caption,
+              isViewOnce: isViewOnce,
+              originalMessageId: messageId,
+              absoluteExpiresAt: absoluteExpiresAt,
+            ).toJson(),
+          });
+      final timestamp = DateTime.now();
+      Future<bool> sendReliably(EncryptedSignalMessage signal) => reliable(
+        EncryptedSignalMessage(
+          senderId: signal.senderId,
+          recipientId: signal.recipientId,
+          timestamp: signal.timestamp,
+          envelope: signal.envelope,
+          deliveryId: signal.deliveryId ?? _newDeliveryId(),
+        ),
+        messageId: messageId,
+      );
       if (isGroup) {
+        // Grup anahtari da isaretci gibi makbuza kadar tutulur; anahtar
+        // ulasmadan gelen isaretci cozulemez.
         await distributeGroupSenderKey(
           crypto: _crypto,
           senderId: localUserId,
           groupId: recipientId,
           members: groupMembers,
-          timestamp: DateTime.now(),
-          send: _signaling.send,
+          timestamp: timestamp,
+          send: sendReliably,
         );
       }
       // Grupta isaretci bir kez grup oturumuyla sifrelenir; her uyeye
@@ -956,7 +1005,6 @@ class FileTransferManager {
               plaintext: pointer,
             )
           : null;
-      var allSent = true;
       for (final target in recipients) {
         final envelope = groupEnvelope != null
             ? await _crypto.encryptDirect(
@@ -970,24 +1018,16 @@ class FileTransferManager {
                 recipientId: target,
                 plaintext: pointer,
               );
-        final signal = FileTransferSignal(
-          senderId: localUserId,
-          recipientId: target,
-          timestamp: DateTime.now(),
-          fileName: 'attachment.bin',
-          mimeType: 'application/octet-stream',
-          // Boyut ve ad sifreli isaretcide; telde bilgi tasinmaz.
-          fileSize: 0,
-          data: envelope,
-          transferId: transferId,
-          chunkIndex: 0,
-          totalChunks: 1,
-          encryption: isGroup ? blobGroupWireVersion : blobWireVersion,
+        // Kuyruk kaydi atomik olarak yazilinca gonderim kesindir; soket o an
+        // kapaliysa kuyruk baglaninca gonderir.
+        await sendReliably(
+          EncryptedSignalMessage(
+            senderId: localUserId,
+            recipientId: target,
+            timestamp: timestamp,
+            envelope: envelope,
+          ),
         );
-        if (!await _sendWithRetry(signal)) allSent = false;
-      }
-      if (!allSent) {
-        return const FileTransferFailure('Dosya gonderilemedi');
       }
       _progress.add(
         TransferProgress(
@@ -1193,6 +1233,96 @@ class FileTransferManager {
     }
   }
 
+  /// Teslim onayli sifreli mesajla gelen ek isaretcisini kabul eder.
+  ///
+  /// Isaretci (anahtar dahil) sifreli olarak diske yazilinca mesaj
+  /// kimligini doner; cagiran teslim makbuzunu bundan sonra gonderir ve
+  /// gonderen yeniden gondermeyi birakir. Indirme arka planda surer, olmazsa
+  /// baglanti kurulunca yeniden denenir. Su an alinamiyorsa (kapaniyor, HTTP
+  /// tasiyicisi yok) `null` doner ve mesaj onaylanmaz. Bozuk isaretci
+  /// [FormatException] atar.
+  Future<String?> acceptBlobPointer({
+    required String senderId,
+    required String? groupId,
+    required String payload,
+  }) async {
+    final transport = _attachments;
+    if (transport == null || _closing || _disposed) return null;
+    final _BlobPointer pointer;
+    try {
+      pointer = _BlobPointer.fromJson(
+        (jsonDecode(payload) as Map).cast<String, Object?>(),
+        maximumFileSize: maximumFileSize,
+      );
+    } on FormatException {
+      rethrow;
+    } catch (_) {
+      throw const FormatException('Invalid attachment pointer');
+    }
+    final messageId = pointer.manifest.originalMessageId?.trim();
+    if (messageId == null || messageId.isEmpty) {
+      throw const FormatException('Attachment pointer has no message id');
+    }
+    // Ayni mesajin yeniden gonderimi ayni kayda duser.
+    final transferId =
+        'bp-${sha256.convert(utf8.encode('$senderId\u0000$messageId'))}';
+    final staging = Directory('${_filesDirectory.path}/incoming_blobs');
+    final pending = File('${staging.path}/$transferId.pending');
+    await staging.create(recursive: true);
+    if (!_blobDownloads.contains(transferId) && !await pending.exists()) {
+      // Cozulmus isaretci (anahtar dahil) diske duz yazilmaz.
+      await pending.writeAsString(
+        await _metadataCrypto.encryptStorageJson(
+          jsonEncode({
+            'pointer': pointer.toJson(),
+            'senderId': senderId,
+            'groupId': groupId,
+          }),
+        ),
+        flush: true,
+      );
+    }
+    _operations.run(
+      'file-transfer.blob-receive',
+      _downloadPending(
+        transport: transport,
+        transferId: transferId,
+        pointer: pointer,
+        senderId: senderId,
+        groupId: groupId,
+        pending: pending,
+      ),
+    );
+    return messageId;
+  }
+
+  Future<void> _downloadPending({
+    required AttachmentTransport transport,
+    required String transferId,
+    required _BlobPointer pointer,
+    required String senderId,
+    required String? groupId,
+    required File pending,
+  }) async {
+    if (_closing || _disposed || !_blobDownloads.add(transferId)) return;
+    try {
+      _touchReceivingActivity(transferId);
+      await _completeBlob(
+        transport: transport,
+        transferId: transferId,
+        pointer: pointer,
+        senderId: senderId,
+        groupId: groupId,
+        sealed: File('${pending.parent.path}/$transferId.blob'),
+        pending: pending,
+      );
+    } catch (error, stackTrace) {
+      await _reportFailure('file-transfer.blob-receive', error, stackTrace);
+    } finally {
+      _blobDownloads.remove(transferId);
+    }
+  }
+
   /// Daha once indirilemeyen ekleri yeniden dener.
   Future<void> retryPendingBlobs() =>
       _blobRetry ??= _retryPendingBlobs().whenComplete(() => _blobRetry = null);
@@ -1221,14 +1351,12 @@ class FileTransferManager {
           (stored['pointer'] as Map).cast<String, Object?>(),
           maximumFileSize: maximumFileSize,
         );
-        _touchReceivingActivity(transferId);
-        await _completeBlob(
+        await _downloadPending(
           transport: transport,
           transferId: transferId,
           pointer: pointer,
           senderId: stored['senderId'] as String,
           groupId: stored['groupId'] as String?,
-          sealed: File('${staging.path}/$transferId.blob'),
           pending: entry,
         );
       } catch (error, stackTrace) {
@@ -1301,6 +1429,10 @@ class FileTransferManager {
   String _newId() =>
       '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}-'
       '${_random.nextInt(0x7fffffff).toRadixString(16)}';
+
+  String _newDeliveryId() => base64UrlEncode(
+    List<int>.generate(32, (_) => _random.nextInt(256), growable: false),
+  ).replaceAll('=', '');
 
   static String _legacyTransferId(FileTransferSignal signal) => base64Url
       .encode(

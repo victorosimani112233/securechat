@@ -491,6 +491,9 @@ class AppContainer {
       )..start();
       resources.register('offline-message-queue', offlineQueue.close);
       late final CallManager callManager;
+      // Dosya yoneticisi asagida kurulur; o ana kadar gelen isaretci
+      // onaylanmaz ve sunucu yeniden teslim eder.
+      FileTransferManager? blobReceiver;
       final incomingMessages = IncomingMessageHandler(
         signaling: signaling,
         crypto: crypto,
@@ -517,6 +520,16 @@ class AppContainer {
                 payload: payload,
               );
             },
+        acceptBlobPointer:
+            ({
+              required String senderId,
+              required String? groupId,
+              required String payload,
+            }) async => blobReceiver?.acceptBlobPointer(
+              senderId: senderId,
+              groupId: groupId,
+              payload: payload,
+            ),
         onAsyncFailure: reportAsyncFailure,
       )..start();
       resources.register('incoming-message-handler', incomingMessages.close);
@@ -780,7 +793,9 @@ class AppContainer {
         ),
         canReceiveBlobs: (recipients) =>
             peerCapabilities.allSupport(recipients, blobAttachmentCapability),
+        reliableSender: offlineQueue.sendReliably,
       );
+      blobReceiver = fileTransfers;
       resources.register('file-transfer-manager', fileTransfers.dispose);
       final mediaMessages = MediaMessageService(
         viewOnceReceipts: ViewOnceReceipts(

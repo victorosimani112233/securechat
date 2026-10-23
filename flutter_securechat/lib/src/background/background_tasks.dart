@@ -238,6 +238,8 @@ class SecureChatBackgroundRuntime {
       final serviceStrings = ServiceStrings(
         languageCode: () async => session.languagePreference,
       );
+      // Medya alicisi asagida kurulur; o ana kadar gelen isaretci onaylanmaz.
+      FileTransferManager? blobReceiver;
       final incomingMessages = IncomingMessageHandler(
         signaling: signaling,
         crypto: crypto,
@@ -247,6 +249,16 @@ class SecureChatBackgroundRuntime {
         identityResolver: contactIdentityResolver,
         phoneSharing: phoneSharing,
         profileNames: profileNames,
+        acceptBlobPointer:
+            ({
+              required String senderId,
+              required String? groupId,
+              required String payload,
+            }) async => blobReceiver?.acceptBlobPointer(
+              senderId: senderId,
+              groupId: groupId,
+              payload: payload,
+            ),
         onAsyncFailure: (operation, error, stackTrace) async {
           _logBackgroundFailure('BG-INCOMING', operation, error, stackTrace);
         },
@@ -280,6 +292,7 @@ class SecureChatBackgroundRuntime {
           refreshAccessToken: refreshAccessToken,
         ),
       );
+      blobReceiver = mediaReceiver.transfers;
       resources.register('background-media-receiver', mediaReceiver.close);
       final notificationPresenter = PluginLocalNotificationPresenter();
       resources.register(
