@@ -352,7 +352,7 @@ class SecureChatCrypto {
       return OlmAccount._(this, handle);
     } finally {
       calloc.free(pickleNative);
-      calloc.free(keyNative);
+      _freeWiped(keyNative, 32);
     }
   }
 
@@ -377,7 +377,7 @@ class SecureChatCrypto {
       return MegolmGroupSession._(this, handle);
     } finally {
       calloc.free(pickleNative);
-      calloc.free(keyNative);
+      _freeWiped(keyNative, 32);
     }
   }
 
@@ -389,7 +389,7 @@ class SecureChatCrypto {
       if (handle == nullptr) _throw('inboundGroupSession');
       return MegolmInboundSession._(this, handle);
     } finally {
-      calloc.free(native);
+      _freeWipedUtf8(native);
     }
   }
 
@@ -409,7 +409,7 @@ class SecureChatCrypto {
       return MegolmInboundSession._(this, handle);
     } finally {
       calloc.free(pickleNative);
-      calloc.free(keyNative);
+      _freeWiped(keyNative, 32);
     }
   }
 
@@ -424,7 +424,7 @@ class SecureChatCrypto {
       return OlmSession._(this, handle);
     } finally {
       calloc.free(pickleNative);
-      calloc.free(keyNative);
+      _freeWiped(keyNative, 32);
     }
   }
 
@@ -511,7 +511,7 @@ class OlmAccount {
         'sign',
       );
     } finally {
-      calloc.free(native);
+      _freeWiped(native, message.length);
     }
   }
 
@@ -625,7 +625,7 @@ class OlmAccount {
         'pickle',
       );
     } finally {
-      calloc.free(keyNative);
+      _freeWiped(keyNative, 32);
     }
   }
 
@@ -699,7 +699,7 @@ class OlmSession {
         body: decoded['body']! as String,
       );
     } finally {
-      calloc.free(native);
+      _freeWiped(native, plaintext.length);
     }
   }
 
@@ -727,7 +727,7 @@ class OlmSession {
         'pickle',
       );
     } finally {
-      calloc.free(keyNative);
+      _freeWiped(keyNative, 32);
     }
   }
 
@@ -804,7 +804,7 @@ class MegolmGroupSession {
         'groupSessionEncrypt',
       );
     } finally {
-      calloc.free(native);
+      _freeWiped(native, plaintext.length);
     }
   }
 
@@ -818,7 +818,7 @@ class MegolmGroupSession {
         'groupSessionPickle',
       );
     } finally {
-      calloc.free(keyNative);
+      _freeWiped(keyNative, 32);
     }
   }
 
@@ -883,7 +883,7 @@ class MegolmInboundSession {
         'inboundGroupSessionPickle',
       );
     } finally {
-      calloc.free(keyNative);
+      _freeWiped(keyNative, 32);
     }
   }
 
@@ -902,3 +902,17 @@ class MegolmInboundSession {
     }
   }
 }
+
+/// Native tamponu serbest birakmadan once sifirlar.
+///
+/// Pickle anahtari, duz metin ve grup oturum anahtari native bellege
+/// kopyalanir; `calloc.free` bu kopyalari bosaltilan bellekte birakirdi.
+/// Dart yigindaki kopyalar GC'ye ait ve burada silinemez; bu yalniz
+/// sinirdaki ara tamponlari kapsar.
+void _freeWiped(Pointer<Uint8> pointer, int length) {
+  if (length > 0) pointer.asTypedList(length).fillRange(0, length, 0);
+  calloc.free(pointer);
+}
+
+void _freeWipedUtf8(Pointer<Utf8> pointer) =>
+    _freeWiped(pointer.cast<Uint8>(), pointer.length);

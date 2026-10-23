@@ -13,6 +13,7 @@
 
 use std::ffi::c_char;
 use std::ptr;
+use zeroize::Zeroize;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use vodozemac::megolm::{
@@ -284,13 +285,22 @@ pub unsafe extern "C" fn sc_inbound_group_session_decrypt(
         }
     };
     match (*session).decrypt(&parsed) {
-        Ok(decrypted) => to_c_string(
-            serde_json::json!({
-                "plaintext": B64.encode(decrypted.plaintext),
-                "messageIndex": decrypted.message_index,
-            })
-            .to_string(),
-        ),
+        Ok(decrypted) => {
+            // JSON elle kurulur: serde_json Value'su plaintext'in
+            // sifirlanmayan bir kopyasini daha tutardi.
+            let mut plaintext = decrypted.plaintext;
+            let mut encoded = B64.encode(&plaintext);
+            plaintext.zeroize();
+            let index = decrypted.message_index.to_string();
+            let mut json = String::with_capacity(encoded.len() + index.len() + 32);
+            json.push_str("{\"plaintext\":\"");
+            json.push_str(&encoded);
+            json.push_str("\",\"messageIndex\":");
+            json.push_str(&index);
+            json.push('}');
+            encoded.zeroize();
+            to_c_string(json)
+        }
         Err(error) => {
             use vodozemac::megolm::DecryptionError as E;
             set_error_code(match error {

@@ -489,6 +489,7 @@ dependencies = [
  "base64",
  "serde_json",
  "vodozemac",
+ "zeroize",
 ]
 
 [[package]]

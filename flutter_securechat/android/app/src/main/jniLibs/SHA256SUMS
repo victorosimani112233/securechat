@@ -1,3 +1,3 @@
-fb4f9db588b81ce5f4573bb34269d72a6632efb58d243c2b1ac5d76c2d6eb153  ./arm64-v8a/libsecurechat_crypto.so
-e333667fd010b2feea38ea4efdc42ac85e87d63a0bd73630e078fc849209ab15  ./armeabi-v7a/libsecurechat_crypto.so
-9bc3b153e32e19be3bb04326b58d992cadf644901806b2324c5fee65de1328ff  ./x86_64/libsecurechat_crypto.so
+4ee087c90ea33cf136a9f882b45ed220844f09ff3c29d297bf17bf2940865562  ./arm64-v8a/libsecurechat_crypto.so
+c69f890fac5850eb4aad905cd689f46871bbd4a68b1ecd0910a22889aa32aab1  ./armeabi-v7a/libsecurechat_crypto.so
+d7fa52a3d963ef1bc3f41d00503eb22d5d85bb41224b899d87d373c156cb4c40  ./x86_64/libsecurechat_crypto.so

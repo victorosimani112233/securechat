@@ -15,13 +15,16 @@
 //! - İkili veri sınırda base64 taşınır.
 //!
 //! TODO(megolm): grup akışı (GroupSession / InboundGroupSession) ayrı görev.
-//! TODO(zeroize): plaintext şu an base64 ara kopyası üretiyor. Üretim öncesi
-//!   ham bayt + uzunluk imzasına geçilip ara tamponlar sıfırlanmalı.
+//! - Bellek: çözülen plaintext ve sınırdan dönen her string (plaintext,
+//!   pickle, grup oturum anahtarı) serbest bırakılmadan önce sıfırlanır.
+//!   Ara kopyalar yeniden tahsis edilmeden kurulur; aksi halde büyüyen
+//!   tamponun eski hali sıfırlanmadan serbest kalırdı.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
+use zeroize::Zeroize;
 
 mod megolm;
 
@@ -103,7 +106,9 @@ pub extern "C" fn sc_last_error() -> *mut c_char {
 /// Pointer bu kutuphanenin dondurdugu bir string olmali ve bir kez serbest birakilmali.
 pub unsafe extern "C" fn sc_string_free(value: *mut c_char) {
     if !value.is_null() {
-        unsafe { drop(CString::from_raw(value)) };
+        // Plaintext ve anahtar tasiyabilir: serbest birakmadan once sifirla.
+        let mut bytes = unsafe { CString::from_raw(value) }.into_bytes_with_nul();
+        bytes.zeroize();
     }
 }
 
@@ -119,13 +124,26 @@ pub extern "C" fn sc_abi_version() -> u32 {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn to_c_string(value: String) -> *mut c_char {
-    match CString::new(value) {
-        Ok(encoded) => encoded.into_raw(),
-        Err(_) => {
-            set_error("donus degeri NUL bayti tasiyordu");
-            ptr::null_mut()
-        }
+    let mut source = value.into_bytes();
+    if source.contains(&0) {
+        source.zeroize();
+        set_error("donus degeri NUL bayti tasiyordu");
+        return ptr::null_mut();
     }
+    // NUL icin yer bastan ayrilir: `CString` sonradan buyutse eski tampon
+    // sifirlanmadan serbest kalirdi.
+    let mut bytes = Vec::with_capacity(source.len() + 1);
+    bytes.extend_from_slice(&source);
+    source.zeroize();
+    // SAFETY: icerik yukarida NUL icermedigi dogrulandi.
+    unsafe { CString::from_vec_unchecked(bytes) }.into_raw()
+}
+
+/// Gizli bayti base64 olarak dondurur; ham kopya sifirlanir.
+pub(crate) fn secret_to_c_string(mut secret: Vec<u8>) -> *mut c_char {
+    let encoded = B64.encode(&secret);
+    secret.zeroize();
+    to_c_string(encoded)
 }
 
 pub(crate) unsafe fn borrow_str<'a>(value: *const c_char, name: &str) -> Option<&'a str> {
@@ -470,9 +488,8 @@ pub unsafe extern "C" fn sc_account_create_inbound_session(
     }
     match (*account).create_inbound_session(identity, &message) {
         Ok(result) => {
-            let plaintext = B64.encode(result.plaintext);
             *out_session = Box::into_raw(Box::new(result.session));
-            to_c_string(plaintext)
+            secret_to_c_string(result.plaintext)
         }
         Err(error) => {
             set_error_code(ERROR_SESSION);
@@ -628,7 +645,7 @@ pub unsafe extern "C" fn sc_session_decrypt(
         }
     };
     match (*session).decrypt(&message) {
-        Ok(plaintext) => to_c_string(B64.encode(plaintext)),
+        Ok(plaintext) => secret_to_c_string(plaintext),
         Err(error) => {
             use vodozemac::olm::DecryptionError as E;
             set_error_code(match error {
@@ -673,6 +690,24 @@ mod tests {
         let text = CStr::from_ptr(ptr).to_str().ok().map(|s| s.to_owned());
         sc_string_free(ptr);
         text
+    }
+
+    #[test]
+    fn sinira_donen_string_yeniden_tahsis_edilmez() {
+        unsafe {
+            let secret = vec![7u8; 1000];
+            let returned = take_string(secret_to_c_string(secret));
+            assert_eq!(B64.decode(returned).expect("b64"), vec![7u8; 1000]);
+
+            // NUL tasiyan deger reddedilir; kaynak sifirlanip birakilir.
+            assert!(to_c_string("a\0b".to_owned()).is_null());
+
+            // NUL icin yer bastan ayrildigindan CString buyutmez: donen
+            // gostericinin icerigi ve uzunlugu birebir korunur.
+            let ptr = to_c_string("x".repeat(4096));
+            assert_eq!(CStr::from_ptr(ptr).to_bytes().len(), 4096);
+            sc_string_free(ptr);
+        }
     }
 
     #[test]
