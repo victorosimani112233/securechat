@@ -161,6 +161,35 @@ class RecoveryAuthIntegrationTest {
         assertTrue(Json.parseToJsonElement(first.bodyAsText()).jsonObject.containsKey("token"))
     }
 
+    @Test fun `HTTP registration lock endpoints and the locked completion response`() = testApplication {
+        RedisManager.use { it.flushDB() }
+        application {
+            install(ContentNegotiation) { json() }
+            routing { recoveryAuthRoutes() }
+        }
+        val f = fixture(); bind(f)
+        val access = AuthService.issueToken(f.user, f.epoch)
+        suspend fun post(path: String, body: String, auth: Boolean = true) = client.post(path) {
+            if (auth) bearerAuth(access)
+            contentType(ContentType.Application.Json); setBody(body)
+        }
+        assertEquals(HttpStatusCode.Unauthorized, post("/api/v1/account/registration-lock/status", "{}", auth = false).status)
+        assertEquals("{\"enabled\":false}", post("/api/v1/account/registration-lock/status", "{}").bodyAsText())
+        // Bicimsiz kanit reddedilir.
+        assertEquals(HttpStatusCode.BadRequest, post("/api/v1/account/registration-lock", "{\"proof\":\"kisa\"}").status)
+        assertEquals(HttpStatusCode.OK, post("/api/v1/account/registration-lock", "{\"proof\":\"${lockProof(3)}\"}").status)
+        assertEquals("{\"enabled\":true}", post("/api/v1/account/registration-lock/status", "{}").bodyAsText())
+
+        val request = completion(f, grant(f), ed25519(), "replace")
+        val locked = post("/api/v1/auth/login/complete", Json.encodeToString(request), auth = false)
+        assertEquals(HttpStatusCode.Locked, locked.status)
+        val body = Json.parseToJsonElement(locked.bodyAsText()).jsonObject
+        assertEquals("\"registration_lock\"", body["error"].toString())
+        assertEquals("\"${RegistrationLock.MAX_FAILURES - 1}\"", body["remainingAttempts"].toString())
+        val ok = post("/api/v1/auth/login/complete", Json.encodeToString(request.copy(lockProof = lockProof(3))), auth = false)
+        assertEquals(HttpStatusCode.OK, ok.status)
+    }
+
     @Test fun `queued old delete logout and prekey writes cannot mutate a recovered epoch`() {
         for (operation in listOf("delete", "logout", "prekey")) {
             val f = fixture()
@@ -369,6 +398,66 @@ class RecoveryAuthIntegrationTest {
     // yukleme ile yazildigi icin Olm-only hesapta NULL. Eskiden 0 okunur ve
     // kurtarma hem istemcide (`reg < 1`) hem sunucuda (`!in 1..16383`)
     // reddedilirdi.
+    private fun lockProof(seed: Int) = Base64.getEncoder().encodeToString(ByteArray(32) { (seed + it).toByte() })
+
+    @Test fun `registration lock requires the PIN proof for a new device and can be retried`() {
+        val f = fixture(); bind(f)
+        assertEquals(false, service.registrationLockEnabled(f.user, f.epoch))
+        assertTrue(service.updateRegistrationLock(f.user, f.epoch, lockProof(1)))
+        assertEquals(true, service.registrationLockEnabled(f.user, f.epoch))
+        // Eski epoch ile kilit degistirilemez.
+        assertFalse(service.updateRegistrationLock(f.user, "stale-epoch", null))
+
+        val grant = grant(f)
+        assertTrue(grant.registrationLock)
+        val request = completion(f, grant, ed25519(), "replace")
+        val missing = assertThrows(RegistrationLockException::class.java) { service.complete(request) }
+        assertEquals(RegistrationLock.Check.Failed(RegistrationLock.MAX_FAILURES - 1), missing.check)
+        val wrong = assertThrows(RegistrationLockException::class.java) {
+            service.complete(request.copy(lockProof = lockProof(2)))
+        }
+        assertEquals(RegistrationLock.Check.Failed(RegistrationLock.MAX_FAILURES - 2), wrong.check)
+        // Ayni izinle dogru PIN kabul edilir; yanlis denemeler izni harcamaz.
+        val recovered = service.complete(request.copy(lockProof = lockProof(1)))!!
+        assertTrue(recovered.identityReplaced)
+        assertTrue(codes.containsKey("$RECOVERED_NOTICE:${f.email}"))
+    }
+
+    @Test fun `registration lock locks recovery after too many wrong PINs`() {
+        val f = fixture(); bind(f)
+        assertTrue(service.updateRegistrationLock(f.user, f.epoch, lockProof(1)))
+        val request = completion(f, grant(f), ed25519(), "replace")
+        repeat(RegistrationLock.MAX_FAILURES - 1) {
+            assertTrue(
+                assertThrows(RegistrationLockException::class.java) {
+                    service.complete(request.copy(lockProof = lockProof(9)))
+                }.check is RegistrationLock.Check.Failed,
+            )
+        }
+        val locked = assertThrows(RegistrationLockException::class.java) {
+            service.complete(request.copy(lockProof = lockProof(9)))
+        }.check
+        assertTrue(locked is RegistrationLock.Check.Locked)
+        // Kilit suresince dogru PIN de kabul edilmez.
+        assertTrue(
+            assertThrows(RegistrationLockException::class.java) {
+                service.complete(request.copy(lockProof = lockProof(1)))
+            }.check is RegistrationLock.Check.Locked,
+        )
+    }
+
+    @Test fun `same-device recovery and a cleared lock need no PIN`() {
+        val f = fixture(); bind(f)
+        assertTrue(service.updateRegistrationLock(f.user, f.epoch, lockProof(1)))
+        // Ayni cihaz (preserve) kimlik degistirmez; PIN istenmez.
+        val preserved = service.complete(completion(f, grant(f)))!!
+        assertFalse(preserved.identityReplaced)
+        val epoch = CredentialState.snapshot(f.user)!!.credentialEpoch
+        assertTrue(service.updateRegistrationLock(f.user, epoch, null))
+        assertEquals(false, service.registrationLockEnabled(f.user, epoch))
+        assertNotNull(service.complete(completion(f, grant(f), ed25519(), "replace")))
+    }
+
     @Test fun `olm only account without registration id can still recover`() {
         val f = fixture()
         Database.getConnection().use { connection ->

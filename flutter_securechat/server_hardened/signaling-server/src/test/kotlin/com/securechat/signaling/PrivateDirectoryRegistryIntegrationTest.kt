@@ -381,6 +381,11 @@ class PrivateDirectoryRegistryIntegrationTest {
                     // konumu olmali.
                     "olm_identity_key",
                     "signing_public_key",
+                    // V30 kayit kilidi: PIN degil, istemci kanitinin sunucu
+                    // anahtarli HMAC'i ve deneme sayaci.
+                    "registration_lock_verifier",
+                    "registration_lock_failures",
+                    "registration_lock_until",
                 ),
                 columns(connection, "users"),
             )

@@ -18,18 +18,24 @@ import kotlinx.serialization.json.Json
 @Serializable internal data class RecoveryGrant(
     val recoveryToken: String, val userId: String, val identityProtocol: String,
     val identityPublicKey: String, val registrationId: Int, val expiresIn: Int,
+    /** Kimlik degistiren kurtarma kayit kilidi PIN kaniti ister. */
+    val registrationLock: Boolean = false,
 )
 @Serializable internal data class RecoveryComplete(
     val recoveryToken: String, val completionId: String, val mode: String, val identityProtocol: String,
     val identityPublicKey: String, val registrationId: Int, val signature: String,
+    /** PIN'den istemcide turetilen kanit; imza on-goruntusune girmez. */
+    val lockProof: String? = null,
 )
+@Serializable internal data class RegistrationLockUpdate(val proof: String? = null)
 @Serializable internal data class RecoveryCredentials(
     val userId: String, val token: String, val refreshToken: String, val identityReplaced: Boolean,
 )
 
-/** All durable transitions serialize on the account before consuming a challenge. */
 /** Kodsuz bildirim e-postasinin amaci. */
 internal const val RECOVERED_NOTICE = "recovered"
+
+/** All durable transitions serialize on the account before consuming a challenge. */
 
 internal class RecoveryAuthService(
     private val cipher: RecoveryRecordCipher,
@@ -162,17 +168,33 @@ internal class RecoveryAuthService(
         if (account == null || !currentBinding(connection, context, account)) return@transaction null
         val token = RecoveryRecordCipher.opaque()
         store(connection, token, "complete", context, token, 300)
-        RecoveryGrant(token, context.userId, context.protocol, context.identity, context.registrationId, 300)
+        RecoveryGrant(
+            token, context.userId, context.protocol, context.identity, context.registrationId, 300,
+            registrationLock = RegistrationLock.enabled(connection, context.userId),
+        )
     }
 
     fun complete(request: RecoveryComplete): RecoveryCredentials? {
         if (!request.completionId.matches(Regex("[A-Za-z0-9_-]{43}"))) return null
         // Yalniz ilk (makbuzdan donmeyen) kimlik degistiren tamamlamada dolar.
         var notifyEmail: String? = null
+        var lockRejection: RegistrationLock.Check? = null
         val result = transaction { connection ->
             val preview = read(connection, request.recoveryToken, "complete")
             if (preview == null) return@transaction receipt(connection, request)
             val account = lockAccount(connection, preview.context.userId) ?: return@transaction null
+            if (request.mode == "replace") {
+                // Kayit kilidi: yeni cihaza tasima PIN kaniti ister. Kontrol
+                // tuketmeden once yapilir; kullanici ayni izinle PIN'i yeniden
+                // deneyebilir, yanlis denemeler ise sayilip commit edilir.
+                when (val lock = RegistrationLock.check(connection, cipher, preview.context.userId, request.lockProof)) {
+                    RegistrationLock.Check.NotRequired, RegistrationLock.Check.Passed -> Unit
+                    else -> {
+                        lockRejection = lock
+                        return@transaction null
+                    }
+                }
+            }
             val challenge = consume(connection, request.recoveryToken, "complete", request.recoveryToken)
                 ?: return@transaction receipt(connection, request)
             val context = challenge.context
@@ -245,6 +267,7 @@ internal class RecoveryAuthService(
             }
             response
         }
+        lockRejection?.let { throw RegistrationLockException(it) }
         result?.let { CredentialState.invalidateEverywhere(it.userId) }
         val recoveredEmail = notifyEmail
         if (result != null && recoveredEmail != null) {
@@ -255,6 +278,21 @@ internal class RecoveryAuthService(
             send(recoveredEmail, "", RECOVERED_NOTICE)
         }
         return result
+    }
+
+    /** Oturumun hesabi ve epoch'u gecerliyse kayit kilidi durumu. */
+    fun registrationLockEnabled(userId: String, epoch: String): Boolean? = transaction { connection ->
+        val account = lockAccount(connection, userId) ?: return@transaction null
+        if (account.epoch != epoch) return@transaction null
+        RegistrationLock.enabled(connection, userId)
+    }
+
+    /** [proof] null ise kilit kaldirilir. */
+    fun updateRegistrationLock(userId: String, epoch: String, proof: String?): Boolean = transaction { connection ->
+        val account = lockAccount(connection, userId) ?: return@transaction false
+        if (account.epoch != epoch) return@transaction false
+        if (proof == null) RegistrationLock.clear(connection, userId)
+        else RegistrationLock.set(connection, cipher, userId, proof)
     }
 
     private fun requestHash(request: RecoveryComplete) = cipher.index("completion-request", Json.encodeToString(request))

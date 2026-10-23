@@ -95,8 +95,49 @@ internal fun Route.recoveryAuthRoutes() {
     post("/api/v1/auth/login/complete") {
         call.recoveryEndpoint("recovery_complete") { service ->
             val request = call.receiveBounded<RecoveryComplete>(4096, false) ?: return@recoveryEndpoint
-            val result = recoveryPreauth { service.complete(request) }
+            val result = try {
+                recoveryPreauth { service.complete(request) }
+            } catch (rejection: RegistrationLockException) {
+                call.registrationLockRejected(rejection.check)
+                return@recoveryEndpoint
+            }
             if (result == null) call.recoveryRejected() else call.respond(result)
+        }
+    }
+    post("/api/v1/account/registration-lock/status") {
+        call.recoveryEndpoint("recovery_verify") { service ->
+            val principal = call.recoveryPrincipal() ?: return@recoveryEndpoint
+            call.receiveBounded<kotlinx.serialization.json.JsonObject>(4096, false) ?: return@recoveryEndpoint
+            val enabled = withContext(Dispatchers.IO) {
+                service.registrationLockEnabled(principal.first, principal.second)
+            }
+            if (enabled == null) call.recoveryRejected() else call.respond(mapOf("enabled" to enabled))
+        }
+    }
+    post("/api/v1/account/registration-lock") {
+        call.recoveryEndpoint("recovery_verify") { service ->
+            val principal = call.recoveryPrincipal() ?: return@recoveryEndpoint
+            val request = call.receiveBounded<RegistrationLockUpdate>(4096, false) ?: return@recoveryEndpoint
+            val proof = request.proof
+            // Bos kanitla "ayarla" istegi kilidi kaldirmaz; kaldirma ayri uctur.
+            if (proof == null || RegistrationLock.validProof(proof) == null) {
+                call.recoveryRejected()
+                return@recoveryEndpoint
+            }
+            val updated = withContext(Dispatchers.IO) {
+                service.updateRegistrationLock(principal.first, principal.second, proof)
+            }
+            if (!updated) call.recoveryRejected() else call.respond(mapOf("enabled" to true))
+        }
+    }
+    post("/api/v1/account/registration-lock/clear") {
+        call.recoveryEndpoint("recovery_verify") { service ->
+            val principal = call.recoveryPrincipal() ?: return@recoveryEndpoint
+            call.receiveBounded<kotlinx.serialization.json.JsonObject>(4096, false) ?: return@recoveryEndpoint
+            val updated = withContext(Dispatchers.IO) {
+                service.updateRegistrationLock(principal.first, principal.second, null)
+            }
+            if (!updated) call.recoveryRejected() else call.respond(mapOf("enabled" to false))
         }
     }
 }
@@ -121,6 +162,21 @@ private suspend fun ApplicationCall.recoveryPrincipal(): Pair<String, String>? {
         return null
     }
     return claims.userId to claims.epoch
+}
+
+private suspend fun ApplicationCall.registrationLockRejected(check: RegistrationLock.Check) = when (check) {
+    is RegistrationLock.Check.Locked -> {
+        response.headers.append("Retry-After", check.retryAfterSeconds.toString())
+        respond(
+            HttpStatusCode.Locked,
+            mapOf("error" to "registration_lock_locked", "retryAfter" to check.retryAfterSeconds.toString()),
+        )
+    }
+    is RegistrationLock.Check.Failed -> respond(
+        HttpStatusCode.Locked,
+        mapOf("error" to "registration_lock", "remainingAttempts" to check.remaining.toString()),
+    )
+    else -> recoveryRejected()
 }
 
 private suspend fun ApplicationCall.recoveryRejected() =
