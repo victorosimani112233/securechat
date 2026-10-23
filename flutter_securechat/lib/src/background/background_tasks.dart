@@ -33,6 +33,7 @@ import '../l10n/service_strings.dart';
 import '../media/file_transfer_manager.dart';
 import '../media/media_message_service.dart';
 import '../media/media_vault.dart';
+import '../media/peer_capabilities.dart';
 import '../network/network_monitor.dart';
 import '../network/network_resilience.dart';
 import '../network/pinned_web_socket.dart';
@@ -201,9 +202,12 @@ class SecureChatBackgroundRuntime {
         // sessizce olurdu.
         refreshAccessToken: refreshAccessToken,
       );
+      final padding = paddingPolicies(database, () => session.userId);
       final crypto = VodozemacCryptoService(
         database: database,
         store: vodozemacStore,
+        padDirectFor: padding.direct,
+        padGroupFor: padding.group,
         preKeyBundles: HttpOlmPreKeyBundleProvider(
           apiBaseUrl: Uri.parse(config.apiBaseUrl),
           httpClient: httpClients.create(),

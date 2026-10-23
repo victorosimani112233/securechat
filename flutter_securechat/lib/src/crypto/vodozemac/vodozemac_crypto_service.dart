@@ -5,6 +5,7 @@ import '../../services/crypto_service.dart';
 import '../../services/peer_identity_review_service.dart';
 import '../../storage/secure_chat_database.dart';
 import '../../storage/storage_entities.dart';
+import '../plaintext_padding.dart';
 import 'securechat_crypto_ffi.dart';
 import 'vodozemac_protocol_store.dart';
 
@@ -13,6 +14,10 @@ import 'vodozemac_protocol_store.dart';
 /// libsignal'daki `PreKeyBundle` karsiligi. Olm'da signed prekey yerine
 /// fallback key var ve imza dogrulamasi protokole gomulu degil; kimlik
 /// dogrulamasi TOFU pinlemesiyle yapilir (bkz. [PeerIdentityReview]).
+/// Alicinin (kisi ya da grubun tum uyeleri) dolgulu duz metni cozebilip
+/// cozemedigi.
+typedef PaddingPolicy = Future<bool> Function(String id);
+
 class OlmPreKeyBundle {
   const OlmPreKeyBundle({
     required this.identityKey,
@@ -82,10 +87,14 @@ class VodozemacCryptoService
     required VodozemacProtocolStore store,
     required OlmPreKeyBundleProvider preKeyBundles,
     PeerIdentityRotationHandler? onPeerIdentityRotated,
+    PaddingPolicy? padDirectFor,
+    PaddingPolicy? padGroupFor,
   }) : _database = database,
        _store = store,
        _preKeyBundles = preKeyBundles,
-       _onPeerIdentityRotated = onPeerIdentityRotated;
+       _onPeerIdentityRotated = onPeerIdentityRotated,
+       _padDirectFor = padDirectFor,
+       _padGroupFor = padGroupFor;
 
   /// Direct zarf: `OLM:v1:<tip>:<base64>`; tip 0 = PreKey, 1 = mesaj.
   static const directPrefix = 'OLM:v1:';
@@ -108,6 +117,10 @@ class VodozemacCryptoService
   final VodozemacProtocolStore _store;
   final OlmPreKeyBundleProvider _preKeyBundles;
   final PeerIdentityRotationHandler? _onPeerIdentityRotated;
+
+  /// Alici dolgulu duz metni cozebiliyorsa true (bkz. plaintext_padding).
+  final PaddingPolicy? _padDirectFor;
+  final PaddingPolicy? _padGroupFor;
   final _operations = _AsyncKeyedMutex();
   final _issuedReviews = Expando<bool>();
 
@@ -144,7 +157,10 @@ class VodozemacCryptoService
         final previous = await _database.identities.get(review.peerId);
         final local = await _localIdentityBytes();
         if (!identityBytesEqual(bundle.identityBytes, review.currentIdentity) ||
-            !identityBytesEqual(previous?.identityKey, review.previousIdentity) ||
+            !identityBytesEqual(
+              previous?.identityKey,
+              review.previousIdentity,
+            ) ||
             !identityBytesEqual(local, review.localIdentity)) {
           throw const PeerIdentityReviewStaleException();
         }
@@ -164,13 +180,14 @@ class VodozemacCryptoService
         }
       });
 
-  Future<Uint8List> _localIdentityBytes() => _store.withAccount((account) async {
-    final keys = account.identityKeys();
-    return Uint8List.fromList([
-      ...base64Decode(base64.normalize(keys['ed25519']!)),
-      ...base64Decode(base64.normalize(keys['curve25519']!)),
-    ]);
-  });
+  Future<Uint8List> _localIdentityBytes() =>
+      _store.withAccount((account) async {
+        final keys = account.identityKeys();
+        return Uint8List.fromList([
+          ...base64Decode(base64.normalize(keys['ed25519']!)),
+          ...base64Decode(base64.normalize(keys['curve25519']!)),
+        ]);
+      });
 
   Future<OlmPreKeyBundle> _requireBundle(String peerId) async {
     final bundle = await _preKeyBundles.fetch(peerId);
@@ -278,6 +295,17 @@ class VodozemacCryptoService
   Future<String> encryptDirect({
     required String recipientId,
     required String plaintext,
+  }) async {
+    final policy = _padDirectFor;
+    final body = policy != null && await policy(recipientId)
+        ? padPlaintext(plaintext)
+        : plaintext;
+    return _encryptDirect(recipientId: recipientId, plaintext: body);
+  }
+
+  Future<String> _encryptDirect({
+    required String recipientId,
+    required String plaintext,
   }) => _operations.protect('direct:$recipientId', () async {
     if (!await _ensureSessionUnlocked(recipientId)) {
       throw StateError('Signal session could not be established: $recipientId');
@@ -297,6 +325,13 @@ class VodozemacCryptoService
 
   @override
   Future<String> decryptDirect({
+    required String senderId,
+    required String envelope,
+  }) async => unpadPlaintext(
+    await _decryptDirect(senderId: senderId, envelope: envelope),
+  );
+
+  Future<String> _decryptDirect({
     required String senderId,
     required String envelope,
   }) => _operations.protect('direct:$senderId', () async {
@@ -481,6 +516,17 @@ class VodozemacCryptoService
     required String senderId,
     required String groupId,
     required String plaintext,
+  }) async {
+    final policy = _padGroupFor;
+    final body = policy != null && await policy(groupId)
+        ? padPlaintext(plaintext)
+        : plaintext;
+    return _encryptGroupWire(groupId: groupId, plaintext: body);
+  }
+
+  Future<String> _encryptGroupWire({
+    required String groupId,
+    required String plaintext,
   }) => _operations.protect('group:$groupId', () async {
     final result = await _store.withGroupSession(groupId, (session) async {
       final ciphertext = session.encrypt(
@@ -514,7 +560,7 @@ class VodozemacCryptoService
       sessionId: parts[1],
       message: parts[2],
     );
-    return utf8.decode(plaintext);
+    return unpadPlaintext(utf8.decode(plaintext));
   });
 
   /// Grubun giden oturumunu atar; sonraki gonderim yeni anahtar uretir ve

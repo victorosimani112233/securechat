@@ -355,6 +355,72 @@ void main() {
     });
   });
 
+  group('uzunluk gizleyen dolgu', () {
+    test('kisa mesajlar ayni boyutta sifreli metin uretir', () async {
+      alice.padsOutgoing = true;
+      final short = await alice.service.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'evet',
+      );
+      final longer = await alice.service.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'aksam yedide kapinin onunde bulusalim, gec kalma',
+      );
+      expect(longer.length, short.length);
+      expect(
+        await bob.service.decryptDirect(senderId: 'alice', envelope: short),
+        'evet',
+      );
+      expect(
+        await bob.service.decryptDirect(senderId: 'alice', envelope: longer),
+        'aksam yedide kapinin onunde bulusalim, gec kalma',
+      );
+    });
+
+    test('yetenek bildirmeyen aliciya dolgu eklenmez', () async {
+      final short = await alice.service.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'evet',
+      );
+      final longer = await alice.service.encryptDirect(
+        recipientId: 'bob',
+        plaintext: 'aksam yedide kapinin onunde bulusalim, gec kalma',
+      );
+      expect(longer.length, greaterThan(short.length));
+    });
+
+    test('grup mesaji da dolgulu gider ve acilir', () async {
+      alice.padsOutgoing = true;
+      final distribution = await alice.service.createSenderKeyDistribution(
+        groupId: 'grup-pad',
+        senderId: 'alice',
+      );
+      await bob.service.processSenderKeyDistribution(
+        senderId: 'alice',
+        plaintext: distribution,
+      );
+      final a = await alice.service.encryptGroup(
+        senderId: 'alice',
+        groupId: 'grup-pad',
+        plaintext: 'x',
+      );
+      final b = await alice.service.encryptGroup(
+        senderId: 'alice',
+        groupId: 'grup-pad',
+        plaintext: 'x' * 150,
+      );
+      expect(a.length, b.length);
+      expect(
+        await bob.service.decryptGroup(
+          senderId: 'alice',
+          groupId: 'grup-pad',
+          envelope: b,
+        ),
+        'x' * 150,
+      );
+    });
+  });
+
   group('grup mesajlari', () {
     test('dagitim, sifreleme ve cozme', () async {
       final distribution = await alice.service.createSenderKeyDistribution(
@@ -580,6 +646,8 @@ class _Party {
       preKeyBundles: _DirectoryBundleProvider(party.directory),
       onPeerIdentityRotated: (peerId) async =>
           party.rotationNotices.add(peerId),
+      padDirectFor: (_) async => party.padsOutgoing,
+      padGroupFor: (_) async => party.padsOutgoing,
     );
     return party;
   }
@@ -593,6 +661,9 @@ class _Party {
   final Directory directoryRef;
   final rotationNotices = <String>[];
   late final VodozemacCryptoService service;
+
+  /// Karsi taraf dolgu yetenegi bildirmis gibi davran.
+  bool padsOutgoing = false;
 
   /// Bu tarafin yayinlayacagi bundle: kimlik + taze tek kullanimlik anahtar.
   Future<OlmPreKeyBundle> publishBundle() => store.withAccount((account) async {

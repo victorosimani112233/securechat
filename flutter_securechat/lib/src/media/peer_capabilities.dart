@@ -1,3 +1,4 @@
+import '../crypto/plaintext_padding.dart';
 import '../storage/secure_chat_database.dart';
 
 /// HTTP uzerinden sifreli ek alabilme yetenegi: isaretci teslim onayli
@@ -16,6 +17,7 @@ const localPeerCapabilities = <String>[
   legacyBlobAttachmentCapability,
   blobAttachmentCapability,
   callSignalEncryptionCapability,
+  plaintextPaddingCapability,
 ];
 
 /// Karsi taraflarin bildirdigi yetenekler.
@@ -63,4 +65,28 @@ class PeerCapabilities {
     }
     return true;
   }
+}
+
+/// Uzunluk gizleyen dolgunun hangi alicilara uygulanacagi.
+///
+/// Kisiye, o kisi [plaintextPaddingCapability] bildirdiyse; gruba, kendisi
+/// disindaki TUM uyeler bildirdiyse. Eski surum dolguyu metnin parcasi
+/// sanacagi icin tek bir eski uye grubun dolgusuz kalmasi demektir.
+({Future<bool> Function(String) direct, Future<bool> Function(String) group})
+paddingPolicies(SecureChatDatabase database, String? Function() localUserId) {
+  final capabilities = PeerCapabilities(database.cryptoState);
+  return (
+    direct: (peerId) =>
+        capabilities.allSupport([peerId], plaintextPaddingCapability),
+    group: (groupId) async {
+      final group = await database.conversations.getById(groupId);
+      final self = localUserId();
+      final members = (group?.groupMembers ?? '')
+          .split(',')
+          .where((id) => id.isNotEmpty && id != self)
+          .toSet();
+      return members.isNotEmpty &&
+          await capabilities.allSupport(members, plaintextPaddingCapability);
+    },
+  );
 }

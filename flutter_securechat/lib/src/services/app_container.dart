@@ -445,9 +445,14 @@ class AppContainer {
         database: database,
         strings: serviceStrings,
       );
+      final peerCapabilities = PeerCapabilities(database.cryptoState);
+      final padding = paddingPolicies(database, () => session.userId);
       final crypto = VodozemacCryptoService(
         database: database,
         store: vodozemacStore,
+        // Uzunluk gizleyen dolgu yalniz cozebilen alicilara.
+        padDirectFor: padding.direct,
+        padGroupFor: padding.group,
         preKeyBundles: HttpOlmPreKeyBundleProvider(
           apiBaseUrl: Uri.parse(config.apiBaseUrl),
           httpClient: httpClients.create(),
@@ -778,7 +783,6 @@ class AppContainer {
       );
       // Oturum yenileme asagida kurulan AuthCoordinator'dan gelir.
       Future<String?> Function()? refreshForAttachments;
-      final peerCapabilities = PeerCapabilities(database.cryptoState);
       final fileTransfers = FileTransferManager(
         signaling: signaling,
         crypto: crypto,
