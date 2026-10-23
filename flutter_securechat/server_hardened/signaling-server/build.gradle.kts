@@ -177,12 +177,9 @@ val runDummyServer by tasks.registering(JavaExec::class) {
     environment("PRIVACY_INDEX_KEY", "PeN+mhUNrGTskTKEAc8g3/2luUhvhE6vy1l4257smsQ=")
     environment("OFFLINE_QUEUE_ENCRYPTION_KEY", "IIYFEByJTRH/+XqO6PZAFrSHWX5+TiM869Sj+Qx7OvY=")
     environment("FCM_TOKEN_ENCRYPTION_KEY", "/S+tBmY1nyurGJL5fluwJqUbzB+BPc4cWY/efLAPxuw=")
-    // Testler gelistirme profilinde kosar: cevrimdisi imzalanmis bir Sealed
-    // Sender sertifikasi uretmek yerine process icinde uretilmesine izin
-    // verilir. Kriptografik kapilar bu profilde de aynen calisir.
+    // Testler gelistirme profilinde kosar; kriptografik kapilar bu profilde
+    // de aynen calisir.
     environment("SECURECHAT_PROFILE", "development")
-    environment("SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY", "FaT7FztZJFeV2XBCOua92iOGPCIj9Y4UxBwjAuB8eeY=")
-    environment("SEALED_SENDER_SERVER_PRIVATE_KEY", "QVMkIVDGd2LvS1mMhd4sFGurRHkQClX1DgaCIvpIncc=")
     environment("METRICS_BEARER_TOKEN", "dummy-lab-metrics-bearer-token-32-characters")
     environment("TURN_SECRET", "dummy-lab-turn-shared-secret-with-32-bytes")
     environment("TURN_HOST", "turn.lab.invalid")
@@ -220,12 +217,9 @@ tasks.test {
     environment("PRIVACY_INDEX_KEY", "PeN+mhUNrGTskTKEAc8g3/2luUhvhE6vy1l4257smsQ=")
     environment("OFFLINE_QUEUE_ENCRYPTION_KEY", "IIYFEByJTRH/+XqO6PZAFrSHWX5+TiM869Sj+Qx7OvY=")
     environment("FCM_TOKEN_ENCRYPTION_KEY", "/S+tBmY1nyurGJL5fluwJqUbzB+BPc4cWY/efLAPxuw=")
-    // Testler gelistirme profilinde kosar: cevrimdisi imzalanmis bir Sealed
-    // Sender sertifikasi uretmek yerine process icinde uretilmesine izin
-    // verilir. Kriptografik kapilar bu profilde de aynen calisir.
+    // Testler gelistirme profilinde kosar; kriptografik kapilar bu profilde
+    // de aynen calisir.
     environment("SECURECHAT_PROFILE", "development")
-    environment("SEALED_SENDER_TRUST_ROOT_PRIVATE_KEY", "FaT7FztZJFeV2XBCOua92iOGPCIj9Y4UxBwjAuB8eeY=")
-    environment("SEALED_SENDER_SERVER_PRIVATE_KEY", "QVMkIVDGd2LvS1mMhd4sFGurRHkQClX1DgaCIvpIncc=")
     environment("METRICS_BEARER_TOKEN", "test-only-metrics-bearer-token-32-characters")
     environment("TURN_SECRET", "test-only-turn-shared-secret-with-32-bytes")
     environment("TURN_HOST", "turn.test.invalid")

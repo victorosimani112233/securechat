@@ -806,9 +806,9 @@ final _rules = <AuditRule>[
   _rule(
     r'crypto/.*/CallCryptoManager|crypto/.*/model/CallEncryptionKeys',
     'COVERED',
-    'lib/src/crypto/call_crypto_manager.dart',
-    'test/crypto_module_test.dart',
-    'Call key derive ve zeroize.',
+    'lib/src/media/encrypted_call_signaling.dart',
+    'test/encrypted_call_signaling_test.dart',
+    '1:1 cagri SDP/ICE Olm ile uctan uca sifreli; grup medyasi CallMediaKey + FrameCryptor.',
   ),
   _rule(
     r'crypto/.*/KeyStoreManager',

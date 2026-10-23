@@ -17,7 +17,8 @@ private val log = LoggerFactory.getLogger("OtpService")
  *   5. Client bu token'i `/users/register` cagrisinda gonderir.
  *
  * Guvenlik:
- *   - OTP plaintext saklanmaz — SHA-256 hash + email salt.
+ *   - OTP plaintext saklanmaz — sunucu anahtarli HMAC kor indeksi
+ *     (`ServerPrivacy.blindIndex`, e-posta ile baglanmis).
  *   - Brute force korumasi: 5 yanlis deneme sonrasi OTP iptal.
  *   - Rate limit: dakikada 1 OTP/email.
  */

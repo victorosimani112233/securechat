@@ -33,8 +33,9 @@ class PeerIdentityReview {
   String get currentFingerprint => safetyFingerprint(currentIdentity);
   String get localFingerprint => safetyFingerprint(localIdentity);
 
-  /// SHA-256 of the complete Signal serialized public key (including type).
-  /// This is a key fingerprint, not Signal's pairwise numeric safety number.
+  /// SHA-256 of the pinned identity bytes (the Ed25519 signing key followed
+  /// by the Olm Curve25519 identity key). This is a key fingerprint, not a
+  /// pairwise numeric safety number.
   static String safetyFingerprint(List<int> bytes) {
     final hex = sha256.convert(bytes).toString().toUpperCase();
     return [

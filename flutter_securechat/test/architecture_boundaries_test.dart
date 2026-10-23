@@ -50,7 +50,7 @@ void main() {
   test('feature widgets do not force unwrap optional app runtimes', () {
     final violations = <String>[];
     final pattern = RegExp(
-      r'\.(?:cryptoRuntime|networkRuntime|mediaRuntime|backgroundRuntime|'
+      r'\.(?:networkRuntime|mediaRuntime|backgroundRuntime|'
       r'pushRuntime|backupRuntime|auditRuntime|groupRuntime|storageRuntime|'
       r'chatInfoRuntime|forwardRuntime|readReceiptRuntime|onboardingRuntime|'
       r'bulkRuntime|settingsRuntime|accountDataRuntime|notificationRuntime|'

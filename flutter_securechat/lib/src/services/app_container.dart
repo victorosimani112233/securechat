@@ -32,7 +32,6 @@ import '../contacts/private_contact_discovery.dart';
 import '../contacts/profile_name_sharing_service.dart';
 import '../core/peer_display_name.dart';
 import '../core/signal_message.dart';
-import '../crypto/call_crypto_manager.dart';
 import '../crypto/vodozemac/olm_pre_key_bundle_api.dart';
 import '../crypto/vodozemac/olm_pre_key_publisher.dart';
 import '../crypto/vodozemac/securechat_crypto_ffi.dart';
@@ -100,7 +99,6 @@ class AppContainer {
     required this.conversations,
     required this.crypto,
     required this.signaling,
-    this.cryptoRuntime,
     this.networkRuntime,
     this.auth,
     this.contacts,
@@ -134,7 +132,6 @@ class AppContainer {
     required ConversationRepository conversations,
     required CryptoService crypto,
     required SignalingService signaling,
-    AppCryptoRuntime? cryptoRuntime,
     AppNetworkRuntime? networkRuntime,
     AuthCoordinator? auth,
     ContactService? contacts,
@@ -164,7 +161,6 @@ class AppContainer {
     conversations: conversations,
     crypto: crypto,
     signaling: signaling,
-    cryptoRuntime: cryptoRuntime,
     networkRuntime: networkRuntime,
     auth: auth,
     contacts: contacts,
@@ -197,7 +193,6 @@ class AppContainer {
     required ConversationRepository conversations,
     required CryptoService crypto,
     required SignalingService signaling,
-    required AppCryptoRuntime cryptoRuntime,
     required AppNetworkRuntime networkRuntime,
     required AuthCoordinator auth,
     required ContactService contacts,
@@ -229,7 +224,6 @@ class AppContainer {
       conversations: conversations,
       crypto: crypto,
       signaling: signaling,
-      cryptoRuntime: cryptoRuntime,
       networkRuntime: networkRuntime,
       auth: auth,
       contacts: contacts,
@@ -273,7 +267,6 @@ class AppContainer {
           signaling: signaling,
           session: session,
         );
-  final AppCryptoRuntime? cryptoRuntime;
   final AppNetworkRuntime? networkRuntime;
   final AuthCoordinator? auth;
   final ContactService? contacts;
@@ -318,7 +311,6 @@ class AppContainer {
 
   void _validateProductionGraph() {
     final requiredFeatures = <String, Object?>{
-      'crypto': cryptoRuntime,
       'network': networkRuntime,
       'auth': auth,
       'contacts': contacts,
@@ -960,7 +952,6 @@ class AppContainer {
         ),
         crypto: crypto,
         signaling: signaling,
-        cryptoRuntime: AppCryptoRuntime(callCrypto: CallCryptoManager()),
         networkRuntime: AppNetworkRuntime(
           offlineQueue: offlineQueue,
           stuckMessageRecovery: stuckMessageRecovery,
@@ -1107,12 +1098,6 @@ class AppContainer {
       if (!bootstrapComplete) await resources.dispose();
     }
   }
-}
-
-class AppCryptoRuntime {
-  const AppCryptoRuntime({required this.callCrypto});
-
-  final CallCryptoManager callCrypto;
 }
 
 class AppNetworkRuntime {

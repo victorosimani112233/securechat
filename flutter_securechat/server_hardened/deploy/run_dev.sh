@@ -2,10 +2,9 @@
 # Yerel gelistirme sunucusunu tek komutla ayaga kaldirir.
 #
 # Gelistirme profili yalniz ALTYAPI kapilarini gevsetir: HSM yerine dosya
-# anahtari, TLS'siz yerel PostgreSQL, TLS'siz yerel SMTP, process icinde
-# uretilen Sealed Sender sertifikasi. Mesaj gizliligi kapilari aynen calisir —
-# anahtarlar zorunlu ve amac-ayrimli, offline kuyruk AEAD ile sifreli,
-# Sealed Sender gercek libsignal.
+# anahtari, TLS'siz yerel PostgreSQL, TLS'siz yerel SMTP. Mesaj gizliligi
+# kapilari aynen calisir — anahtarlar zorunlu ve amac-ayrimli, offline kuyruk
+# AEAD ile sifreli.
 #
 # Bu betik production'da kullanilmaz; urettigi her sey gecicidir.
 set -euo pipefail
