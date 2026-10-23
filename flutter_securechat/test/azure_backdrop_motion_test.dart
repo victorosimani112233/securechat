@@ -87,6 +87,37 @@ void main() {
     expect(driftX(tester), lessThan(AzureDoodlePainter.tile + 1));
   });
 
+  // Desen kenarda bosluk kalmasin diye sayfa sinirinin bir tile disina
+  // tasirilarak cizilir. Kirpilmazsa sayfa gecisinde iceri kayan sayfanin
+  // deseni alttaki sayfanin uzerine biniyordu (kullanici bildirimi
+  // 2026-10-23).
+  for (final backdrop in [
+    BackdropPreference.still,
+    BackdropPreference.drifting,
+  ]) {
+    testWidgets('${backdrop.name} desen sayfa sinirinda kirpilir', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AzureBackdropLayer(
+            backdrop: backdrop,
+            child: const SizedBox.expand(),
+          ),
+        ),
+      );
+      final clip = find.ancestor(
+        of: doodleLayer(),
+        matching: find.byType(ClipRect),
+      );
+      expect(clip, findsWidgets);
+      expect(
+        tester.getRect(clip.first),
+        tester.getRect(find.byType(AzureBackdropLayer)),
+      );
+    });
+  }
+
   testWidgets('animasyonlar azaltilinca desen durur ama kaybolmaz', (
     tester,
   ) async {

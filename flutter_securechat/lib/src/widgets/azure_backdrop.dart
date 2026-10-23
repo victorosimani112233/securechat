@@ -48,12 +48,18 @@ class AzureBackdropLayer extends StatelessWidget {
         if (backdrop == BackdropPreference.drifting)
           _DriftingDoodles(dark: dark)
         else if (backdrop == BackdropPreference.still)
-          RepaintBoundary(
-            child: CustomPaint(
-              painter: AzureDoodlePainter(
-                dark: dark,
-                enabled: true,
-                drawBase: false,
+          // Desen her yonde bir tile tasirilarak cizilir (kayan surum bu
+          // payla kenari doldurur). Kirpilmazsa sabit desen sayfanin disina
+          // tasiyordu: sayfa gecisinde iceri kayan sayfanin deseni alttaki
+          // sayfanin deseninin uzerine biniyordu.
+          ClipRect(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: AzureDoodlePainter(
+                  dark: dark,
+                  enabled: true,
+                  drawBase: false,
+                ),
               ),
             ),
           ),
