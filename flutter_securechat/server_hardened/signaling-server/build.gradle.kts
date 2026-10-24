@@ -38,6 +38,21 @@ tasks.register<Jar>("fatJar") {
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
 }
 
+// Netty, Ktor tarafindan transitif gelir (ktor-server-netty). Ktor 2.3.13
+// 4.1.111'i cekiyor; o surum CVE-2025-24970 (SslHandler crafted-packet native
+// crash) ve CVE-2024-29025 (HttpPostRequestDecoder DoS) icin yamali degil.
+// Bu kurulumda TLS'i onundeki reverse proxy sonlandirir ve HttpPostRequestDecoder
+// kullanilmaz, yani su an erisilebilir bir yol yok; yine de butun io.netty
+// modullerini yamali 4.1.118.Final'e hizalariz (epoll ile ayni surum sart).
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "io.netty") {
+            useVersion("4.1.118.Final")
+            because("CVE-2025-24970 / CVE-2024-29025")
+        }
+    }
+}
+
 dependencies {
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)

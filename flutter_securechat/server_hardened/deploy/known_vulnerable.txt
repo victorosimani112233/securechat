@@ -20,5 +20,7 @@ ch.qos.logback:logback-classic:1.2.0  CVE-2021-42550 JNDI (surum yukseltildi)
 ch.qos.logback:logback-core:1.2.0  CVE-2021-42550 JNDI (surum yukseltildi)
 ch.qos.logback:logback-classic:1.4.14  CVE-2024-12798 JaninoEventEvaluator ACE (surum 1.5.13'e yukseltildi)
 ch.qos.logback:logback-core:1.4.14  CVE-2024-12798/CVE-2024-12801 ACE+SSRF (surum 1.5.13'e yukseltildi)
+io.netty:netty-handler:4.1.111.Final  CVE-2025-24970 SslHandler crafted-packet crash (4.1.118'e yukseltildi)
+io.netty:netty-codec-http:4.1.107.Final  CVE-2024-29025 HttpPostRequestDecoder DoS (4.1.118'e yukseltildi)
 org.apache.logging.log4j:log4j-core:*  Log4Shell sinifi; bu proje logback kullanir
 com.fasterxml.jackson.core:jackson-databind:2.9.10  CVE-2020-36518 derin nesne DoS
