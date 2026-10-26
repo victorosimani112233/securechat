@@ -255,6 +255,19 @@ tasks.test {
  * kendisi listelenir; SCA kapisi boylece yalniz gercekten dagitilan
  * bilesenlere bakar.
  */
+// Yuk testi sunucusunu taskset/ozel JVM bayraklariyla surec disinda baslatmak
+// icin test runtime classpath'ini bir dosyaya yazar (yalniz yerel olcum araci).
+val dumpTestClasspath by tasks.registering {
+    val output = layout.buildDirectory.file("test-classpath.txt")
+    val cp = sourceSets.test.get().runtimeClasspath
+    outputs.file(output)
+    doLast {
+        val target = output.get().asFile
+        target.parentFile.mkdirs()
+        target.writeText(cp.joinToString(":") { it.absolutePath } + "\n")
+    }
+}
+
 val writeRuntimeArtifacts by tasks.registering {
     val output = layout.buildDirectory.file("runtime-artifacts.txt")
     val runtime = configurations.named("runtimeClasspath")
